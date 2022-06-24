@@ -821,16 +821,8 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
   }
 }
 
-Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &parameters,
-                           InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interpreter_context,
                            std::vector<Notification> *notifications) {
-  Frame frame(0);
-  SymbolTable symbol_table;
-  EvaluationContext evaluation_context;
-  evaluation_context.timestamp = QueryTimestamp();
-  evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
-
   Callback callback;
   switch (schema_query->action_) {
     case SchemaQuery::Action::SHOW_SCHEMAS: {
@@ -855,7 +847,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
                          });
 
           schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
-          schema_info_row.emplace_back(schema_types.size() > 1 ? "Single" : "Composite");
+          schema_info_row.emplace_back(schema_types.size() == 1 ? "Single" : "Composite");
 
           results.push_back(std::move(schema_info_row));
         }
@@ -897,10 +889,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
           auto property_id = db->NameToProperty(schema_type.first.name);
-          spdlog::info("sasa {}", db->PropertyToName(db->NameToProperty(schema_type.first.name)));
           schemas_types.push_back({schema_type.second, property_id});
         }
-        const auto res = db->CreateSchema(label, schemas_types);
+        if (!db->CreateSchema(label, schemas_types)) {
+          throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
+        }
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -910,7 +903,9 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, const Parameters &paramete
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
 
-        const auto res = db->DeleteSchema(label);
+        if (!db->DeleteSchema(label)) {
+          throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
+        }
         return std::vector<std::vector<TypedValue>>{};
       };
       return callback;
@@ -2122,7 +2117,7 @@ PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_tran
   }
   auto *schema_query = utils::Downcast<SchemaQuery>(parsed_query.query);
   MG_ASSERT(schema_query);
-  auto callback = HandleSchemaQuery(schema_query, parsed_query.parameters, interpreter_context, dba, notifications);
+  auto callback = HandleSchemaQuery(schema_query, interpreter_context, notifications);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [handler = std::move(callback.fn), action = QueryHandlerResult::NOTHING,

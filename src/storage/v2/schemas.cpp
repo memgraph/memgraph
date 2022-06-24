@@ -44,14 +44,14 @@ Schemas::SchemasList Schemas::GetSchema(const LabelId primary_label) const {
 }
 
 bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types) {
-  const auto res = schemas_.insert({primary_label, schemas_types}).second;
-  return res;
+  if (schemas_.contains(primary_label)) {
+    return false;
+  }
+  schemas_.insert({primary_label, schemas_types});
+  return true;
 }
 
-bool Schemas::DeleteSchema(const LabelId primary_label) {
-  const auto res = schemas_.erase(primary_label);
-  return res;
-}
+bool Schemas::DeleteSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
 
 std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
   // TODO Check for multiple defined primary labels

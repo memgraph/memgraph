@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -77,8 +78,12 @@ class Schemas {
 
   [[nodiscard]] SchemasList GetSchema(LabelId primary_label) const;
 
+  // Returns true if it was successfully created or false if the schema
+  // already exists
   [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaPropertyType> &schemas_types);
 
+  // Returns true if it was successfully dropped or false if the schema
+  // does not exist
   [[nodiscard]] bool DeleteSchema(LabelId label);
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);

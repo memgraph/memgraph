@@ -2346,7 +2346,6 @@ antlrcpp::Any CypherMainVisitor::visitSchemaQuery(MemgraphCypher::SchemaQueryCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) {
-  MG_ASSERT(ctx->children.size() == 1, "CreateSchemaQuery should have exactly one child!");
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
