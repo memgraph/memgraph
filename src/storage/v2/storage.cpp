@@ -20,6 +20,7 @@
 #include <gflags/gflags.h>
 
 #include "io/network/endpoint.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -72,7 +73,6 @@ struct ReplicaStatus {
 };
 
 nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
-  // try + exception? #NoCommit
   auto data = nlohmann::json::object();
 
   data[kReplicaName] = std::move(status.name);
@@ -99,30 +99,43 @@ nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
   return data;
 }
 
-ReplicaStatus json_to_replica_status(nlohmann::json &&data) {
+std::optional<ReplicaStatus> json_to_replica_status(nlohmann::json &&data) {
   ReplicaStatus replica_status;
 
-  data.at(kReplicaName).get_to(replica_status.name);
-  data.at(kIpAddress).get_to(replica_status.ip_address);
-  data.at(kPort).get_to(replica_status.port);
-  data.at(kSyncMode).get_to(replica_status.sync_mode);
+  const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
+    return fmt::format("Failed to deserialize replica's configuration: {} : {}", message, nested_message);
+  };
 
-  if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
-    replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
+  try {
+    data.at(kReplicaName).get_to(replica_status.name);
+    data.at(kIpAddress).get_to(replica_status.ip_address);
+    data.at(kPort).get_to(replica_status.port);
+    data.at(kSyncMode).get_to(replica_status.sync_mode);
+
+    if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
+      replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
+    }
+
+    replica_status.replica_check_frequency = std::chrono::seconds(data.at(kCheckFrequency));
+
+    const auto &key_file = data.at(kSSLKeyFile);
+    const auto &cert_file = data.at(kSSLCertFile);
+
+    MG_ASSERT(key_file.is_null() == cert_file.is_null());
+
+    if (!key_file.is_null()) {
+      replica_status.ssl = replication::ReplicationClientConfig::SSL{};
+      replica_status.ssl->key_file = key_file.get<typename decltype(replica_status.ssl->key_file)::value_type>();
+      replica_status.ssl->cert_file = cert_file.get<typename decltype(replica_status.ssl->cert_file)::value_type>();
+    }
+  } catch (const nlohmann::json::type_error &exception) {
+    spdlog::error(get_failed_message("Invalid type conversion", exception.what()));
+    return std::nullopt;
+  } catch (const nlohmann::json::out_of_range &exception) {
+    spdlog::error(get_failed_message("Non existing field", exception.what()));
+    return std::nullopt;
   }
 
-  replica_status.replica_check_frequency = std::chrono::seconds(data.at(kCheckFrequency));
-
-  const auto &key_file = data.at(kSSLKeyFile);
-  const auto &cert_file = data.at(kSSLCertFile);
-
-  MG_ASSERT(key_file.is_null() == cert_file.is_null());
-
-  if (!key_file.is_null()) {
-    replica_status.ssl = replication::ReplicationClientConfig::SSL{};
-    replica_status.ssl->key_file = key_file.get<typename decltype(replica_status.ssl->key_file)::value_type>();
-    replica_status.ssl->cert_file = cert_file.get<typename decltype(replica_status.ssl->cert_file)::value_type>();
-  }
   return replica_status;
 }
 }  // namespace
@@ -2089,8 +2102,13 @@ void Storage::RestoreReplicas() {
 
   for (const auto &[replica_name, replica_data] : *kvstorage_.get()) {
     spdlog::info("Restoring replica {}.", replica_name);
-    const auto replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
 
+    const auto maybe_replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      continue;
+    }
+
+    const auto replica_status = *maybe_replica_status;
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
 
@@ -2102,7 +2120,7 @@ void Storage::RestoreReplicas() {
                                    .ssl = replica_status.ssl,
                                });
     if (ret.HasError()) {
-      spdlog::error("Failure when restoring replica {}.", replica_name);
+      spdlog::error("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
     } else {
       spdlog::info("Replica {} restored.", replica_name);
     }
