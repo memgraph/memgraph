@@ -401,7 +401,7 @@ propertyType : BOOL
 
 propertyKeyTypePair : propertyKeyName propertyType ;
 
-schemaTypeMap : '(' ( propertyKeyTypePair ( ',' propertyKeyTypePair )* )? ')' ;
+schemaTypeMap : '(' propertyKeyTypePair ( ',' propertyKeyTypePair )* ')' ;
 
 createSchema : CREATE SCHEMA ON ':' labelName schemaTypeMap ;
 
