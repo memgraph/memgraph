@@ -903,7 +903,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
 
-        if (!db->DeleteSchema(label)) {
+        if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
         }
         return std::vector<std::vector<TypedValue>>{};

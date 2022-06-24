@@ -84,7 +84,7 @@ class Schemas {
 
   // Returns true if it was successfully dropped or false if the schema
   // does not exist
-  [[nodiscard]] bool DeleteSchema(LabelId label);
+  [[nodiscard]] bool DropSchema(LabelId label);
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
 

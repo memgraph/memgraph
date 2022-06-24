@@ -422,7 +422,7 @@ class Storage final {
 
   bool CreateSchema(LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types);
 
-  bool DeleteSchema(LabelId primary_label);
+  bool DropSchema(LabelId primary_label);
 
   StorageInfo GetInfo() const;
 

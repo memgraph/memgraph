@@ -1243,7 +1243,7 @@ bool Storage::CreateSchema(const LabelId primary_label, const std::vector<Schema
   return schemas_.CreateSchema(primary_label, schemas_types);
 }
 
-bool Storage::DeleteSchema(const LabelId primary_label) { return schemas_.DeleteSchema(primary_label); }
+bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
 
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();

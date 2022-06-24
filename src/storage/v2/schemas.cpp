@@ -51,7 +51,7 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
   return true;
 }
 
-bool Schemas::DeleteSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
+bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
 
 std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
   // TODO Check for multiple defined primary labels
