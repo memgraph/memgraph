@@ -198,7 +198,7 @@ def test_basic_recovery(connection):
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}_jba",
+            "data_directory": f"{data_directory.name}",
         },
     }
 
@@ -326,6 +326,35 @@ def test_basic_recovery(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, 8, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+
+def test_conflict_at_startup(connection):
+    # Goal of this test is to check starting up several instance with different replicas' configuration directory works as expected.
+    # main_1 and main_2 have the same directory.
+
+    data_directory1 = tempfile.TemporaryDirectory()
+    data_directory2 = tempfile.TemporaryDirectory()
+    CONFIGURATION = {
+        "main_1": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main1.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory1.name}",
+        },
+        "main_2": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "main2.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory2.name}",
+        },
+    }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
+    cursor_1 = connection(7687, "main_1").cursor()
+    cursor_2 = connection(7688, "main_2").cursor()
+
+    assert "main" == execute_and_fetch_all(cursor_1, "SHOW REPLICATION ROLE;")[0][0]
+    assert "main" == execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0]
 
 
 if __name__ == "__main__":
