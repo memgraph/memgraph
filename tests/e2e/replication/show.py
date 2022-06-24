@@ -94,8 +94,6 @@ def test_show_replicas_while_inserting_data(connection):
         ("replica_3", "127.0.0.1:10003", "async", None, 4, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    print("actual_data=" + str(actual_data))
-    print("expected_data=" + str(expected_data))
     assert expected_data == actual_data
 
     # 3/
