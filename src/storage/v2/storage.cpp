@@ -77,11 +77,11 @@ nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
 
   data[kReplicaName] = std::move(status.name);
   data[kIpAddress] = std::move(status.ip_address);
-  data[kPort] = std::move(status.port);
-  data[kSyncMode] = std::move(status.sync_mode);
+  data[kPort] = status.port;
+  data[kSyncMode] = status.sync_mode;
 
   if (status.timeout.has_value()) {
-    data[kTimeout] = std::move(*status.timeout);
+    data[kTimeout] = *status.timeout;
   } else {
     data[kTimeout] = nullptr;
   }
@@ -2108,7 +2108,7 @@ void Storage::RestoreReplicas() {
       continue;
     }
 
-    const auto replica_status = *maybe_replica_status;
+    auto replica_status = *maybe_replica_status;
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
 
@@ -2127,6 +2127,6 @@ void Storage::RestoreReplicas() {
   }
 }
 
-bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != kvstorage_.get(); }
+bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != kvstorage_; }
 
 }  // namespace memgraph::storage
