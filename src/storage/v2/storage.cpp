@@ -2100,7 +2100,7 @@ void Storage::RestoreReplicas() {
   }
   spdlog::info("Restoring replicas.");
 
-  for (const auto &[replica_name, replica_data] : *kvstorage_.get()) {
+  for (const auto &[replica_name, replica_data] : *kvstorage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
     const auto maybe_replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
