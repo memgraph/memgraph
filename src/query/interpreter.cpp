@@ -881,8 +881,12 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       return callback;
     }
     case SchemaQuery::Action::CREATE_SCHEMA: {
+      auto schema_type_map = schema_query->schema_type_map_;
+      if (schema_query->schema_type_map_.empty()) {
+        throw SyntaxException("One or more types have to be defined in schema definition.");
+      }
       callback.fn = [interpreter_context, primary_label = schema_query->label_,
-                     schema_type_map = schema_query->schema_type_map_]() {
+                     schema_type_map = std::move(schema_type_map)]() {
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
         std::vector<storage::SchemaPropertyType> schemas_types;
