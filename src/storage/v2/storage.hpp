@@ -450,8 +450,6 @@ class Storage final {
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot();
 
-  void RestoreReplicas();
-
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);
 
@@ -477,6 +475,10 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+
+  void RestoreReplicas();
+
+  bool ShouldStoreAndRestoreReplicas() const;
 
   // Main storage lock.
   //
@@ -596,7 +598,7 @@ class Storage final {
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
-  kvstore::KVStore kvstorage_;
+  std::unique_ptr<kvstore::KVStore> kvstorage_;
 };
 
 }  // namespace memgraph::storage

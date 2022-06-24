@@ -162,8 +162,8 @@ def test_basic_recovery(connection):
     # 3/ We re-start main.
     # 4/ We check that all replicas have the correct state: they should all be ready.
     # 5/ Drop one replica.
-    # 6/ We add some data to main.
-    # 7/ We check that all replicas but have the expected data.
+    # 6/ We add some data to main, then kill it and restart.
+    # 7/ We check that all replicas but one have the expected data.
     # 8/ We kill another replica.
     # 9/ We add some data to main.
     # 10/ We re-add the two replicas droped/killed and check the data.
@@ -195,7 +195,7 @@ def test_basic_recovery(connection):
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
             "log_file": "main.log",
             "setup_queries": [],
             "data_directory": f"{data_directory.name}_jba",
@@ -252,6 +252,12 @@ def test_basic_recovery(connection):
 
     # 6/
     execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic', value:42})")
+    interactive_mg_runner.kill(CONFIGURATION, "main")
+    time.sleep(2)
+
+    interactive_mg_runner.start(CONFIGURATION, "main")
+    cursor = connection(7687, "main").cursor()
+    check_roles()
 
     # 7/
     QUERY_TO_CHECK = "MATCH (node) return node;"
@@ -285,10 +291,10 @@ def test_basic_recovery(connection):
 
     time.sleep(2)
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 5, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 5, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 5, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 5, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 6, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 6, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 6, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert expected_data == actual_data
@@ -299,9 +305,9 @@ def test_basic_recovery(connection):
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 5, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 5, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 5, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 6, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 6, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
@@ -315,9 +321,9 @@ def test_basic_recovery(connection):
     # 13/
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 7, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 7, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 7, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 8, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 8, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 8, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 

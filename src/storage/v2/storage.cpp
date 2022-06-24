@@ -72,6 +72,7 @@ struct ReplicaStatus {
 };
 
 nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
+  // try + exception? #NoCommit
   auto data = nlohmann::json::object();
 
   data[kReplicaName] = std::move(status.name);
@@ -379,8 +380,7 @@ Storage::Storage(Config config)
       lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()),
-      kvstorage_(config_.durability.storage_directory / durability::kReplicationDirectory) {
+      global_locker_(file_retainer_.AddLocker()) {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -474,6 +474,15 @@ Storage::Storage(Config config)
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  if (config_.durability.restore_replicas_on_startup) {
+    spdlog::info("Replicas' configuration will be stored and will be automatically restored in case of crash.");
+    kvstorage_ =
+        std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
+    RestoreReplicas();
+  } else {
+    spdlog::warn("Replicas' configuration will NOT be stored.");
   }
 }
 
@@ -1875,30 +1884,6 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   return {};
 }
 
-void Storage::RestoreReplicas() {
-  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
-  spdlog::info("Restoring replicas.");
-
-  for (const auto &[replica_name, replica_data] : kvstorage_) {
-    spdlog::info("Restoring replica {}", replica_name);
-    const auto replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
-
-    MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
-              replica_name);
-
-    auto ret = RegisterReplica(std::move(replica_status.name),
-                               {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
-                               {
-                                   .timeout = replica_status.timeout,
-                                   .replica_check_frequency = replica_status.replica_check_frequency,
-                                   .ssl = replica_status.ssl,
-                               });
-    if (ret.HasError()) {
-      spdlog::error("Failure when restoring replica {}.", replica_name);
-    }
-  }
-}
-
 bool Storage::LockPath() {
   auto locker_accessor = global_locker_.Access();
   return locker_accessor.AddPath(config_.durability.storage_directory);
@@ -2004,16 +1989,19 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
             "Only SYNC mode can have a timeout set");
 
-  auto data = replica_status_to_json(ReplicaStatus{.name = name,
-                                                   .ip_address = endpoint.address,
-                                                   .port = endpoint.port,
-                                                   .sync_mode = replication_mode,
-                                                   .timeout = config.timeout,
-                                                   .replica_check_frequency = config.replica_check_frequency,
-                                                   .ssl = config.ssl});
-  if (!kvstorage_.Put(name, data.dump())) {
-    spdlog::error("Issue when saving replica {} in settings.", name);
+  if (ShouldStoreAndRestoreReplicas()) {
+    auto data = replica_status_to_json(ReplicaStatus{.name = name,
+                                                     .ip_address = endpoint.address,
+                                                     .port = endpoint.port,
+                                                     .sync_mode = replication_mode,
+                                                     .timeout = config.timeout,
+                                                     .replica_check_frequency = config.replica_check_frequency,
+                                                     .ssl = config.ssl});
+    if (!kvstorage_->Put(name, data.dump())) {
+      spdlog::error("Issue when saving replica {} in settings.", name);
+    }
   }
+
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
   if (client->State() == replication::ReplicaState::INVALID) {
     return RegisterReplicaError::CONNECTION_FAILED;
@@ -2039,9 +2027,12 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 
 bool Storage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  if (!kvstorage_.Delete(name)) {
-    spdlog::error("Issue when removing replica {} from settings.", name);
+  if (ShouldStoreAndRestoreReplicas()) {
+    if (!kvstorage_->Delete(name)) {
+      spdlog::error("Issue when removing replica {} from settings.", name);
+    }
   }
+
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
   });
@@ -2077,5 +2068,36 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
 }
+
+void Storage::RestoreReplicas() {
+  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  if (!ShouldStoreAndRestoreReplicas()) {
+    return;
+  }
+  spdlog::info("Restoring replicas.");
+
+  for (const auto &[replica_name, replica_data] : *kvstorage_.get()) {
+    spdlog::info("Restoring replica {}.", replica_name);
+    const auto replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
+
+    MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
+              replica_name);
+
+    auto ret = RegisterReplica(std::move(replica_status.name),
+                               {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
+                               {
+                                   .timeout = replica_status.timeout,
+                                   .replica_check_frequency = replica_status.replica_check_frequency,
+                                   .ssl = replica_status.ssl,
+                               });
+    if (ret.HasError()) {
+      spdlog::error("Failure when restoring replica {}.", replica_name);
+    } else {
+      spdlog::info("Replica {} restored.", replica_name);
+    }
+  }
+}
+
+bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != kvstorage_.get(); }
 
 }  // namespace memgraph::storage
