@@ -330,7 +330,7 @@ def test_basic_recovery(connection):
 
 def test_conflict_at_startup(connection):
     # Goal of this test is to check starting up several instance with different replicas' configuration directory works as expected.
-    # main_1 and main_2 have the same directory.
+    # main_1 and main_2 have different directory.
 
     data_directory1 = tempfile.TemporaryDirectory()
     data_directory2 = tempfile.TemporaryDirectory()

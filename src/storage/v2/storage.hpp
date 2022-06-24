@@ -540,6 +540,9 @@ class Storage final {
   std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
+  std::filesystem::path kvstorage_directory;
+  utils::OutputFile lock_kvstorage_handle_;
+  std::unique_ptr<kvstore::KVStore> kvstorage_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
@@ -598,7 +601,6 @@ class Storage final {
   ReplicationClientList replication_clients_;
 
   std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
-  std::unique_ptr<kvstore::KVStore> kvstorage_;
 };
 
 }  // namespace memgraph::storage
