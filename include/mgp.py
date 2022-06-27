@@ -195,23 +195,25 @@ class Properties:
 
     def get(self, property_name: str, default=None) -> object:
         """
-        Get the value of a property with the given name or return default.
+        Get the value of a property with the given name or return default value.
         
         Args: 
             property_name: String that represents property name.
             default: Default value return if there is no property.
         
         Returns: 
-            Any object value that property under property_name has or default value otherwise. 
+            Any object value that property under `property_name` has or default value otherwise. 
         
-        Raise: 
-            InvalidContextError: If edge or vertex is out of context. 
-            UnableToAllocateError: If unable to allocate a mgp.Value.
+        Raises: 
+            InvalidContextError: If `edge` or `vertex` is out of context. 
+            UnableToAllocateError: If unable to allocate a `mgp.Value`.
             DeletedObjectError: If the `object` has been deleted.
         
         Examples: 
-            ```vertex.properties.get(property_name)```
-            ```edge.properties.get(property_name)```
+            ```
+            vertex.properties.get(property_name)
+            edge.properties.get(property_name)
+            ```
 
         """
         if not self._vertex_or_edge.is_valid():
@@ -229,7 +231,8 @@ class Properties:
         Args: 
             property_name: String that represents property name. 
             value: Object that represents value to be set.
-        Raise: 
+
+        Raises: 
             UnableToAllocateError: If unable to allocate memory for storing the property.
             ImmutableObjectError: If the object is immutable.
             DeletedObjectError: If the object has been deleted.
@@ -237,8 +240,10 @@ class Properties:
             ValueConversionError: If `value` is vertex, edge or path.
         
         Examples:
-            ```vertex.properties.set(property_name, value)```
-            ```edge.properties.set(property_name, value)```
+            ```
+            vertex.properties.set(property_name, value)
+            edge.properties.set(property_name, value)
+            ```
         
         """
         self[property_name] = value
@@ -295,8 +300,10 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
 
         Examples: 
-            ```graph.vertex.properties.keys()```
-            ```graph.edge.properties.keys()```
+            ```
+            graph.vertex.properties.keys()
+            graph.edge.properties.keys()
+            ```
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -317,8 +324,10 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
 
         Examples: 
-            ```vertex.properties.values()```
-            ```edge.properties.values()```
+            ```
+            vertex.properties.values()
+            edge.properties.values()
+            ```
         
         """
         if not self._vertex_or_edge.is_valid():
@@ -339,8 +348,10 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
         
         Examples: 
-            ```len(vertex.properties)```
-            ```len(edge.properties)```
+            ```
+            len(vertex.properties)
+            len(edge.properties)
+            ```
 
         """
         if not self._vertex_or_edge.is_valid():
@@ -362,8 +373,10 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
         
         Examples: 
-            ```iter(vertex.properties)```
-            ```iter(edge.properties)```
+            ```
+            iter(vertex.properties)
+            iter(edge.properties)
+            ```
 
         """
         if not self._vertex_or_edge.is_valid():
@@ -387,8 +400,10 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
 
         Examples: 
-            ```vertex.properties[property_name]```
-            ```edge.properties[property_name]```
+            ```
+            vertex.properties[property_name]
+            edge.properties[property_name]
+            ```
             
         """
         if not self._vertex_or_edge.is_valid():
@@ -415,8 +430,10 @@ class Properties:
             ValueConversionError: If `value` is vertex, edge or path.
         
         Examples: 
-            ```vertex.properties[property_name] = value```
-            ```edge.properties[property_name] = value```
+            ```
+            vertex.properties[property_name] = value
+            edge.properties[property_name] = value
+            ```
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -439,8 +456,12 @@ class Properties:
             DeletedObjectError: If the object has been deleted.
         
         Examples: 
-            ```if property_name in vertex.properties```
-            ```if property_name in edge.properties```
+            ```
+            if property_name in vertex.properties:
+            ```
+            ```
+            if property_name in edge.properties:
+            ```
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -517,7 +538,7 @@ class Edge:
             A `bool` value depends on if the `edge` is in a valid context. 
         
         Examples:
-            edge.is_valid()
+            ```edge.is_valid()```
 
         """
         return self._edge.is_valid()
@@ -807,7 +828,7 @@ class Vertex:
             DeletedObjectError: If `Vertex` has been deleted.
 
         Examples: 
-            ```for edge in vertex.in_edges```
+            ```for edge in vertex.in_edges:```
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -836,7 +857,7 @@ class Vertex:
             DeletedObjectError: If `Vertex` has been deleted.
 
         Examples: 
-            ```for edge in vertex.out_edges```
+            ```for edge in vertex.out_edges:```
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -917,7 +938,7 @@ class Path:
             A `bool` value depends on if the `Path` is in a valid context. 
         
         Examples:
-            path.is_valid()
+            ```path.is_valid()```
         """
         return self._path.is_valid()
 
@@ -1040,8 +1061,12 @@ class Vertices:
             UnableToAllocateError: If unable to allocate an iterator or a vertex.
 
         Examples: 
-            ```for vertex in graph.vertices:```
-            ```iter(graph.vertices)```
+            ```
+            for vertex in graph.vertices:
+            ```
+            ```
+            iter(graph.vertices)
+            ```
 
         """
         if not self.is_valid():
