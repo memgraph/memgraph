@@ -307,6 +307,13 @@ Storage::Storage(Config config)
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
+      replication_role_ == ReplicationRole::MAIN) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
+  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -806,11 +813,11 @@ const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const
   return storage_->EdgeTypeToName(edge_type);
 }
 
-LabelId Storage::Accessor::NameToLabel(const std::string_view &name) { return storage_->NameToLabel(name); }
+LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
 
-PropertyId Storage::Accessor::NameToProperty(const std::string_view &name) { return storage_->NameToProperty(name); }
+PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { return storage_->NameToEdgeType(name); }
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
@@ -1155,13 +1162,13 @@ const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-LabelId Storage::NameToLabel(const std::string_view &name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
 
-PropertyId Storage::NameToProperty(const std::string_view &name) {
+PropertyId Storage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
+EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
@@ -1940,11 +1947,20 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&](auto &client) { return client->Name() == name; });
+    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
   });
 
   if (name_exists) {
     return RegisterReplicaError::NAME_EXISTS;
+  }
+
+  const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
+    return std::any_of(clients.begin(), clients.end(),
+                       [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
+  });
+
+  if (end_point_exists) {
+    return RegisterReplicaError::END_POINT_EXISTS;
   }
 
   MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
@@ -1959,8 +1975,13 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     // Another thread could have added a client with same name while
     // we were connecting to this client.
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &other_client) { return client->Name() == other_client->Name(); })) {
+                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
       return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
+      return RegisterReplicaError::END_POINT_EXISTS;
     }
 
     clients.push_back(std::move(client));
@@ -1994,7 +2015,8 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
     replica_info.reserve(clients.size());
     std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
                    [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(), client->Mode(), client->Timeout(), client->Endpoint(), client->State()};
+                     return {client->Name(),     client->Mode(),  client->Timeout(),
+                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
                    });
     return replica_info;
   });

@@ -61,7 +61,9 @@ Checks: '*,
          -readability-magic-numbers,
          -readability-named-parameter,
          -misc-no-recursion,
-         -concurrency-mt-unsafe'
+         -concurrency-mt-unsafe,
+         -bugprone-easily-swappable-parameters'
+
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false

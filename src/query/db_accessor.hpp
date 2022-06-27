@@ -310,11 +310,11 @@ class DbAccessor final {
     return std::make_optional<VertexAccessor>(*value);
   }
 
-  storage::PropertyId NameToProperty(const std::string_view &name) { return accessor_->NameToProperty(name); }
+  storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
-  storage::LabelId NameToLabel(const std::string_view &name) { return accessor_->NameToLabel(name); }
+  storage::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
-  storage::EdgeTypeId NameToEdgeType(const std::string_view &name) { return accessor_->NameToEdgeType(name); }
+  storage::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
 
   const std::string &PropertyToName(storage::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 
