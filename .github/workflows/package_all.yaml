@@ -175,4 +175,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: debian-11-arm
-          path: build/output/debian-11/memgraph*.deb
+          path: build/output/debian-11-arm/memgraph*.deb
