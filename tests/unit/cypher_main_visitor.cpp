@@ -2255,8 +2255,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::MODULE_READ});
   check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE});
-  // check_auth_query(&ast_generator, "DENY SCHEMA TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
-  //                  {AuthQuery::Privilege::SCHEMA});
+  check_auth_query(&ast_generator, "DENY SCHEMA TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SCHEMA});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -4246,6 +4246,8 @@ TEST_P(CypherMainVisitorTest, TestCreateSchema) {
   EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, age)"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, DURATION)"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON label(name INTEGER)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name INTEGER)"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name STRING)"), SemanticException);
 
   {
     auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("CREATE SCHEMA ON :label1(name STRING)"));
@@ -4278,7 +4280,7 @@ TEST_P(CypherMainVisitorTest, TestCreateSchema) {
 
 TEST_P(CypherMainVisitorTest, TestDropSchema) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA "), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON label"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA :label"), SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON :label()"), SyntaxException);

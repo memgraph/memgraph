@@ -2389,6 +2389,21 @@ antlrcpp::Any CypherMainVisitor::visitPropertyType(MemgraphCypher::PropertyTypeC
   throw SemanticException("Property type must be one of the supported types!");
 }
 
+/**
+ * @return Schema*
+ */
+antlrcpp::Any CypherMainVisitor::visitSchemaTypeMap(MemgraphCypher::SchemaTypeMapContext *ctx) {
+  std::unordered_map<PropertyIx, common::SchemaType> map;
+  for (auto *property_key_pair : ctx->propertyKeyTypePair()) {
+    PropertyIx key = property_key_pair->propertyKeyName()->accept(this);
+    common::SchemaType type = property_key_pair->propertyType()->accept(this);
+    if (!map.insert({key, type}).second) {
+      throw SemanticException("Same property name can't appear twice in a schema map.");
+    }
+  }
+  return map;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
@@ -2396,12 +2411,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
   if (!ctx->schemaTypeMap()) {
     throw SemanticException("Schema property map must exist!");
   }
-
-  for (auto *property_pair : ctx->schemaTypeMap()->propertyKeyTypePair()) {
-    schema_query->schema_type_map_.insert({property_pair->propertyKeyName()->accept(this),
-                                           property_pair->propertyType()->accept(this).as<common::SchemaType>()});
-  }
-
+  schema_query->schema_type_map_ =
+      ctx->schemaTypeMap()->accept(this).as<std::unordered_map<PropertyIx, common::SchemaType>>();
   query_ = schema_query;
   return schema_query;
 }
@@ -2412,6 +2423,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
 antlrcpp::Any CypherMainVisitor::visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::DROP_SCHEMA;
+  schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
   query_ = schema_query;
   return schema_query;
 }
