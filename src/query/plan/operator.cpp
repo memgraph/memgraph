@@ -46,6 +46,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -1695,13 +1696,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 ///@brief Work in progress...
 ///
 ///
-class ExpandAllShortestPathsCursor : public query::plan::Cursor {
+class ExpandAllShortestPathsCursorTemp : public query::plan::Cursor {
  public:
-  ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+  ExpandAllShortestPathsCursorTemp(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_.input_->MakeCursor(mem)), visited_cost_(mem), pq_(mem) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
+    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursorTemp");
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -1760,8 +1761,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
         return;
 
-      auto *mem = context.evaluation_context.memory;
-      utils::pmr::vector<TypedValue> new_edge_list(mem);
+      utils::pmr::vector<TypedValue> new_edge_list(memory);
       // TODO: Use Transform
       for (std::size_t i = 0; i < edge_list.size(); ++i) {
         new_edge_list.emplace_back(edge_list[i]);
@@ -1853,7 +1853,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (current_depth < upper_bound_)
           expand_from_vertex(current_vertex, current_weight, current_edge_list, current_depth);
 
-        
         if (current_depth == 0) continue;
 
         // Place destination node on the frame, handle existence flag.
@@ -1935,6 +1934,274 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       std::tuple<TypedValue, int64_t, VertexAccessor, utils::pmr::vector<TypedValue>>,
       utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, utils::pmr::vector<TypedValue>>>,
       PriorityQueueComparator>
+      pq_;
+
+  void ClearQueue() {
+    while (!pq_.empty()) pq_.pop();
+  }
+};
+
+///
+///@brief Work in progress. This time we are tackling the different approach...
+///
+///
+class ExpandAllShortestPathsCursor : public query::plan::Cursor {
+ public:
+  ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem)),
+        visited_cost_(mem),
+        previous_(mem),
+        traversal_stack_(mem),
+        pq_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+
+    // For the given (edge, vertex, weight, depth) tuple checks if they
+    // satisfy the "where" condition. if so, places them in the priority
+    // queue.
+    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const VertexAccessor &vertex,
+                                                    const TypedValue &total_weight, int64_t depth) {
+      auto *memory = evaluator.GetMemoryResource();
+
+      // If filter expression exists, evaluate filter
+      if (self_.filter_lambda_.expression) {
+        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+        frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+      }
+
+      // Evaluate current weight
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+
+      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+
+      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
+        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
+      }
+
+      const auto is_valid_numeric = [&] {
+        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
+      };
+
+      const auto is_valid_duration = [&] {
+        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
+      };
+
+      if (!is_valid_numeric() && !is_valid_duration()) {
+        throw QueryRuntimeException("Calculated weight must be non-negative!");
+      }
+
+      TypedValue next_weight = std::invoke([&] {
+        if (total_weight.IsNull()) {
+          return current_weight;
+        }
+
+        ValidateWeightTypes(current_weight, total_weight);
+
+        return TypedValue(current_weight, memory) + total_weight;
+      });
+
+      auto found_it = visited_cost_.find(vertex);
+      if (found_it != visited_cost_.end() &&
+          (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
+        return;
+
+      // Append the expansion to the priority queue
+      // Update the parent
+      if (previous_.find(vertex) == previous_.end()) {
+        utils::pmr::list<TypedValue> empty(memory);
+        previous_[vertex] = std::move(empty);
+      }
+
+      auto previous_list_at = previous_.at(vertex);
+      // previous_list_at.emplace(edge);
+      pq_.push({next_weight, depth + 1, vertex});
+    };
+
+    // Populates the priority queue structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
+    auto expand_from_vertex = [this, &expand_vertex](const VertexAccessor &vertex, const TypedValue &weight,
+                                                     int64_t depth) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : out_edges) {
+          expand_vertex(edge, edge.To(), weight, depth);
+        }
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : in_edges) {
+          expand_vertex(edge, edge.From(), weight, depth);
+        }
+      }
+    };
+
+    // Checkf if upper bound exists
+    if (self_.upper_bound_) {
+      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+      upper_bound_set_ = true;
+    } else {
+      upper_bound_ = std::numeric_limits<int64_t>::max();
+      upper_bound_set_ = false;
+    }
+    // Check if upper bound is valid
+    if (upper_bound_ < 1) {
+      throw QueryRuntimeException(
+          "Maximum depth in weighted shortest path expansion must be at "
+          "least 1.");
+    }
+
+    std::optional<VertexAccessor> start_vertex;
+    auto *mem = context.evaluation_context.memory;
+
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+
+      while (!traversal_stack_.empty()) {
+        throw HintedAbortError();
+      }
+
+      // If priority queue is empty start new pulling stream.
+      if (pq_.empty()) {
+        // Finish if there is nothing to pull
+        if (!input_cursor_->Pull(frame, context)) return false;
+
+        const auto &vertex_value = frame[self_.input_symbol_];
+        if (vertex_value.IsNull()) continue;
+
+        start_vertex = vertex_value.ValueVertex();
+        if (self_.common_.existing_node) {
+          const auto &node = frame[self_.common_.node_symbol];
+          // Due to optional matching the existing node could be null.
+          // Skip expansion for such nodes.
+          if (node.IsNull()) continue;
+        }
+
+        // Clear existing data structures.
+        visited_cost_.clear();
+        previous_.clear();
+        traversal_stack_.clear();
+
+        pq_.push({TypedValue(), 0, *start_vertex});
+      }
+
+      // Create a DFS traversal tree from the start node
+      while (!pq_.empty()) {
+        if (MustAbort(context)) throw HintedAbortError();
+
+        auto [current_weight, current_depth, current_vertex] = pq_.top();
+        pq_.pop();
+
+        // Check if the vertex has already been processed.
+        if (visited_cost_.find(current_vertex) != visited_cost_.end()) {
+          auto weight = visited_cost_.find(current_vertex)->second;
+          if (weight.IsNull() || (current_weight <= weight).ValueBool()) {
+            visited_cost_.emplace(current_vertex, current_weight);
+          } else {
+            // Continue and do not expand if current weight is larger
+            continue;
+          }
+        } else {
+          visited_cost_.emplace(current_vertex, current_weight);
+        }
+
+        // Expand only if what we've just expanded is less than max depth.
+        if (current_depth < upper_bound_) expand_from_vertex(current_vertex, current_weight, current_depth);
+
+        // Place destination node on the frame, handle existence flag.
+        if (self_.common_.existing_node) {
+          const auto &node = frame[self_.common_.node_symbol];
+          if ((node != TypedValue(current_vertex, mem)).ValueBool())
+            continue;
+          else
+            // Prevent expanding other paths, because we found the
+            // shortest to existing node.
+            ClearQueue();
+        } else {
+          frame[self_.common_.node_symbol] = current_vertex;
+        }
+
+        // if (self_.is_reverse_) {
+        //   // Place edges on the frame in the correct order.
+        //   std::reverse(current_edge_list.begin(), current_edge_list.end());
+        // }
+        // frame[self_.common_.edge_symbol] = std::move(current_edge_list);
+        // frame[self_.total_weight_.value()] = current_weight;
+      }
+
+      if (start_vertex && previous_.find(*start_vertex) != previous_.end()) {
+        utils::pmr::list<TypedValue> edges_previous = previous_[*start_vertex];
+        utils::pmr::list<TypedValue> tmp_stack(mem);
+        traversal_stack_.emplace_back(&tmp_stack);
+      }
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    visited_cost_.clear();
+    previous_.clear();
+    traversal_stack_.clear();
+    ClearQueue();
+  }
+
+ private:
+  const ExpandVariable &self_;
+  const UniqueCursorPtr input_cursor_;
+
+  // Upper bound on the path length.
+  int64_t upper_bound_{-1};
+  bool upper_bound_set_{false};
+
+  // Maps vertices to weights they got in expansion.
+  utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
+  // Maps the vertex with the potential expansion edge.
+  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<TypedValue>> previous_;
+  // Stack indicating the traversal level.
+  utils::pmr::list<std::pmr::list<TypedValue>> traversal_stack_;
+
+  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
+    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
+      throw QueryRuntimeException(utils::MessageWithLink(
+          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+          "expression or the filter expression.",
+          "https://memgr.ph/wsp"));
+    }
+  }
+
+  // Priority queue comparator. Keep lowest weight on top of the queue.
+  class PriorityQueueComparator {
+   public:
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor> &rhs) {
+      const auto &lhs_weight = std::get<0>(lhs);
+      const auto &rhs_weight = std::get<0>(rhs);
+      // Null defines minimum value for all types
+      if (lhs_weight.IsNull()) {
+        return false;
+      }
+
+      if (rhs_weight.IsNull()) {
+        return true;
+      }
+
+      ValidateWeightTypes(lhs_weight, rhs_weight);
+      return (lhs_weight > rhs_weight).ValueBool();
+    }
+  };
+
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor>>, PriorityQueueComparator>
       pq_;
 
   void ClearQueue() {
