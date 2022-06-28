@@ -709,3 +709,91 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
           .RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC)
           .GetError() == memgraph::storage::Storage::RegisterReplicaError::END_POINT_EXISTS);
 }
+
+TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
+  auto main_config = configuration;
+  main_config.durability.restore_replicas_on_startup = true;
+  auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
+
+  memgraph::storage::Storage replica_store1(configuration);
+  replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10000});
+
+  memgraph::storage::Storage replica_store2(configuration);
+  replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 20000});
+
+  auto res = main_store->RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{"127.0.0.1", 10000},
+                                         memgraph::storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(res.HasError());
+  res = main_store->RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{"127.0.0.1", 20000},
+                                    memgraph::storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(res.HasError());
+
+  auto replicaInfos = main_store->ReplicasInfo();
+
+  ASSERT_EQ(replicaInfos.size(), 2);
+  ASSERT_EQ(replicaInfos[0].name, "REPLICA1");
+  ASSERT_EQ(replicaInfos[0].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[0].endpoint.port, 10000);
+  ASSERT_EQ(replicaInfos[1].name, "REPLICA2");
+  ASSERT_EQ(replicaInfos[1].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[1].endpoint.port, 20000);
+
+  main_store.reset();
+
+  auto other_main_store = std::make_unique<memgraph::storage::Storage>(main_config);
+  replicaInfos = other_main_store->ReplicasInfo();
+  ASSERT_EQ(replicaInfos.size(), 2);
+  ASSERT_EQ(replicaInfos[0].name, "REPLICA1");
+  ASSERT_EQ(replicaInfos[0].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[0].endpoint.port, 10000);
+  ASSERT_EQ(replicaInfos[1].name, "REPLICA2");
+  ASSERT_EQ(replicaInfos[1].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[1].endpoint.port, 20000);
+}
+
+TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
+  auto main_config = configuration;
+  main_config.durability.restore_replicas_on_startup = true;
+  auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
+
+  memgraph::storage::Storage replica_store1(configuration);
+  replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10000});
+
+  memgraph::storage::Storage replica_store2(configuration);
+  replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 20000});
+
+  auto res = main_store->RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{"127.0.0.1", 10000},
+                                         memgraph::storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(res.HasError());
+  res = main_store->RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{"127.0.0.1", 20000},
+                                    memgraph::storage::replication::ReplicationMode::SYNC);
+  ASSERT_FALSE(res.HasError());
+
+  auto replicaInfos = main_store->ReplicasInfo();
+
+  ASSERT_EQ(replicaInfos.size(), 2);
+  ASSERT_EQ(replicaInfos[0].name, "REPLICA1");
+  ASSERT_EQ(replicaInfos[0].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[0].endpoint.port, 10000);
+  ASSERT_EQ(replicaInfos[1].name, "REPLICA2");
+  ASSERT_EQ(replicaInfos[1].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[1].endpoint.port, 20000);
+
+  const auto unregister_res = main_store->UnregisterReplica("REPLICA1");
+  ASSERT_TRUE(unregister_res);
+
+  replicaInfos = main_store->ReplicasInfo();
+  ASSERT_EQ(replicaInfos.size(), 1);
+  ASSERT_EQ(replicaInfos[0].name, "REPLICA2");
+  ASSERT_EQ(replicaInfos[0].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[0].endpoint.port, 20000);
+
+  main_store.reset();
+
+  auto other_main_store = std::make_unique<memgraph::storage::Storage>(main_config);
+  replicaInfos = other_main_store->ReplicasInfo();
+  ASSERT_EQ(replicaInfos.size(), 1);
+  ASSERT_EQ(replicaInfos[0].name, "REPLICA2");
+  ASSERT_EQ(replicaInfos[0].endpoint.address, "127.0.0.1");
+  ASSERT_EQ(replicaInfos[0].endpoint.port, 20000);
+}
