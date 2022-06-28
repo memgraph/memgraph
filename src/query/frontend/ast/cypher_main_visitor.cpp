@@ -2372,9 +2372,6 @@ antlrcpp::Any CypherMainVisitor::visitPropertyType(MemgraphCypher::PropertyTypeC
   if (property_type == "integer") {
     return common::SchemaType::INT;
   }
-  if (property_type == "float") {
-    return common::SchemaType::FLOAT;
-  }
   if (property_type == "date") {
     return common::SchemaType::DATE;
   }

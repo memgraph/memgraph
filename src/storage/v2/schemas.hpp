@@ -100,9 +100,6 @@ inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const Property
     case PropertyValue::Type::Int: {
       return common::SchemaType::INT;
     }
-    case PropertyValue::Type::Double: {
-      return common::SchemaType::FLOAT;
-    }
     case PropertyValue::Type::String: {
       return common::SchemaType::STRING;
     }
@@ -122,6 +119,7 @@ inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const Property
         }
       }
     }
+    case PropertyValue::Type::Double:
     case PropertyValue::Type::Null:
     case PropertyValue::Type::Map:
     case PropertyValue::Type::List: {
@@ -137,9 +135,6 @@ inline std::string SchemaTypeToString(const common::SchemaType type) {
     }
     case common::SchemaType::INT: {
       return "Integer";
-    }
-    case common::SchemaType::FLOAT: {
-      return "Float";
     }
     case common::SchemaType::STRING: {
       return "String";

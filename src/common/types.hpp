@@ -14,6 +14,6 @@
 #include <cstdint>
 
 namespace memgraph::common {
-enum class SchemaType : uint8_t { BOOL, INT, FLOAT, STRING, DATE, LOCALTIME, LOCALDATETIME, DURATION };
+enum class SchemaType : uint8_t { BOOL, INT, STRING, DATE, LOCALTIME, LOCALDATETIME, DURATION };
 
 }  // namespace memgraph::common
