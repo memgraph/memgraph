@@ -4271,7 +4271,7 @@ TEST_P(CypherMainVisitorTest, TestCreateSchema) {
   {
     auto *query = dynamic_cast<SchemaQuery *>(
         ast_generator.ParseQuery("CREATE SCHEMA ON :label4(name STRING, age INTEGER, dur DURATION, birthday "
-                                 "LOCALDATETIME, some_time LOCALTIME, speaks_truth BOOL, weight FLOAT)"));
+                                 "LOCALDATETIME, some_time LOCALTIME, speaks_truth BOOL)"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_, SchemaQuery::Action::CREATE_SCHEMA);
     EXPECT_EQ(query->label_.name, "label4");

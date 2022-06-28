@@ -193,7 +193,7 @@ TEST_F(TestPrivilegeExtractor, ShowVersion) {
 }
 
 TEST_F(TestPrivilegeExtractor, SchemaQuery) {
-  auto *query = storage.Create<StreamQuery>();
+  auto *query = storage.Create<SchemaQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::SCHEMA));
 }
 
