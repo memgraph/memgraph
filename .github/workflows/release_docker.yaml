@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DOCKER_ORGANIZATION_NAME: memgraph
-      DOCKER_REPOSITORY_NAME: memgraph
+      DOCKER_REPOSITORY_NAME: test-memgraph
     steps:
       - name: Checkout
         uses: actions/checkout@v2
