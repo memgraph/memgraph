@@ -138,13 +138,11 @@ class ReplicationPersistanceHelperTest : public ::testing::Test {
     myfile << test;
     myfile.close();
   }
-};
 
-TEST_F(ReplicationPersistanceHelperTest, BasicCheckSizeOfReplicaStatus) {
-  ASSERT_EQ(sizeof(memgraph::storage::replication::ReplicaStatus), 168)
-      << "Most likely you modified ReplicaStatus without updating the tests. Please modify CheckEqualityImpl, "
-         "ExportFailingTest and extend the unit tests with relevant tests.";
-}
+  static_assert(sizeof(memgraph::storage::replication::ReplicaStatus) == 168,
+                "Most likely you modified ReplicaStatus without updating the tests. Please modify CheckEqualityImpl, "
+                "ExportFailingTest and extend the unit tests with relevant tests.");
+};
 
 TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesInitialized) {
   auto replicas_status = CreateReplicaStatus(
