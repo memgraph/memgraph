@@ -540,8 +540,6 @@ class Storage final {
   std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-  std::filesystem::path kvstorage_directory;
-  utils::OutputFile lock_kvstorage_handle_;
   std::unique_ptr<kvstore::KVStore> kvstorage_;
 
   utils::Scheduler snapshot_runner_;

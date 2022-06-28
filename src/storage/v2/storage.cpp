@@ -391,7 +391,6 @@ Storage::Storage(Config config)
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
       wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
       lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
-      kvstorage_directory(config_.durability.storage_directory / durability::kReplicationDirectory),
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
@@ -492,18 +491,9 @@ Storage::Storage(Config config)
 
   if (config_.durability.restore_replicas_on_startup) {
     spdlog::info("Replicas' configuration will be stored and will be automatically restored in case of crash.");
-    utils::EnsureDirOrDie(kvstorage_directory);
-    lock_kvstorage_handle_.Open(kvstorage_directory / durability::kLockFile,
-                                utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    if (!lock_kvstorage_handle_.AcquireLock()) {
-      spdlog::error(
-          "Couldn't acquire lock on the storage directory {}"
-          "!\nAnother Memgraph process is currently running with the same "
-          "storage directory, please stop it first before starting this "
-          "process!",
-          kvstorage_directory);
-    }
-    kvstorage_ = std::make_unique<kvstore::KVStore>(kvstorage_directory);
+    utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
+    kvstorage_ =
+        std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
     RestoreReplicas();
   } else {
     spdlog::warn("Replicas' configuration will NOT be stored.");
