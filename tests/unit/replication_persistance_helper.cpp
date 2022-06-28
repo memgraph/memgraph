@@ -12,11 +12,7 @@
 #include "storage/v2/replication/replication_persistance_helper.hpp"
 #include "utils/logging.hpp"
 
-#include <gmock/gmock-generated-matchers.h>
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <sys/types.h>
-#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <optional>
