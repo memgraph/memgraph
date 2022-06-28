@@ -87,18 +87,14 @@ constexpr int16_t CompareDouble(double a, double b, double epsilon = GetEpsilon(
   MG_ASSERT(epsilon - GetEpsilon() >= 0);
 
   const auto dist = b - a;
-  auto result = (int16_t)0;
-
-  if (std::abs(dist) > epsilon) {
-    if (dist > 0) {
-      result = -1;
-    } else {
-      MG_ASSERT(dist < 0);
-      result = 1;
-    }
+  if (!(std::abs(dist) > epsilon)) {
+    return 0;
   }
-
-  return result;
+  if (dist > 0) {
+    return -1;
+  }
+  MG_ASSERT(dist < 0);
+  return 1;
 }
 
 constexpr bool IsStrictlyGreater(double a, double b) noexcept { return CompareDouble(a, b) > 0; }
