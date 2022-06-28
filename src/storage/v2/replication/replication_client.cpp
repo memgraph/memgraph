@@ -20,7 +20,6 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
-#include "utils/math.hpp"
 #include "utils/message.hpp"
 
 namespace memgraph::storage {

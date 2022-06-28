@@ -52,7 +52,6 @@
 #include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-#include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
