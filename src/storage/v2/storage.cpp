@@ -12,15 +12,15 @@
 #include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
-#include <json/json.hpp>
 #include <memory>
 #include <mutex>
 #include <variant>
 
+#include <json/json.hpp>
 #include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
