@@ -45,7 +45,7 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
-    MG_ASSERT(memgraph::utils::IsStrictlyGreater(*config.timeout, 0));
+    MG_ASSERT(*config.timeout > 0);
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
   }
@@ -560,7 +560,8 @@ Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
       std::unique_lock client_guard(client_lock_);
       replica_state_.store(replication::ReplicaState::INVALID);
     }
-    HandleRpcFailure(); // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't block
+    HandleRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't
+                         // block
   }
 
   return info;

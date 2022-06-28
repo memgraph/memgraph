@@ -496,7 +496,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       } else if (timeout.IsInt()) {
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
-      if (maybe_timeout && memgraph::utils::IsLowerOrEqual(*maybe_timeout, 0.0)) {
+      if (maybe_timeout && *maybe_timeout < 0.0) {
         throw utils::BasicException("Parameter TIMEOUT must be strictly greater than 0.");
       }
 
