@@ -16,7 +16,6 @@
 #include <mutex>
 #include <variant>
 
-#include <json/json.hpp>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 
@@ -30,6 +29,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/replication_persistance_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -52,92 +52,6 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
-
-const std::string kReplicaName = "replica_name";
-const std::string kIpAddress = "replica_ip_address";
-const std::string kPort = "replica_port";
-const std::string kSyncMode = "replica_sync_mod";
-const std::string kTimeout = "replica_timeout";
-const std::string kCheckFrequency = "replica_check_frequency";
-const std::string kSSLKeyFile = "replica_ssl_key_file";
-const std::string kSSLCertFile = "replica_ssl_cert_file";
-
-struct ReplicaStatus {
-  std::string name;
-  std::string ip_address;
-  uint16_t port;
-  storage::replication::ReplicationMode sync_mode;
-  std::optional<double> timeout;
-  std::chrono::seconds replica_check_frequency;
-  std::optional<replication::ReplicationClientConfig::SSL> ssl;
-};
-
-nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
-  auto data = nlohmann::json::object();
-
-  data[kReplicaName] = std::move(status.name);
-  data[kIpAddress] = std::move(status.ip_address);
-  data[kPort] = status.port;
-  data[kSyncMode] = status.sync_mode;
-
-  if (status.timeout.has_value()) {
-    data[kTimeout] = *status.timeout;
-  } else {
-    data[kTimeout] = nullptr;
-  }
-
-  data[kCheckFrequency] = status.replica_check_frequency.count();
-
-  if (status.ssl.has_value()) {
-    data[kSSLKeyFile] = std::move(status.ssl->key_file);
-    data[kSSLCertFile] = std::move(status.ssl->cert_file);
-  } else {
-    data[kSSLKeyFile] = nullptr;
-    data[kSSLCertFile] = nullptr;
-  }
-
-  return data;
-}
-
-std::optional<ReplicaStatus> json_to_replica_status(nlohmann::json &&data) {
-  ReplicaStatus replica_status;
-
-  const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
-    return fmt::format("Failed to deserialize replica's configuration: {} : {}", message, nested_message);
-  };
-
-  try {
-    data.at(kReplicaName).get_to(replica_status.name);
-    data.at(kIpAddress).get_to(replica_status.ip_address);
-    data.at(kPort).get_to(replica_status.port);
-    data.at(kSyncMode).get_to(replica_status.sync_mode);
-
-    if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
-      replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
-    }
-
-    replica_status.replica_check_frequency = std::chrono::seconds(data.at(kCheckFrequency));
-
-    const auto &key_file = data.at(kSSLKeyFile);
-    const auto &cert_file = data.at(kSSLCertFile);
-
-    MG_ASSERT(key_file.is_null() == cert_file.is_null());
-
-    if (!key_file.is_null()) {
-      replica_status.ssl = replication::ReplicationClientConfig::SSL{};
-      replica_status.ssl->key_file = key_file.get<typename decltype(replica_status.ssl->key_file)::value_type>();
-      replica_status.ssl->cert_file = cert_file.get<typename decltype(replica_status.ssl->cert_file)::value_type>();
-    }
-  } catch (const nlohmann::json::type_error &exception) {
-    spdlog::error(get_failed_message("Invalid type conversion", exception.what()));
-    return std::nullopt;
-  } catch (const nlohmann::json::out_of_range &exception) {
-    spdlog::error(get_failed_message("Non existing field", exception.what()));
-    return std::nullopt;
-  }
-
-  return replica_status;
-}
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -2004,13 +1918,14 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
             "Only SYNC mode can have a timeout set");
 
   if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replica_status_to_json(ReplicaStatus{.name = name,
-                                                     .ip_address = endpoint.address,
-                                                     .port = endpoint.port,
-                                                     .sync_mode = replication_mode,
-                                                     .timeout = config.timeout,
-                                                     .replica_check_frequency = config.replica_check_frequency,
-                                                     .ssl = config.ssl});
+    auto data = replication::replica_status_to_json(
+        replication::ReplicaStatus{.name = name,
+                                   .ip_address = endpoint.address,
+                                   .port = endpoint.port,
+                                   .sync_mode = replication_mode,
+                                   .timeout = config.timeout,
+                                   .replica_check_frequency = config.replica_check_frequency,
+                                   .ssl = config.ssl});
     if (!kvstorage_->Put(name, data.dump())) {
       spdlog::error("Issue when saving replica {} in settings.", name);
     }
@@ -2093,7 +2008,7 @@ void Storage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *kvstorage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::json_to_replica_status(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
     }
