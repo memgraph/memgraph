@@ -22,7 +22,7 @@
 #include <optional>
 #include <string>
 
-static int number_of_tests_failed = 1;
+static int number_of_tests_failed = 0;
 
 class ReplicationPersistanceHelperTest : public ::testing::Test {
  protected:
