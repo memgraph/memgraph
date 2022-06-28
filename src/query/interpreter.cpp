@@ -900,6 +900,8 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         }
         return std::vector<std::vector<TypedValue>>{};
       };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_SCHEMA,
+                                  fmt::format("Create schema on label :{}", schema_query->label_.name));
       return callback;
     }
     case SchemaQuery::Action::DROP_SCHEMA: {
@@ -910,8 +912,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
         }
+
         return std::vector<std::vector<TypedValue>>{};
       };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_SCHEMA,
+                                  fmt::format("Dropped schema on label :{}", schema_query->label_.name));
       return callback;
     }
   }
