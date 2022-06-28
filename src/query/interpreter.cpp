@@ -2119,8 +2119,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
 }
 
 PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                 InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 std::vector<Notification> *notifications) {
+                                 InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
   if (in_explicit_transaction) {
     throw ConstraintInMulticommandTxException();
   }
@@ -2280,7 +2279,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
       prepared_query = PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
-                                          &*execution_db_accessor_, &query_execution->notifications);
+                                          &query_execution->notifications);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

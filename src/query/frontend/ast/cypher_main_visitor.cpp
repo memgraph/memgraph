@@ -2353,7 +2353,7 @@ antlrcpp::Any CypherMainVisitor::visitShowSchema(MemgraphCypher::ShowSchemaConte
   return schema_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasContext * /*ctx*/) {
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMAS;
   query_ = schema_query;
