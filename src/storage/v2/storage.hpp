@@ -18,6 +18,7 @@
 #include <variant>
 
 #include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints.hpp"
@@ -421,7 +422,7 @@ class Storage final {
       std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
       const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(std::string_view name);
+  bool UnregisterReplica(const std::string &name);
 
   std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
 
@@ -476,6 +477,10 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+
+  void RestoreReplicas();
+
+  bool ShouldStoreAndRestoreReplicas() const;
 
   // Main storage lock.
   //
@@ -537,6 +542,9 @@ class Storage final {
   std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
+  std::filesystem::path kvstorage_directory;
+  utils::OutputFile lock_kvstorage_handle_;
+  std::unique_ptr<kvstore::KVStore> kvstorage_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;

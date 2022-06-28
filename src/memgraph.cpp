@@ -1195,7 +1195,8 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
+                     .restore_replicas_on_startup = true},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
