@@ -2095,7 +2095,7 @@ void Storage::RestoreReplicas() {
 
     const auto maybe_replica_status = json_to_replica_status(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
-      continue;
+      LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
     }
 
     auto replica_status = *maybe_replica_status;
@@ -2110,7 +2110,7 @@ void Storage::RestoreReplicas() {
                                    .ssl = replica_status.ssl,
                                });
     if (ret.HasError()) {
-      spdlog::error("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
+      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
     } else {
       spdlog::info("Replica {} restored.", replica_name);
     }
