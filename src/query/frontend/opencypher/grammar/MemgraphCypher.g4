@@ -387,17 +387,9 @@ versionQuery : SHOW VERSION ;
 
 showSchema : SHOW SCHEMA ON ':' labelName ;
 
-showSchemas : SHOW SCHEMAS;
+showSchemas : SHOW SCHEMAS ;
 
-propertyType : BOOL
-             | DATE
-             | DURATION
-             | FLOAT
-             | INTEGER
-             | LOCALDATETIME
-             | LOCALTIME
-             | STRING
-             ;
+propertyType : symbolicName ;
 
 propertyKeyTypePair : propertyKeyName propertyType ;
 

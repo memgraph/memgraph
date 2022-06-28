@@ -2361,32 +2361,33 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemas(MemgraphCypher::ShowSchemasCon
 }
 
 antlrcpp::Any CypherMainVisitor::visitPropertyType(MemgraphCypher::PropertyTypeContext *ctx) {
-  MG_ASSERT(ctx);
-  if (ctx->BOOL()) {
+  MG_ASSERT(ctx->symbolicName());
+  const auto property_type = utils::ToLowerCase(ctx->symbolicName()->accept(this).as<std::string>());
+  if (property_type == "bool") {
     return common::SchemaType::BOOL;
   }
-  if (ctx->STRING()) {
+  if (property_type == "string") {
     return common::SchemaType::STRING;
   }
-  if (ctx->INTEGER()) {
+  if (property_type == "integer") {
     return common::SchemaType::INT;
   }
-  if (ctx->FLOAT()) {
+  if (property_type == "float") {
     return common::SchemaType::FLOAT;
   }
-  if (ctx->DATE()) {
+  if (property_type == "date") {
     return common::SchemaType::DATE;
   }
-  if (ctx->DURATION()) {
+  if (property_type == "duration") {
     return common::SchemaType::DURATION;
   }
-  if (ctx->LOCALDATETIME()) {
+  if (property_type == "localdatetime") {
     return common::SchemaType::LOCALDATETIME;
   }
-  if (ctx->LOCALTIME()) {
+  if (property_type == "localtime") {
     return common::SchemaType::LOCALTIME;
   }
-  throw SemanticException("Property type must be one of the supported types!");
+  throw SyntaxException("Property type must be one of the supported types!");
 }
 
 /**
