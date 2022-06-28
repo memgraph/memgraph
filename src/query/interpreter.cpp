@@ -52,7 +52,6 @@
 #include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
-#include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/readable_size.hpp"
@@ -495,8 +494,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       } else if (timeout.IsInt()) {
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
-      if (maybe_timeout && memgraph::utils::IsLowerOrEqual(*maybe_timeout, 0.0)) {
-        throw utils::BasicException("Parameter TIMEOUT must be strictly greater than 0.0.");
+      if (maybe_timeout && *maybe_timeout < 0.0) {
+        throw utils::BasicException("Parameter TIMEOUT must be strictly greater than 0.");
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
                      maybe_timeout, replica_check_frequency]() mutable {
