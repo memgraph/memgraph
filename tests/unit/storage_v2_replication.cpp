@@ -41,6 +41,7 @@ class ReplicationTest : public ::testing::Test {
 
   const std::string local_host = ("127.0.0.1");
   const std::array<uint16_t, 2> ports{10000, 20000};
+  const std::array<std::string, 2> replicas = {"REPLICA1", "REPLICA2"};
 
  private:
   void Clear() {
@@ -281,11 +282,11 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[1]});
 
   ASSERT_FALSE(main_store
-                   .RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+                   .RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                     memgraph::storage::replication::ReplicationMode::SYNC)
                    .HasError());
   ASSERT_FALSE(main_store
-                   .RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{local_host, ports[1]},
+                   .RegisterReplica(replicas[1], memgraph::io::network::Endpoint{local_host, ports[1]},
                                     memgraph::storage::replication::ReplicationMode::SYNC)
                    .HasError());
 
@@ -317,7 +318,7 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   check_replica(&replica_store1);
   check_replica(&replica_store2);
 
-  main_store.UnregisterReplica("REPLICA2");
+  main_store.UnregisterReplica(replicas[1]);
   {
     auto acc = main_store.Access();
     auto v = acc.CreateVertex();
@@ -421,13 +422,13 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     replica_store.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[0]});
 
     ASSERT_FALSE(main_store
-                     .RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+                     .RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                       memgraph::storage::replication::ReplicationMode::SYNC)
                      .HasError());
 
-    ASSERT_EQ(main_store.GetReplicaState("REPLICA1"), memgraph::storage::replication::ReplicaState::RECOVERY);
+    ASSERT_EQ(main_store.GetReplicaState(replicas[0]), memgraph::storage::replication::ReplicaState::RECOVERY);
 
-    while (main_store.GetReplicaState("REPLICA1") != memgraph::storage::replication::ReplicaState::READY) {
+    while (main_store.GetReplicaState(replicas[0]) != memgraph::storage::replication::ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -534,12 +535,12 @@ TEST_F(ReplicationTest, EpochTest) {
   replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{local_host, 10001});
 
   ASSERT_FALSE(main_store
-                   .RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+                   .RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                     memgraph::storage::replication::ReplicationMode::SYNC)
                    .HasError());
 
   ASSERT_FALSE(main_store
-                   .RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{local_host, 10001},
+                   .RegisterReplica(replicas[1], memgraph::io::network::Endpoint{local_host, 10001},
                                     memgraph::storage::replication::ReplicationMode::SYNC)
                    .HasError());
 
@@ -563,12 +564,12 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
-  main_store.UnregisterReplica("REPLICA1");
-  main_store.UnregisterReplica("REPLICA2");
+  main_store.UnregisterReplica(replicas[0]);
+  main_store.UnregisterReplica(replicas[1]);
 
   replica_store1.SetMainReplicationRole();
   ASSERT_FALSE(replica_store1
-                   .RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{local_host, 10001},
+                   .RegisterReplica(replicas[1], memgraph::io::network::Endpoint{local_host, 10001},
                                     memgraph::storage::replication::ReplicationMode::SYNC)
                    .HasError());
 
@@ -593,7 +594,7 @@ TEST_F(ReplicationTest, EpochTest) {
 
   replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[0]});
   ASSERT_TRUE(main_store
-                  .RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+                  .RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                    memgraph::storage::replication::ReplicationMode::SYNC)
                   .HasError());
 
@@ -626,13 +627,13 @@ TEST_F(ReplicationTest, ReplicationInformation) {
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
-  const std::string replica1_name{"REPLICA1"};
+  const std::string replica1_name{replicas[0]};
   ASSERT_FALSE(main_store
                    .RegisterReplica(replica1_name, replica1_endpoint,
                                     memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
                    .HasError());
 
-  const std::string replica2_name{"REPLICA2"};
+  const std::string replica2_name{replicas[1]};
   ASSERT_FALSE(
       main_store
           .RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC)
@@ -674,13 +675,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
-  const std::string replica1_name{"REPLICA1"};
+  const std::string replica1_name{replicas[0]};
   ASSERT_FALSE(main_store
                    .RegisterReplica(replica1_name, replica1_endpoint,
                                     memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
                    .HasError());
 
-  const std::string replica2_name{"REPLICA1"};
+  const std::string replica2_name{replicas[0]};
   ASSERT_TRUE(
       main_store
           .RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC)
@@ -700,13 +701,13 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   replica_store2.SetReplicaRole(replica2_endpoint);
 
-  const std::string replica1_name{"REPLICA1"};
+  const std::string replica1_name{replicas[0]};
   ASSERT_FALSE(main_store
                    .RegisterReplica(replica1_name, replica1_endpoint,
                                     memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
                    .HasError());
 
-  const std::string replica2_name{"REPLICA2"};
+  const std::string replica2_name{replicas[1]};
   ASSERT_TRUE(
       main_store
           .RegisterReplica(replica2_name, replica2_endpoint, memgraph::storage::replication::ReplicationMode::ASYNC)
@@ -724,20 +725,20 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
   memgraph::storage::Storage replica_store2(configuration);
   replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[1]});
 
-  auto res = main_store->RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+  auto res = main_store->RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                          memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{local_host, ports[1]},
+  res = main_store->RegisterReplica(replicas[1], memgraph::io::network::Endpoint{local_host, ports[1]},
                                     memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
 
   auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, "REPLICA1");
+  ASSERT_EQ(replica_infos[0].name, replicas[0]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
-  ASSERT_EQ(replica_infos[1].name, "REPLICA2");
+  ASSERT_EQ(replica_infos[1].name, replicas[1]);
   ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 
@@ -746,10 +747,10 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAftgerDroppingReplica) {
   auto other_main_store = std::make_unique<memgraph::storage::Storage>(main_config);
   replica_infos = other_main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, "REPLICA1");
+  ASSERT_EQ(replica_infos[0].name, replicas[0]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
-  ASSERT_EQ(replica_infos[1].name, "REPLICA2");
+  ASSERT_EQ(replica_infos[1].name, replicas[1]);
   ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 }
@@ -764,29 +765,29 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   memgraph::storage::Storage replica_store2(configuration);
   replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{local_host, ports[1]});
 
-  auto res = main_store->RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{local_host, ports[0]},
+  auto res = main_store->RegisterReplica(replicas[0], memgraph::io::network::Endpoint{local_host, ports[0]},
                                          memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
-  res = main_store->RegisterReplica("REPLICA2", memgraph::io::network::Endpoint{local_host, ports[1]},
+  res = main_store->RegisterReplica(replicas[1], memgraph::io::network::Endpoint{local_host, ports[1]},
                                     memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
 
   auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, "REPLICA1");
+  ASSERT_EQ(replica_infos[0].name, replicas[0]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[0]);
-  ASSERT_EQ(replica_infos[1].name, "REPLICA2");
+  ASSERT_EQ(replica_infos[1].name, replicas[1]);
   ASSERT_EQ(replica_infos[1].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[1].endpoint.port, ports[1]);
 
-  const auto unregister_res = main_store->UnregisterReplica("REPLICA1");
+  const auto unregister_res = main_store->UnregisterReplica(replicas[0]);
   ASSERT_TRUE(unregister_res);
 
   replica_infos = main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
-  ASSERT_EQ(replica_infos[0].name, "REPLICA2");
+  ASSERT_EQ(replica_infos[0].name, replicas[1]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[1]);
 
@@ -795,7 +796,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto other_main_store = std::make_unique<memgraph::storage::Storage>(main_config);
   replica_infos = other_main_store->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
-  ASSERT_EQ(replica_infos[0].name, "REPLICA2");
+  ASSERT_EQ(replica_infos[0].name, replicas[1]);
   ASSERT_EQ(replica_infos[0].endpoint.address, local_host);
   ASSERT_EQ(replica_infos[0].endpoint.port, ports[1]);
 }
