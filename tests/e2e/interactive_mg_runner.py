@@ -96,7 +96,7 @@ def load_args():
     return parser.parse_args()
 
 
-def _start_instance(name, args, log_file, queries, use_ssl, procdir):
+def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory):
     assert name not in MEMGRAPH_INSTANCES.keys()
     # If this raises, you are trying to start an instance with the same name than one already running.
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
