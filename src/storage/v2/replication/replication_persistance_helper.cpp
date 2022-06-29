@@ -16,7 +16,7 @@ namespace {
 const std::string kReplicaName = "replica_name";
 const std::string kIpAddress = "replica_ip_address";
 const std::string kPort = "replica_port";
-const std::string kSyncMode = "replica_sync_mod";
+const std::string kSyncMode = "replica_sync_mode";
 const std::string kTimeout = "replica_timeout";
 const std::string kCheckFrequency = "replica_check_frequency";
 const std::string kSSLKeyFile = "replica_ssl_key_file";
