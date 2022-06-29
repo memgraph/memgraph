@@ -134,7 +134,7 @@ def stop(context, name):
 
 
 def kill(context, name):
-    for key, _ in context.items():
+    for key in context.keys():
         if key != name:
             continue
         MEMGRAPH_INSTANCES[name].kill()
