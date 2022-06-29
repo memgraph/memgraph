@@ -769,7 +769,7 @@ const std::string local_host("127.0.0.1");
                                     memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
 
-  auto replicaInfos = main_store->ReplicasInfo();
+  auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replicaInfos.size(), 2);
   ASSERT_EQ(replicaInfos[0].name, "REPLICA1");
