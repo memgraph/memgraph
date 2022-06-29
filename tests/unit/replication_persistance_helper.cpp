@@ -42,7 +42,7 @@ class ReplicationPersistanceHelperTest : public ::testing::Test {
 
   bool CheckEquality(memgraph::storage::replication::ReplicaStatus &status,
                      memgraph::storage::replication::ReplicaStatus &other_status) {
-    if (!CheckEqualityImpl(status, other_status)) {
+    if (!(status == other_status)) {
       ++number_of_tests_failed;
       ExportFailingTest(status);
       return false;
