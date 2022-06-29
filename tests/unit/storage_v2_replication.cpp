@@ -755,12 +755,12 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   auto main_config = configuration;
   main_config.durability.restore_replicas_on_startup = true;
   auto main_store = std::make_unique<memgraph::storage::Storage>(main_config);
-
+const std::string local_host("127.0.0.1");
   memgraph::storage::Storage replica_store1(configuration);
   replica_store1.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 10000});
 
   memgraph::storage::Storage replica_store2(configuration);
-  replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{"127.0.0.1", 20000});
+  replica_store2.SetReplicaRole(memgraph::io::network::Endpoint{local_host, port[1]});
 
   auto res = main_store->RegisterReplica("REPLICA1", memgraph::io::network::Endpoint{"127.0.0.1", 10000},
                                          memgraph::storage::replication::ReplicationMode::SYNC);
@@ -769,7 +769,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
                                     memgraph::storage::replication::ReplicationMode::SYNC);
   ASSERT_FALSE(res.HasError());
 
-  auto replicaInfos = main_store->ReplicasInfo();
+  auto replica_infos = main_store->ReplicasInfo();
 
   ASSERT_EQ(replicaInfos.size(), 2);
   ASSERT_EQ(replicaInfos[0].name, "REPLICA1");
