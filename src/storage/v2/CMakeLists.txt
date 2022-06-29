@@ -28,7 +28,7 @@ set(storage_v2_src_files
     replication/replication_persistance_helper.cpp
     ${lcp_storage_cpp_files})
 
-# ######################
+#######################
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 
