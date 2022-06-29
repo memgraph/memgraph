@@ -96,9 +96,8 @@ def load_args():
 
 
 def _start_instance(name, args, log_file, queries, use_ssl, procdir):
-    assert not (
-        name in MEMGRAPH_INSTANCES.keys()
-    )  # If this raises, you are trying to start an instance with the same name than one already running.
+    assert name not in MEMGRAPH_INSTANCES.keys()
+      # If this raises, you are trying to start an instance with the same name than one already running.
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
