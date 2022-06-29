@@ -1918,7 +1918,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
             "Only SYNC mode can have a timeout set");
 
   if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replication::replica_status_to_json(
+    auto data = replication::ReplicaStatusToJSON(
         replication::ReplicaStatus{.name = name,
                                    .ip_address = endpoint.address,
                                    .port = endpoint.port,
@@ -2008,7 +2008,7 @@ void Storage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *kvstorage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = replication::json_to_replica_status(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
     }
