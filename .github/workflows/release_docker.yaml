@@ -45,15 +45,15 @@ jobs:
           EXISTS=$(docker manifest inspect $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} > /dev/null; echo $?)
           echo $EXISTS
           if [[ ${EXISTS} -eq 0 ]]; then
-              echo The specified version has been already released to DockerHub!
+              echo 'The specified version has been already released to DockerHub.'
               if [[ ${{ github.event.inputs.force_release }} = true ]]; then
-                echo Forcing the release
+                echo 'Forcing the release!'
               else
-                echo Stopping the release
+                echo 'Stopping the release!'
                 exit 1
               fi
           else
-              echo All good the specified version has not been release to DockerHub
+              echo 'All good the specified version has not been release to DockerHub.'
           fi
 
       - name: Build & push docker images
