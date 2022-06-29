@@ -1960,6 +1960,7 @@ bool Storage::UnregisterReplica(const std::string &name) {
   if (ShouldStoreAndRestoreReplicas()) {
     if (!kvstorage_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
+      return false;
     }
   }
 
