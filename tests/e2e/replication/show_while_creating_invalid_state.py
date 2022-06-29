@@ -140,6 +140,7 @@ def test_add_replica_invalid_timeout(connection):
     interactive_mg_runner.start_all(CONFIGURATION)
 
     cursor = connection(7687, "main").cursor()
+
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
 
