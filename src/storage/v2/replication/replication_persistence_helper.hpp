@@ -29,6 +29,8 @@ struct ReplicaStatus {
   std::optional<double> timeout;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
+
+  friend bool operator==(const ReplicaStatus &, const ReplicaStatus &) = default;
 };
 
 nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status);

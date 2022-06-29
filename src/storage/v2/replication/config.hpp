@@ -24,6 +24,8 @@ struct ReplicationClientConfig {
   struct SSL {
     std::string key_file = "";
     std::string cert_file = "";
+
+    friend bool operator==(const SSL &, const SSL &) = default;
   };
 
   std::optional<SSL> ssl;
