@@ -786,26 +786,7 @@ TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
   ASSERT_TRUE(condition);
   ast_generator.CheckLiteral(condition->expression1_, 5);
   ast_generator.CheckLiteral(condition->expression2_, 10);
-  ast_generator.CheckLiteral(if_operator->then_expression_, 1);
-  ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue());
-}
-
-TEST_P(CypherMainVisitorTest, CaseSimpleFormNullcheckIsSet) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN CASE 5 WHEN 10 THEN 1 END"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  auto *if_operator = dynamic_cast<IfOperator *>(return_clause->body_.named_expressions[0]->expression_);
-  auto *condition = dynamic_cast<EqualOperator *>(if_operator->condition_);
-  ASSERT_TRUE(condition);
-  ast_generator.CheckLiteral(condition->expression1_, 5);
-  ast_generator.CheckLiteral(condition->expression2_, 10);
-
-  // This might be the only line thats different.
   ASSERT_TRUE(condition->isnullcheckrequired_);
-
   ast_generator.CheckLiteral(if_operator->then_expression_, 1);
   ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue());
 }
