@@ -29,7 +29,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/replication_persistance_helper.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"

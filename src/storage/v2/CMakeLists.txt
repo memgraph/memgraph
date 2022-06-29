@@ -25,7 +25,7 @@ set(storage_v2_src_files
     replication/replication_server.cpp
     replication/serialization.cpp
     replication/slk.cpp
-    replication/replication_persistance_helper.cpp
+    replication/replication_persistence_helper.cpp
     ${lcp_storage_cpp_files})
 
 #######################
