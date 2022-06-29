@@ -404,7 +404,7 @@ Storage::Storage(Config config)
   }
 
   if (config_.durability.restore_replicas_on_startup) {
-    spdlog::info("Replicas' configuration will be stored and will be automatically restored in case of crash.");
+    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
     kvstorage_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
