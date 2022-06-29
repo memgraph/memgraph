@@ -140,6 +140,7 @@ def test_add_replica_invalid_timeout(connection):
     interactive_mg_runner.start_all(CONFIGURATION)
 
     cursor = connection(7687, "main").cursor()
+
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
 
@@ -220,7 +221,7 @@ def test_basic_recovery(connection):
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     def check_roles():
         assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
@@ -245,7 +246,7 @@ def test_basic_recovery(connection):
     # We leave some time for the main to recover.
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     # 5/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
@@ -272,7 +273,7 @@ def test_basic_recovery(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, 2, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     # Replica_2 was dropped, we check it does not have the data from main.
     assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
@@ -297,7 +298,7 @@ def test_basic_recovery(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
+    assert actual_data == expected_data
     for index in (1, 2, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 

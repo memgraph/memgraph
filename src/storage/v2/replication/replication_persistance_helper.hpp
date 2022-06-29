@@ -28,7 +28,7 @@ struct ReplicaStatus {
   std::optional<ReplicationClientConfig::SSL> ssl;
 };
 
-nlohmann::json replica_status_to_json(ReplicaStatus &&status);
+nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status);
 
-std::optional<ReplicaStatus> json_to_replica_status(nlohmann::json &&data);
+std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data);
 }  // namespace memgraph::storage::replication

@@ -405,7 +405,7 @@ Storage::Storage(Config config)
   }
 
   if (config_.durability.restore_replicas_on_startup) {
-    spdlog::info("Replicas' configuration will be stored and will be automatically restored in case of crash.");
+    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
     utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
     kvstorage_ =
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
@@ -1979,7 +1979,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
             "Only SYNC mode can have a timeout set");
 
   if (ShouldStoreAndRestoreReplicas()) {
-    auto data = replication::replica_status_to_json(
+    auto data = replication::ReplicaStatusToJSON(
         replication::ReplicaStatus{.name = name,
                                    .ip_address = endpoint.address,
                                    .port = endpoint.port,
@@ -2069,7 +2069,7 @@ void Storage::RestoreReplicas() {
   for (const auto &[replica_name, replica_data] : *kvstorage_) {
     spdlog::info("Restoring replica {}.", replica_name);
 
-    const auto maybe_replica_status = replication::json_to_replica_status(nlohmann::json::parse(replica_data));
+    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
       LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
     }
@@ -2087,9 +2087,8 @@ void Storage::RestoreReplicas() {
                                });
     if (ret.HasError()) {
       LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
-    } else {
-      spdlog::info("Replica {} restored.", replica_name);
     }
+    spdlog::info("Replica {} restored.", replica_name);
   }
 }
 

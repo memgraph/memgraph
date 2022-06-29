@@ -127,10 +127,10 @@ class ReplicationPersistanceHelperTest : public ::testing::Test {
         "      \"{}\", \"{}\", {}, memgraph::storage::replication::ReplicationMode::{}, {}, std::chrono::seconds({}),\n"
         "      {});\n"
         "\n"
-        "  auto json_status = memgraph::storage::replication::replica_status_to_json(\n"
+        "  auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(\n"
         "      memgraph::storage::replication::ReplicaStatus(replicas_status));\n"
         "  auto replicas_status_converted = "
-        "memgraph::storage::replication::json_to_replica_status(std::move(json_status));\n"
+        "memgraph::storage::replication::JSONToReplicaStatus(std::move(json_status));\n"
         "\n"
         "  ASSERT_TRUE(CheckEquality(replicas_status, *replicas_status_converted));\n"
         "}}",
@@ -149,9 +149,9 @@ TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesInitialized) {
       "name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, 1.0, std::chrono::seconds(1),
       memgraph::storage::replication::ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"});
 
-  auto json_status = memgraph::storage::replication::replica_status_to_json(
+  auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
       memgraph::storage::replication::ReplicaStatus(replicas_status));
-  auto replicas_status_converted = memgraph::storage::replication::json_to_replica_status(std::move(json_status));
+  auto replicas_status_converted = memgraph::storage::replication::JSONToReplicaStatus(std::move(json_status));
 
   ASSERT_TRUE(CheckEquality(replicas_status, *replicas_status_converted));
 }
@@ -161,9 +161,9 @@ TEST_F(ReplicationPersistanceHelperTest, BasicTestOnlyMandatoryAttributesInitial
       CreateReplicaStatus("name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, std::nullopt,
                           std::chrono::seconds(1), std::nullopt);
 
-  auto json_status = memgraph::storage::replication::replica_status_to_json(
+  auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
       memgraph::storage::replication::ReplicaStatus(replicas_status));
-  auto replicas_status_converted = memgraph::storage::replication::json_to_replica_status(std::move(json_status));
+  auto replicas_status_converted = memgraph::storage::replication::JSONToReplicaStatus(std::move(json_status));
 
   ASSERT_TRUE(CheckEquality(replicas_status, *replicas_status_converted));
 }
@@ -181,10 +181,10 @@ TEST_F(ReplicationPersistanceHelperTest, RandomizedTests) {
                 auto replicas_status =
                     CreateReplicaStatus(name, ip_address, port, sync_mode, timeout, replica_check_frequency, ssl);
 
-                auto json_status = memgraph::storage::replication::replica_status_to_json(
+                auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
                     memgraph::storage::replication::ReplicaStatus(replicas_status));
                 auto replicas_status_converted =
-                    memgraph::storage::replication::json_to_replica_status(std::move(json_status));
+                    memgraph::storage::replication::JSONToReplicaStatus(std::move(json_status));
 
                 all_tests_succeeded = CheckEquality(replicas_status, *replicas_status_converted) && all_tests_succeeded;
               }

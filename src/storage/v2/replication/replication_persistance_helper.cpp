@@ -25,7 +25,7 @@ const std::string kSSLCertFile = "replica_ssl_cert_file";
 
 namespace memgraph::storage::replication {
 
-nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
+nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
   auto data = nlohmann::json::object();
 
   data[kReplicaName] = std::move(status.name);
@@ -52,7 +52,7 @@ nlohmann::json replica_status_to_json(ReplicaStatus &&status) {
   return data;
 }
 
-std::optional<ReplicaStatus> json_to_replica_status(nlohmann::json &&data) {
+std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
   ReplicaStatus replica_status;
 
   const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
