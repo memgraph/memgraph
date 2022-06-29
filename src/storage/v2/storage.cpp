@@ -2026,9 +2026,8 @@ void Storage::RestoreReplicas() {
                                });
     if (ret.HasError()) {
       LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
-    } else {
-      spdlog::info("Replica {} restored.", replica_name);
     }
+    spdlog::info("Replica {} restored.", replica_name);
   }
 }
 
