@@ -68,43 +68,6 @@ class ReplicationPersistanceHelperTest : public ::testing::Test {
           .cert_file = "ZkChSRyc/Whvurx6o85D6qpzywo8xwNaLZHxTQPgcIA5su9ZIytv9LH2E+lSwwID"}};
 
  private:
-  bool CheckEqualityImpl(memgraph::storage::replication::ReplicaStatus &status,
-                         memgraph::storage::replication::ReplicaStatus &other_status) {
-    if (status.name != other_status.name) {
-      return false;
-    }
-    if (status.ip_address != other_status.ip_address) {
-      return false;
-    }
-    if (status.port != other_status.port) {
-      return false;
-    }
-    if (status.sync_mode != other_status.sync_mode) {
-      return false;
-    }
-    if (status.timeout.has_value() != other_status.timeout.has_value()) {
-      return false;
-    }
-    if (status.timeout.has_value() && (*status.timeout != *other_status.timeout)) {
-      return false;
-    }
-    if (status.replica_check_frequency != other_status.replica_check_frequency) {
-      return false;
-    }
-    if (status.ssl.has_value() != other_status.ssl.has_value()) {
-      return false;
-    }
-    if (status.ssl.has_value()) {
-      if (status.ssl->key_file != other_status.ssl->key_file) {
-        return false;
-      }
-      if (status.ssl->cert_file != other_status.ssl->cert_file) {
-        return false;
-      }
-    }
-
-    return true;
-  }
 
   //! Method to automatically generate failing UT.
   void ExportFailingTest(memgraph::storage::replication::ReplicaStatus &status) const {
