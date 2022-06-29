@@ -869,6 +869,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
 
+    // #NoCommit
     // Aboring here and after the locked block obviously has an issue if
     // replica goes down and back up during the execution of the locked block of
     // code.
@@ -937,6 +938,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          // #NoCommit
           // TODO(gitbuda): Possible to abort data operation because in this context there is an abort operation.
           // TODO(gitbuda): If AppendToWal returns false, we can exit this block and Abort.
           storage_->AppendToWal(transaction_, *commit_timestamp_);
@@ -963,6 +965,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
 
         // NOTE: This will finish/commit the transaction.
         storage_->commit_log_->MarkFinished(start_timestamp);
+        // #NoCommit
         // TODO(gitbuda): Maybe the solution here is to 1. mark 2. check all
         // the replicas 3. unmark if required... it's not possible to unmark
         // easily because mark contains mark + update_latest_active which is
@@ -970,6 +973,7 @@ utils::BasicResult<CommitError, void> Storage::Accessor::Commit(
       }
     }
 
+    // #NoCommit
     // TODO(gitbuda): This doesn't have any effect because (it will only if the
     // constraints are also violated).
     check_replicas();
@@ -1184,6 +1188,7 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
+// #NoCommit
 // TODO(gitbuda): Hard to abort global operations in SYNC replication mode
 // because there is no an abort op for that yet, one idea is to just apply
 // reverse operation, e.g., CreateIndex <-> DropIndex.
@@ -1644,6 +1649,7 @@ void Storage::FinalizeWalFile() {
   }
 }
 
+// #NoCommit
 // TODO(gitbuda): Hard to abort data operation in SYNC replication mode because:
 //   * Just calling Abort inside AppendToWal for some reason causes infinite loop.
 
@@ -1820,9 +1826,11 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   replication_clients_.WithLock([&](auto &clients) {
     bool all_sync_replicas_ok = true;
     for (auto &client : clients) {
+      // #NoCommit
       // TODO(gitbuda): SEMI-SYNC should be exculded from here.
       if (client->Mode() == replication::ReplicationMode::SYNC)
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
+        client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
+      // #NoCommit
       // TODO(gitbuda): FinalizeTransactionReplication should also indicate that eveything went well for SYNC replicas.
       client->FinalizeTransactionReplication();
     }

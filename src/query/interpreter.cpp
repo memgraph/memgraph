@@ -2286,6 +2286,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       const auto &commit_error = maybe_commit_error.GetError();
       switch (commit_error.type) {
         case storage::CommitError::Type::UNABLE_TO_SYNC_REPLICATE: {
+          // #NoCommit
           // TODO(gitbuda): This is tricky because this is an internal
           // operation. Consider stopping main Memgraph instance here.
           spdlog::warn("Trigger '{}' failed to commit due to inability to replicate data to SYNC replica",
@@ -2293,6 +2294,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           break;
         }
         case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
+          // #NoCommit
           MG_ASSERT(commit_error.maybe_constraint_violation.has_value());
           const auto &constraint_violation = *commit_error.maybe_constraint_violation;
           switch (constraint_violation.type) {
@@ -2358,6 +2360,7 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
+  // #NoCommit
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
     const auto &commit_error = maybe_commit_error.GetError();
@@ -2368,6 +2371,7 @@ void Interpreter::Commit() {
         break;
       }
       case storage::CommitError::Type::CONSTRAINT_VIOLATION: {
+        // #NoCommit
         MG_ASSERT(commit_error.maybe_constraint_violation.has_value());
         const auto &constraint_violation = *commit_error.maybe_constraint_violation;
         switch (constraint_violation.type) {
