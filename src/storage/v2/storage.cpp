@@ -1927,7 +1927,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
                                    .replica_check_frequency = config.replica_check_frequency,
                                    .ssl = config.ssl});
     if (!kvstorage_->Put(name, data.dump())) {
-      spdlog::error("Issue when saving replica {} in settings.", name);
+      spdlog::error("Error when saving replica {} in settings.", name);
       return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
   }
