@@ -2010,7 +2010,7 @@ void Storage::RestoreReplicas() {
 
     const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
-      LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
+LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
     }
 
     auto replica_status = *maybe_replica_status;
