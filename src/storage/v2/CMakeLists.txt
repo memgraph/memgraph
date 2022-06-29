@@ -13,7 +13,7 @@ set(storage_v2_src_files
     vertex_accessor.cpp
     storage.cpp)
 
-# #### Replication #####
+##### Replication #####
 define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
 
 add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
@@ -29,7 +29,7 @@ set(storage_v2_src_files
     replication/replication_persistance_helper.cpp
     ${lcp_storage_cpp_files})
 
-# ######################
+#######################
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 

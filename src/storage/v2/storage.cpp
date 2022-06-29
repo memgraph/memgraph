@@ -2019,7 +2019,7 @@ bool Storage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   if (ShouldStoreAndRestoreReplicas()) {
     if (!kvstorage_->Delete(name)) {
-      spdlog::error("Issue when removing replica {} from settings.", name);
+      spdlog::error("Error when removing replica {} from settings.", name);
     }
   }
 
