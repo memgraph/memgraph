@@ -52,7 +52,7 @@ nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
   return data;
 }
 
-std::optional<ReplicaStatus> json_to_replica_status(nlohmann::json &&data) {
+std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
   ReplicaStatus replica_status;
 
   const auto get_failed_message = [](const std::string_view message, const std::string_view nested_message) {
