@@ -13,11 +13,12 @@
 
 #include <json/json.hpp>
 
+#include <chrono>
+#include <optional>
+#include <string>
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include <optional>
-#include <chrono>
-#include <string>
+
 namespace memgraph::storage::replication {
 
 struct ReplicaStatus {
