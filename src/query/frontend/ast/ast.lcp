@@ -398,7 +398,7 @@ cpp<#
                ,@(loop for op in
                        '(or-operator xor-operator and-operator addition-operator
                          subtraction-operator multiplication-operator division-operator
-                         mod-operator not-equal-operator equal-operator less-operator
+                         mod-operator not-equal-operator less-operator
                          greater-operator less-equal-operator greater-equal-operator
                          in-list-operator subscript-operator)
                        collecting
@@ -457,6 +457,33 @@ cpp<#
                           (:serialize (:slk))
                           (:clone))))))
   (define-unary-operators))
+
+(lcp:define-class equal-operator (binary-operator)
+  ((isNullCheckRequired "bool" :initval "false" :scope :public))
+  (:public
+    #>cpp
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        expression1_->Accept(visitor) && expression2_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    using BinaryOperator::BinaryOperator;
+    EqualOperator(Expression *expression1, Expression *expression2, bool is_nullcheck_required = false)
+        : BinaryOperator(expression1, expression2), isnullcheckrequired_(is_nullcheck_required) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
 
 (lcp:define-class aggregation (binary-operator)
   ((op "Op" :scope :public)

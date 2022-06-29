@@ -81,7 +81,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
   BINARY_OPERATOR_VISITOR(ModOperator, %, %);
   BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
-  BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
+  // BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
   BINARY_OPERATOR_VISITOR(LessOperator, <, <);
   BINARY_OPERATOR_VISITOR(GreaterOperator, >, >);
   BINARY_OPERATOR_VISITOR(LessEqualOperator, <=, <=);
@@ -93,6 +93,29 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
+
+  TypedValue Visit(EqualOperator &op) override {
+    auto val1 = op.expression1_->Accept(*this);
+    auto val2 = op.expression2_->Accept(*this);
+
+    // if(val1.IsNull())
+    // {
+    //   val1.V
+    // }
+
+    // if(op.isoperandnull_)
+    //   throw QueryRuntimeException("Use the generic form when checking against NULL.");
+
+    try {
+      if (op.isnullcheckrequired_ && val2.IsNull()) {
+        throw QueryRuntimeException("Use the generic form when checking against NULL.");
+      }
+
+      return val1 == val2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for '='.", val1.type(), val2.type());
+    }
+  }
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);

@@ -2267,9 +2267,9 @@ antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpress
   Expression *else_expression = ctx->else_expression ? ctx->else_expression->accept(this).as<Expression *>()
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {
-    Expression *condition =
-        test_expression ? storage_->Create<EqualOperator>(test_expression, alternative->when_expression->accept(this))
-                        : alternative->when_expression->accept(this).as<Expression *>();
+    Expression *condition = test_expression ? storage_->Create<EqualOperator>(
+                                                  test_expression, alternative->when_expression->accept(this), true)
+                                            : alternative->when_expression->accept(this).as<Expression *>();
     Expression *then_expression = alternative->then_expression->accept(this);
     else_expression = storage_->Create<IfOperator>(condition, then_expression, else_expression);
   }
