@@ -33,6 +33,7 @@ class BaseEncoder {
   virtual void WriteMarker(Marker marker) = 0;
   virtual void WriteBool(bool value) = 0;
   virtual void WriteUint(uint64_t value) = 0;
+  virtual void WriteUint(uint8_t value) = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(const std::string_view &value) = 0;
   virtual void WritePropertyValue(const PropertyValue &value) = 0;
@@ -53,6 +54,7 @@ class Encoder final : public BaseEncoder {
   void WriteMarker(Marker marker) override;
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
+  void WriteUint(uint8_t value) override;
   void WriteDouble(double value) override;
   void WriteString(const std::string_view &value) override;
   void WritePropertyValue(const PropertyValue &value) override;

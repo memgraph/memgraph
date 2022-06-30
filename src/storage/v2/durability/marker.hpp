@@ -56,6 +56,8 @@ enum class Marker : uint8_t {
   DELTA_EXISTENCE_CONSTRAINT_DROP = 0x5e,
   DELTA_UNIQUE_CONSTRAINT_CREATE = 0x5f,
   DELTA_UNIQUE_CONSTRAINT_DROP = 0x60,
+  DELTA_SCHEMA_CREATE = 0x61,
+  DELTA_SCHEMA_DROP = 0x62,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -63,7 +65,7 @@ enum class Marker : uint8_t {
 
 /// List of all available markers.
 /// IMPORTANT: Don't forget to update this list when you add a new Marker.
-static const Marker kMarkersAll[] = {
+constexpr Marker kMarkersAll[] = {
     Marker::TYPE_NULL,
     Marker::TYPE_BOOL,
     Marker::TYPE_INT,
@@ -99,6 +101,8 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_EXISTENCE_CONSTRAINT_DROP,
     Marker::DELTA_UNIQUE_CONSTRAINT_CREATE,
     Marker::DELTA_UNIQUE_CONSTRAINT_DROP,
+    Marker::DELTA_SCHEMA_CREATE,
+    Marker::DELTA_SCHEMA_DROP,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

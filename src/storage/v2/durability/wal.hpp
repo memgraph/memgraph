@@ -24,6 +24,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schemas.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
@@ -63,6 +64,8 @@ struct WalDeltaData {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    SCHEMA_CREATE,
+    SCHEMA_DROP,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -117,6 +120,8 @@ enum class StorageGlobalOperation {
   EXISTENCE_CONSTRAINT_DROP,
   UNIQUE_CONSTRAINT_CREATE,
   UNIQUE_CONSTRAINT_DROP,
+  SCHEMA_CREATE,
+  SCHEMA_DROP,
 };
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
@@ -148,6 +153,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::SCHEMA_CREATE:
+    case WalDeltaData::Type::SCHEMA_DROP:
       return true;
   }
 }
@@ -188,6 +195,10 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
                      LabelId label, const std::set<PropertyId> &properties, uint64_t timestamp);
 
+/// Function used to encode non-transactional operation related.
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
+                     const Schemas::Schema &schema, uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -217,6 +228,8 @@ class WalFile {
 
   void AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                        uint64_t timestamp);
+
+  void AppendOperation(StorageGlobalOperation operation, const Schemas::Schema &schema, uint64_t timestamp);
 
   void Sync();
 

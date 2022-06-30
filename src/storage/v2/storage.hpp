@@ -416,9 +416,10 @@ class Storage final {
 
   SchemasInfo GetSchema(LabelId primary_label) const;
 
-  bool CreateSchema(LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types);
+  bool CreateSchema(LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types,
+                    std::optional<uint64_t> desired_commit_timestamp);
 
-  bool DropSchema(LabelId primary_label);
+  bool DropSchema(LabelId primary_label, std::optional<uint64_t> desired_commit_timestamp);
 
   StorageInfo GetInfo() const;
 
@@ -483,6 +484,8 @@ class Storage final {
 
   void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
+                   uint64_t final_commit_timestamp);
+  void AppendToWal(durability::StorageGlobalOperation operation, const Schemas::Schema &schema,
                    uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
