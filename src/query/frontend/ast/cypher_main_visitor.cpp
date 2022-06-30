@@ -275,7 +275,6 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   replication_query->replica_name_ = ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
   if (ctx->SYNC()) {
     replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
-    // #NoCommit remove replication_query->timeout_
   } else if (ctx->ASYNC()) {
     replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
   }
