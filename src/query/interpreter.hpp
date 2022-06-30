@@ -140,7 +140,7 @@ class ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
-                               const ReplicationQuery::SyncMode sync_mode,
+                               ReplicationQuery::SyncMode sync_mode,
                                const std::chrono::seconds replica_check_frequency) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.

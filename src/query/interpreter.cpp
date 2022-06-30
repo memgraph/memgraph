@@ -159,7 +159,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterReplica(const std::string &name, const std::string &socket_address, ReplicationQuery::SyncMode sync_mode,
+  void RegisterReplica(const std::string &name, const std::string &socket_address,
+                       const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
