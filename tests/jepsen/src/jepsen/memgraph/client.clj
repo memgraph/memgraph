@@ -31,7 +31,7 @@
   [node-config]
   (case (:replication-mode node-config)
     :async "ASYNC"
-    :sync  (str "SYNC" )))
+    :sync  "SYNC" ))
 
 (defn create-register-replica-query
   [name node-config]
