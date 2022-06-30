@@ -120,8 +120,6 @@ class Storage::ReplicationClient {
 
   auto Mode() const { return mode_; }
 
-  auto Timeout() const { return timeout_; }
-
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
   Storage::TimestampInfo GetTimestampInfo();
@@ -179,7 +177,6 @@ class Storage::ReplicationClient {
     utils::ThreadPool timeout_pool{1};
   };
 
-  std::optional<double> timeout_;
   std::optional<TimeoutDispatcher> timeout_dispatcher_;
 
   utils::SpinLock client_lock_;

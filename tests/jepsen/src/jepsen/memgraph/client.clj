@@ -31,7 +31,7 @@
   [node-config]
   (case (:replication-mode node-config)
     :async "ASYNC"
-    :sync  (str "SYNC" (when-let [timeout (:timeout node-config)] (str " WITH TIMEOUT " timeout)))))
+    :sync  (str "SYNC" )))
 
 (defn create-register-replica-query
   [name node-config]

@@ -1902,9 +1902,6 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
-            "Only SYNC mode can have a timeout set");
-
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
   if (client->State() == replication::ReplicaState::INVALID) {
     return RegisterReplicaError::CONNECTION_FAILED;
@@ -1952,11 +1949,10 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<Storage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
-                   [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(),     client->Mode(),  client->Timeout(),
-                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
-                   });
+    std::transform(
+        clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
+          return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
+        });
     return replica_info;
   });
 }
