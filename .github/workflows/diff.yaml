@@ -1,6 +1,6 @@
 name: Diff
 concurrency:
-  group: ${{ github.head_ref }}
+  group: ${{ github.head_ref || github.sha }}
   cancel-in-progress: true
 
 on:
