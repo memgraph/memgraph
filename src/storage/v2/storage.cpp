@@ -1236,7 +1236,10 @@ SchemasInfo Storage::ListAllSchemas() const {
 
 SchemasInfo Storage::GetSchema(const LabelId primary_label) const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
-  return {schemas_.GetSchema(primary_label)};
+  if (const auto schema = schemas_.GetSchema(primary_label); schema) {
+    return {{*schema}};
+  }
+  return {};
 }
 
 bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types) {

@@ -75,7 +75,7 @@ class Schemas {
 
   [[nodiscard]] SchemasList ListSchemas() const;
 
-  [[nodiscard]] SchemasList GetSchema(LabelId primary_label) const;
+  [[nodiscard]] std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
 
   // Returns true if it was successfully created or false if the schema
   // already exists

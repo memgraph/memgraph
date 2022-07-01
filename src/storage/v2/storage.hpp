@@ -316,10 +316,6 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
-    SchemasInfo ListAllSchemas() const;
-
-    SchemasInfo GetSchema(LabelId primary_label) const;
-
     void AdvanceCommand();
 
     /// Commit returns `ConstraintViolation` if the changes made by this
