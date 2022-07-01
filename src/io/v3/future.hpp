@@ -30,16 +30,23 @@ template <typename T>
 class MgFuture;
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair();
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair();
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair(SimulatorHandle);
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair(SimulatorHandle);
 
 template <typename T>
 class Shared {
-  friend std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair<T>();
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
   friend MgPromise<T>;
   friend MgFuture<T>;
+
+ public:
+  Shared(Shared &&) = default;
+  Shared &operator=(Shared &&) = default;
+  Shared(const Shared &) = delete;
+  Shared &operator=(const Shared &) = delete;
+  ~Shared() = default;
 
  private:
   T Wait() {
@@ -108,12 +115,15 @@ class Shared {
 
 template <typename T>
 class MgFuture {
-  friend std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair<T>(SimulatorHandle);
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
 
  public:
   MgFuture(MgFuture &&) = default;
+  MgFuture &operator=(MgFuture &&) = default;
   MgFuture(const MgFuture &) = delete;
+  MgFuture &operator=(const MgFuture &) = delete;
+  ~MgFuture() = default;
 
   // Block on the corresponding promise to be filled,
   // returning the inner item when ready.
@@ -127,14 +137,16 @@ class MgFuture {
 
 template <typename T>
 class MgPromise {
-  friend std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair<T>(SimulatorHandle);
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
 
  public:
   MgPromise(MgPromise &&) = default;
+  MgPromise &operator=(MgPromise &&) = default;
   MgPromise(const MgPromise &) = delete;
+  MgPromise &operator=(const MgPromise &) = delete;
 
-  ~MgPromise() noexcept(false) {
+  ~MgPromise() {
     MG_ASSERT(filled_,
               "MgPromise destroyed before its \
               associated MgFuture was filled!");
@@ -156,7 +168,7 @@ class MgPromise {
 };
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair() {
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair() {
   std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>();
   MgFuture<T> future = MgFuture<T>(shared);
   MgPromise<T> promise = MgPromise<T>(shared);
@@ -165,15 +177,15 @@ std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair() {
 }
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> future_promise_pair(SimulatorHandle simulator_handle) {
-  auto [future, promise] = future_promise_pair<T>();
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair(SimulatorHandle simulator_handle) {
+  auto [future, promise] = FuturePromisePair<T>();
   future.simulator_handle_ = simulator_handle;
   return std::make_pair(std::move(future), std::move(promise));
 }
 
 namespace _compile_test {
 void _templatization_smoke_test() {
-  auto [future, promise] = future_promise_pair<bool>();
+  auto [future, promise] = FuturePromisePair<bool>();
   promise.Fill(true);
   MG_ASSERT(future.Wait() == true);
 }
