@@ -50,18 +50,15 @@ def run(args):
             continue
         log.info("%s STARTED.", workload_name)
         # Setup.
-        mg_instances = {}
-
         @atexit.register
         def cleanup():
-            for mg_instance in mg_instances.values():
-                mg_instance.stop()
+            interactive_mg_runner.stop_all()
 
         if "cluster" in workload:
             procdir = ""
             if "proc" in workload:
                 procdir = os.path.join(BUILD_DIR, workload["proc"])
-            mg_instances = interactive_mg_runner.start_all(workload["cluster"], procdir)
+            interactive_mg_runner.start_all(workload["cluster"], procdir)
 
         # Test.
         mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
@@ -70,7 +67,7 @@ def run(args):
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
                 for validation in config.get("validation_queries", []):
-                    mg_instance = mg_instances[name]
+                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
                     data = mg_instance.query(validation["query"])[0][0]
                     assert data == validation["expected"]
         cleanup()
