@@ -84,7 +84,7 @@ def test_show_replicas_while_inserting_data(connection):
     assert expected_data == actual_data
 
     # 1/
-    execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});")
+    execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});randomchange")
     time.sleep(1)
 
     # 2/
