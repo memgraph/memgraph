@@ -61,7 +61,7 @@ def run(args):
             interactive_mg_runner.start_all(workload["cluster"], procdir)
 
         # Test.
-        mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])  # random change
+        mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
         subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
         # Validation.
         if "cluster" in workload:
