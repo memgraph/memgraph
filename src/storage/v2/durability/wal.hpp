@@ -105,6 +105,11 @@ struct WalDeltaData {
     std::string label;
     std::set<std::string> properties;
   } operation_label_properties;
+
+  struct {
+    std::string label;
+    std::vector<SchemaPropertyType> schema_properties_types;
+  } operation_label_create_schema;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);

@@ -69,6 +69,10 @@ namespace memgraph::storage::durability {
 //         * unique constraint create, unique constraint drop
 //              * label name
 //              * property names
+//         * schema create, schema drop
+//              * label name
+//              * property names
+//              * property type
 //
 // IMPORTANT: When changing WAL encoding/decoding bump the snapshot/WAL version
 // in `version.hpp`.
@@ -93,6 +97,10 @@ Marker OperationToMarker(StorageGlobalOperation operation) {
       return Marker::DELTA_UNIQUE_CONSTRAINT_CREATE;
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
       return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
+    case StorageGlobalOperation::SCHEMA_CREATE:
+      return Marker::DELTA_SCHEMA_CREATE;
+    case StorageGlobalOperation::SCHEMA_DROP:
+      return Marker::DELTA_SCHEMA_DROP;
   }
 }
 
@@ -122,7 +130,7 @@ Marker VertexActionToMarker(Delta::Action action) {
   }
 }
 
-// This function convertes a Marker to a WalDeltaData::Type. It checks for the
+// This function converts a Marker to a WalDeltaData::Type. It checks for the
 // validity of the marker and throws if an invalid marker is specified.
 // @throw RecoveryFailure
 WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
@@ -160,6 +168,10 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
       return WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
     case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+      return WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
+    case Marker::DELTA_SCHEMA_CREATE:
+      return WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
+    case Marker::DELTA_SCHEMA_DROP:
       return WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
 
     case Marker::TYPE_NULL:
@@ -309,6 +321,11 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
       }
+      break;
+    }
+    case WalDeltaData::Type::SCHEMA_CREATE:
+    case WalDeltaData::Type::SCHEMA_DROP: {
+      break;
     }
   }
 
@@ -456,6 +473,10 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
+    case WalDeltaData::Type::SCHEMA_CREATE:
+    case WalDeltaData::Type::SCHEMA_DROP: {
+      return a.operation_label_create_schema.label == b.operation_label_create_schema.label;
+    }
   }
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b); }
@@ -612,6 +633,49 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       encoder->WriteUint(properties.size());
       for (const auto &property : properties) {
         encoder->WriteString(name_id_mapper->IdToName(property.AsUint()));
+      }
+      break;
+    }
+    case StorageGlobalOperation::SCHEMA_CREATE:
+    case StorageGlobalOperation::SCHEMA_DROP: {
+      MG_ASSERT(!properties.empty(), "Invalid function call!");
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
+      encoder->WriteUint(properties.size());
+      for (const auto &property : properties) {
+        encoder->WriteString(name_id_mapper->IdToName(property.AsUint()));
+      }
+      break;
+    }
+  }
+}
+
+void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageGlobalOperation operation,
+                     const Schemas::Schema &schema, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  switch (operation) {
+    case StorageGlobalOperation::LABEL_INDEX_CREATE:
+    case StorageGlobalOperation::LABEL_INDEX_DROP:
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
+    case StorageGlobalOperation::SCHEMA_DROP: {
+      throw RecoveryFailure("Unsupported action!");
+    }
+    case StorageGlobalOperation::SCHEMA_CREATE: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(schema.first.AsUint()));
+      encoder->WriteUint(schema.second.size());
+      for (const auto &schema_type : schema.second) {
+        encoder->WriteString(name_id_mapper->IdToName(schema_type.property_id.AsUint()));
+      }
+      encoder->WriteUint(schema.second.size());
+      for (const auto &schema_type : schema.second) {
+        encoder->WriteUint(static_cast<std::underlying_type_t<decltype(schema_type.type)>>(schema_type.type));
       }
       break;
     }
@@ -847,6 +911,10 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                          "The unique constraint doesn't exist!");
           break;
         }
+        case WalDeltaData::Type::SCHEMA_CREATE:
+        case WalDeltaData::Type::SCHEMA_DROP: {
+          break;
+        }
       }
       ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
       ++deltas_applied;
@@ -964,6 +1032,11 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
 void WalFile::AppendOperation(StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                               uint64_t timestamp) {
   EncodeOperation(&wal_, name_id_mapper_, operation, label, properties, timestamp);
+  UpdateStats(timestamp);
+}
+
+void WalFile::AppendOperation(StorageGlobalOperation operation, const Schemas::Schema &schema, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, schema, timestamp);
   UpdateStats(timestamp);
 }
 
