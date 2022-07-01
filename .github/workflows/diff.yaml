@@ -1,4 +1,7 @@
 name: Diff
+concurrency:
+  group: ${{ github.head_ref }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -11,9 +14,6 @@ on:
       - "**/*.md"
       - ".clang-format"
       - "CODEOWNERS"
-  concurrency:
-    group: ${{ github.head_ref }}
-    cancel-in-progress: true
 
 jobs:
   community_build:
