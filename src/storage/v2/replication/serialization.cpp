@@ -25,6 +25,11 @@ void Encoder::WriteUint(uint64_t value) {
   slk::Save(value, builder_);
 }
 
+void Encoder::WriteUint(uint8_t value) {
+  WriteMarker(durability::Marker::TYPE_INT);
+  slk::Save(value, builder_);
+}
+
 void Encoder::WriteDouble(double value) {
   WriteMarker(durability::Marker::TYPE_DOUBLE);
   slk::Save(value, builder_);

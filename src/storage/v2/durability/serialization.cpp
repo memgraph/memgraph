@@ -66,6 +66,12 @@ void Encoder::WriteUint(uint64_t value) {
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 }
 
+void Encoder::WriteUint(uint8_t value) {
+  value = utils::HostToLittleEndian(value);
+  WriteMarker(Marker::TYPE_INT);
+  Write(&value, sizeof(value));
+}
+
 void Encoder::WriteDouble(double value) {
   auto value_uint = utils::MemcpyCast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
@@ -350,6 +356,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
     case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+    case Marker::DELTA_SCHEMA_CREATE:
+    case Marker::DELTA_SCHEMA_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -449,6 +457,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
     case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+    case Marker::DELTA_SCHEMA_CREATE:
+    case Marker::DELTA_SCHEMA_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;

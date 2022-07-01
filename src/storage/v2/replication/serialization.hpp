@@ -31,6 +31,8 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteUint(uint64_t value) override;
 
+  void WriteUint(uint8_t value) override;
+
   void WriteDouble(double value) override;
 
   void WriteString(const std::string_view &value) override;
