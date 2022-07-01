@@ -414,7 +414,12 @@ class Storage final {
 
   bool SetMainReplicationRole();
 
-  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED };
+  enum class RegisterReplicaError : uint8_t {
+    NAME_EXISTS,
+    END_POINT_EXISTS,
+    CONNECTION_FAILED,
+    COULD_NOT_BE_PERSISTED
+  };
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication

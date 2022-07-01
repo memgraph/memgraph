@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_persistance_helper.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "utils/logging.hpp"
 
 namespace {

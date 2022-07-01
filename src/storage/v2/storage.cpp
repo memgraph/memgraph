@@ -29,7 +29,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
-#include "storage/v2/replication/replication_persistance_helper.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -1996,7 +1996,8 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
                                    .replica_check_frequency = config.replica_check_frequency,
                                    .ssl = config.ssl});
     if (!kvstorage_->Put(name, data.dump())) {
-      spdlog::error("Issue when saving replica {} in settings.", name);
+      spdlog::error("Error when saving replica {} in settings.", name);
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
     }
   }
 
@@ -2028,6 +2029,7 @@ bool Storage::UnregisterReplica(const std::string &name) {
   if (ShouldStoreAndRestoreReplicas()) {
     if (!kvstorage_->Delete(name)) {
       spdlog::error("Error when removing replica {} from settings.", name);
+      return false;
     }
   }
 
@@ -2079,7 +2081,7 @@ void Storage::RestoreReplicas() {
 
     const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
     if (!maybe_replica_status.has_value()) {
-      LOG_FATAL("Could parse previously saved configuration of replica {}.", replica_name);
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
     }
 
     auto replica_status = *maybe_replica_status;

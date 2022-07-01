@@ -13,6 +13,9 @@
 
 #include <json/json.hpp>
 
+#include <chrono>
+#include <optional>
+#include <string>
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 
@@ -26,6 +29,8 @@ struct ReplicaStatus {
   std::optional<double> timeout;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
+
+  friend bool operator==(const ReplicaStatus &, const ReplicaStatus &) = default;
 };
 
 nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status);
