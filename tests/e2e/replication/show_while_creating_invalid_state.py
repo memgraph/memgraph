@@ -304,6 +304,7 @@ def test_basic_recovery(connection):
 
     # 11/
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
+    time.sleep(1)
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0, 6, 0, "ready"),
@@ -311,6 +312,7 @@ def test_basic_recovery(connection):
         ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    assert actual_data == expected_data
 
     # 12/
     execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic_again_again', value:44})")
@@ -322,11 +324,12 @@ def test_basic_recovery(connection):
     # 13/
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 8, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 8, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 8, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 9, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", None, 9, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", None, 9, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    assert actual_data == expected_data
 
 
 def test_conflict_at_startup(connection):
