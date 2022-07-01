@@ -38,6 +38,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 /// REPLICATION ///
@@ -1242,11 +1243,35 @@ SchemasInfo Storage::GetSchema(const LabelId primary_label) const {
   return {};
 }
 
-bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types) {
+bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types,
+                           const std::optional<uint64_t> desired_commit_timestamp) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = schemas_.CreateSchema(primary_label, schemas_types);
+  if (!ret) {
+    return ret;
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, *schemas_.GetSchema(primary_label),
+              commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
   return schemas_.CreateSchema(primary_label, schemas_types);
 }
 
-bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
+bool Storage::DropSchema(const LabelId primary_label, std::optional<uint64_t> desired_commit_timestamp) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto res = schemas_.DropSchema(primary_label);
+  if (!res) {
+    return res;
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  AppendToWal(durability::StorageGlobalOperation::SCHEMA_DROP, primary_label, {}, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  return res;
+}
 
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
@@ -1782,6 +1807,25 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
           client->StartTransactionReplication(wal_file_->SequenceNumber());
           client->IfStreamingTransaction(
               [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
+          client->FinalizeTransactionReplication();
+        }
+      });
+    }
+  }
+  FinalizeWalFile();
+}
+
+void Storage::AppendToWal(durability::StorageGlobalOperation operation, const Schemas::Schema &schema,
+                          uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) return;
+  wal_file_->AppendOperation(operation, schema, final_commit_timestamp);
+  {
+    if (replication_role_.load() == ReplicationRole::MAIN) {
+      replication_clients_.WithLock([&](auto &clients) {
+        for (auto &client : clients) {
+          client->StartTransactionReplication(wal_file_->SequenceNumber());
+          client->IfStreamingTransaction(
+              [&](auto &stream) { stream.AppendOperation(operation, schema, final_commit_timestamp); });
           client->FinalizeTransactionReplication();
         }
       });

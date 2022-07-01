@@ -178,6 +178,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
+  memgraph::storage::SchemasMap recovered_schemas;
   std::optional<uint64_t> snapshot_timestamp;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);

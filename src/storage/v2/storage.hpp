@@ -417,9 +417,9 @@ class Storage final {
   SchemasInfo GetSchema(LabelId primary_label) const;
 
   bool CreateSchema(LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types,
-                    std::optional<uint64_t> desired_commit_timestamp);
+                    std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropSchema(LabelId primary_label, std::optional<uint64_t> desired_commit_timestamp);
+  bool DropSchema(LabelId primary_label, std::optional<uint64_t> desired_commit_timestamp = {});
 
   StorageInfo GetInfo() const;
 
