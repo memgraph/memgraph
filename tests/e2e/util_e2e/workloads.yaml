@@ -1,0 +1,13 @@
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "util-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Utility simple"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["util_e2e/utility_simple.py"]
+    <<: *template_cluster
