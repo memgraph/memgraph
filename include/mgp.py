@@ -784,8 +784,8 @@ class Vertex:
         Raises: 
             InvalidContextError: If `Vertex` is out of context.
             ImmutableObjectError: If `Vertex` is immutable.
-            DeletedObjectError if `Vertex` has been deleted.
-            SerializationError if `Vertex` has been modified by another transaction.
+            DeletedObjectError: If `Vertex` has been deleted.
+            SerializationError: If `Vertex` has been modified by another transaction.
         
         Examples: 
             ```vertex.remove_label(label)```
@@ -891,7 +891,7 @@ class Path:
 
         Raises: 
             InvalidContextError: If passed in Vertex is invalid.
-            UnableToAllocateError If cannot allocate a path.
+            UnableToAllocateError: If cannot allocate a path.
         """
         # We cache calls to `vertices` and `edges`, so as to avoid needless
         # allocations at the C level.
