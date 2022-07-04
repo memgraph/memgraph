@@ -882,7 +882,7 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
@@ -894,6 +894,14 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
   } else if (arg.IsDouble()) {
     return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+  } else if (arg.IsDate()) {
+    return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+  } else if (arg.IsLocalTime()) {
+    return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+  } else if (arg.IsLocalDateTime()) {
+    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+  } else if (arg.IsDuration()) {
+    return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
   } else {
     return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
   }

@@ -87,6 +87,8 @@ struct Duration {
   int64_t SubDaysAsNanoseconds() const;
   int64_t SubSecondsAsNanoseconds() const;
 
+  std::string ToString() const;
+
   friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
     // Format [nD]T[nH]:[nM]:[nS].
     namespace chrono = std::chrono;
@@ -162,6 +164,7 @@ struct Date {
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t DaysSinceEpoch() const;
+  std::string ToString() const;
 
   friend Date operator+(const Date &date, const Duration &dur) {
     namespace chrono = std::chrono;
@@ -217,6 +220,7 @@ struct LocalTime {
   // Epoch means the start of the day, i,e, midnight
   int64_t MicrosecondsSinceEpoch() const;
   int64_t NanosecondsSinceEpoch() const;
+  std::string ToString() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
@@ -279,6 +283,7 @@ struct LocalDateTime {
   int64_t MicrosecondsSinceEpoch() const;
   int64_t SecondsSinceEpoch() const;  // seconds since epoch
   int64_t SubSecondsAsNanoseconds() const;
+  std::string ToString() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
