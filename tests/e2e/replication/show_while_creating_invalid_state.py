@@ -361,5 +361,69 @@ def test_conflict_at_startup(connection):
     assert execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0] == "main"
 
 
+def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
+    # Goal of this test is to check the recovery of main.
+    # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
+    # 1/ We check that all replicas have the correct state: they should all be ready.
+    # 2/ We kill main then kill a replica.
+    # 3/ We re-start main: application crashes, it should not be able to restart.
+
+    data_directory = tempfile.TemporaryDirectory()
+    CONFIGURATION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": "replica2.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [],
+            "data_directory": f"{data_directory.name}",
+        },
+    }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
+
+    # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
+
+    # 1/
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", None, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", None, 0, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+
+    assert actual_data == expected_data
+
+    def check_roles():
+        assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
+        for index in range(1, 2):
+            assert (
+                "replica"
+                == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query("SHOW REPLICATION ROLE;")[0][0]
+            )
+
+    check_roles()
+
+    # 2/
+    interactive_mg_runner.kill(CONFIGURATION, "main")
+    interactive_mg_runner.kill(CONFIGURATION, "replica_2")
+    time.sleep(2)
+
+    # 3/
+    interactive_mg_runner.start(CONFIGURATION, "main")
+    # with pytest.raises(SystemExit):
+    #     interactive_mg_runner.start(CONFIGURATION, "main")
+    # interactive_mg_runner.MEMGRAPH_INSTANCES.pop("main")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
