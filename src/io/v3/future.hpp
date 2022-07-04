@@ -80,7 +80,8 @@ class Shared {
       MG_ASSERT(!consumed_, "MgFuture consumed twice!");
     }
 
-    T ret = *std::move(item_);
+    T ret = std::move(item_).value();
+    item_.reset();
 
     consumed_ = true;
 
