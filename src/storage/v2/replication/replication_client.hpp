@@ -28,6 +28,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/schemas.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
@@ -61,6 +62,10 @@ class Storage::ReplicationClient {
     /// @throw rpc::RpcFailedException
     void AppendOperation(durability::StorageGlobalOperation operation, LabelId label,
                          const std::set<PropertyId> &properties, uint64_t timestamp);
+
+    /// @throw rpc::RpcFailedException
+    void AppendOperation(durability::StorageGlobalOperation operation, const Schemas::Schema &schema,
+                         uint64_t timestamp);
 
    private:
     /// @throw rpc::RpcFailedException

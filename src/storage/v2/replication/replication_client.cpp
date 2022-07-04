@@ -562,6 +562,12 @@ void Storage::ReplicationClient::ReplicaStream::AppendOperation(durability::Stor
   EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, label, properties, timestamp);
 }
 
+void Storage::ReplicationClient::ReplicaStream::AppendOperation(durability::StorageGlobalOperation operation,
+                                                                const Schemas::Schema &schema, uint64_t timestamp) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  EncodeOperation(&encoder, &self_->storage_->name_id_mapper_, operation, schema, timestamp);
+}
+
 replication::AppendDeltasRes Storage::ReplicationClient::ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 ////// CurrentWalHandler //////

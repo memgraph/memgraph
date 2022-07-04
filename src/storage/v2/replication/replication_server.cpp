@@ -312,13 +312,13 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     switch (delta.type) {
       case durability::WalDeltaData::Type::VERTEX_CREATE: {
         spdlog::trace("       Create vertex {}", delta.vertex_create_delete.gid.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         transaction->CreateVertex(delta.vertex_create_delete.gid);
         break;
       }
       case durability::WalDeltaData::Type::VERTEX_DELETE: {
         spdlog::trace("       Delete vertex {}", delta.vertex_create_delete.gid.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_create_delete.gid, storage::View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = transaction->DeleteVertex(&*vertex);
@@ -328,7 +328,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_ADD_LABEL: {
         spdlog::trace("       Vertex {} add label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, storage::View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
@@ -338,7 +338,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
         spdlog::trace("       Vertex {} remove label {}", delta.vertex_add_remove_label.gid.AsUint(),
                       delta.vertex_add_remove_label.label);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, storage::View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
@@ -348,7 +348,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
       case durability::WalDeltaData::Type::VERTEX_SET_PROPERTY: {
         spdlog::trace("       Vertex {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
                       delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, storage::View::NEW);
         if (!vertex) throw utils::BasicException("Invalid transaction!");
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
@@ -360,7 +360,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Create edge {} of type {} from vertex {} to vertex {}",
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, storage::View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, storage::View::NEW);
@@ -375,7 +375,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Delete edge {} of type {} from vertex {} to vertex {}",
                       delta.edge_create_delete.gid.AsUint(), delta.edge_create_delete.edge_type,
                       delta.edge_create_delete.from_vertex.AsUint(), delta.edge_create_delete.to_vertex.AsUint());
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
         auto from_vertex = transaction->FindVertex(delta.edge_create_delete.from_vertex, storage::View::NEW);
         if (!from_vertex) throw utils::BasicException("Invalid transaction!");
         auto to_vertex = transaction->FindVertex(delta.edge_create_delete.to_vertex, storage::View::NEW);
@@ -398,7 +398,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
               "Can't set properties on edges because properties on edges "
               "are disabled!");
 
-        auto transaction = get_transaction(timestamp);
+        auto *transaction = get_transaction(timestamp);
 
         // The following block of code effectively implements `FindEdge` and
         // yields an accessor that is only valid for managing the edge's
@@ -548,6 +548,31 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         auto ret = storage_->DropUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
                                                   properties, timestamp);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) throw utils::BasicException("Invalid transaction!");
+        break;
+      }
+      case durability::WalDeltaData::Type::SCHEMA_CREATE: {
+        // std::stringstream ss;
+        // utils::PrintIterable(ss, delta.operation_label_create_schema);
+        // spdlog::trace("       Create schema on label :{}", delta.operation_label_create_schema.label, ss.str());
+        // if (commit_timestamp_and_accessor) {
+        //   throw utils::BasicException("Invalid transaction!");
+        // }
+        // if (!storage_->CreateSchema(storage_->NameToLabel(delta.operation_label_create_schema.label),
+        //                             delta.operation_label_create_schema.schema_properties_types, timestamp)) {
+        //   throw utils::BasicException("Invalid transaction!");
+        // }
+        break;
+      }
+      case durability::WalDeltaData::Type::SCHEMA_DROP: {
+        // std::stringstream ss;
+        // utils::PrintIterable(ss, delta.operation_label);
+        // spdlog::trace("       Drop schema on label :{}", delta.operation_label.label, ss.str());
+        // if (commit_timestamp_and_accessor) {
+        //   throw utils::BasicException("Invalid transaction!");
+        // }
+        // if (!storage_->DropSchema(storage_->NameToLabel(delta.operation_label.label), timestamp)) {
+        //   throw utils::BasicException("Invalid transaction!");
+        // }
         break;
       }
     }
