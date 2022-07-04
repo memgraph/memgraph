@@ -2389,6 +2389,9 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   const std::string faulty_query = "REGISTER REPLICA TO";
   ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
 
+  const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+
   const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
   check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
