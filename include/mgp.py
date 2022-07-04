@@ -148,7 +148,7 @@ class Label:
         """
         Get the name of the label.
        
-        Return:
+        Returns:
             A string that represents the name of the label.
 
         Example:
