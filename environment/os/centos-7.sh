@@ -5,6 +5,8 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
+check_operating_system "centos-7"
+
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc gcc-c++ make # generic build tools
     wget # used for archive download
