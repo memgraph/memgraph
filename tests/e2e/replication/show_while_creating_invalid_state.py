@@ -11,13 +11,13 @@
 
 import sys
 
-import atexit
 import os
 import pytest
 import time
 
 from common import execute_and_fetch_all
 import interactive_mg_runner
+import mgclient
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -51,7 +51,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "args": ["--bolt-port", "7687", "--log-level=TRACE"],
         "log_file": "main.log",
         "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';",
+            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';",
             "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';",
             "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
             "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
@@ -68,11 +68,7 @@ def test_show_replicas(connection):
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
     # 0/
-
-    atexit.register(
-        interactive_mg_runner.stop_all
-    )  # Needed in case the test fails due to an assert. One still want the instances to be stoped.
-    mg_instances = interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     cursor = connection(7687, "main").cursor()
 
@@ -92,7 +88,7 @@ def test_show_replicas(connection):
     assert EXPECTED_COLUMN_NAMES == actual_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2, 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
@@ -103,26 +99,59 @@ def test_show_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
     assert expected_data == actual_data
 
     # 3/
-    mg_instances["replica_1"].kill()
-    mg_instances["replica_3"].kill()
-    mg_instances["replica_4"].stop()
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
 
     # We leave some time for the main to realise the replicas are down.
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, 0, "invalid"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "invalid"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "invalid"),
     }
     assert expected_data == actual_data
+
+
+def test_add_replica_invalid_timeout(connection):
+    # Goal of this test is to check the registration of replica with invalid timeout raises an exception
+    CONFIGURATION = {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": "main.log",
+            "setup_queries": [],
+        },
+    }
+
+    interactive_mg_runner.start_all(CONFIGURATION)
+
+    cursor = connection(7687, "main").cursor()
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT -5 TO '127.0.0.1:10001';")
+
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert 0 == len(actual_data)
+
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10001';")
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert 1 == len(actual_data)
 
 
 if __name__ == "__main__":
