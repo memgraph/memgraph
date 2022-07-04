@@ -675,7 +675,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       }
       encoder->WriteUint(schema.second.size());
       for (const auto &schema_type : schema.second) {
-        encoder->WriteUint(static_cast<std::underlying_type_t<decltype(schema_type.type)>>(schema_type.type));
+        encoder->WriteUint(static_cast<uint64_t>(schema_type.type));
       }
       break;
     }

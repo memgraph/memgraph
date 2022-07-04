@@ -66,12 +66,6 @@ void Encoder::WriteUint(uint64_t value) {
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 }
 
-void Encoder::WriteUint(uint8_t value) {
-  value = utils::HostToLittleEndian(value);
-  WriteMarker(Marker::TYPE_INT);
-  Write(&value, sizeof(value));
-}
-
 void Encoder::WriteDouble(double value) {
   auto value_uint = utils::MemcpyCast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
