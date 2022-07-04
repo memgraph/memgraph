@@ -11,11 +11,13 @@
 
 #pragma once
 
-#include <json/json.hpp>
-
 #include <chrono>
+#include <compare>
 #include <optional>
 #include <string>
+
+#include <json/json.hpp>
+
 #include "storage/v2/replication/config.hpp"
 #include "storage/v2/replication/enums.hpp"
 
