@@ -174,5 +174,5 @@ jobs:
       - name: "Upload package"
         uses: actions/upload-artifact@v2
         with:
-          name: debian-11
-          path: build/output/debian-11/memgraph*.deb
+          name: debian-11-arm
+          path: build/output/debian-11-arm/memgraph*.deb
