@@ -485,7 +485,7 @@ class EdgeType:
         """
         Get the name of EdgeType.
         
-        Return:
+        Returns:
             A string that represents the name of EdgeType.
 
         Example:
