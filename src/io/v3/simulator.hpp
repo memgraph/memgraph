@@ -32,10 +32,40 @@ struct SimulatorConfig {
   uint64_t rng_seed_;
 };
 
+class SimulatorTransport {
+ public:
+  SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address)
+      : simulator_handle_(simulator_handle), address_(address) {}
+
+  template <Message Request, Message Response>
+  ResponseFuture<Response> RequestTimeout(Address address, uint64_t request_id, Request request,
+                                          uint64_t timeout_microseconds) {
+    std::abort();
+  }
+
+  template <Message... Ms>
+  RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
+    std::abort();
+  }
+
+  template <Message M>
+  void Send(Address address, uint64_t request_id, M message) {
+    std::abort();
+  }
+
+  std::time_t Now() { std::abort(); }
+
+  bool ShouldShutDown() { std::abort(); }
+
+ private:
+  std::shared_ptr<SimulatorHandle> simulator_handle_;
+  Address address_;
+};
+
 class Simulator {
  public:
-  SimulatorTransport Register(Address address, bool is_server) {
-    return SimulatorTransport(simulator_handle_, address);
+  Io<SimulatorTransport> Register(Address address, bool is_server) {
+    return Io(SimulatorTransport(simulator_handle_, address), address);
   }
 
  private:

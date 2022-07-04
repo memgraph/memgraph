@@ -25,13 +25,3 @@ class SimulatorHandle {
   std::condition_variable cv_sim_;
   std::condition_variable cv_srv_;
 };
-
-class SimulatorTransport {
- public:
-  SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address)
-      : simulator_handle_(simulator_handle), address_(address) {}
-
- private:
-  std::shared_ptr<SimulatorHandle> simulator_handle_;
-  Address address_;
-};

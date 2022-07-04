@@ -25,4 +25,10 @@ struct Address {
   boost::uuids::uuid unique_id;
   boost::asio::ip::address last_known_ip;
   uint16_t last_known_port;
+
+  static Address TestAddress(uint16_t port) {
+    Address ret;
+    ret.last_known_port = port;
+    return ret;
+  }
 };

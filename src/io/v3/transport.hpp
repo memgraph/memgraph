@@ -27,8 +27,8 @@ concept Message = requires(T a, uint8_t *ptr, size_t len) {
   // These are placeholders and will be replaced
   // by some concept that identifies Thrift-generated
   // messages.
-  { a.serialize() } -> std::same_as<std::vector<uint8_t>>;
-  { T::deserialize(ptr, len) } -> std::same_as<T>;
+  { a.Serialize() } -> std::same_as<std::vector<uint8_t>>;
+  { T::Deserialize(ptr, len) } -> std::same_as<T>;
 };
 
 template <Message M>
@@ -38,6 +38,12 @@ struct MessageAndAddress {
   Address from;
 };
 
+template <Message M>
+using ResponseResult = BasicResult<Timeout, MessageAndAddress<M>>;
+
+template <Message M>
+using ResponseFuture = MgFuture<ResponseResult<M>>;
+
 template <Message... Ms>
 struct MessageVariantAndSenderAddress {
   std::variant<Ms...> message;
@@ -45,11 +51,8 @@ struct MessageVariantAndSenderAddress {
   Address from;
 };
 
-template <Message M>
-using RequestResult = BasicResult<MessageAndAddress<M>, Timeout>;
-
-template <Message M>
-using RequestFuture = MgFuture<RequestResult<M>>;
+template <Message... Ms>
+using RequestResult = BasicResult<Timeout, MessageVariantAndSenderAddress<Ms...>>;
 
 template <typename I>
 class Io {
@@ -61,14 +64,14 @@ class Io {
   }
 
   template <Message Request, Message Response>
-  RequestFuture<Response> RequestTimeout(Address address, Request request, uint64_t timeout_microseconds) {
+  ResponseFuture<Response> RequestTimeout(Address address, Request request, uint64_t timeout_microseconds) {
     uint64_t request_id = ++request_id_counter_;
     return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
                                                                       timeout_microseconds);
   }
 
   template <Message Request, Message Response>
-  RequestFuture<Response> RequestTimeout(Address address, Request request) {
+  ResponseFuture<Response> RequestTimeout(Address address, Request request) {
     uint64_t request_id = ++request_id_counter_;
     uint64_t timeout_microseconds = default_timeout_microseconds_;
     return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
@@ -76,12 +79,12 @@ class Io {
   }
 
   template <Message... Ms>
-  MessageVariantAndSenderAddress<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
+  RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
     return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
   }
 
   template <Message... Ms>
-  MessageVariantAndSenderAddress<Ms...> ReceiveTimeout() {
+  RequestResult<Ms...> ReceiveTimeout() {
     uint64_t timeout_microseconds = default_timeout_microseconds_;
     return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
   }
