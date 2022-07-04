@@ -86,7 +86,7 @@ def test_show_replicas(connection):
     }
 
     actual_column_names = {x.name for x in cursor.description}
-    assert EXPECTED_COLUMN_NAMES == actual_column_names
+    assert actual_column_names == EXPECTED_COLUMN_NAMES
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
@@ -94,7 +94,7 @@ def test_show_replicas(connection):
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     # 2/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
@@ -104,7 +104,7 @@ def test_show_replicas(connection):
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
     }
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
@@ -119,7 +119,7 @@ def test_show_replicas(connection):
         ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "invalid"),
         ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "invalid"),
     }
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
 
 def test_add_replica_invalid_timeout(connection):
@@ -148,11 +148,11 @@ def test_add_replica_invalid_timeout(connection):
         execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT -5 TO '127.0.0.1:10001';")
 
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-    assert 0 == len(actual_data)
+    assert len(actual_data) == 0
 
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10001';")
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-    assert 1 == len(actual_data)
+    assert len(actual_data) == 1
 
 
 def test_basic_recovery(connection):
@@ -263,7 +263,7 @@ def test_basic_recovery(connection):
     # 7/
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
-    assert 1 == len(res_from_main)
+    assert len(res_from_main) == 1
     for index in (1, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
@@ -276,7 +276,7 @@ def test_basic_recovery(connection):
     assert actual_data == expected_data
 
     # Replica_2 was dropped, we check it does not have the data from main.
-    assert 0 == len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK))
+    assert len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK)) == 0
 
     # 8/
     interactive_mg_runner.kill(CONFIGURATION, "replica_3")
@@ -284,7 +284,7 @@ def test_basic_recovery(connection):
     # 9/
     execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic_again', value:43})")
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
-    assert 2 == len(res_from_main)
+    assert len(res_from_main) == 2
 
     # 10/
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
@@ -300,7 +300,7 @@ def test_basic_recovery(connection):
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data
     for index in (1, 2, 3, 4):
-        assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+        assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
     # 11/
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
@@ -317,9 +317,9 @@ def test_basic_recovery(connection):
     # 12/
     execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic_again_again', value:44})")
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
-    assert 3 == len(res_from_main)
+    assert len(res_from_main) == 3
     for index in (2, 3, 4):
-        assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
+        assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
     # 13/
     expected_data = {
@@ -357,8 +357,8 @@ def test_conflict_at_startup(connection):
     cursor_1 = connection(7687, "main_1").cursor()
     cursor_2 = connection(7688, "main_2").cursor()
 
-    assert "main" == execute_and_fetch_all(cursor_1, "SHOW REPLICATION ROLE;")[0][0]
-    assert "main" == execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0]
+    assert execute_and_fetch_all(cursor_1, "SHOW REPLICATION ROLE;")[0][0] == "main"
+    assert execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0] == "main"
 
 
 if __name__ == "__main__":
