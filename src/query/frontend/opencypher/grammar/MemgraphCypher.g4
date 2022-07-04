@@ -262,7 +262,7 @@ privilegeList : privilege ( ',' privilege )* ;
 
 labelList : label ( ',' label )* ;
 
-label: ( '*' | StringLiteral ) ;
+label : ( '*' | StringLiteral ) ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
