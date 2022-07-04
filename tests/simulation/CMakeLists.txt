@@ -14,6 +14,11 @@ function(add_simulation_test test_cpp)
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} gtest gmock gtest_main)
+
+  # sanitize?
+  target_compile_options(${target_name} PRIVATE -fsanitize=address)
+  target_link_options(${target_name} PRIVATE -fsanitize=address)
+
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__simulation ${target_name})
