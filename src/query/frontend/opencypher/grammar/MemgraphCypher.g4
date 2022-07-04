@@ -56,6 +56,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | ISOLATION
                       | KAFKA
+                      | LABELS
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -254,9 +255,14 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | LABELS labels=labelList
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
+
+labelList : label ( ',' label )* ;
+
+label: ( '*' | StringLiteral ) ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
