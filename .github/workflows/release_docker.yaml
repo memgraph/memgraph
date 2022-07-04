@@ -4,8 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Memgraph binary version to publish on Dockerhub."
+        description: "Memgraph binary version to publish on DockerHub."
         required: true
+      force_release:
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   docker_publish:
@@ -35,6 +39,22 @@ jobs:
           cd release/docker
           curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11/memgraph_${{ github.event.inputs.version }}-1_amd64.deb > memgraph-amd64.deb
           curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11-aarch64/memgraph_${{ github.event.inputs.version }}-1_arm64.deb > memgraph-arm64.deb
+
+      - name: Check if specified version is already pushed
+        run: |
+          EXISTS=$(docker manifest inspect $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} > /dev/null; echo $?)
+          echo $EXISTS
+          if [[ ${EXISTS} -eq 0 ]]; then
+              echo 'The specified version has been already released to DockerHub.'
+              if [[ ${{ github.event.inputs.force_release }} = true ]]; then
+                echo 'Forcing the release!'
+              else
+                echo 'Stopping the release!'
+                exit 1
+              fi
+          else
+              echo 'All good the specified version has not been release to DockerHub.'
+          fi
 
       - name: Build & push docker images
         run: |
