@@ -42,6 +42,7 @@ from inspect import signature
 
 import yaml
 from memgraph import MemgraphInstanceRunner
+from memgraph import extract_bolt_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -95,9 +96,20 @@ def load_args():
     return parser.parse_args()
 
 
+def is_port_in_use(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+
 def _start_instance(name, args, log_file, queries, use_ssl, procdir):
-    assert name not in MEMGRAPH_INSTANCES.keys()
-    # If this raises, you are trying to start an instance with the same name than one already running.
+    assert (
+        name not in MEMGRAPH_INSTANCES.keys()
+    ), "If this raises, you are trying to start an instance with the same name than one already running."
+    assert not is_port_in_use(
+        extract_bolt_port(args)
+    ), "If this raises, you are trying to start an instance on a port already used by one already running instance."
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
@@ -109,6 +121,8 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir):
     mg_instance.start(args=binary_args)
     for query in queries:
         mg_instance.query(query)
+
+    assert mg_instance.is_running(), "An error occured after starting Memgraph instance: application stopped running."
 
 
 def stop_all():
