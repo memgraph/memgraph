@@ -525,30 +525,6 @@ Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
   return info;
 }
 
-////// TimeoutDispatcher //////
-void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
-  // Wait for the previous timeout task to finish
-  std::unique_lock main_guard(main_lock);
-  main_cv.wait(main_guard, [&] { return finished; });
-}
-
-void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(const double timeout) {
-  timeout_pool.AddTask([timeout, this] {
-    finished = false;
-    using std::chrono::steady_clock;
-    const auto timeout_duration =
-        std::chrono::duration_cast<steady_clock::duration>(std::chrono::duration<double>(timeout));
-    const auto end_time = steady_clock::now() + timeout_duration;
-    while (active && (steady_clock::now() < end_time)) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    std::unique_lock main_guard(main_lock);
-    finished = true;
-    active = false;
-    main_cv.notify_one();
-  });
-}
 ////// ReplicaStream //////
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
                                                          const uint64_t previous_commit_timestamp,

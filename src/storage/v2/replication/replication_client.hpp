@@ -156,29 +156,6 @@ class Storage::ReplicationClient {
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
 
-  // Dispatcher class for timeout tasks
-  struct TimeoutDispatcher {
-    explicit TimeoutDispatcher(){};
-
-    void WaitForTaskToFinish();
-
-    void StartTimeoutTask(double timeout);
-
-    // If the Timeout task should continue waiting
-    std::atomic<bool> active{false};
-
-    std::mutex main_lock;
-    std::condition_variable main_cv;
-
-   private:
-    // if the Timeout task finished executing
-    bool finished{true};
-
-    utils::ThreadPool timeout_pool{1};
-  };
-
-  std::optional<TimeoutDispatcher> timeout_dispatcher_;
-
   utils::SpinLock client_lock_;
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
