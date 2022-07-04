@@ -21,7 +21,7 @@
 #include "utils/logging.hpp"
 
 #include "errors.hpp"
-#include "simulator.hpp"
+#include "simulator_handle.hpp"
 
 template <typename T>
 class MgPromise;
@@ -42,6 +42,7 @@ class Shared {
   friend MgFuture<T>;
 
  public:
+  Shared() = default;
   Shared(Shared &&) = default;
   Shared &operator=(Shared &&) = default;
   Shared(const Shared &) = delete;
@@ -148,9 +149,11 @@ class MgPromise {
   MgPromise &operator=(const MgPromise &) = delete;
 
   ~MgPromise() {
+    /*
     MG_ASSERT(filled_,
               "MgPromise destroyed before its \
               associated MgFuture was filled!");
+              */
   }
 
   // Fill the expected item into the Future.
@@ -183,11 +186,3 @@ std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair(SimulatorHandle simulator
   future.simulator_handle_ = simulator_handle;
   return std::make_pair(std::move(future), std::move(promise));
 }
-
-namespace _compile_test {
-void _templatization_smoke_test() {
-  auto [future, promise] = FuturePromisePair<bool>();
-  promise.Fill(true);
-  MG_ASSERT(future.Wait() == true);
-}
-}  // namespace _compile_test

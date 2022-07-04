@@ -11,10 +11,27 @@
 
 //#include <gtest/gtest.h>
 
+#include <string>
+
+#include "io/v3/simulator.hpp"
 #include "io/v3/transport.hpp"
 #include "utils/logging.hpp"
 
 int main() {
-  MG_ASSERT(true);
+  auto [future, promise] = FuturePromisePair<std::string>();
+  promise.Fill("yo");
+  MG_ASSERT(future.Wait() == "yo");
+
+  /*
+  auto simulator = Simulator();
+  auto addr_1 = Address();
+  auto addr_2 = Address();
+  auto addr_3 = Address();
+
+  auto sim_transport_1 = simulator.Register(addr_1, true);
+  auto sim_transport_2 = simulator.Register(addr_2, true);
+  auto sim_transport_3 = simulator.Register(addr_3, true);
+  */
+
   return 0;
 }
