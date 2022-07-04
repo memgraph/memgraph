@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "address.hpp"
+
 class SimulatorHandle {
  public:
   void NotifySimulator() {

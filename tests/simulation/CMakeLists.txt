@@ -19,5 +19,8 @@ function(add_simulation_test test_cpp)
   add_dependencies(memgraph__simulation ${target_name})
 endfunction(add_simulation_test)
 
+add_simulation_test(future.cpp)
+target_link_libraries(${test_prefix}future mg-utils mg-io-v3)
+
 add_simulation_test(basic_request.cpp)
 target_link_libraries(${test_prefix}basic_request mg-utils mg-io-v3)

@@ -43,8 +43,8 @@ class Shared {
 
  public:
   Shared() = default;
-  Shared(Shared &&) = default;
-  Shared &operator=(Shared &&) = default;
+  Shared(Shared &&) = delete;
+  Shared &operator=(Shared &&) = delete;
   Shared(const Shared &) = delete;
   Shared &operator=(const Shared &) = delete;
   ~Shared() = default;
@@ -121,19 +121,33 @@ class MgFuture {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
 
  public:
-  MgFuture(MgFuture &&) = default;
-  MgFuture &operator=(MgFuture &&) = default;
+  MgFuture(MgFuture &&old) {
+    shared_ = std::move(old.shared_);
+    consumed_or_moved_ = old.consumed_or_moved_;
+    old.consumed_or_moved_ = true;
+  }
+  MgFuture &operator=(MgFuture &&old) {
+    shared_ = std::move(old.shared_);
+    consumed_or_moved_ = old.consumed_or_moved_;
+    old.consumed_or_moved_ = true;
+  }
   MgFuture(const MgFuture &) = delete;
   MgFuture &operator=(const MgFuture &) = delete;
   ~MgFuture() = default;
 
   // Block on the corresponding promise to be filled,
   // returning the inner item when ready.
-  T Wait() { return shared_->Wait(); }
+  T Wait() {
+    MG_ASSERT(!consumed_or_moved_, "MgFuture should only be consumed with Wait once!");
+    T ret = shared_->Wait();
+    consumed_or_moved_ = true;
+    return ret;
+  }
 
  private:
   MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
+  bool consumed_or_moved_;
   std::shared_ptr<Shared<T>> shared_;
 };
 
@@ -143,23 +157,26 @@ class MgPromise {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
 
  public:
-  MgPromise(MgPromise &&) = default;
-  MgPromise &operator=(MgPromise &&) = default;
+  MgPromise(MgPromise &&old) {
+    shared_ = std::move(old.shared_);
+    filled_or_moved_ = old.filled_or_moved_;
+    old.filled_or_moved_ = true;
+  }
+  MgPromise &operator=(MgPromise &&old) {
+    shared_ = std::move(old.shared_);
+    filled_or_moved_ = old.filled_or_moved_;
+    old.filled_or_moved_ = true;
+  }
   MgPromise(const MgPromise &) = delete;
   MgPromise &operator=(const MgPromise &) = delete;
 
-  ~MgPromise() {
-    /*
-    MG_ASSERT(filled_,
-              "MgPromise destroyed before its \
-              associated MgFuture was filled!");
-              */
-  }
+  ~MgPromise() { MG_ASSERT(filled_or_moved_, "MgPromise destroyed before its associated MgFuture was filled!"); }
 
   // Fill the expected item into the Future.
   void Fill(T item) {
+    MG_ASSERT(!filled_or_moved_, "MgPromise::Fill called twice on the same promise!");
     shared_->Fill(item);
-    filled_ = true;
+    filled_or_moved_ = true;
   }
 
   bool IsAwaited() { return shared_->IsAwaited(); }
@@ -168,7 +185,7 @@ class MgPromise {
   MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
   std::shared_ptr<Shared<T>> shared_;
-  bool filled_;
+  bool filled_or_moved_;
 };
 
 template <typename T>
