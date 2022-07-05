@@ -125,11 +125,12 @@ class MgFuture {
   MgFuture(MgFuture &&old) {
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
+    MG_ASSERT(!old.consumed_or_moved_, "MgFuture moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
   MgFuture &operator=(MgFuture &&old) {
     shared_ = std::move(old.shared_);
-    consumed_or_moved_ = old.consumed_or_moved_;
+    MG_ASSERT(!old.consumed_or_moved_, "MgFuture moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
   MgFuture(const MgFuture &) = delete;
@@ -148,7 +149,7 @@ class MgFuture {
  private:
   MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
-  bool consumed_or_moved_;
+  bool consumed_or_moved_ = false;
   std::shared_ptr<Shared<T>> shared_;
 };
 
@@ -160,12 +161,12 @@ class MgPromise {
  public:
   MgPromise(MgPromise &&old) {
     shared_ = std::move(old.shared_);
-    filled_or_moved_ = old.filled_or_moved_;
+    MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");
     old.filled_or_moved_ = true;
   }
   MgPromise &operator=(MgPromise &&old) {
     shared_ = std::move(old.shared_);
-    filled_or_moved_ = old.filled_or_moved_;
+    MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");
     old.filled_or_moved_ = true;
   }
   MgPromise(const MgPromise &) = delete;
@@ -186,7 +187,7 @@ class MgPromise {
   MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
   std::shared_ptr<Shared<T>> shared_;
-  bool filled_or_moved_;
+  bool filled_or_moved_ = false;
 };
 
 template <typename T>

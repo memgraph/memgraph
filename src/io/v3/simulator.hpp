@@ -43,6 +43,8 @@ class SimulatorTransport {
     std::function<void()> notifier = [=] { simulator_handle_->NotifySimulator(); };
     auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(notifier);
 
+    simulator_handle_->SubmitRequest(address, request_id, request, timeout_microseconds, std::move(promise));
+
     return std::move(future);
   }
 
