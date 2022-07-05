@@ -3,7 +3,6 @@ set(io_v3_sources
     errors.hpp
     future.hpp
     transport.hpp
-    notifier.hpp
     simulator.hpp
     simulator_handle.hpp)
 
