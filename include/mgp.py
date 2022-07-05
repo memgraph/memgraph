@@ -1630,5 +1630,8 @@ class Logger:
     def error(self, out: str) -> None:
         self._logger.error(out)
 
+    def trace(self, out: str) -> None:
+        self._logger.trace(out)
+
 
 _wrap_exceptions()
