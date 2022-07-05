@@ -424,7 +424,7 @@ Storage::Storage(Config config)
         std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
     RestoreReplicas();
   } else {
-    spdlog::warn("Replicas' configuration will NOT be stored.");
+    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
   }
 }
 
