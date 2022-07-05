@@ -19,20 +19,20 @@
 #include "io/v3/simulator.hpp"
 #include "utils/terminate_handler.hpp"
 
-struct Request {
+struct RequestMsg {
   std::string data;
 
   std::vector<uint8_t> Serialize() { return std::vector<uint8_t>(); }
 
-  static Request Deserialize(uint8_t *ptr, size_t len) { return Request{}; }
+  static RequestMsg Deserialize(uint8_t *ptr, size_t len) { return RequestMsg{}; }
 };
 
-struct Response {
+struct ResponseMsg {
   std::string data;
 
   std::vector<uint8_t> Serialize() { return std::vector<uint8_t>(); }
 
-  static Response Deserialize(uint8_t *ptr, size_t len) { return Response{}; }
+  static ResponseMsg Deserialize(uint8_t *ptr, size_t len) { return ResponseMsg{}; }
 };
 
 int main() {
@@ -41,18 +41,18 @@ int main() {
   auto srv_addr = Address::TestAddress(2);
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, true);
-  // Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
+  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
 
   // send request
-  Request cli_req;
-  ResponseFuture<Response> response_future = cli_io.template RequestTimeout<Request, Response>(srv_addr, cli_req);
+  RequestMsg cli_req;
+  ResponseFuture<ResponseMsg> response_future = cli_io.template Request<RequestMsg, ResponseMsg>(srv_addr, cli_req);
 
   //  // receive request
   //  RequestResult<Request> request_result = sim_io_2.template ReceiveTimeout<Request>();
   //  auto req_envelope = request_result.GetValue();
   //  Request req = std::get<Request>(req_envelope.message);
   //
-  //  auto srv_res = Response{req.data};
+  //  auto srv_res = ResponseMsg{req.data};
   //
   //  // send response
   //  sim_io_2.Send(req_envelope.from, req_envelope.request_id, srv_res);

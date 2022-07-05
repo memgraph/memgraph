@@ -19,14 +19,6 @@
 #include "simulator_handle.hpp"
 #include "transport.hpp"
 
-struct SimulatorStats {
-  uint64_t total_messages_;
-  uint64_t dropped_messages_;
-  uint64_t total_requests_;
-  uint64_t total_responses_;
-  uint64_t simulator_ticks_;
-};
-
 struct SimulatorConfig {
   uint8_t drop_percent_;
   uint64_t rng_seed_;
@@ -38,20 +30,21 @@ class SimulatorTransport {
       : simulator_handle_(simulator_handle), address_(address) {}
 
   template <Message Request, Message Response>
-  ResponseFuture<Response> RequestTimeout(Address address, uint64_t request_id, Request request,
-                                          uint64_t timeout_microseconds) {
+  ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request,
+                                   uint64_t timeout_microseconds) {
     std::function<void()> notifier = [=] { simulator_handle_->NotifySimulator(); };
     auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(notifier);
 
-    simulator_handle_->SubmitRequest(address, request_id, request, timeout_microseconds, std::move(promise));
+    simulator_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout_microseconds,
+                                     std::move(promise));
 
     return std::move(future);
   }
 
   /*
     template <Message... Ms>
-    RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
-      return simulator_handle_->template ReceiveTimeout<Ms...>(timeout_microseconds);
+    RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
+      return simulator_handle_->template Receive<Ms...>(timeout_microseconds);
     }
 
     template <Message M>

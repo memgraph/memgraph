@@ -4,7 +4,8 @@ set(io_v3_sources
     future.hpp
     transport.hpp
     simulator.hpp
-    simulator_handle.hpp)
+    simulator_handle.hpp
+    simulator_stats.hpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)

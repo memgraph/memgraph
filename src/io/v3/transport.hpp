@@ -61,43 +61,54 @@ class Io {
  public:
   Io(I io, Address address) : implementation_(io), address_(address) {}
 
+  /// Set the default time-out for all requests that are issued
+  /// without an explicit time-out set.
   void SetDefaultTimeoutMicroseconds(uint64_t timeout_microseconds) {
     default_timeout_microseconds_ = timeout_microseconds;
   }
 
+  /// Issue a request with an explicit time-out in microseconds provided.
   template <Message Request, Message Response>
-  ResponseFuture<Response> RequestTimeout(Address address, Request request, uint64_t timeout_microseconds) {
+  ResponseFuture<Response> RequestWithTimeout(Address address, Request request, uint64_t timeout_microseconds) {
     uint64_t request_id = ++request_id_counter_;
-    return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
-                                                                      timeout_microseconds);
+    return implementation_.template Request<Request, Response>(address, request_id, request, timeout_microseconds);
   }
 
+  /// Issue a request that times out after the default timeout.
   template <Message Request, Message Response>
-  ResponseFuture<Response> RequestTimeout(Address address, Request request) {
+  ResponseFuture<Response> Request(Address address, Request request) {
     uint64_t request_id = ++request_id_counter_;
     uint64_t timeout_microseconds = default_timeout_microseconds_;
-    return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
-                                                                      timeout_microseconds);
+    return implementation_.template Request<Request, Response>(address, request_id, request, timeout_microseconds);
   }
 
+  /// Wait for an explicit number of microseconds for a request of one of the
+  /// provided types to arrive.
   template <Message... Ms>
-  RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
-    return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
+  RequestResult<Ms...> ReceiveWithTimeout(uint64_t timeout_microseconds) {
+    return implementation_.template Receive<Ms...>(timeout_microseconds);
   }
 
+  /// Wait the default number of microseconds for a request of one of the
+  /// provided types to arrive.
   template <Message... Ms>
-  RequestResult<Ms...> ReceiveTimeout() {
+  RequestResult<Ms...> Receive() {
     uint64_t timeout_microseconds = default_timeout_microseconds_;
-    return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
+    return implementation_.template Receive<Ms...>(timeout_microseconds);
   }
 
+  /// Send a message in a best-effort fashion. If you need reliable delivery,
+  /// this must be built on-top. TCP is not enough for most use cases.
   template <Message M>
   void Send(Address address, uint64_t request_id, M message) {
     return implementation_.template Send<M>(address, request_id, message);
   }
 
+  /// The current system time. This time source should be preferred over
+  /// any other time source.
   std::time_t Now() { return implementation_.Now(); }
 
+  /// Returns true of the system should shut-down.
   bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
 
  private:

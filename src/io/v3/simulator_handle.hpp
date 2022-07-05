@@ -12,14 +12,16 @@
 #pragma once
 
 #include <map>
+#include <vector>
 
 #include "address.hpp"
+#include "simulator_stats.hpp"
 #include "transport.hpp"
 
 struct OpaqueMessage {
   Address address;
   uint64_t request_id;
-  std::unique_ptr<std::any> message;
+  std::any message;
 };
 
 struct PromiseKey {
@@ -29,8 +31,8 @@ struct PromiseKey {
 };
 
 struct OpaquePromise {
-  time_t deadline;
-  std::unique_ptr<std::any> promise;
+  uint64_t deadline;
+  std::any promise;
 };
 
 class SimulatorHandle {
@@ -46,14 +48,32 @@ class SimulatorHandle {
   }
 
   template <Message Request, Message Response>
-  void SubmitRequest(Address address, uint64_t request_id, Request request, uint64_t timeout_microseconds,
-                     MgPromise<ResponseResult<Response>> promise) {
+  void SubmitRequest(Address to_addr, Address from_addr, uint64_t request_id, Request &&request,
+                     uint64_t timeout_microseconds, MgPromise<ResponseResult<Response>> &&promise) {
     std::unique_lock<std::mutex> lock(mu_);
+
+    uint64_t deadline = cluster_wide_time_microseconds_ + timeout_microseconds;
+
+    std::any message(std::move(request));
+    OpaqueMessage om{.address = from_addr, .request_id = request_id, .message = std::move(message)};
+    in_flight_.emplace_back(std::make_pair(std::move(to_addr), std::move(om)));
+
+    /*
+    std::any opaque_promise(std::move(promise));
+    PromiseKey pk { .requester=from_addr, .request_id=request_id, .replier=to_addr };
+    OpaquePromise op { .deadline=deadline, .promise=std::move(opaque_promise) };
+    promises_.insert(std::make_pair(std::move(pk), std::move(op)));
+    */
+
+    stats_.total_messages_++;
+    stats_.total_requests_++;
+
+    return;
   }
 
   /*
     template <Message... Ms>
-    RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
+    RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
       std::abort();
     }
 
@@ -67,8 +87,10 @@ class SimulatorHandle {
   std::mutex mu_;
   std::condition_variable cv_sim_;
   std::condition_variable cv_srv_;
-  std::map<Address, std::vector<OpaqueMessage>> in_flight_;
-  std::map<PromiseKey, OpaquePromise> promises;
-  std::map<Address, OpaqueMessage> can_receive;
+  std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
+  std::map<PromiseKey, OpaquePromise> promises_;
+  std::map<Address, OpaqueMessage> can_receive_;
+  uint64_t cluster_wide_time_microseconds_ = 0;
   bool shut_down_;
+  SimulatorStats stats_;
 };
