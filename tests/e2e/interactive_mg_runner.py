@@ -67,7 +67,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "log_file": "main.log",
         "setup_queries": [
             "REGISTER REPLICA replica1 SYNC TO '127.0.0.1:10001'",
-            "REGISTER REPLICA replica2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
+            "REGISTER REPLICA replica2 SYNC TO '127.0.0.1:10002'",
         ],
     },
 }
