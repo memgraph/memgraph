@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_persistence_helper.hpp"
+#include "formatters.hpp"
 #include "utils/logging.hpp"
 
 #include <gtest/gtest.h>
@@ -26,26 +27,24 @@ class ReplicationPersistanceHelperTest : public ::testing::Test {
 
   memgraph::storage::replication::ReplicaStatus CreateReplicaStatus(
       std::string name, std::string ip_address, uint16_t port,
-      memgraph::storage::replication::ReplicationMode sync_mode, std::optional<double> timeout,
-      std::chrono::seconds replica_check_frequency,
+      memgraph::storage::replication::ReplicationMode sync_mode, std::chrono::seconds replica_check_frequency,
       std::optional<memgraph::storage::replication::ReplicationClientConfig::SSL> ssl) const {
     return memgraph::storage::replication::ReplicaStatus{.name = name,
                                                          .ip_address = ip_address,
                                                          .port = port,
                                                          .sync_mode = sync_mode,
-                                                         .timeout = timeout,
                                                          .replica_check_frequency = replica_check_frequency,
                                                          .ssl = ssl};
   }
 
   static_assert(
-      sizeof(memgraph::storage::replication::ReplicaStatus) == 168,
+      sizeof(memgraph::storage::replication::ReplicaStatus) == 152,
       "Most likely you modified ReplicaStatus without updating the tests. Please modify CreateReplicaStatus. ");
 };
 
 TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesInitialized) {
   auto replicas_status = CreateReplicaStatus(
-      "name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, 1.0, std::chrono::seconds(1),
+      "name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, std::chrono::seconds(1),
       memgraph::storage::replication::ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"});
 
   auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
@@ -57,7 +56,7 @@ TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesInitialized) {
 
 TEST_F(ReplicationPersistanceHelperTest, BasicTestOnlyMandatoryAttributesInitialized) {
   auto replicas_status =
-      CreateReplicaStatus("name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, std::nullopt,
+      CreateReplicaStatus("name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC,
                           std::chrono::seconds(1), std::nullopt);
 
   auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
@@ -69,7 +68,7 @@ TEST_F(ReplicationPersistanceHelperTest, BasicTestOnlyMandatoryAttributesInitial
 
 TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButSSLInitialized) {
   auto replicas_status =
-      CreateReplicaStatus("name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, 1.0,
+      CreateReplicaStatus("name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC,
                           std::chrono::seconds(1), std::nullopt);
 
   auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(
@@ -81,8 +80,7 @@ TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButSSLInitialized
 
 TEST_F(ReplicationPersistanceHelperTest, BasicTestAllAttributesButTimeoutInitialized) {
   auto replicas_status = CreateReplicaStatus(
-      "name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, std::nullopt,
-      std::chrono::seconds(1),
+      "name", "ip_address", 0, memgraph::storage::replication::ReplicationMode::SYNC, std::chrono::seconds(1),
       memgraph::storage::replication::ReplicationClientConfig::SSL{.key_file = "key_file", .cert_file = "cert_file"});
 
   auto json_status = memgraph::storage::replication::ReplicaStatusToJSON(

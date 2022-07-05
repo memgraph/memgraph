@@ -28,7 +28,6 @@ struct ReplicaStatus {
   std::string ip_address;
   uint16_t port;
   ReplicationMode sync_mode;
-  std::optional<double> timeout;
   std::chrono::seconds replica_check_frequency;
   std::optional<ReplicationClientConfig::SSL> ssl;
 

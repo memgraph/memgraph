@@ -253,7 +253,7 @@ def test_basic_recovery(connection):
     assert len(res_from_main) == 2
 
     # 10/
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     interactive_mg_runner.start(CONFIGURATION, "replica_3")
 
     time.sleep(2)

@@ -17,7 +17,6 @@ const std::string kReplicaName = "replica_name";
 const std::string kIpAddress = "replica_ip_address";
 const std::string kPort = "replica_port";
 const std::string kSyncMode = "replica_sync_mode";
-const std::string kTimeout = "replica_timeout";
 const std::string kCheckFrequency = "replica_check_frequency";
 const std::string kSSLKeyFile = "replica_ssl_key_file";
 const std::string kSSLCertFile = "replica_ssl_cert_file";
@@ -32,12 +31,6 @@ nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status) {
   data[kIpAddress] = std::move(status.ip_address);
   data[kPort] = status.port;
   data[kSyncMode] = status.sync_mode;
-
-  if (status.timeout.has_value()) {
-    data[kTimeout] = *status.timeout;
-  } else {
-    data[kTimeout] = nullptr;
-  }
 
   data[kCheckFrequency] = status.replica_check_frequency.count();
 
@@ -64,10 +57,6 @@ std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data) {
     data.at(kIpAddress).get_to(replica_status.ip_address);
     data.at(kPort).get_to(replica_status.port);
     data.at(kSyncMode).get_to(replica_status.sync_mode);
-
-    if (const auto &timeout = data.at(kTimeout); !timeout.is_null()) {
-      replica_status.timeout = timeout.get<typename decltype(replica_status.timeout)::value_type>();
-    }
 
     replica_status.replica_check_frequency = std::chrono::seconds(data.at(kCheckFrequency));
 
