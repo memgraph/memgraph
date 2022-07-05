@@ -1914,16 +1914,12 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
-            "Only SYNC mode can have a timeout set");
-
   if (ShouldStoreAndRestoreReplicas()) {
     auto data = replication::ReplicaStatusToJSON(
         replication::ReplicaStatus{.name = name,
                                    .ip_address = endpoint.address,
                                    .port = endpoint.port,
                                    .sync_mode = replication_mode,
-                                   .timeout = config.timeout,
                                    .replica_check_frequency = config.replica_check_frequency,
                                    .ssl = config.ssl});
     if (!kvstorage_->Put(name, data.dump())) {
@@ -1986,11 +1982,10 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<Storage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
-                   [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(),     client->Mode(),  client->Timeout(),
-                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
-                   });
+    std::transform(
+        clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
+          return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
+        });
     return replica_info;
   });
 }
@@ -2022,7 +2017,6 @@ void Storage::RestoreReplicas() {
     auto ret = RegisterReplica(std::move(replica_status.name),
                                {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
                                {
-                                   .timeout = replica_status.timeout,
                                    .replica_check_frequency = replica_status.replica_check_frequency,
                                    .ssl = replica_status.ssl,
                                });

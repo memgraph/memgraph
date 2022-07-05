@@ -52,8 +52,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "args": ["--bolt-port", "7687", "--log-level=TRACE"],
         "log_file": "main.log",
         "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';",
-            "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';",
+            "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
+            "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';",
             "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
             "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
         ],
@@ -79,7 +79,6 @@ def test_show_replicas(connection):
         "name",
         "socket_address",
         "sync_mode",
-        "timeout",
         "current_timestamp_of_replica",
         "number_of_timestamp_behind_master",
         "state",
@@ -89,10 +88,10 @@ def test_show_replicas(connection):
     assert actual_column_names == EXPECTED_COLUMN_NAMES
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
     }
     assert actual_data == expected_data
 
@@ -100,9 +99,9 @@ def test_show_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
     }
     assert actual_data == expected_data
 
@@ -115,44 +114,11 @@ def test_show_replicas(connection):
     time.sleep(2)
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "invalid"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "invalid"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "invalid"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "invalid"),
     }
     assert actual_data == expected_data
-
-
-def test_add_replica_invalid_timeout(connection):
-    # Goal of this test is to check the registration of replica with invalid timeout raises an exception
-    CONFIGURATION = {
-        "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-        },
-        "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
-            "log_file": "main.log",
-            "setup_queries": [],
-        },
-    }
-
-    interactive_mg_runner.start_all(CONFIGURATION)
-
-    cursor = connection(7687, "main").cursor()
-
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
-
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT -5 TO '127.0.0.1:10001';")
-
-    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-    assert len(actual_data) == 0
-
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10001';")
-    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-    assert len(actual_data) == 1
 
 
 def test_basic_recovery(connection):
@@ -207,17 +173,17 @@ def test_basic_recovery(connection):
     cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
 
@@ -268,9 +234,9 @@ def test_basic_recovery(connection):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 2, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 2, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 2, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 2, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 2, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 2, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data
@@ -292,10 +258,10 @@ def test_basic_recovery(connection):
 
     time.sleep(2)
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 6, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 6, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 6, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 6, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data
@@ -306,10 +272,10 @@ def test_basic_recovery(connection):
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
     time.sleep(1)
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 6, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 6, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 6, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data
@@ -323,10 +289,10 @@ def test_basic_recovery(connection):
 
     # 13/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 9, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 9, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", None, 9, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("replica_2", "127.0.0.1:10002", "sync", 9, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 9, 0, "ready"),
+        ("replica_4", "127.0.0.1:10004", "async", 9, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data
@@ -396,8 +362,8 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
 
     # 1/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", None, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
     }
     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
 
@@ -421,8 +387,8 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
     # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", None, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", None, 0, 0, "invalid"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "invalid"),
     }
     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
     assert actual_data == expected_data

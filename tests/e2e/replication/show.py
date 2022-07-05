@@ -36,7 +36,6 @@ def test_show_replicas(connection):
         "name",
         "socket_address",
         "sync_mode",
-        "timeout",
         "current_timestamp_of_replica",
         "number_of_timestamp_behind_master",
         "state",
@@ -45,9 +44,9 @@ def test_show_replicas(connection):
     assert actual_column_names == expected_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
     }
     assert actual_data == expected_data
 
@@ -68,7 +67,6 @@ def test_show_replicas_while_inserting_data(connection):
         "name",
         "socket_address",
         "sync_mode",
-        "timeout",
         "current_timestamp_of_replica",
         "number_of_timestamp_behind_master",
         "state",
@@ -77,9 +75,9 @@ def test_show_replicas_while_inserting_data(connection):
     assert actual_column_names == expected_column_names
 
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 0, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
     }
     assert actual_data == expected_data
 
@@ -89,9 +87,9 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 2/
     expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2.0, 4, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 1.0, 4, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", None, 4, 0, "ready"),
+        ("replica_1", "127.0.0.1:10001", "sync", 4, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", 4, 0, "ready"),
+        ("replica_3", "127.0.0.1:10003", "async", 4, 0, "ready"),
     }
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
     assert actual_data == expected_data

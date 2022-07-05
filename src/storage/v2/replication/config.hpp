@@ -17,7 +17,6 @@
 
 namespace memgraph::storage::replication {
 struct ReplicationClientConfig {
-  std::optional<double> timeout;
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.

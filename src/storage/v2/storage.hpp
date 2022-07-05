@@ -439,7 +439,6 @@ class Storage final {
   struct ReplicaInfo {
     std::string name;
     replication::ReplicationMode mode;
-    std::optional<double> timeout;
     io::network::Endpoint endpoint;
     replication::ReplicaState state;
     TimestampInfo timestamp_info;

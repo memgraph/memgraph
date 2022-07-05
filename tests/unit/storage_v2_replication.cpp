@@ -628,10 +628,10 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   replica_store2.SetReplicaRole(replica2_endpoint);
 
   const std::string replica1_name{replicas[0]};
-  ASSERT_FALSE(main_store
-                   .RegisterReplica(replica1_name, replica1_endpoint,
-                                    memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
-                   .HasError());
+  ASSERT_FALSE(
+      main_store
+          .RegisterReplica(replica1_name, replica1_endpoint, memgraph::storage::replication::ReplicationMode::SYNC)
+          .HasError());
 
   const std::string replica2_name{replicas[1]};
   ASSERT_FALSE(
@@ -649,15 +649,12 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   const auto &first_info = replicas_info[0];
   ASSERT_EQ(first_info.name, replica1_name);
   ASSERT_EQ(first_info.mode, memgraph::storage::replication::ReplicationMode::SYNC);
-  ASSERT_TRUE(first_info.timeout);
-  ASSERT_EQ(*first_info.timeout, 2.0);
   ASSERT_EQ(first_info.endpoint, replica1_endpoint);
   ASSERT_EQ(first_info.state, memgraph::storage::replication::ReplicaState::READY);
 
   const auto &second_info = replicas_info[1];
   ASSERT_EQ(second_info.name, replica2_name);
   ASSERT_EQ(second_info.mode, memgraph::storage::replication::ReplicationMode::ASYNC);
-  ASSERT_FALSE(second_info.timeout);
   ASSERT_EQ(second_info.endpoint, replica2_endpoint);
   ASSERT_EQ(second_info.state, memgraph::storage::replication::ReplicaState::READY);
 }
@@ -676,10 +673,10 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   replica_store2.SetReplicaRole(replica2_endpoint);
 
   const std::string replica1_name{replicas[0]};
-  ASSERT_FALSE(main_store
-                   .RegisterReplica(replica1_name, replica1_endpoint,
-                                    memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
-                   .HasError());
+  ASSERT_FALSE(
+      main_store
+          .RegisterReplica(replica1_name, replica1_endpoint, memgraph::storage::replication::ReplicationMode::SYNC)
+          .HasError());
 
   const std::string replica2_name{replicas[0]};
   ASSERT_TRUE(
@@ -702,10 +699,10 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
   replica_store2.SetReplicaRole(replica2_endpoint);
 
   const std::string replica1_name{replicas[0]};
-  ASSERT_FALSE(main_store
-                   .RegisterReplica(replica1_name, replica1_endpoint,
-                                    memgraph::storage::replication::ReplicationMode::SYNC, {.timeout = 2.0})
-                   .HasError());
+  ASSERT_FALSE(
+      main_store
+          .RegisterReplica(replica1_name, replica1_endpoint, memgraph::storage::replication::ReplicationMode::SYNC)
+          .HasError());
 
   const std::string replica2_name{replicas[1]};
   ASSERT_TRUE(
