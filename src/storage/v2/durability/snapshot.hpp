@@ -30,6 +30,7 @@ namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
+  uint64_t offset_schemas;
   uint64_t offset_edges;
   uint64_t offset_vertices;
   uint64_t offset_indices;
