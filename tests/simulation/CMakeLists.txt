@@ -15,7 +15,7 @@ function(add_simulation_test test_cpp san)
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} gtest gmock gtest_main mg-utils mg-io-v3)
 
-  # sanitize?
+  # sanitize
   target_compile_options(${target_name} PRIVATE -fsanitize=${san})
   target_link_options(${target_name} PRIVATE -fsanitize=${san})
 
@@ -24,6 +24,6 @@ function(add_simulation_test test_cpp san)
   add_dependencies(memgraph__simulation ${target_name})
 endfunction(add_simulation_test)
 
-add_simulation_test(future.cpp address)
+add_simulation_test(future.cpp thread)
 
 add_simulation_test(basic_request.cpp address)

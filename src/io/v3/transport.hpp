@@ -65,14 +65,12 @@ class Io {
     default_timeout_microseconds_ = timeout_microseconds;
   }
 
-  /*
-    template <Message Request, Message Response>
-    ResponseFuture<Response> RequestTimeout(Address address, Request request, uint64_t timeout_microseconds) {
-      uint64_t request_id = ++request_id_counter_;
-      return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
-                                                                        timeout_microseconds);
-    }
-    */
+  template <Message Request, Message Response>
+  ResponseFuture<Response> RequestTimeout(Address address, Request request, uint64_t timeout_microseconds) {
+    uint64_t request_id = ++request_id_counter_;
+    return implementation_.template RequestTimeout<Request, Response>(address, request_id, request,
+                                                                      timeout_microseconds);
+  }
 
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestTimeout(Address address, Request request) {
@@ -82,22 +80,21 @@ class Io {
                                                                       timeout_microseconds);
   }
 
-  /*
-    template <Message... Ms>
-    RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
-      return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
-    }
+  template <Message... Ms>
+  RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
+    return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
+  }
 
-    template <Message... Ms>
-    RequestResult<Ms...> ReceiveTimeout() {
-      uint64_t timeout_microseconds = default_timeout_microseconds_;
-      return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
-    }
-    template <Message M>
-    void Send(Address address, uint64_t request_id, M message) {
-      return implementation_.template Send<M>(address, request_id, message);
-    }
-    */
+  template <Message... Ms>
+  RequestResult<Ms...> ReceiveTimeout() {
+    uint64_t timeout_microseconds = default_timeout_microseconds_;
+    return implementation_.template ReceiveTimeout<Ms...>(timeout_microseconds);
+  }
+
+  template <Message M>
+  void Send(Address address, uint64_t request_id, M message) {
+    return implementation_.template Send<M>(address, request_id, message);
+  }
 
   std::time_t Now() { return implementation_.Now(); }
 

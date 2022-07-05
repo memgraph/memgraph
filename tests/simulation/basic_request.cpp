@@ -14,9 +14,10 @@
 #include <string>
 #include <vector>
 
+#include <spdlog/spdlog.h>
+
 #include "io/v3/simulator.hpp"
-//#include "io/v3/transport.hpp"
-//#include "utils/logging.hpp"
+#include "utils/terminate_handler.hpp"
 
 struct Request {
   std::string data;

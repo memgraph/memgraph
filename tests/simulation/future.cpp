@@ -24,9 +24,9 @@ void Wait(MgFuture<std::string> future_1, MgPromise<std::string> promise_2) {
 }
 
 int main() {
-  std::atomic_bool filled = false;
+  std::atomic_bool waiting = false;
 
-  std::function<void()> notifier = [&] { filled.store(true, std::memory_order_seq_cst); };
+  std::function<void()> notifier = [&] { waiting.store(true, std::memory_order_seq_cst); };
 
   auto [future_1, promise_1] = FuturePromisePairWithNotifier<std::string>(notifier);
   auto [future_2, promise_2] = FuturePromisePair<std::string>();
@@ -35,7 +35,7 @@ int main() {
 
   // spin in a loop until the promise signals
   // that it is waiting
-  while (!filled.load(std::memory_order_acquire)) {
+  while (!waiting.load(std::memory_order_acquire)) {
     std::this_thread::yield();
   }
 
