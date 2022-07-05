@@ -1,0 +1,23 @@
+name: PRs review reminder
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every day at 10 AM send notification
+    - cron: "0 10 * * *"
+
+jobs:
+  pr-reviews-reminder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: davideviolante/pr-reviews-reminder-action@v1.5.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLACK_URL: ${{ secrets.SLACK_URL }}
+          SLACK_CHANNEL: ${{ secrets.SLACK_CHANNEL }}
+          MAP_PROVIDER: ${{ secrets.MAP_PROVIDER }}
+        with:
+          webhook-url: $SLACK_URL
+          provider: "slack"
+          channel: $SLACK_CHANNEL
+          github-provider-map: $MAP_PROVIDER
