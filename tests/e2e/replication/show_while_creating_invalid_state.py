@@ -13,6 +13,7 @@ import sys
 
 import os
 import pytest
+import random
 import time
 
 from common import execute_and_fetch_all
@@ -395,6 +396,128 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
     }
     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
     assert actual_data == expected_data
+
+
+def test_async_replication_when_main_is_killed(connection):
+    # Goal of the test is to check that when main is randomly killed:
+    # -the ASYNC replica always contains a valid subset of data of main.
+    # -the SYNC replica always contains the exact data that was in main.
+    # We run the test 20 times, it should never fail.
+
+    # 0/ Start main and replicas.
+    # 1/ Register replicas.
+    # 2/ Insert data in main, and randomly kill it.
+    # 3/ Check that the ASYNC replica has a valid subset.
+
+    for test_repetition in range(20):
+        # 0/
+        data_directory_main = tempfile.TemporaryDirectory()
+        data_directory_replica = tempfile.TemporaryDirectory()
+        CONFIGURATION = {
+            "async_replica": {
+                "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+                "log_file": "async_replica.log",
+                "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+                "data_directory": f"{data_directory_replica.name}",
+            },
+            "main": {
+                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+                "log_file": "main.log",
+                "setup_queries": [],
+                "data_directory": f"{data_directory_main.name}",
+            },
+        }
+
+        interactive_mg_runner.start_all(CONFIGURATION)
+
+        # 1/
+        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
+            "REGISTER REPLICA async_replica ASYNC TO '127.0.0.1:10001';"
+        )
+
+        # 2/
+        for index in range(50):
+            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+            if random.randint(0, 100) > 95:
+                interactive_mg_runner.kill(CONFIGURATION, "main")
+                break
+
+        # 3/
+        # short explaination:
+        # res_from_async_replica is an arithmetic sequence with:
+        # -first term 0
+        # -common difference 1
+        # So we check its properties. If properties are fullfilled, it means the ASYNC replicas received a correct subset of messages
+        # from main in the correct order.
+        # In other word: res_from_async_replica is as [0, 1, ..., n-1, n] where values are consecutive integers. $
+        # It should have the two properties:
+        # -list is sorted
+        # -the sum of all elements is equal to nOfTerms * (firstTerm + lastTerm) / 2
+
+        QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
+        res_from_async_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica"].query(QUERY_TO_CHECK)[0][0]
+        assert res_from_async_replica == sorted(res_from_async_replica)
+        total_sum = sum(res_from_async_replica)
+        expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
+        assert total_sum == expected_sum
+
+        data_directory_main.cleanup()
+        data_directory_replica.cleanup()
+
+
+def test_sync_replication_when_main_is_killed(connection):
+    # Goal of the test is to check that when main is randomly killed:
+    # -the SYNC replica always contains the exact data that was in main.
+    # We run the test 20 times, it should never fail.
+
+    # 0/ Start main and replica.
+    # 1/ Register replica.
+    # 2/ Insert data in main, and randomly kill it.
+    # 3/ Check that the SYNC replica has exactly the same data than main.
+
+    for test_repetition in range(20):
+        # 0/
+        data_directory_main = tempfile.TemporaryDirectory()
+        data_directory_replica = tempfile.TemporaryDirectory()
+        CONFIGURATION = {
+            "sync_replica": {
+                "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+                "log_file": "sync_replica.log",
+                "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+                "data_directory": f"{data_directory_replica.name}",
+            },
+            "main": {
+                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+                "log_file": "main.log",
+                "setup_queries": [],
+                "data_directory": f"{data_directory_main.name}",
+            },
+        }
+
+        interactive_mg_runner.start_all(CONFIGURATION)
+
+        # 1/
+        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
+            "REGISTER REPLICA sync_replica SYNC TO '127.0.0.1:10001';"
+        )
+
+        # 2/
+        QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
+        last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
+        for index in range(50):
+            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+            last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
+            if random.randint(0, 100) > 95:
+                interactive_mg_runner.kill(CONFIGURATION, "main")
+                break
+
+        # 3/
+        # The SYNC replica should have exactly the same data than main.
+        res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
+        assert last_result_from_main == res_from_sync_replica
+
+        data_directory_main.cleanup()
+        data_directory_replica.cleanup()
 
 
 if __name__ == "__main__":
