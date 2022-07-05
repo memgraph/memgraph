@@ -29,6 +29,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -52,6 +53,19 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
+  switch (error) {
+    case Storage::RegisterReplicaError::NAME_EXISTS:
+      return "NAME_EXISTS";
+    case Storage::RegisterReplicaError::END_POINT_EXISTS:
+      return "END_POINT_EXISTS";
+    case Storage::RegisterReplicaError::CONNECTION_FAILED:
+      return "CONNECTION_FAILED";
+    case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      return "COULD_NOT_BE_PERSISTED";
+  }
+}
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -1894,7 +1908,7 @@ bool Storage::SetMainReplicationRole() {
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::ReplicationClientConfig &config) {
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
@@ -1929,8 +1943,10 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   }
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
-  if (client->State() == replication::ReplicaState::INVALID) {
-    return RegisterReplicaError::CONNECTION_FAILED;
+  if (replication::RegistrationMode::RECOVERY_AT_STARTUP != registration_mode) {
+    if (client->State() == replication::ReplicaState::INVALID) {
+      return RegisterReplicaError::CONNECTION_FAILED;
+    }
   }
 
   return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
@@ -2014,16 +2030,19 @@ void Storage::RestoreReplicas() {
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
 
-    auto ret = RegisterReplica(std::move(replica_status.name),
-                               {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
-                               {
-                                   .replica_check_frequency = replica_status.replica_check_frequency,
-                                   .ssl = replica_status.ssl,
-                               });
+    auto ret =
+        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
+                        replica_status.sync_mode, storage::replication::RegistrationMode::RECOVERY_AT_STARTUP,
+                        {
+                            .replica_check_frequency = replica_status.replica_check_frequency,
+                            .ssl = replica_status.ssl,
+                        });
     if (ret.HasError()) {
-      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
+      spdlog::error("Failure when restoring replica {}: {}.", replica_name,
+                    RegisterReplicaErrorToString(ret.GetError()));
+    } else {
+      spdlog::info("Replica {} restored.", replica_name);
     }
-    spdlog::info("Replica {} restored.", replica_name);
   }
 }
 

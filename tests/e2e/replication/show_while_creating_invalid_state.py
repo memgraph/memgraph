@@ -332,7 +332,8 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
     # 2/ We kill main then kill a replica.
-    # 3/ We re-start main: application crashes, it should not be able to restart.
+    # 3/ We re-start main: it should be able to restart.
+    # 4/ Check status of replica: replica_2 is invalid.
 
     data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
@@ -386,6 +387,8 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
 
     # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
+
+    # 4/
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "invalid"),

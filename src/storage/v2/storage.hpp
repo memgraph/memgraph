@@ -423,7 +423,7 @@ class Storage final {
   /// @pre Timeout can only be set for SYNC replication
   utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
       std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      const replication::ReplicationClientConfig &config = {});
+      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(const std::string &name);
 
