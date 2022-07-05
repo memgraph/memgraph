@@ -185,7 +185,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret =
-          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, storage::replication::RegistrationMode::OTHER,
+          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, storage::replication::RegistrationMode::REQUEST,
                                {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));

@@ -1943,7 +1943,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   }
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
-  if (replication::RegistrationMode::RECOVERY_AT_STARTUP != registration_mode) {
+  if (replication::RegistrationMode::RECOVERED != registration_mode) {
     if (client->State() == replication::ReplicaState::INVALID) {
       return RegisterReplicaError::CONNECTION_FAILED;
     }
@@ -2032,7 +2032,7 @@ void Storage::RestoreReplicas() {
 
     auto ret =
         RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
-                        replica_status.sync_mode, storage::replication::RegistrationMode::RECOVERY_AT_STARTUP,
+                        replica_status.sync_mode, storage::replication::RegistrationMode::RECOVERED,
                         {
                             .replica_check_frequency = replica_status.replica_check_frequency,
                             .ssl = replica_status.ssl,
