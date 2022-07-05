@@ -520,5 +520,149 @@ def test_sync_replication_when_main_is_killed(connection):
         data_directory_replica.cleanup()
 
 
+def test_attempt_to_write_data_on_main_when_async_replica_is_down(connection):
+    # Goal of this test is to check that main cannot write new data if an async replica is down.
+    # 0/ Start main and async replicas.
+    # 1/ Check status of replicas.
+    # 2/ Add some node to main and check it is propagated to the async_replicas.
+    # 3/ Kill an async replica.
+    # 4/ Try to add some data to main.
+    # 5/ Check the status of replicsa.
+    # 6/ Check that the data was added to main and remaining replica.
+
+    CONFIGURATION = {
+        "async_replica1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "async_replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "async_replica2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": "async_replica2.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "REGISTER REPLICA async_replica1 ASYNC TO '127.0.0.1:10001';",
+                "REGISTER REPLICA async_replica2 ASYNC TO '127.0.0.1:10002';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(CONFIGURATION)
+
+    # 1/
+    expected_data = {
+        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "ready"),
+        ("async_replica2", "127.0.0.1:10002", "async", 0, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
+
+    # 2/
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:1});")
+
+    QUERY_TO_CHECK = "MATCH (node) return node;"
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 1
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+
+    # 3/
+    interactive_mg_runner.kill(CONFIGURATION, "async_replica1")
+
+    # 4/
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+    time.sleep(1)
+
+    # 5/
+    expected_data = {
+        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "invalid"),
+        ("async_replica2", "127.0.0.1:10002", "async", 5, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
+
+    # 6/
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 2
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+
+
+def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
+    # Goal of this test is to check that main cannot write new data if a sync replica is down.
+    # 0/ Start main and sync replicas.
+    # 1/ Check status of replicas.
+    # 2/ Add some node to main and check it is propagated to the sync_replicas.
+    # 3/ Kill a sync replica.
+    # 4/ Try to add some data to main.
+    # 5/ Check the status of replicas.
+    # 6/ Check that the data was not added to main.
+
+    CONFIGURATION = {
+        "sync_replica1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "sync_replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "sync_replica2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": "sync_replica2.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
+                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(CONFIGURATION)
+
+    # 1/
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
+
+    # 2/
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:1});")
+
+    QUERY_TO_CHECK = "MATCH (node) return node;"
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 1
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+    # 3/
+    interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
+
+    # 4/
+    with pytest.raises(mgclient.DatabaseError):
+        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+
+    # 5/
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
+
+    # 6/
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 1
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
