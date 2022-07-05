@@ -3,7 +3,9 @@ set(io_v3_sources
     errors.hpp
     future.hpp
     transport.hpp
-    simulator.hpp)
+    notifier.hpp
+    simulator.hpp
+    simulator_handle.hpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)

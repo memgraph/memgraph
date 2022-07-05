@@ -12,10 +12,11 @@
 //#include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 #include "io/v3/simulator.hpp"
-#include "io/v3/transport.hpp"
-#include "utils/logging.hpp"
+//#include "io/v3/transport.hpp"
+//#include "utils/logging.hpp"
 
 struct Request {
   std::string data;
@@ -35,28 +36,29 @@ struct Response {
 
 int main() {
   auto simulator = Simulator();
-  auto addr_1 = Address::TestAddress(1);
-  auto addr_2 = Address::TestAddress(2);
+  auto cli_addr = Address::TestAddress(1);
+  auto srv_addr = Address::TestAddress(2);
 
-  auto sim_io_1 = simulator.Register(addr_1, true);
-  auto sim_io_2 = simulator.Register(addr_2, true);
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, true);
+  // Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
 
   // send request
-  auto response_future = sim_io_1.RequestTimeout<Request, Response>(addr_2, Request{});
+  Request cli_req;
+  ResponseFuture<Response> response_future = cli_io.template RequestTimeout<Request, Response>(srv_addr, cli_req);
 
-  // receive request
-  RequestResult<Request> request_result = sim_io_2.ReceiveTimeout<Request>();
-  auto req_envelope = request_result.GetValue();
-  Request req = std::get<Request>(req_envelope.message);
-
-  auto srv_res = Response{req.data};
-
-  // send response
-  sim_io_2.Send(req_envelope.from, req_envelope.request_id, srv_res);
-
-  // receive response
-  auto response_result = response_future.Wait();
-  auto res = response_result.GetValue();
+  //  // receive request
+  //  RequestResult<Request> request_result = sim_io_2.template ReceiveTimeout<Request>();
+  //  auto req_envelope = request_result.GetValue();
+  //  Request req = std::get<Request>(req_envelope.message);
+  //
+  //  auto srv_res = Response{req.data};
+  //
+  //  // send response
+  //  sim_io_2.Send(req_envelope.from, req_envelope.request_id, srv_res);
+  //
+  //  // receive response
+  //  auto response_result = response_future.Wait();
+  //  auto res = response_result.GetValue();
 
   return 0;
 }

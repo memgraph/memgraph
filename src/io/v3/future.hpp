@@ -21,7 +21,6 @@
 #include "utils/logging.hpp"
 
 #include "errors.hpp"
-#include "simulator_handle.hpp"
 
 template <typename T>
 class MgPromise;
@@ -33,15 +32,17 @@ template <typename T>
 std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair();
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair(SimulatorHandle);
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier(std::function<void()>);
 
 template <typename T>
 class Shared {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<void()>);
   friend MgPromise<T>;
   friend MgFuture<T>;
 
  public:
+  Shared(std::function<void()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
   Shared() = default;
   Shared(Shared &&) = delete;
   Shared &operator=(Shared &&) = delete;
@@ -55,7 +56,7 @@ class Shared {
 
     while (!item_) {
       waiting_ = true;
-      if (simulator_handle_) {
+      if (simulator_notifier_) {
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
         // involves acquiring the simulator's mutex
@@ -67,7 +68,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        (*simulator_handle_)->NotifySimulator();
+        (*simulator_notifier_)();
         lock.lock();
         if (item_) {
           // item may have been filled while we
@@ -112,13 +113,13 @@ class Shared {
   std::optional<T> item_;
   bool consumed_;
   bool waiting_;
-  std::optional<std::shared_ptr<SimulatorHandle>> simulator_handle_;
+  std::optional<std::function<void()>> simulator_notifier_;
 };
 
 template <typename T>
 class MgFuture {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<void()>);
 
  public:
   MgFuture(MgFuture &&old) {
@@ -154,7 +155,7 @@ class MgFuture {
 template <typename T>
 class MgPromise {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>(SimulatorHandle);
+  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<void()>);
 
  public:
   MgPromise(MgPromise &&old) {
@@ -191,6 +192,7 @@ class MgPromise {
 template <typename T>
 std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair() {
   std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>();
+
   MgFuture<T> future = MgFuture<T>(shared);
   MgPromise<T> promise = MgPromise<T>(shared);
 
@@ -198,8 +200,11 @@ std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair() {
 }
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair(SimulatorHandle simulator_handle) {
-  auto [future, promise] = FuturePromisePair<T>();
-  future.simulator_handle_ = simulator_handle;
+std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier(std::function<void()> simulator_notifier) {
+  std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>(simulator_notifier);
+
+  MgFuture<T> future = MgFuture<T>(shared);
+  MgPromise<T> promise = MgPromise<T>(shared);
+
   return std::make_pair(std::move(future), std::move(promise));
 }

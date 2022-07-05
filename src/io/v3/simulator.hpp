@@ -40,22 +40,27 @@ class SimulatorTransport {
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestTimeout(Address address, uint64_t request_id, Request request,
                                           uint64_t timeout_microseconds) {
-    std::abort();
+    std::function<void()> notifier = [=] { simulator_handle_->NotifySimulator(); };
+    auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(notifier);
+
+    return std::move(future);
   }
 
-  template <Message... Ms>
-  RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
-    std::abort();
-  }
+  /*
+    template <Message... Ms>
+    RequestResult<Ms...> ReceiveTimeout(uint64_t timeout_microseconds) {
+      return simulator_handle_->template ReceiveTimeout<Ms...>(timeout_microseconds);
+    }
 
-  template <Message M>
-  void Send(Address address, uint64_t request_id, M message) {
-    std::abort();
-  }
+    template <Message M>
+    void Send(Address address, uint64_t request_id, M message) {
+      return simulator_handle_->template Send<M>(address, request_id, message);
+    }
+    */
 
-  std::time_t Now() { std::abort(); }
+  std::time_t Now() { return std::time(nullptr); }
 
-  bool ShouldShutDown() { std::abort(); }
+  bool ShouldShutDown() { return simulator_handle_->ShouldShutDown(); }
 
  private:
   std::shared_ptr<SimulatorHandle> simulator_handle_;
