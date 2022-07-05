@@ -420,9 +420,12 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
 
     # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
-    # with pytest.raises(SystemExit):
-    #     interactive_mg_runner.start(CONFIGURATION, "main")
-    # interactive_mg_runner.MEMGRAPH_INSTANCES.pop("main")
+    expected_data = {
+        ("replica_1", "127.0.0.1:10001", "sync", None, 0, 0, "ready"),
+        ("replica_2", "127.0.0.1:10002", "sync", None, 0, 0, "invalid"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
 
 
 if __name__ == "__main__":
