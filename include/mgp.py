@@ -1214,7 +1214,6 @@ def read_proc(func: typing.Callable[..., Record]):
       CALL example.procedure(1) YIELD args, result;
     Naturally, you may pass in different arguments or yield less fields.
     """
-
     return _register_proc(func, False)
 
 

@@ -1588,8 +1588,7 @@ enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct 
 /// Get an day value for the mgp_date and add 1
 enum mgp_error mgp_date_get_day_add1(struct mgp_date *date, int *day);
 
-enum mgp_error mgp_add_10(int number, int *result);
-
+// Log a message on certain level with spdlog
 enum mgp_error mgp_log(const enum mgp_log_level log_level, const char *output);
 
 /// @}

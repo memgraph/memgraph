@@ -1214,17 +1214,6 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
   return reinterpret_cast<PyObject *>(py_func);
 }
 
-void PyQueryModuleAddLog(const enum mgp_log_level log_level) {
-  std::string out = "hi from python api";
-  std::cout << out << std::endl;
-  RaiseExceptionFromErrorCode(mgp_log(log_level, out.c_str()));
-}
-
-void PyQueryModuleAddInfoLog(PyQueryModule *self, PyObject *Py_UNUSED(ignored)) {
-  MG_ASSERT(self->module);
-  PyQueryModuleAddLog(mgp_log_level::Info);
-}
-
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
     {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
@@ -1235,7 +1224,6 @@ static PyMethodDef PyQueryModuleMethods[] = {
      "Register a transformation with this module."},
     {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
      "Register a function with this module."},
-    {"info", reinterpret_cast<PyCFunction>(PyQueryModuleAddInfoLog), METH_NOARGS, "Info log."},
     {nullptr},
 };
 
@@ -2106,6 +2094,15 @@ PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
   Py_RETURN_NONE;
 }
 
+PyObject *PyLoggerAddTraceLog(PyLogger *self, PyObject *args) {
+  const char *out = nullptr;
+
+  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
+  PyLoggerAddLog(mgp_log_level::Trace, out);
+
+  Py_RETURN_NONE;
+}
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLoggerMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
@@ -2117,6 +2114,8 @@ static PyMethodDef PyLoggerMethods[] = {
      "Logs a message with level ERROR on this logger."},
     {"critical", reinterpret_cast<PyCFunction>(PyLoggerAddCriticalLog), METH_VARARGS,
      "Logs a message with level CRITICAL on this logger."},
+    {"trace", reinterpret_cast<PyCFunction>(PyLoggerAddTraceLog), METH_VARARGS,
+     "Logs a message with level TRACE on this logger."},
     {nullptr},
 };
 
@@ -2183,6 +2182,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyPathType, "Path")) return nullptr;
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
+  if (!register_type(&PyMessageType, "Message")) return nullptr;
   if (!register_type(&PyLoggerType, "Logger")) return nullptr;
 
   std::array py_mgp_errors{
