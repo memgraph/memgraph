@@ -97,7 +97,7 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 install(PROGRAMS $<TARGET_FILE:memgraph>
         DESTINATION lib/memgraph RENAME memgraph)
 # Install Python source for supporting our embedded Python.
-install(FILES ${CMAKE_SOURCE_DIR}/include/mgp/mgp.py
+install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
         DESTINATION lib/memgraph/python_support)
 # Install the include file for writing custom procedures.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
