@@ -33,7 +33,7 @@ import typing
 import datetime
 
 
-import _mgp
+import include.mgp._mgp as _mgp
 
 
 class InvalidContextError(Exception):
