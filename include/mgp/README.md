@@ -17,3 +17,7 @@ pip install poetry
 2. Bump version in `pyproject.tml`
 3. `poetry build`
 4. `poetry publish`
+
+## Why is this not automatized?
+
+Because someone always has to manually bump up the version in `pyproject.toml`
