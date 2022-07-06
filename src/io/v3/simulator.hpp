@@ -41,12 +41,12 @@ class SimulatorTransport {
     return std::move(future);
   }
 
-  /*
-    template <Message... Ms>
-    RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
-      return simulator_handle_->template Receive<Ms...>(timeout_microseconds);
-    }
+  template <Message... Ms>
+  RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
+    return simulator_handle_->template Receive<Ms...>(timeout_microseconds);
+  }
 
+  /*
     template <Message M>
     void Send(Address address, uint64_t request_id, M message) {
       return simulator_handle_->template Send<M>(address, request_id, message);
@@ -69,5 +69,5 @@ class Simulator {
   }
 
  private:
-  std::shared_ptr<SimulatorHandle> simulator_handle_;
+  std::shared_ptr<SimulatorHandle> simulator_handle_{std::make_shared<SimulatorHandle>()};
 };

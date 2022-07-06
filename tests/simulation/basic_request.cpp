@@ -14,8 +14,6 @@
 #include <string>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-
 #include "io/v3/simulator.hpp"
 #include "utils/terminate_handler.hpp"
 
@@ -47,8 +45,8 @@ int main() {
   RequestMsg cli_req;
   ResponseFuture<ResponseMsg> response_future = cli_io.template Request<RequestMsg, ResponseMsg>(srv_addr, cli_req);
 
-  //  // receive request
-  //  RequestResult<Request> request_result = sim_io_2.template ReceiveTimeout<Request>();
+  // receive request
+  RequestResult<RequestMsg> request_result = srv_io.template Receive<RequestMsg>();
   //  auto req_envelope = request_result.GetValue();
   //  Request req = std::get<Request>(req_envelope.message);
   //

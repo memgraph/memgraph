@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <compare>
 #include <map>
 #include <vector>
 
@@ -28,11 +29,71 @@ struct PromiseKey {
   Address requester;
   uint64_t request_id;
   Address replier;
+
+ public:
+  bool operator<(const PromiseKey &other) const {
+    if (requester == other.requester) {
+      return request_id < other.request_id;
+    } else {
+      return requester < other.requester;
+    }
+  }
 };
 
-struct OpaquePromise {
+// TODO delete copy ctor & copy assignment operator if possible
+class OpaquePromise {
+ public:
+  OpaquePromise(OpaquePromise &&old) : ti_(old.ti_) {
+    ptr_ = old.ptr_;
+    old.ptr_ = nullptr;
+  }
+
+  OpaquePromise &operator=(OpaquePromise &&old) {
+    MG_ASSERT(this != &old);
+
+    ptr_ = old.ptr_;
+    ti_ = old.ti_;
+    old.ptr_ = nullptr;
+
+    return *this;
+  }
+
+  OpaquePromise(const OpaquePromise &) = delete;
+  OpaquePromise &operator=(const OpaquePromise &) = delete;
+
+  template <typename T>
+  std::unique_ptr<MgPromise<T>> Take() {
+    MG_ASSERT(typeid(T) == *ti_);
+    MG_ASSERT(ptr_ != nullptr);
+
+    MgPromise<T> *ptr = static_cast<MgPromise<T> *>(ptr_);
+
+    ptr_ = nullptr;
+
+    return std::unique_ptr<T>(ptr);
+  }
+
+  template <typename T>
+  OpaquePromise(std::unique_ptr<MgPromise<T>> promise)
+      : ti_(&typeid(T)),
+        ptr_((void *)promise.release()),
+        dtor_([](void *ptr) { static_cast<MgPromise<T> *>(ptr)->~MgPromise<T>(); }) {}
+
+  ~OpaquePromise() {
+    if (nullptr != ptr_) {
+      dtor_(ptr_);
+    }
+  }
+
+ private:
+  const std::type_info *ti_;
+  void *ptr_;
+  std::function<void(void *)> dtor_;
+};
+
+struct DeadlineAndOpaquePromise {
   uint64_t deadline;
-  std::any promise;
+  OpaquePromise promise;
 };
 
 class SimulatorHandle {
@@ -58,12 +119,10 @@ class SimulatorHandle {
     OpaqueMessage om{.address = from_addr, .request_id = request_id, .message = std::move(message)};
     in_flight_.emplace_back(std::make_pair(std::move(to_addr), std::move(om)));
 
-    /*
-    std::any opaque_promise(std::move(promise));
-    PromiseKey pk { .requester=from_addr, .request_id=request_id, .replier=to_addr };
-    OpaquePromise op { .deadline=deadline, .promise=std::move(opaque_promise) };
-    promises_.insert(std::make_pair(std::move(pk), std::move(op)));
-    */
+    OpaquePromise opaque_promise(std::move(promise).ToUnique());
+    PromiseKey pk{.requester = from_addr, .request_id = request_id, .replier = to_addr};
+    DeadlineAndOpaquePromise op{.deadline = deadline, .promise = std::move(opaque_promise)};
+    promises_.emplace(std::move(pk), std::move(op));
 
     stats_.total_messages_++;
     stats_.total_requests_++;
@@ -71,11 +130,11 @@ class SimulatorHandle {
     return;
   }
 
+  template <Message... Ms>
+  RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
+    std::terminate();
+  }
   /*
-    template <Message... Ms>
-    RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
-      std::abort();
-    }
 
     template <Message M>
     void Send(Address address, uint64_t request_id, M message) {
@@ -84,11 +143,11 @@ class SimulatorHandle {
     */
 
  private:
-  std::mutex mu_;
+  std::mutex mu_{};
   std::condition_variable cv_sim_;
   std::condition_variable cv_srv_;
   std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
-  std::map<PromiseKey, OpaquePromise> promises_;
+  std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
   std::map<Address, OpaqueMessage> can_receive_;
   uint64_t cluster_wide_time_microseconds_ = 0;
   bool shut_down_;

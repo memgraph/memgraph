@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// TODO chrono::microseconds instead of std::time_t
+
 #pragma once
 
 #include <concepts>
@@ -61,13 +63,13 @@ class Io {
  public:
   Io(I io, Address address) : implementation_(io), address_(address) {}
 
-  /// Set the default time-out for all requests that are issued
-  /// without an explicit time-out set.
+  /// Set the default timeout for all requests that are issued
+  /// without an explicit timeout set.
   void SetDefaultTimeoutMicroseconds(uint64_t timeout_microseconds) {
     default_timeout_microseconds_ = timeout_microseconds;
   }
 
-  /// Issue a request with an explicit time-out in microseconds provided.
+  /// Issue a request with an explicit timeout in microseconds provided.
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestWithTimeout(Address address, Request request, uint64_t timeout_microseconds) {
     uint64_t request_id = ++request_id_counter_;

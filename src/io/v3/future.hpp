@@ -159,6 +159,8 @@ class MgPromise {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<void()>);
 
  public:
+  MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+
   MgPromise(MgPromise &&old) {
     shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");
@@ -183,9 +185,16 @@ class MgPromise {
 
   bool IsAwaited() { return shared_->IsAwaited(); }
 
- private:
-  MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  /// Moves this MgPromise into a unique_ptr.
+  std::unique_ptr<MgPromise<T>> ToUnique() && {
+    std::unique_ptr<MgPromise<T>> up = std::make_unique<MgPromise<T>>(std::move(shared_));
 
+    filled_or_moved_ = true;
+
+    return up;
+  }
+
+ private:
   std::shared_ptr<Shared<T>> shared_;
   bool filled_or_moved_ = false;
 };

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <compare>
+
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/uuid/uuid.hpp>
 
@@ -30,5 +32,17 @@ struct Address {
     Address ret;
     ret.last_known_port = port;
     return ret;
+  }
+
+  bool operator==(const Address &other) const {
+    return (last_known_ip == other.last_known_ip) && (last_known_port == other.last_known_port);
+  }
+
+  bool operator<(const Address &other) const {
+    if (last_known_ip == other.last_known_ip) {
+      return last_known_port < other.last_known_port;
+    } else {
+      return last_known_ip < other.last_known_ip;
+    }
   }
 };
