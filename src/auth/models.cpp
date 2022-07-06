@@ -368,6 +368,8 @@ LabelPermissions User::GetLabelPermissions() const {
     std::set_union(labelPermissions_.denies().begin(), labelPermissions_.denies().end(),
                    role_->labelPermissions().denies().begin(), role_->labelPermissions().denies().end(),
                    std::inserter(resultDenies, resultDenies.begin()));
+
+    return {resultGrants, resultDenies};
   }
   return labelPermissions_;
 }

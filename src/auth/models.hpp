@@ -91,8 +91,8 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class LabelPermissions final {
  public:
-  explicit LabelPermissions(const std::unordered_set<std::string> &grants = {},
-                            const std::unordered_set<std::string> &denies = {});
+  LabelPermissions(const std::unordered_set<std::string> &grants = {},
+                   const std::unordered_set<std::string> &denies = {});
 
   PermissionLevel Has(const std::string &permission) const;
 
