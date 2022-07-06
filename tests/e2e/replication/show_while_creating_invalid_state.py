@@ -61,6 +61,21 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
+def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.5):
+    result = function_to_retrieve_data()
+    start_time = time.time()
+    while result != expected_value:
+        current_time = time.time()
+        duration = current_time - start_time
+        if duration > max_duration:
+            assert False, " mg_sleep_and_assert has tried for too long and did not get the expected result!"
+
+        time.sleep(time_between_attempt)
+        result = function_to_retrieve_data()
+
+    return result
+
+
 def test_show_replicas(connection):
     # Goal of this test is to check the SHOW REPLICAS command.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
@@ -111,13 +126,15 @@ def test_show_replicas(connection):
     interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
 
     # We leave some time for the main to realise the replicas are down.
-    time.sleep(2)
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
         ("replica_3", "127.0.0.1:10003", "async", 0, 0, "invalid"),
         ("replica_4", "127.0.0.1:10004", "async", 0, 0, "invalid"),
     }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
 
 
@@ -201,7 +218,6 @@ def test_basic_recovery(connection):
 
     # 2/
     interactive_mg_runner.kill(CONFIGURATION, "main")
-    time.sleep(2)
 
     # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
@@ -209,9 +225,10 @@ def test_basic_recovery(connection):
     check_roles()
 
     # 4/
-    # We leave some time for the main to recover.
-    time.sleep(2)
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
 
     # 5/
@@ -220,8 +237,6 @@ def test_basic_recovery(connection):
     # 6/
     execute_and_fetch_all(cursor, "CREATE (p1:Number {name:'Magic', value:42})")
     interactive_mg_runner.kill(CONFIGURATION, "main")
-    time.sleep(2)
-
     interactive_mg_runner.start(CONFIGURATION, "main")
     cursor = connection(7687, "main").cursor()
     check_roles()
@@ -256,28 +271,35 @@ def test_basic_recovery(connection):
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     interactive_mg_runner.start(CONFIGURATION, "replica_3")
 
-    time.sleep(2)
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 6, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
     }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    def retrieve_data2():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data2)
+
     assert actual_data == expected_data
     for index in (1, 2, 3, 4):
         assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
     # 11/
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
-    time.sleep(1)
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
         ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
         ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
     }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    def retrieve_data3():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data3)
     assert actual_data == expected_data
 
     # 12/
@@ -383,7 +405,6 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
     # 2/
     interactive_mg_runner.kill(CONFIGURATION, "main")
     interactive_mg_runner.kill(CONFIGURATION, "replica_2")
-    time.sleep(2)
 
     # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
