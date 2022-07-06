@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 #include <json/json.hpp>
 
@@ -90,31 +91,31 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class LabelPermissions final {
  public:
-  explicit LabelPermissions(const std::vector<std::string> &grants = {}, const std::vector<std::string> &denies = {});
+  explicit LabelPermissions(const std::unordered_set<std::string> &grants = {},
+                            const std::unordered_set<std::string> &denies = {});
 
-  PermissionLevel Has(LabelPermissions permission) const;
+  PermissionLevel Has(const std::string &permission) const;
 
-  void Grant(LabelPermissions permission);
+  void Grant(const std::string &permission);
 
-  void Revoke(LabelPermissions permission);
+  void Revoke(const std::string &permission);
 
-  void Deny(LabelPermissions permission);
+  void Deny(const std::string &permission);
 
-  std::vector<std::string> GetGrants() const;
-
-  std::vector<std::string> GetDenies() const;
+  std::unordered_set<std::string> GetGrants() const;
+  std::unordered_set<std::string> GetDenies() const;
 
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
   static LabelPermissions Deserialize(const nlohmann::json &data);
 
-  std::vector<std::string> grants() const;
-  std::vector<std::string> denies() const;
+  std::unordered_set<std::string> grants() const;
+  std::unordered_set<std::string> denies() const;
 
  private:
-  std::vector<std::string> grants_{};
-  std::vector<std::string> denies_{};
+  std::unordered_set<std::string> grants_{};
+  std::unordered_set<std::string> denies_{};
 };
 
 bool operator==(const LabelPermissions &first, const LabelPermissions &second);

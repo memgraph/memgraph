@@ -98,12 +98,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {
-  // // The deny bitmask has higher priority than the grant bitmask.
-  // denies_ = denies;
-  // // Mask out the grant bitmask to make sure that it is correct.
-  // grants_ = grants & (~denies);
-}
+Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {}
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
@@ -183,24 +178,62 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
-////////////////////////////////
-LabelPermissions::LabelPermissions(const std::vector<std::string> &grants, const std::vector<std::string> &denies)
+LabelPermissions::LabelPermissions(const std::unordered_set<std::string> &grants,
+                                   const std::unordered_set<std::string> &denies)
     : grants_(grants), denies_(denies) {}
 
-PermissionLevel LabelPermissions::Has(LabelPermissions permission) const {
-  // Check for the deny first because it has greater priority than a grant.
+PermissionLevel LabelPermissions::Has(const std::string &permission) const {
+  if (denies_.find(permission) != denies_.end()) {
+    return PermissionLevel::DENY;
+  }
+
+  if (grants_.find(permission) != denies_.end()) {
+    return PermissionLevel::GRANT;
+  }
+
   return PermissionLevel::NEUTRAL;
 }
 
-void LabelPermissions::Grant(LabelPermissions permission) {}
+void LabelPermissions::Grant(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
 
-void LabelPermissions::Revoke(LabelPermissions permission) {}
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
 
-void LabelPermissions::Deny(LabelPermissions permission) {}
+  if (grants_.find(permission) == grants_.end()) {
+    grants_.insert(permission);
+  }
+}
 
-std::vector<std::string> LabelPermissions::GetGrants() const { return grants_; }
+void LabelPermissions::Revoke(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
+  auto grantedPermissionIter = grants_.find(permission);
 
-std::vector<std::string> LabelPermissions::GetDenies() const { return denies_; }
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+}
+
+void LabelPermissions::Deny(const std::string &permission) {
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+
+  if (denies_.find(permission) == denies_.end()) {
+    denies_.insert(permission);
+  }
+}
+
+std::unordered_set<std::string> LabelPermissions::GetGrants() const { return grants_; }
+
+std::unordered_set<std::string> LabelPermissions::GetDenies() const { return denies_; }
 
 nlohmann::json LabelPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
@@ -220,15 +253,14 @@ LabelPermissions LabelPermissions::Deserialize(const nlohmann::json &data) {
   return LabelPermissions(data["grants"], data["denies"]);
 }
 
-std::vector<std::string> LabelPermissions::grants() const { return grants_; }
-std::vector<std::string> LabelPermissions::denies() const { return denies_; }
+std::unordered_set<std::string> LabelPermissions::grants() const { return grants_; }
+std::unordered_set<std::string> LabelPermissions::denies() const { return denies_; }
 
 bool operator==(const LabelPermissions &first, const LabelPermissions &second) {
   return first.grants() == second.grants() && first.denies() == second.denies();
 }
 
 bool operator!=(const LabelPermissions &first, const LabelPermissions &second) { return !(first == second); }
-////////////////////////////////
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
