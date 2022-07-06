@@ -29,6 +29,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -1907,7 +1908,7 @@ bool Storage::SetMainReplicationRole() {
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::ReplicationClientConfig &config) {
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
@@ -1942,8 +1943,14 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   }
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
+
+  utils::BasicResult<Storage::RegisterReplicaError> return_value;
   if (client->State() == replication::ReplicaState::INVALID) {
-    return RegisterReplicaError::CONNECTION_FAILED;
+    if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
+      return RegisterReplicaError::CONNECTION_FAILED;
+    }
+
+    return_value = RegisterReplicaError::CONNECTION_FAILED;
   }
 
   return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
@@ -1960,7 +1967,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     }
 
     clients.push_back(std::move(client));
-    return {};
+    return return_value;
   });
 }
 
@@ -2027,12 +2034,13 @@ void Storage::RestoreReplicas() {
     MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
               replica_name);
 
-    auto ret = RegisterReplica(std::move(replica_status.name),
-                               {std::move(replica_status.ip_address), replica_status.port}, replica_status.sync_mode,
-                               {
-                                   .replica_check_frequency = replica_status.replica_check_frequency,
-                                   .ssl = replica_status.ssl,
-                               });
+    auto ret =
+        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
+                        replica_status.sync_mode, replication::RegistrationMode::CAN_BE_INVALID,
+                        {
+                            .replica_check_frequency = replica_status.replica_check_frequency,
+                            .ssl = replica_status.ssl,
+                        });
 
     if (ret.HasError()) {
       if (RegisterReplicaError::CONNECTION_FAILED != ret.GetError()) {
