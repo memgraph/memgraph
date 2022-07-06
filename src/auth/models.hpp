@@ -169,6 +169,7 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
+  LabelPermissions GetLabelPermissions() const;
 
   const std::string &username() const;
 
@@ -176,7 +177,7 @@ class User final {
   Permissions &permissions();
 
   const LabelPermissions &labelPermissions() const;
-  Permissions &labelPermissions();
+  LabelPermissions &labelPermissions();
 
   const Role *role() const;
 

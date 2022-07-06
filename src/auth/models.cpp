@@ -8,7 +8,10 @@
 
 #include "auth/models.hpp"
 
+#include <algorithm>
+#include <iterator>
 #include <regex>
+#include <unordered_set>
 
 #include <gflags/gflags.h>
 
@@ -292,7 +295,8 @@ Role Role::Deserialize(const nlohmann::json &data) {
 }
 
 bool operator==(const Role &first, const Role &second) {
-  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
+  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
+         first.labelPermissions_ == second.labelPermissions_;
 }
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
@@ -351,10 +355,30 @@ Permissions User::GetPermissions() const {
   return permissions_;
 }
 
+LabelPermissions User::GetLabelPermissions() const {
+  if (role_) {
+    std::unordered_set<std::string> resultGrants;
+
+    std::set_union(labelPermissions_.grants().begin(), labelPermissions_.grants().end(),
+                   role_->labelPermissions().grants().begin(), role_->labelPermissions().grants().end(),
+                   std::inserter(resultGrants, resultGrants.begin()));
+
+    std::unordered_set<std::string> resultDenies;
+
+    std::set_union(labelPermissions_.denies().begin(), labelPermissions_.denies().end(),
+                   role_->labelPermissions().denies().begin(), role_->labelPermissions().denies().end(),
+                   std::inserter(resultDenies, resultDenies.begin()));
+  }
+  return labelPermissions_;
+}
+
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
+
+const LabelPermissions &User::labelPermissions() const { return labelPermissions_; }
+LabelPermissions &User::labelPermissions() { return labelPermissions_; }
 
 const Role *User::role() const {
   if (role_.has_value()) {
@@ -386,6 +410,7 @@ User User::Deserialize(const nlohmann::json &data) {
 
 bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ && first.role_ == second.role_;
+         first.permissions_ == second.permissions_ && first.labelPermissions_ == second.labelPermissions_ &&
+         first.role_ == second.role_;
 }
 }  // namespace memgraph::auth
