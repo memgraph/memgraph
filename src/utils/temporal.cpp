@@ -500,7 +500,7 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   return (milli_as_nanos + micros_as_nanos).count();
 }
 
-std::string LocalDateTime::ToString() const { return date.ToString() + "T" + local_time.ToString(); }
+std::string LocalDateTime::ToString() const { return date.ToString() + 'T' + local_time.ToString(); }
 
 LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
