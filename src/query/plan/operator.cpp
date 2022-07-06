@@ -1964,8 +1964,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                    const TypedValue &total_weight, int64_t depth) {
+    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const VertexAccessor &src_vertex,
+                                                    const VertexAccessor &vertex, const TypedValue &total_weight,
+                                                    int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 
       // If filter expression exists, evaluate filter
@@ -2015,13 +2016,15 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       // Append the expansion to the priority queue
       // Update the parent
-      if (previous_.find(vertex) == previous_.end()) {
-        utils::pmr::list<TypedValue> empty(memory);
-        previous_[vertex] = std::move(empty);
+      if (previous_.find(src_vertex) == previous_.end()) {
+        utils::pmr::list<EdgeAccessor> empty(memory);
+        previous_[src_vertex] = std::move(empty);
       }
 
-      auto previous_list_at = previous_.at(vertex);
-      // previous_list_at.emplace(edge);
+      previous_.at(src_vertex).emplace_back(std::move(edge));
+      spdlog::warn("Inserting ({} -> {}) edge to vertex list: {}", edge.From().CypherId(), edge.To().CypherId(),
+                   src_vertex.CypherId());
+      spdlog::warn("Size after insertion to previous: {}", previous_.at(src_vertex).size());
       pq_.push({next_weight, depth + 1, vertex});
     };
 
@@ -2033,13 +2036,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
-          expand_vertex(edge, edge.To(), weight, depth);
+          expand_vertex(edge, vertex, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
-          expand_vertex(edge, edge.From(), weight, depth);
+          expand_vertex(edge, vertex, edge.From(), weight, depth);
         }
       }
     };
@@ -2066,7 +2069,39 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (MustAbort(context)) throw HintedAbortError();
 
       while (!traversal_stack_.empty()) {
-        throw HintedAbortError();
+        auto &current_level = traversal_stack_.back();
+        auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+        spdlog::warn("Traversal stack size: {}.", traversal_stack_.size());
+
+        if (current_level.empty()) {
+          if (!edges_on_frame.empty()) edges_on_frame.pop_back();
+          traversal_stack_.pop_back();
+          spdlog::warn("Removing from traversal stack and edges_from_frame.");
+          continue;
+        }
+        auto current_edge = current_level.back();
+        spdlog::warn("Current level size: {}.", current_level.size());
+        current_level.pop_back();
+
+        edges_on_frame.emplace_back(current_edge);
+        spdlog::warn("Edges on frame size: {}.", edges_on_frame.size());
+
+        auto next_vertex = self_.common_.direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+        frame[self_.common_.node_symbol] = next_vertex;
+        spdlog::warn("Pulling the vertex (({})).", next_vertex.CypherId());
+        if (previous_.find(next_vertex) != previous_.end()) {
+          auto edges_previous = previous_[next_vertex];
+          traversal_stack_.emplace_back(std::move(edges_previous));
+          spdlog::warn("Adding to traversal stack.", next_vertex.CypherId());
+          spdlog::warn("Next edges size: {}", edges_previous.size());
+        } else {
+          utils::pmr::list<EdgeAccessor> empty(mem);
+          traversal_stack_.emplace_back(std::move(empty));
+          spdlog::warn("No next, emplacing empty", next_vertex.CypherId());
+        }
+
+        spdlog::warn("### Writing the result...", next_vertex.CypherId());
+        return true;
       }
 
       // If priority queue is empty start new pulling stream.
@@ -2091,6 +2126,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_.clear();
 
         pq_.push({TypedValue(), 0, *start_vertex});
+        frame[self_.common_.edge_symbol] = TypedValue::TVector(mem);
       }
 
       // Create a DFS traversal tree from the start node
@@ -2112,9 +2148,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         } else {
           visited_cost_.emplace(current_vertex, current_weight);
         }
-
+        spdlog::warn("Current vertex: (({}))", current_vertex.CypherId());
         // Expand only if what we've just expanded is less than max depth.
-        if (current_depth < upper_bound_) expand_from_vertex(current_vertex, current_weight, current_depth);
+        if (previous_.find(current_vertex) == previous_.end() && current_depth < upper_bound_)
+          expand_from_vertex(current_vertex, current_weight, current_depth);
 
         // Place destination node on the frame, handle existence flag.
         if (self_.common_.existing_node) {
@@ -2138,9 +2175,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
 
       if (start_vertex && previous_.find(*start_vertex) != previous_.end()) {
-        utils::pmr::list<TypedValue> edges_previous = previous_[*start_vertex];
-        utils::pmr::list<TypedValue> tmp_stack(mem);
-        traversal_stack_.emplace_back(&tmp_stack);
+        auto edges_previous = previous_[*start_vertex];
+        traversal_stack_.emplace_back(std::move(edges_previous));
       }
     }
   }
@@ -2166,9 +2202,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Maps vertices to weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
   // Maps the vertex with the potential expansion edge.
-  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<TypedValue>> previous_;
+  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<EdgeAccessor>> previous_;
   // Stack indicating the traversal level.
-  utils::pmr::list<std::pmr::list<TypedValue>> traversal_stack_;
+  utils::pmr::list<utils::pmr::list<EdgeAccessor>> traversal_stack_;
 
   static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
     if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
