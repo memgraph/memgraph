@@ -32,7 +32,7 @@ import typing
 from collections import namedtuple
 from functools import wraps
 
-import include.mgp._mgp as _mgp
+import _mgp
 
 
 class InvalidContextError(Exception):
