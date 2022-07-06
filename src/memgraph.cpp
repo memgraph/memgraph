@@ -501,7 +501,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll);
+        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {});
       }
 
       return user_added;
@@ -747,13 +747,18 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
+                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                      const std::vector<std::string> &labels) override {
     EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
       // unconditionally granting/denying/revoking it?
       permissions->Grant(permission);
     });
+    if (labels.size() > 0) {
+      EditLabels(user_or_role, labels,
+                 [](auto *labelPermissions, const auto &label) { labelPermissions->Grant(label); });
+    }
   }
 
   void DenyPrivilege(const std::string &user_or_role,
@@ -803,6 +808,34 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
+        }
+        locked_auth->SaveRole(*role);
+      }
+    } catch (const memgraph::auth::AuthException &e) {
+      throw memgraph::query::QueryRuntimeException(e.what());
+    }
+  }
+
+  template <class TEditFun>
+  void EditLabels(const std::string &user_or_role, const std::vector<std::string> &labels, const TEditFun &edit_fun) {
+    if (!std::regex_match(user_or_role, name_regex_)) {
+      throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(user_or_role);
+      auto role = locked_auth->GetRole(user_or_role);
+      if (!user && !role) {
+        throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+      }
+      if (user) {
+        for (const auto &label : labels) {
+          edit_fun(&user->labelPermissions(), label);
+        }
+        locked_auth->SaveUser(*user);
+      } else {
+        for (const auto &label : labels) {
+          edit_fun(&role->labelPermissions(), label);
         }
         locked_auth->SaveRole(*role);
       }

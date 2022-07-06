@@ -9,6 +9,7 @@
 *.swn
 *.swo
 *.swp
+
 *~
 .DS_Store
 .gdb_history
@@ -26,6 +27,7 @@ src/query/frontend/opencypher/generated/
 tags
 ve/
 ve3/
+.cache/
 perf.data*
 TAGS
 *.apollo_measurements

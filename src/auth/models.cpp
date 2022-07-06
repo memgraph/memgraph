@@ -185,14 +185,24 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
+LabelPermissions::LabelPermissions(const std::unordered_map<std::string, int> &permissions)
+    : permissions_(permissions) {}
+
+void LabelPermissions::Grant(const std::string &permission) { permissions_[permission] = 1; }
+
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
 Role::Role(const std::string &rolename, const Permissions &permissions)
     : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 
+Role::Role(const std::string &rolename, const Permissions &permissions, const LabelPermissions &labelPermissions)
+    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions), labelPermissions_(labelPermissions) {}
+
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
+
+LabelPermissions &Role::labelPermissions() { return labelPermissions_; }
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
@@ -220,6 +230,13 @@ User::User(const std::string &username) : username_(utils::ToLowerCase(username)
 
 User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)
     : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
+
+User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+           const LabelPermissions &labelPermissions)
+    : username_(utils::ToLowerCase(username)),
+      password_hash_(password_hash),
+      permissions_(permissions),
+      labelPermissions_(labelPermissions) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_.empty()) return true;
@@ -273,6 +290,8 @@ const std::string &User::username() const { return username_; }
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
 
+LabelPermissions &User::labelPermissions() { return labelPermissions_; }
+
 const Role *User::role() const {
   if (role_.has_value()) {
     return &role_.value();
@@ -304,4 +323,5 @@ bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
          first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
+
 }  // namespace memgraph::auth

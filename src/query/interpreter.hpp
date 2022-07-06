@@ -99,7 +99,8 @@ class AuthQueryHandler {
   virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
+  virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+                              const std::vector<std::string> &labels) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;

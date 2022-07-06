@@ -89,15 +89,44 @@ bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
 
+class LabelPermissions final {
+ public:
+  explicit LabelPermissions(const std::unordered_map<std::string, int> &permissions_ = {});
+
+  PermissionLevel Has(const std::string &label) const;
+
+  void Grant(const std::string &label);
+
+  void Revoke(const std::string &label);
+
+  void Deny(const std::string &label);
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static LabelPermissions Deserialize(const nlohmann::json &data);
+
+  std::unordered_map<std::string, int> permissions() const;
+
+ private:
+  std::unordered_map<std::string, int> permissions_;
+};
+
+bool operator==(const LabelPermissions &first, const LabelPermissions &second);
+
 class Role final {
  public:
   Role(const std::string &rolename);
 
   Role(const std::string &rolename, const Permissions &permissions);
 
+  Role(const std::string &rolename, const Permissions &permissions, const LabelPermissions &labelPermissions);
+
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+
+  LabelPermissions &labelPermissions();
 
   nlohmann::json Serialize() const;
 
@@ -109,6 +138,7 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
+  LabelPermissions labelPermissions_;
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -119,6 +149,9 @@ class User final {
   User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
+
+  User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+       const LabelPermissions &labelPermissions);
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
@@ -139,6 +172,8 @@ class User final {
 
   const Role *role() const;
 
+  LabelPermissions &labelPermissions();
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -151,7 +186,11 @@ class User final {
   std::string password_hash_;
   Permissions permissions_;
   std::optional<Role> role_;
+  LabelPermissions labelPermissions_;
 };
 
 bool operator==(const User &first, const User &second);
+
 }  // namespace memgraph::auth
+
+// namespace memgraph::auth
