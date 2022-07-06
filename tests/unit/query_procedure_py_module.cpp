@@ -307,7 +307,7 @@ int main(int argc, char **argv) {
   {
     // Setup importing 'mgp' module by adding its directory to `sys.path`.
     std::filesystem::path invocation_path(argv[0]);
-    auto mgp_py_path = invocation_path.parent_path() / "../../../include/mgp.py";
+    auto mgp_py_path = invocation_path.parent_path() / "../../../include/mgp/mgp.py";
     MG_ASSERT(std::filesystem::exists(mgp_py_path));
     auto *py_path = PySys_GetObject("path");
     MG_ASSERT(py_path);
