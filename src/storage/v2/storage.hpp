@@ -423,7 +423,7 @@ class Storage final {
   /// @pre Timeout can only be set for SYNC replication
   utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
       std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config = {});
+      const replication::ReplicationClientConfig &config = {});
   /// @pre The instance should have a MAIN role
   bool UnregisterReplica(const std::string &name);
 
@@ -544,7 +544,7 @@ class Storage final {
   std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-  std::unique_ptr<kvstore::KVStore> kvstorage_;
+  std::unique_ptr<kvstore::KVStore> storage_;
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
