@@ -1,23 +1,4 @@
 # mgp
 
-PyPi package used for type hinting when creating MAGE modules.
-
-
-# How to publish new versions
-## Prerequisites
-1. Installed poetry
-```
-pip install poetry
-```
-2. Set up [API tokens](https://pypi.org/help/#apitoken)
-3. Be a collaborator on [pypi](https://pypi.org/project/mgp/)
-
-## Making changes
-1. Make changes to the package
-2. Bump version in `pyproject.tml`
-3. `poetry build`
-4. `poetry publish`
-
-## Why is this not automatized?
-
-Because someone always has to manually bump up the version in `pyproject.toml`
+PyPi package used for type hinting when creating MAGE modules. The get started
+using MAGE repository checkout the repository here: https://github.com/memgraph/mage.
