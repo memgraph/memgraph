@@ -62,11 +62,11 @@ Feature: Case
         Given an empty graph
         When executing query:
             """
-            WITH 2 AS name RETURN CASE name WHEN 3 THEN 'works' WHEN null THEN "doesn't work" ELSE 'something went wrong' END
+            WITH 2 AS name RETURN CASE name WHEN 3 THEN 'something went wrong' WHEN null THEN "doesn't work" ELSE 'works' END
             """
         Then the result should be:
-            |  CASE name WHEN 3 THEN 'works' WHEN null THEN "doesn't work" ELSE 'something went wrong' END |
-            |  'something went wrong'                                                                      |
+            |  CASE name WHEN 3 THEN 'something went wrong' WHEN null THEN "doesn't work" ELSE 'works' END |
+            |  'works'                                                                      |
 
     Scenario: Simple CASE nullcheck does have match:
         Given an empty graph
