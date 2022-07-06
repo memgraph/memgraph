@@ -25,13 +25,12 @@ This module provides the API for usage in custom openCypher procedures.
 # actual implementation. Functions have type annotations as supported by Python
 # 3.5, but variable type annotations are only available with Python 3.6+
 
-from collections import namedtuple
-from functools import wraps
+import datetime
 import inspect
 import sys
 import typing
-import datetime
-
+from collections import namedtuple
+from functools import wraps
 
 import include.mgp._mgp as _mgp
 
