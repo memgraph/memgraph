@@ -87,3 +87,13 @@ Feature: Case
         Then the result should be:
             |  CASE WHEN name is NULL THEN "doesn't work" WHEN name = 2 THEN "works" ELSE "something went wrong" END |
             |  'works'                                                                                               |
+
+    Scenario: Generic CASE expression is null:
+        Given an empty graph
+        When executing query:
+            """
+            WITH null AS name RETURN CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END
+            """
+        Then the result should be:
+            |  CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END |
+            |  'works'                                                                             |
