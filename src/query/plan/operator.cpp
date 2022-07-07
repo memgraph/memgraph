@@ -2010,9 +2010,24 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       });
 
       auto found_it = visited_cost_.find(vertex);
-      if (found_it != visited_cost_.end() &&
-          (found_it->second.IsNull() || (found_it->second <= next_weight).ValueBool()))
-        return;
+      // Check if the vertex has already been processed.
+      if (found_it != visited_cost_.end()) {
+        auto weight = found_it->second;
+
+        if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
+          visited_cost_.emplace(vertex, next_weight);
+          // spdlog::warn("Adding similar weight: (({})) -> {}", vertex.CypherId(),
+                      //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
+        } else {
+          // spdlog::warn("Skipping weight: (({})) -> {}", vertex.CypherId(),
+                      //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
+          // Continue and do not expand if current weight is larger
+          return;
+        }
+      } else {
+        visited_cost_.emplace(vertex, next_weight);
+        // spdlog::warn("Adding new weight: (({})) -> {}", vertex.CypherId(), next_weight.IsNull() ? -1 : next_weight.ValueInt());
+      }
 
       // Append the expansion to the priority queue
       // Update the parent
@@ -2021,10 +2036,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         previous_[src_vertex] = std::move(empty);
       }
 
+      auto cost = (found_it == visited_cost_.end() || found_it->second.IsNull()) ? -1 : found_it->second.ValueInt();
+
       previous_.at(src_vertex).emplace_back(std::move(edge));
-      spdlog::warn("Inserting ({} -> {}) edge to vertex list: {}", edge.From().CypherId(), edge.To().CypherId(),
-                   src_vertex.CypherId());
-      spdlog::warn("Size after insertion to previous: {}", previous_.at(src_vertex).size());
+      // spdlog::warn("Inserting ({} -> {}) edge to vertex list: {}", edge.From().CypherId(), edge.To().CypherId(),
+                  //  src_vertex.CypherId());
+      // spdlog::warn("Size after insertion to previous: {}", previous_.at(src_vertex).size());
+      // spdlog::warn("Weight before: {}, after {}", cost, next_weight.IsNull() ? -1 : next_weight.ValueInt());
       pq_.push({next_weight, depth + 1, vertex});
     };
 
@@ -2069,38 +2087,38 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (MustAbort(context)) throw HintedAbortError();
 
       while (!traversal_stack_.empty()) {
+        // throw HintedAbortError();
         auto &current_level = traversal_stack_.back();
         auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
-        spdlog::warn("Traversal stack size: {}.", traversal_stack_.size());
+        // spdlog::warn("Traversal stack size: {}.", traversal_stack_.size());
 
         if (current_level.empty()) {
           if (!edges_on_frame.empty()) edges_on_frame.pop_back();
           traversal_stack_.pop_back();
-          spdlog::warn("Removing from traversal stack and edges_from_frame.");
+          // spdlog::warn("Removing from traversal stack and edges_from_frame.");
           continue;
         }
         auto current_edge = current_level.back();
-        spdlog::warn("Current level size: {}.", current_level.size());
+        // spdlog::warn("Current level size: {}.", current_level.size());
         current_level.pop_back();
 
         edges_on_frame.emplace_back(current_edge);
-        spdlog::warn("Edges on frame size: {}.", edges_on_frame.size());
+        // spdlog::warn("Edges on frame size: {}.", edges_on_frame.size());
 
         auto next_vertex = self_.common_.direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
         frame[self_.common_.node_symbol] = next_vertex;
-        spdlog::warn("Pulling the vertex (({})).", next_vertex.CypherId());
+        // spdlog::warn("Pulling the vertex (({})).", next_vertex.CypherId());
         if (previous_.find(next_vertex) != previous_.end()) {
           auto edges_previous = previous_[next_vertex];
           traversal_stack_.emplace_back(std::move(edges_previous));
-          spdlog::warn("Adding to traversal stack.", next_vertex.CypherId());
-          spdlog::warn("Next edges size: {}", edges_previous.size());
+          // spdlog::warn("Adding to traversal stack.", next_vertex.CypherId());
+          // spdlog::warn("Next edges size: {}", edges_previous.size());
         } else {
           utils::pmr::list<EdgeAccessor> empty(mem);
           traversal_stack_.emplace_back(std::move(empty));
-          spdlog::warn("No next, emplacing empty", next_vertex.CypherId());
+          // spdlog::warn("No next, emplacing empty", next_vertex.CypherId());
         }
 
-        spdlog::warn("### Writing the result...", next_vertex.CypherId());
         return true;
       }
 
@@ -2126,7 +2144,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_.clear();
 
         pq_.push({TypedValue(), 0, *start_vertex});
+        visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(mem);
+        // spdlog::warn("Pulling the input, (({}))", (*start_vertex).CypherId());
       }
 
       // Create a DFS traversal tree from the start node
@@ -2136,19 +2156,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto [current_weight, current_depth, current_vertex] = pq_.top();
         pq_.pop();
 
-        // Check if the vertex has already been processed.
-        if (visited_cost_.find(current_vertex) != visited_cost_.end()) {
-          auto weight = visited_cost_.find(current_vertex)->second;
-          if (weight.IsNull() || (current_weight <= weight).ValueBool()) {
-            visited_cost_.emplace(current_vertex, current_weight);
-          } else {
-            // Continue and do not expand if current weight is larger
-            continue;
-          }
-        } else {
-          visited_cost_.emplace(current_vertex, current_weight);
-        }
-        spdlog::warn("Current vertex: (({}))", current_vertex.CypherId());
+        // spdlog::warn("Current vertex: (({}))", current_vertex.CypherId());
         // Expand only if what we've just expanded is less than max depth.
         if (previous_.find(current_vertex) == previous_.end() && current_depth < upper_bound_)
           expand_from_vertex(current_vertex, current_weight, current_depth);
