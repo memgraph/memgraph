@@ -826,7 +826,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
   Callback callback;
   switch (schema_query->action_) {
     case SchemaQuery::Action::SHOW_SCHEMAS: {
-      callback.header = {"label", "primary_key", "primary_key_type"};
+      callback.header = {"label", "primary_key"};
       callback.fn = [interpreter_context]() {
         auto *db = interpreter_context->db;
         auto schemas_info = db->ListAllSchemas();
@@ -847,8 +847,6 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
                          });
 
           schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
-          schema_info_row.emplace_back(schema_types.size() == 1 ? "Single" : "Composite");
-
           results.push_back(std::move(schema_info_row));
         }
         return results;
@@ -860,13 +858,10 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
-        const auto schemas_info = db->GetSchema(label);
-        MG_ASSERT(schemas_info.schemas.size() < 2, "There can be only one schema under single label!");
+        const auto schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
-        if (!schemas_info.schemas.empty()) {
-          const auto schema = schemas_info.schemas[0];
-
-          for (const auto &schema_property : schema.second) {
+        if (schema) {
+          for (const auto &schema_property : schema->second) {
             std::vector<TypedValue> schema_info_row;
             schema_info_row.reserve(2);
 
@@ -874,9 +869,10 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
             schema_info_row.emplace_back(storage::SchemaTypeToString(schema_property.type));
 
             results.push_back(std::move(schema_info_row));
+            return results;
           }
         }
-        return results;
+        throw QueryException(fmt::format("Schema on label :{} not found!", primary_label.name));
       };
       return callback;
     }
@@ -889,11 +885,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
                      schema_type_map = std::move(schema_type_map)]() {
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
-        std::vector<storage::SchemaPropertyType> schemas_types;
+        std::vector<storage::SchemaProperty> schemas_types;
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
           auto property_id = db->NameToProperty(schema_type.first.name);
-          schemas_types.push_back({schema_type.second, property_id});
+          schemas_types.push_back({property_id, schema_type.second});
         }
         if (!db->CreateSchema(label, schemas_types)) {
           throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));

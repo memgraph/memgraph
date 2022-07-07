@@ -19,10 +19,10 @@
 namespace memgraph::storage {
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type)
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type)
     : status{status}, label{label}, violated_type{violated_type} {}
 
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type,
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
                                  PropertyValue violated_property_value)
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
 
@@ -42,11 +42,11 @@ std::optional<Schemas::Schema> Schemas::GetSchema(const LabelId primary_label) c
   return std::nullopt;
 }
 
-bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types) {
+bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
   if (schemas_.contains(primary_label)) {
     return false;
   }
-  schemas_.insert({primary_label, schemas_types});
+  schemas_.emplace(primary_label, schemas_types);
   return true;
 }
 
@@ -78,6 +78,68 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
   // primary key uniqueness
 
   return std::nullopt;
+}
+
+std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
+  switch (property_value.type()) {
+    case PropertyValue::Type::Bool: {
+      return common::SchemaType::BOOL;
+    }
+    case PropertyValue::Type::Int: {
+      return common::SchemaType::INT;
+    }
+    case PropertyValue::Type::String: {
+      return common::SchemaType::STRING;
+    }
+    case PropertyValue::Type::TemporalData: {
+      switch (property_value.ValueTemporalData().type) {
+        case TemporalType::Date: {
+          return common::SchemaType::DATE;
+        }
+        case TemporalType::LocalDateTime: {
+          return common::SchemaType::LOCALDATETIME;
+        }
+        case TemporalType::LocalTime: {
+          return common::SchemaType::LOCALTIME;
+        }
+        case TemporalType::Duration: {
+          return common::SchemaType::DURATION;
+        }
+      }
+    }
+    case PropertyValue::Type::Double:
+    case PropertyValue::Type::Null:
+    case PropertyValue::Type::Map:
+    case PropertyValue::Type::List: {
+      return std::nullopt;
+    }
+  }
+}
+
+std::string SchemaTypeToString(const common::SchemaType type) {
+  switch (type) {
+    case common::SchemaType::BOOL: {
+      return "Bool";
+    }
+    case common::SchemaType::INT: {
+      return "Integer";
+    }
+    case common::SchemaType::STRING: {
+      return "String";
+    }
+    case common::SchemaType::DATE: {
+      return "Date";
+    }
+    case common::SchemaType::LOCALTIME: {
+      return "LocalTime";
+    }
+    case common::SchemaType::LOCALDATETIME: {
+      return "LocalDateTime";
+    }
+    case common::SchemaType::DURATION: {
+      return "Duration";
+    }
+  }
 }
 
 }  // namespace memgraph::storage

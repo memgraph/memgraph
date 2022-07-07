@@ -414,9 +414,9 @@ class Storage final {
 
   SchemasInfo ListAllSchemas() const;
 
-  SchemasInfo GetSchema(LabelId primary_label) const;
+  std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
 
-  bool CreateSchema(LabelId primary_label, const std::vector<SchemaPropertyType> &schemas_types);
+  bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
 
   bool DropSchema(LabelId primary_label);
 

@@ -2406,9 +2406,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
   auto *schema_query = storage_->Create<SchemaQuery>();
   schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
-  if (!ctx->schemaTypeMap()) {
-    throw SemanticException("Schema property map must exist!");
-  }
   schema_query->schema_type_map_ =
       ctx->schemaTypeMap()->accept(this).as<std::unordered_map<PropertyIx, common::SchemaType>>();
   query_ = schema_query;

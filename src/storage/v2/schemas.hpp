@@ -32,9 +32,9 @@ class SchemaViolationException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-struct SchemaPropertyType {
-  common::SchemaType type;
+struct SchemaProperty {
   PropertyId property_id;
+  common::SchemaType type;
 };
 
 struct SchemaViolation {
@@ -47,14 +47,14 @@ struct SchemaViolation {
 
   SchemaViolation(ValidationStatus status, LabelId label);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type);
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaPropertyType violated_type,
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
                   PropertyValue violated_property_value);
 
   ValidationStatus status;
   LabelId label;
-  std::optional<SchemaPropertyType> violated_type;
+  std::optional<SchemaProperty> violated_type;
   std::optional<PropertyValue> violated_property_value;
 };
 
@@ -62,8 +62,8 @@ struct SchemaViolation {
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using Schema = std::pair<LabelId, std::vector<SchemaPropertyType>>;
-  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaPropertyType>>;
+  using Schema = std::pair<LabelId, std::vector<SchemaProperty>>;
+  using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
   using SchemasList = std::vector<Schema>;
 
   Schemas() = default;
@@ -79,7 +79,7 @@ class Schemas {
 
   // Returns true if it was successfully created or false if the schema
   // already exists
-  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaPropertyType> &schemas_types);
+  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaProperty> &schemas_types);
 
   // Returns true if it was successfully dropped or false if the schema
   // does not exist
@@ -91,66 +91,8 @@ class Schemas {
   SchemasMap schemas_;
 };
 
-inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
-  switch (property_value.type()) {
-    case PropertyValue::Type::Bool: {
-      return common::SchemaType::BOOL;
-    }
-    case PropertyValue::Type::Int: {
-      return common::SchemaType::INT;
-    }
-    case PropertyValue::Type::String: {
-      return common::SchemaType::STRING;
-    }
-    case PropertyValue::Type::TemporalData: {
-      switch (property_value.ValueTemporalData().type) {
-        case TemporalType::Date: {
-          return common::SchemaType::DATE;
-        }
-        case TemporalType::LocalDateTime: {
-          return common::SchemaType::LOCALDATETIME;
-        }
-        case TemporalType::LocalTime: {
-          return common::SchemaType::LOCALTIME;
-        }
-        case TemporalType::Duration: {
-          return common::SchemaType::DURATION;
-        }
-      }
-    }
-    case PropertyValue::Type::Double:
-    case PropertyValue::Type::Null:
-    case PropertyValue::Type::Map:
-    case PropertyValue::Type::List: {
-      return std::nullopt;
-    }
-  }
-}
+inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value);
 
-inline std::string SchemaTypeToString(const common::SchemaType type) {
-  switch (type) {
-    case common::SchemaType::BOOL: {
-      return "Bool";
-    }
-    case common::SchemaType::INT: {
-      return "Integer";
-    }
-    case common::SchemaType::STRING: {
-      return "String";
-    }
-    case common::SchemaType::DATE: {
-      return "Date";
-    }
-    case common::SchemaType::LOCALTIME: {
-      return "LocalTime";
-    }
-    case common::SchemaType::LOCALDATETIME: {
-      return "LocalDateTime";
-    }
-    case common::SchemaType::DURATION: {
-      return "Duration";
-    }
-  }
-}
+std::string SchemaTypeToString(common::SchemaType type);
 
 }  // namespace memgraph::storage
