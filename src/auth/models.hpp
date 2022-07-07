@@ -12,6 +12,7 @@
 #include <string>
 
 #include <json/json.hpp>
+#include <unordered_set>
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
@@ -91,29 +92,36 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class LabelPermissions final {
  public:
-  LabelPermissions(const std::unordered_map<std::string, int> &permissions_ = {});
+  LabelPermissions(const std::unordered_set<std::string> &grants = {},
+                   const std::unordered_set<std::string> &denies = {});
 
-  PermissionLevel Has(const std::string &label) const;
+  PermissionLevel Has(const std::string &permission) const;
 
-  void Grant(const std::string &label);
+  void Grant(const std::string &permission);
 
-  void Revoke(const std::string &label);
+  void Revoke(const std::string &permission);
 
-  void Deny(const std::string &label);
+  void Deny(const std::string &permission);
+
+  std::unordered_set<std::string> GetGrants() const;
+  std::unordered_set<std::string> GetDenies() const;
 
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
   static LabelPermissions Deserialize(const nlohmann::json &data);
 
-  std::unordered_map<std::string, int> permissions() const;
+  std::unordered_set<std::string> grants() const;
+  std::unordered_set<std::string> denies() const;
 
  private:
-  std::unordered_map<std::string, int> permissions_;
+  std::unordered_set<std::string> grants_{};
+  std::unordered_set<std::string> denies_{};
 };
 
 bool operator==(const LabelPermissions &first, const LabelPermissions &second);
 
+bool operator!=(const LabelPermissions &first, const LabelPermissions &second);
 class Role final {
  public:
   Role(const std::string &rolename);
@@ -192,5 +200,3 @@ class User final {
 bool operator==(const User &first, const User &second);
 
 }  // namespace memgraph::auth
-
-// namespace memgraph::auth

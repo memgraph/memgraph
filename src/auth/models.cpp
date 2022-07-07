@@ -185,18 +185,67 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
-LabelPermissions::LabelPermissions(const std::unordered_map<std::string, int> &permissions)
-    : permissions_(permissions) {}
+LabelPermissions::LabelPermissions(const std::unordered_set<std::string> &grants,
+                                   const std::unordered_set<std::string> &denies)
+    : grants_(grants), denies_(denies) {}
 
-void LabelPermissions::Grant(const std::string &label) { permissions_[label] = 1; }
+PermissionLevel LabelPermissions::Has(const std::string &permission) const {
+  if (denies_.find(permission) != denies_.end()) {
+    return PermissionLevel::DENY;
+  }
 
-void LabelPermissions::Deny(const std::string &label) { permissions_[label] = 0; }
+  if (grants_.find(permission) != denies_.end()) {
+    return PermissionLevel::GRANT;
+  }
 
-void LabelPermissions::Revoke(const std::string &label) { permissions_.erase(label); }
+  return PermissionLevel::NEUTRAL;
+}
+
+void LabelPermissions::Grant(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grants_.find(permission) == grants_.end()) {
+    grants_.insert(permission);
+  }
+}
+
+void LabelPermissions::Revoke(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+}
+
+void LabelPermissions::Deny(const std::string &permission) {
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+
+  if (denies_.find(permission) == denies_.end()) {
+    denies_.insert(permission);
+  }
+}
+
+std::unordered_set<std::string> LabelPermissions::GetGrants() const { return grants_; }
+
+std::unordered_set<std::string> LabelPermissions::GetDenies() const { return denies_; }
 
 nlohmann::json LabelPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["labelPermissions"] = permissions_;
+  data["grants"] = grants_;
+  data["denies"] = denies_;
   return data;
 }
 
@@ -205,8 +254,17 @@ LabelPermissions LabelPermissions::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load permissions data!");
   }
 
-  return {data["labelPermissions"]};
+  return {LabelPermissions(data["grants"], data["denies"])};
 }
+
+std::unordered_set<std::string> LabelPermissions::grants() const { return grants_; }
+std::unordered_set<std::string> LabelPermissions::denies() const { return denies_; }
+
+bool operator==(const LabelPermissions &first, const LabelPermissions &second) {
+  return first.grants() == second.grants() && first.denies() == second.denies();
+}
+
+bool operator!=(const LabelPermissions &first, const LabelPermissions &second) { return !(first == second); }
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
