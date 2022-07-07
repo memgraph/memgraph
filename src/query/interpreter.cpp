@@ -295,11 +295,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
       AuthQuery::Action::SHOW_ROLE_FOR_USER};
 
-  // if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
-  //   throw utils::BasicException(
-  //       utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-  //       features"));
-  // }
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
+        features"));
+  }
 
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
