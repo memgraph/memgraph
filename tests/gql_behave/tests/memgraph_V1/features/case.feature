@@ -66,7 +66,7 @@ Feature: Case
             """
         Then the result should be:
             |  CASE name WHEN 3 THEN 'something went wrong' WHEN null THEN "doesn't work" ELSE 'works' END |
-            |  'works'                                                                      |
+            |  'works'                                                                                     |
 
     Scenario: Simple CASE nullcheck does have match:
         Given an empty graph
