@@ -1944,13 +1944,12 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
 
-  utils::BasicResult<Storage::RegisterReplicaError> return_value;
   if (client->State() == replication::ReplicaState::INVALID) {
     if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
       return RegisterReplicaError::CONNECTION_FAILED;
     }
 
-    return_value = RegisterReplicaError::CONNECTION_FAILED;
+    spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
   return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
@@ -1967,7 +1966,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     }
 
     clients.push_back(std::move(client));
-    return return_value;
+    return {};
   });
 }
 
@@ -2043,16 +2042,10 @@ void Storage::RestoreReplicas() {
                         });
 
     if (ret.HasError()) {
-      if (RegisterReplicaError::CONNECTION_FAILED != ret.GetError()) {
-        // At recovery, only connection failed is allowed. Other errors are fatal.
-        LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, ret.GetError());
-      } else {
-        spdlog::error("Failure when restoring replica {}: {}.", replica_name,
-                      RegisterReplicaErrorToString(ret.GetError()));
-      }
-    } else {
-      spdlog::info("Replica {} restored.", replica_name);
+      MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
+      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, RegisterReplicaErrorToString(ret.GetError()));
     }
+    spdlog::info("Replica {} restored.", replica_name);
   }
 }
 
