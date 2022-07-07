@@ -42,16 +42,14 @@ class SimulatorTransport {
   }
 
   template <Message... Ms>
-  RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
-    return simulator_handle_->template Receive<Ms...>(timeout_microseconds);
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(uint64_t timeout_microseconds) {
+    return simulator_handle_->template Receive<Ms...>(address_, timeout_microseconds);
   }
 
-  /*
-    template <Message M>
-    void Send(Address address, uint64_t request_id, M message) {
-      return simulator_handle_->template Send<M>(address, request_id, message);
-    }
-    */
+  template <Message M>
+  void Send(Address address, uint64_t request_id, M message) {
+    return simulator_handle_->template Send<M>(address, address_, request_id, message);
+  }
 
   std::time_t Now() { return std::time(nullptr); }
 
@@ -70,4 +68,5 @@ class Simulator {
 
  private:
   std::shared_ptr<SimulatorHandle> simulator_handle_{std::make_shared<SimulatorHandle>()};
+  SimulatorConfig simulator_config_;
 };

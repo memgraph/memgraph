@@ -36,27 +36,27 @@ concept Message = requires(T a, uint8_t *ptr, size_t len) {
 };
 
 template <Message M>
-struct MessageAndAddress {
+struct ResponseEnvelope {
   M message;
   uint64_t request_id;
   Address from;
 };
 
 template <Message M>
-using ResponseResult = BasicResult<Timeout, MessageAndAddress<M>>;
+using ResponseResult = BasicResult<Timeout, ResponseEnvelope<M>>;
 
 template <Message M>
 using ResponseFuture = MgFuture<ResponseResult<M>>;
 
 template <Message... Ms>
-struct MessageVariantAndSenderAddress {
+struct RequestEnvelope {
   std::variant<Ms...> message;
   uint64_t request_id;
   Address from;
 };
 
 template <Message... Ms>
-using RequestResult = BasicResult<Timeout, MessageVariantAndSenderAddress<Ms...>>;
+using RequestResult = BasicResult<Timeout, RequestEnvelope<Ms...>>;
 
 template <typename I>
 class Io {
@@ -94,7 +94,7 @@ class Io {
   /// Wait the default number of microseconds for a request of one of the
   /// provided types to arrive.
   template <Message... Ms>
-  RequestResult<Ms...> Receive() {
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
     uint64_t timeout_microseconds = default_timeout_microseconds_;
     return implementation_.template Receive<Ms...>(timeout_microseconds);
   }
