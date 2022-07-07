@@ -216,6 +216,11 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_restore_replicas_on_startup, true,
+            "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
+                                                                     // is implemented.
+
 // Streams flags
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(
@@ -243,10 +248,6 @@ DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
 DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_restore_replicas_on_startup, true,
-            "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
-                                                                     // is implemented.
 #endif
 
 // Query flags.
