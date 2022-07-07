@@ -25,7 +25,8 @@
    :--storage-recover-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
-   :--storage-properties-on-edges))
+   :--storage-properties-on-edges
+   :--storage-restore-replicas-on-startup false))
 
 (defn stop-node!
   [test node]

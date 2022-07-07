@@ -44,6 +44,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -184,6 +185,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                       {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
