@@ -1966,7 +1966,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     }
 
     clients.push_back(std::move(client));
-    return return_value;
+    return {};
   });
 }
 
