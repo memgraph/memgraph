@@ -248,10 +248,6 @@ DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
 DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(restore_replicas_on_startup, false,
-            "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
-                                                                     // is implemented.
 #endif
 
 // Query flags.
