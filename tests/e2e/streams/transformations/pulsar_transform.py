@@ -59,7 +59,9 @@ def with_parameters(context: mgp.TransCtx, messages: mgp.Messages) -> mgp.Record
 
 
 @mgp.transformation
-def query(messages: mgp.Messages) -> mgp.Record(query=str, parameters=mgp.Nullable[mgp.Map]):
+def query(
+    messages: mgp.Messages,
+) -> mgp.Record(query=str, parameters=mgp.Nullable[mgp.Map]):
     result_queries = []
 
     for i in range(0, messages.total_messages()):

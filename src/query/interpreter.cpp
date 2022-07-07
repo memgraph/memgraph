@@ -393,14 +393,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->DenyPrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->DenyPrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->RevokePrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->RevokePrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;

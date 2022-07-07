@@ -15,6 +15,7 @@
 from neo4j import GraphDatabase, basic_auth
 from neo4j.exceptions import ClientError, TransientError
 
+
 def tx_error(tx, name, name2):
     a = tx.run("CREATE (a:Person {name: $name}) RETURN a", name=name).value()
     print(a[0])
@@ -22,17 +23,19 @@ def tx_error(tx, name, name2):
     a = tx.run("CREATE (a:Person {name: $name}) RETURN a", name=name2).value()
     print(a[0])
 
+
 def tx_good(tx, name, name2):
     a = tx.run("CREATE (a:Person {name: $name}) RETURN a", name=name).value()
     print(a[0])
     a = tx.run("CREATE (a:Person {name: $name}) RETURN a", name=name2).value()
     print(a[0])
 
+
 def tx_too_long(tx):
     tx.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt")
 
-with GraphDatabase.driver("bolt://localhost:7687", auth=basic_auth("", ""),
-                          encrypted=False) as driver:
+
+with GraphDatabase.driver("bolt://localhost:7687", auth=basic_auth("", ""), encrypted=False) as driver:
 
     def add_person(f, name, name2):
         with driver.session() as session:

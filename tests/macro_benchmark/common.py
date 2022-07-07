@@ -14,9 +14,11 @@ from argparse import ArgumentParser
 
 try:
     import jail
+
     APOLLO = True
 except:
     import jail_faker as jail
+
     APOLLO = False
 
 
@@ -45,13 +47,15 @@ def get_absolute_path(path, base=""):
 def set_cpus(flag_name, process, args):
     argp = ArgumentParser()
     # named, optional arguments
-    argp.add_argument("--" + flag_name, nargs="+", type=int, help="cpus that "
-                      "will be used by process. Obligatory on Apollo, ignored "
-                      "otherwise.")
+    argp.add_argument(
+        "--" + flag_name,
+        nargs="+",
+        type=int,
+        help="cpus that " "will be used by process. Obligatory on Apollo, ignored " "otherwise.",
+    )
     args, _ = argp.parse_known_args(args)
     attr_flag_name = flag_name.replace("-", "_")
     cpus = getattr(args, attr_flag_name)
-    assert not APOLLO or cpus, \
-            "flag --{} is obligatory on Apollo".format(flag_name)
+    assert not APOLLO or cpus, "flag --{} is obligatory on Apollo".format(flag_name)
     if cpus:
-        process.set_cpus(cpus, hyper = False)
+        process.set_cpus(cpus, hyper=False)

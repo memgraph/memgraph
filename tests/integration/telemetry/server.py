@@ -46,7 +46,7 @@ def build_handler(storage, args):
             assert self.headers["accept"] == "application/json"
             assert self.headers["content-type"] == "application/json"
 
-            content_len = int(self.headers.get('content-length', 0))
+            content_len = int(self.headers.get("content-length", 0))
             data = json.loads(self.rfile.read(content_len).decode("utf-8"))
 
             if self.path not in [args.path, args.redirect_path]:
@@ -195,4 +195,4 @@ if __name__ == "__main__":
         verify_storage(startup, args)
 
     # machine id has to be same for every run on the same machine
-    assert len(set(map(lambda x: x['machine_id'], itertools.chain(*startups)))) == 1
+    assert len(set(map(lambda x: x["machine_id"], itertools.chain(*startups)))) == 1

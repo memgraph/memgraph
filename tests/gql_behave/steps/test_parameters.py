@@ -40,15 +40,15 @@ class TestParameters:
         par = dict()
         for row in table:
             par[row[0]] = self.parse_parameters(row[1])
-            if isinstance(par[row[0]], str) and par[row[0]].startswith("'") \
-                    and par[row[0]].endswith("'"):
-                par[row[0]] = par[row[0]][1:len(par[row[0]]) - 1]
+            if isinstance(par[row[0]], str) and par[row[0]].startswith("'") and par[row[0]].endswith("'"):
+                par[row[0]] = par[row[0]][1 : len(par[row[0]]) - 1]
         par[table.headings[0]] = self.parse_parameters(table.headings[1])
-        if isinstance(par[table.headings[0]], str) and \
-                par[table.headings[0]].startswith("'") and \
-                par[table.headings[0]].endswith("'"):
-            par[table.headings[0]] = \
-                par[table.headings[0]][1:len(par[table.headings[0]]) - 1]
+        if (
+            isinstance(par[table.headings[0]], str)
+            and par[table.headings[0]].startswith("'")
+            and par[table.headings[0]].endswith("'")
+        ):
+            par[table.headings[0]] = par[table.headings[0]][1 : len(par[table.headings[0]]) - 1]
 
         self.parameters = par
 

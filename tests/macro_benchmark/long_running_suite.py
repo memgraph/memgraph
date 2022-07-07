@@ -38,27 +38,30 @@ class LongRunningSuite:
         duration = config["duration"]
         if self.args.duration:
             duration = self.args.duration
-        log.info("Executing run for {} seconds".format(
-                duration))
+        log.info("Executing run for {} seconds".format(duration))
         results = runner.run(next(scenario.get("run")()), duration, config["client"])
 
         runner.stop()
 
         measurements = []
         summary_format = "{:>15} {:>22} {:>22}\n"
-        self.summary = summary_format.format(
-                "elapsed_time", "num_executed_queries", "num_executed_steps")
+        self.summary = summary_format.format("elapsed_time", "num_executed_queries", "num_executed_steps")
         for result in results:
             self.summary += summary_format.format(
-                    result["elapsed_time"], result["num_executed_queries"],
-                    result["num_executed_steps"])
-            measurements.append({
-                "target": "throughput",
-                "time": result["elapsed_time"],
-                "value": result["num_executed_queries"],
-                "steps": result["num_executed_steps"],
-                "unit": "number of executed queries",
-                "type": "throughput"})
+                result["elapsed_time"],
+                result["num_executed_queries"],
+                result["num_executed_steps"],
+            )
+            measurements.append(
+                {
+                    "target": "throughput",
+                    "time": result["elapsed_time"],
+                    "value": result["num_executed_queries"],
+                    "steps": result["num_executed_steps"],
+                    "unit": "number of executed queries",
+                    "type": "throughput",
+                }
+            )
         self.summary += "\n\nThroughput: " + str(measurements[-1]["value"])
         self.summary += "\nExecuted steps: " + str(measurements[-1]["steps"])
         return measurements
@@ -75,8 +78,7 @@ class _LongRunningRunner:
         self.log = logging.getLogger("_LongRunningRunner")
         self.database = database
         self.query_client = QueryClient(args, num_client_workers)
-        self.long_running_client = LongRunningClient(args, num_client_workers,
-                                                     workload)
+        self.long_running_client = LongRunningClient(args, num_client_workers, workload)
 
     def start(self):
         self.database.start()
@@ -85,8 +87,7 @@ class _LongRunningRunner:
         return self.query_client(queries, self.database, num_client_workers)
 
     def run(self, config, duration, client, num_client_workers=None):
-        return self.long_running_client(
-            config, self.database, duration, client, num_client_workers)
+        return self.long_running_client(config, self.database, duration, client, num_client_workers)
 
     def stop(self):
         self.log.info("stop")
@@ -99,44 +100,46 @@ class MemgraphRunner(_LongRunningRunner):
     """
     Configures memgraph database for LongRunningSuite execution.
     """
+
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--num-database-workers", type=int, default=8,
-                          help="Number of workers")
-        argp.add_argument("--num-client-workers", type=int, default=24,
-                          help="Number of clients")
-        argp.add_argument("--workload", type=str, default="",
-                          help="Type of client workload. Sets \
-                          scenario flag for 'TestClient'")
+        argp.add_argument("--num-database-workers", type=int, default=8, help="Number of workers")
+        argp.add_argument("--num-client-workers", type=int, default=24, help="Number of clients")
+        argp.add_argument(
+            "--workload",
+            type=str,
+            default="",
+            help="Type of client workload. Sets \
+                          scenario flag for 'TestClient'",
+        )
         self.args, remaining_args = argp.parse_known_args(args)
-        assert not APOLLO or self.args.num_database_workers, \
-            "--num-database-workers is obligatory flag on apollo"
-        assert not APOLLO or self.args.num_client_workers, \
-            "--num-client-workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_database_workers, "--num-database-workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, "--num-client-workers is obligatory flag on apollo"
         database = Memgraph(remaining_args, self.args.num_database_workers)
-        super(MemgraphRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers,
-                self.args.workload)
+        super(MemgraphRunner, self).__init__(remaining_args, database, self.args.num_client_workers, self.args.workload)
 
 
 class NeoRunner(_LongRunningRunner):
     """
     Configures neo4j database for QuerySuite execution.
     """
+
     def __init__(self, args):
         argp = ArgumentParser("NeoRunnerArgumentParser")
-        argp.add_argument("--runner-config",
-                          default=get_absolute_path("config/neo4j.conf"),
-                          help="Path to neo config file")
-        argp.add_argument("--num-client-workers", type=int, default=24,
-                          help="Number of clients")
-        argp.add_argument("--workload", type=str, default="",
-                          help="Type of client workload. Sets \
-                          scenario flag for 'TestClient'")
+        argp.add_argument(
+            "--runner-config",
+            default=get_absolute_path("config/neo4j.conf"),
+            help="Path to neo config file",
+        )
+        argp.add_argument("--num-client-workers", type=int, default=24, help="Number of clients")
+        argp.add_argument(
+            "--workload",
+            type=str,
+            default="",
+            help="Type of client workload. Sets \
+                          scenario flag for 'TestClient'",
+        )
         self.args, remaining_args = argp.parse_known_args(args)
-        assert not APOLLO or self.args.num_client_workers, \
-            "--client-num-clients is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, "--client-num-clients is obligatory flag on apollo"
         database = Neo(remaining_args, self.args.runner_config)
-        super(NeoRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers,
-                self.args.workload)
+        super(NeoRunner, self).__init__(remaining_args, database, self.args.num_client_workers, self.args.workload)

@@ -91,7 +91,7 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class LabelPermissions final {
  public:
-  explicit LabelPermissions(const std::unordered_map<std::string, int> &permissions_ = {});
+  LabelPermissions(const std::unordered_map<std::string, int> &permissions_ = {});
 
   PermissionLevel Has(const std::string &label) const;
 

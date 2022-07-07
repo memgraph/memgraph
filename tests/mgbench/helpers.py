@@ -28,18 +28,21 @@ def get_binary_path(path, base=""):
 
 
 def download_file(url, path):
-    ret = subprocess.run(["wget", "-nv", "--content-disposition", url],
-                         stderr=subprocess.PIPE, cwd=path, check=True)
+    ret = subprocess.run(
+        ["wget", "-nv", "--content-disposition", url],
+        stderr=subprocess.PIPE,
+        cwd=path,
+        check=True,
+    )
     data = ret.stderr.decode("utf-8")
     tmp = data.split("->")[1]
-    name = tmp[tmp.index('"') + 1:tmp.rindex('"')]
+    name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
     return os.path.join(path, name)
 
 
 def unpack_and_move_file(input_path, output_path):
     if input_path.endswith(".gz"):
-        subprocess.run(["gunzip", input_path],
-                       stdout=subprocess.DEVNULL, check=True)
+        subprocess.run(["gunzip", input_path], stdout=subprocess.DEVNULL, check=True)
         input_path = input_path[:-3]
     os.rename(input_path, output_path)
 

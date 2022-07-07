@@ -115,7 +115,10 @@ def start_stream(cursor, stream_name):
 
 def start_stream_with_limit(cursor, stream_name, batch_limit, timeout=None):
     if timeout is not None:
-        execute_and_fetch_all(cursor, f"START STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout} ")
+        execute_and_fetch_all(
+            cursor,
+            f"START STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout} ",
+        )
     else:
         execute_and_fetch_all(cursor, f"START STREAM {stream_name} BATCH_LIMIT {batch_limit}")
 
@@ -156,7 +159,12 @@ def pulsar_default_namespace_topic(topic):
 
 
 def test_start_and_stop_during_check(
-    operation, connection, stream_creator, message_sender, already_stopped_error, batchSize
+    operation,
+    connection,
+    stream_creator,
+    message_sender,
+    already_stopped_error,
+    batchSize,
 ):
     # This test is quite complex. The goal is to call START/STOP queries
     # while a CHECK query is waiting for its result. Because the Global
@@ -317,24 +325,42 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
 
     expected_queries_and_raw_messages_1 = (
         [  # queries
-            {PARAMETERS_LITERAL: {"value": "Parameter: 01"}, QUERY_LITERAL: "Message: 01"},
-            {PARAMETERS_LITERAL: {"value": "Parameter: 02"}, QUERY_LITERAL: "Message: 02"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 01"},
+                QUERY_LITERAL: "Message: 01",
+            },
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 02"},
+                QUERY_LITERAL: "Message: 02",
+            },
         ],
         ["01", "02"],  # raw message
     )
 
     expected_queries_and_raw_messages_2 = (
         [  # queries
-            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
-            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 03"},
+                QUERY_LITERAL: "Message: 03",
+            },
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 04"},
+                QUERY_LITERAL: "Message: 04",
+            },
         ],
         ["03", "04"],  # raw message
     )
 
     expected_queries_and_raw_messages_3 = (
         [  # queries
-            {PARAMETERS_LITERAL: {"value": "Parameter: 05"}, QUERY_LITERAL: "Message: 05"},
-            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 05"},
+                QUERY_LITERAL: "Message: 05",
+            },
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 06"},
+                QUERY_LITERAL: "Message: 06",
+            },
         ],
         ["05", "06"],  # raw message
     )
@@ -389,20 +415,32 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
 
     expected_queries_and_raw_messages_2 = (
         [  # queries
-            {PARAMETERS_LITERAL: {"value": "Parameter: 03"}, QUERY_LITERAL: "Message: 03"},
-            {PARAMETERS_LITERAL: {"value": "Parameter: 04"}, QUERY_LITERAL: "Message: 04"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 03"},
+                QUERY_LITERAL: "Message: 03",
+            },
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 04"},
+                QUERY_LITERAL: "Message: 04",
+            },
         ],
         ["03", "04"],  # raw message
     )
 
     expected_queries_and_raw_messages_3 = (
         [  # queries
-            {PARAMETERS_LITERAL: {"value": "Parameter: b_05"}, QUERY_LITERAL: "Message: b_05"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: b_05"},
+                QUERY_LITERAL: "Message: b_05",
+            },
             {
                 PARAMETERS_LITERAL: {"value": "Parameter: extra_b_05"},
                 QUERY_LITERAL: "Message: extra_b_05",
             },
-            {PARAMETERS_LITERAL: {"value": "Parameter: 06"}, QUERY_LITERAL: "Message: 06"},
+            {
+                PARAMETERS_LITERAL: {"value": "Parameter: 06"},
+                QUERY_LITERAL: "Message: 06",
+            },
         ],
         ["b_05", "06"],  # raw message
     )
@@ -467,7 +505,10 @@ def test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creat
     start_time = time.time()
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, f"START STREAM {STREAM_NAME} BATCH_LIMIT {BATCH_LIMIT} TIMEOUT {TIMEOUT}")
+        execute_and_fetch_all(
+            cursor,
+            f"START STREAM {STREAM_NAME} BATCH_LIMIT {BATCH_LIMIT} TIMEOUT {TIMEOUT}",
+        )
 
     end_time = time.time()
     assert (
@@ -483,7 +524,10 @@ def test_start_stream_with_batch_limit_while_check_running(
     def start_check_stream(stream_name, batch_limit, timeout):
         connection = connect()
         cursor = connection.cursor()
-        execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout}")
+        execute_and_fetch_all(
+            cursor,
+            f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout}",
+        )
 
     def start_new_stream_with_limit(stream_name, batch_limit, timeout):
         connection = connect()
@@ -518,7 +562,9 @@ def test_start_stream_with_batch_limit_while_check_running(
 
     # 2/
     thread_stream_running = Process(
-        target=start_new_stream_with_limit, daemon=True, args=(STREAM_NAME, BATCH_LIMIT + 1, TIMEOUT)
+        target=start_new_stream_with_limit,
+        daemon=True,
+        args=(STREAM_NAME, BATCH_LIMIT + 1, TIMEOUT),
     )  # Sending BATCH_LIMIT + 1 messages as BATCH_LIMIT messages have already been sent during the CHECK STREAM (and not consumed)
     thread_stream_running.start()
     time.sleep(2)
@@ -541,7 +587,10 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     def start_check_stream(stream_name, batch_limit, timeout):
         connection = connect()
         cursor = connection.cursor()
-        execute_and_fetch_all(cursor, f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout}")
+        execute_and_fetch_all(
+            cursor,
+            f"CHECK STREAM {stream_name} BATCH_LIMIT {batch_limit} TIMEOUT {timeout}",
+        )
 
     STREAM_NAME = "test_batch_limit_and_check"
     BATCH_LIMIT = 1
@@ -553,7 +602,9 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
 
     # 1/
     thread_stream_running = Process(
-        target=start_new_stream_with_limit, daemon=True, args=(STREAM_NAME, BATCH_LIMIT, TIMEOUT)
+        target=start_new_stream_with_limit,
+        daemon=True,
+        args=(STREAM_NAME, BATCH_LIMIT, TIMEOUT),
     )
     start_time = time.time()
     thread_stream_running.start()
@@ -561,7 +612,10 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     assert get_is_running(cursor, STREAM_NAME)
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {BATCH_LIMIT} TIMEOUT {TIMEOUT}")
+        execute_and_fetch_all(
+            cursor,
+            f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {BATCH_LIMIT} TIMEOUT {TIMEOUT}",
+        )
 
     end_time = time.time()
     assert (end_time - start_time) < 0.8 * TIMEOUT, "The CHECK STREAM has probably thrown due to timeout!"
@@ -632,7 +686,10 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
     start_time = time.time()
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {batch_limit} TIMEOUT {TIMEOUT}")
+        execute_and_fetch_all(
+            cursor,
+            f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {batch_limit} TIMEOUT {TIMEOUT}",
+        )
 
     end_time = time.time()
     assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The CHECK STREAM has probably thrown due to timeout!"
@@ -642,7 +699,10 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
     start_time = time.time()
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {batch_limit} TIMEOUT {TIMEOUT}")
+        execute_and_fetch_all(
+            cursor,
+            f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {batch_limit} TIMEOUT {TIMEOUT}",
+        )
 
     end_time = time.time()
     assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The CHECK STREAM has probably thrown due to timeout!"

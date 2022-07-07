@@ -20,9 +20,7 @@ GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
 GITHUB_SHA = os.getenv("GITHUB_SHA", "")
 GITHUB_REF = os.getenv("GITHUB_REF", "")
 
-BENCH_GRAPH_SERVER_ENDPOINT = os.getenv(
-    "BENCH_GRAPH_SERVER_ENDPOINT",
-    "http://bench-graph-api:9001")
+BENCH_GRAPH_SERVER_ENDPOINT = os.getenv("BENCH_GRAPH_SERVER_ENDPOINT", "http://bench-graph-api:9001")
 
 log = logging.getLogger(__name__)
 
@@ -52,12 +50,12 @@ def post_measurement(args):
                 "github_run_id": args.github_run_id,
                 "github_run_number": args.github_run_number,
                 "results": data,
-                "git_branch": args.head_branch_name},
-            timeout=1)
-        assert req.status_code == 200, \
-            f"Uploading {args.benchmark_name} data failed."
-        log.info(f"{args.benchmark_name} data sent to "
-                 f"{BENCH_GRAPH_SERVER_ENDPOINT}")
+                "git_branch": args.head_branch_name,
+            },
+            timeout=1,
+        )
+        assert req.status_code == 200, f"Uploading {args.benchmark_name} data failed."
+        log.info(f"{args.benchmark_name} data sent to " f"{BENCH_GRAPH_SERVER_ENDPOINT}")
 
 
 if __name__ == "__main__":

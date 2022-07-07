@@ -11,6 +11,7 @@
 
 # -*- coding: utf-8 -*-
 
+
 def query(q, context, params={}):
     """
     Function used to execute query on database. Query results are
@@ -44,7 +45,7 @@ def query(q, context, params={}):
     except Exception as e:
         # exception
         context.exception = e
-        context.log.info('%s', str(e))
+        context.log.info("%s", str(e))
     finally:
         session.close()
 

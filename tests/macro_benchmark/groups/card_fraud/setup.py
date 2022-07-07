@@ -11,13 +11,10 @@
 
 import random
 
+
 def init_data(card_count, pos_count):
-    print("UNWIND range(0, {} - 1) AS id "
-        "CREATE (:Card {{id: id, compromised: false}});".format(
-            card_count))
-    print("UNWIND range(0, {} - 1) AS id "
-        "CREATE (:Pos {{id: id, compromised: false}});".format(
-            pos_count))
+    print("UNWIND range(0, {} - 1) AS id " "CREATE (:Card {{id: id, compromised: false}});".format(card_count))
+    print("UNWIND range(0, {} - 1) AS id " "CREATE (:Pos {{id: id, compromised: false}});".format(pos_count))
 
 
 def compromise_pos_device(pos_id):
@@ -34,20 +31,24 @@ def pump_transactions(card_count, pos_count, tx_count, report_pct):
     # Card of the transaction gets compromised too. If the card
     # is compromised, there is a 0.1 chance the transaction is
     # fraudulent and detected (regardless of POS).
-    q = ("MATCH (c:Card {{id: {}}}), (p:Pos {{id: {}}}) "
-         "CREATE (t:Transaction "
-         "{{id: {}, fraud_reported: c.compromised AND (rand() < %f)}}) "
-         "CREATE (c)<-[:Using]-(t)-[:At]->(p) "
-         "SET c.compromised = p.compromised;" % report_pct)
+    q = (
+        "MATCH (c:Card {{id: {}}}), (p:Pos {{id: {}}}) "
+        "CREATE (t:Transaction "
+        "{{id: {}, fraud_reported: c.compromised AND (rand() < %f)}}) "
+        "CREATE (c)<-[:Using]-(t)-[:At]->(p) "
+        "SET c.compromised = p.compromised;" % report_pct
+    )
 
-    def rint(max): return random.randint(0, max - 1)  # NOQA
+    def rint(max):
+        return random.randint(0, max - 1)  # NOQA
+
     for i in range(tx_count):
         print(q.format(rint(card_count), rint(pos_count), i))
 
 
 POS_COUNT = 1000
 CARD_COUNT = 10000
-FRAUD_POS_COUNT = 20 
+FRAUD_POS_COUNT = 20
 TX_COUNT = 50000
 REPORT_PCT = 0.1
 

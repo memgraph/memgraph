@@ -106,6 +106,7 @@ def test_try_to_write(connection, function_type):
             f"MATCH (n) RETURN {function_type}_write.try_to_write(n, 'property', 1);",
         )
 
+
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_case_sensitivity(connection, function_type):
     cursor = connection.cursor()

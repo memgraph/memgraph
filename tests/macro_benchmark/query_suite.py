@@ -33,21 +33,48 @@ class _QuerySuite:
     a single Cypher query that is benchmarked, and teardown steps
     (Cypher queries) executed after the benchmark.
     """
+
     # what the QuerySuite can work with
-    KNOWN_KEYS = {"config", "setup", "itersetup", "run", "iterteardown",
-                  "teardown", "common"}
-    FORMAT = ["{:>24}", "{:>28}", "{:>16}", "{:>18}", "{:>22}",
-              "{:>16}", "{:>16}", "{:>16}"]
+    KNOWN_KEYS = {
+        "config",
+        "setup",
+        "itersetup",
+        "run",
+        "iterteardown",
+        "teardown",
+        "common",
+    }
+    FORMAT = [
+        "{:>24}",
+        "{:>28}",
+        "{:>16}",
+        "{:>18}",
+        "{:>22}",
+        "{:>16}",
+        "{:>16}",
+        "{:>16}",
+    ]
     FULL_FORMAT = "".join(FORMAT) + "\n"
-    headers = ["group_name", "scenario_name", "parsing_time",
-               "planning_time", "plan_execution_time",
-               WALL_TIME, CPU_TIME, MAX_MEMORY]
+    headers = [
+        "group_name",
+        "scenario_name",
+        "parsing_time",
+        "planning_time",
+        "plan_execution_time",
+        WALL_TIME,
+        CPU_TIME,
+        MAX_MEMORY,
+    ]
     summary = summary_raw = FULL_FORMAT.format(*headers)
 
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--perf", default=False, action="store_true",
-            help="Run perf on running tests and store data")
+        argp.add_argument(
+            "--perf",
+            default=False,
+            action="store_true",
+            help="Run perf on running tests and store data",
+        )
         self.args, remaining_args = argp.parse_known_args(args)
 
     def run(self, scenario, group_name, scenario_name, runner):
@@ -62,8 +89,7 @@ class _QuerySuite:
                 r_val = runner.execute(queries(), num_client_workers)
             else:
                 r_val = None
-            log.info("\t%s done in %.2f seconds" % (config_name,
-                                                    time.time() - start_time))
+            log.info("\t%s done in %.2f seconds" % (config_name, time.time() - start_time))
             return r_val
 
         measurements = defaultdict(list)
@@ -75,8 +101,12 @@ class _QuerySuite:
             execute("setup")
 
             # warmup phase
-            for _ in range(min(scenario_config.get("iterations", 1),
-                               scenario_config.get("warmup", 2))):
+            for _ in range(
+                min(
+                    scenario_config.get("iterations", 1),
+                    scenario_config.get("warmup", 2),
+                )
+            ):
                 execute("itersetup")
                 execute("run")
                 execute("iterteardown")
@@ -91,15 +121,28 @@ class _QuerySuite:
                 execute("itersetup")
 
                 if self.args.perf:
-                    file_directory = './perf_results/run_%d/%s/%s/' \
-                                      % (rerun_cnt, group_name, scenario_name)
+                    file_directory = "./perf_results/run_%d/%s/%s/" % (
+                        rerun_cnt,
+                        group_name,
+                        scenario_name,
+                    )
                     os.makedirs(file_directory, exist_ok=True)
-                    file_name = '%d.perf.data' % iteration
+                    file_name = "%d.perf.data" % iteration
                     path = file_directory + file_name
                     database_pid = str(runner.database.database_bin._proc.pid)
                     self.perf_proc = subprocess.Popen(
-                        ["perf", "record", "-F", "999", "-g", "-o", path, "-p",
-                        database_pid])
+                        [
+                            "perf",
+                            "record",
+                            "-F",
+                            "999",
+                            "-g",
+                            "-o",
+                            path,
+                            "-p",
+                            database_pid,
+                        ]
+                    )
 
                 run_result = execute("run")
 
@@ -110,16 +153,15 @@ class _QuerySuite:
                 measurements["cpu_time"].append(run_result["cpu_time"])
                 measurements["max_memory"].append(run_result["max_memory"])
 
-                assert len(run_result["groups"]) == 1, \
-                        "Multiple groups in run step not yet supported"
+                assert len(run_result["groups"]) == 1, "Multiple groups in run step not yet supported"
 
                 group = run_result["groups"][0]
                 measurements["wall_time"].append(group["wall_time"])
 
-                for key in ["parsing_time", "plan_execution_time",
-                            "planning_time"]:
+                for key in ["parsing_time", "plan_execution_time", "planning_time"]:
                     for i in range(len(group.get("metadatas", []))):
-                        if not key in group["metadatas"][i]: continue
+                        if not key in group["metadatas"][i]:
+                            continue
                         measurements[key].append(group["metadatas"][i][key])
 
                 execute("iterteardown")
@@ -127,27 +169,35 @@ class _QuerySuite:
             execute("teardown")
             runner.stop()
 
-        self.append_scenario_summary(group_name, scenario_name,
-                                     measurements, num_iterations)
+        self.append_scenario_summary(group_name, scenario_name, measurements, num_iterations)
 
         # calculate mean, median and stdev of measurements
         for key in measurements:
             samples = measurements[key]
-            measurements[key] = {"mean": mean(samples),
-                                 "median": median(samples),
-                                 "stdev": stdev(samples),
-                                 "count": len(samples)}
+            measurements[key] = {
+                "mean": mean(samples),
+                "median": median(samples),
+                "stdev": stdev(samples),
+                "count": len(samples),
+            }
         measurements["group_name"] = group_name
         measurements["scenario_name"] = scenario_name
 
         return measurements
 
-    def append_scenario_summary(self, group_name, scenario_name,
-                                measurement_lists, num_iterations):
+    def append_scenario_summary(self, group_name, scenario_name, measurement_lists, num_iterations):
         self.summary += self.FORMAT[0].format(group_name)
         self.summary += self.FORMAT[1].format(scenario_name)
-        for i, key in enumerate(("parsing_time", "planning_time",
-                    "plan_execution_time", WALL_TIME, CPU_TIME, MAX_MEMORY)):
+        for i, key in enumerate(
+            (
+                "parsing_time",
+                "planning_time",
+                "plan_execution_time",
+                WALL_TIME,
+                CPU_TIME,
+                MAX_MEMORY,
+            )
+        ):
             if key not in measurement_lists:
                 time = "-"
             else:
@@ -162,11 +212,11 @@ class _QuerySuite:
         self.summary += "\n"
 
     def runners(self):
-        """ Which runners can execute a QuerySuite scenario """
+        """Which runners can execute a QuerySuite scenario"""
         assert False, "This is a base class, use one of derived suites"
 
     def groups(self):
-        """ Which groups can be executed by a QuerySuite scenario """
+        """Which groups can be executed by a QuerySuite scenario"""
         assert False, "This is a base class, use one of derived suites"
 
 
@@ -175,11 +225,20 @@ class QuerySuite(_QuerySuite):
         _QuerySuite.__init__(self, args)
 
     def runners(self):
-        return {"MemgraphRunner" : MemgraphRunner, "NeoRunner" : NeoRunner}
+        return {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
 
     def groups(self):
-        return ["1000_create", "unwind_create", "match", "dense_expand",
-                "expression", "aggregation", "return", "update", "delete"]
+        return [
+            "1000_create",
+            "unwind_create",
+            "match",
+            "dense_expand",
+            "expression",
+            "aggregation",
+            "return",
+            "update",
+            "delete",
+        ]
 
 
 class QueryParallelSuite(_QuerySuite):
@@ -187,8 +246,10 @@ class QueryParallelSuite(_QuerySuite):
         _QuerySuite.__init__(self, args)
 
     def runners(self):
-        return {"MemgraphRunner" : MemgraphParallelRunner, "NeoRunner" :
-                NeoParallelRunner}
+        return {
+            "MemgraphRunner": MemgraphParallelRunner,
+            "NeoRunner": NeoParallelRunner,
+        }
 
     def groups(self):
         return ["aggregation_parallel", "create_parallel", "bfs_parallel"]
@@ -201,6 +262,7 @@ class _QueryRunner:
     Execution returns benchmarking data (execution times, memory
     usage etc).
     """
+
     def __init__(self, args, database, num_client_workers):
         self.log = logging.getLogger("_HarnessClientRunner")
         self.database = database
@@ -221,6 +283,7 @@ class MemgraphRunner(_QueryRunner):
     """
     Configures memgraph database for QuerySuite execution.
     """
+
     def __init__(self, args):
         database = Memgraph(args, 1)
         super(MemgraphRunner, self).__init__(args, database, 1)
@@ -230,11 +293,14 @@ class NeoRunner(_QueryRunner):
     """
     Configures neo4j database for QuerySuite execution.
     """
+
     def __init__(self, args):
         argp = ArgumentParser("NeoRunnerArgumentParser")
-        argp.add_argument("--runner-config",
-                          default=get_absolute_path("config/neo4j.conf"),
-                          help="Path to neo config file")
+        argp.add_argument(
+            "--runner-config",
+            default=get_absolute_path("config/neo4j.conf"),
+            help="Path to neo config file",
+        )
         self.args, remaining_args = argp.parse_known_args(args)
         database = Neo(remaining_args, self.args.runner_config)
         super(NeoRunner, self).__init__(remaining_args, database)
@@ -244,36 +310,32 @@ class NeoParallelRunner(_QueryRunner):
     """
     Configures neo4j database for QuerySuite execution.
     """
+
     def __init__(self, args):
         argp = ArgumentParser("NeoRunnerArgumentParser")
-        argp.add_argument("--runner-config",
-                          default=get_absolute_path("config/neo4j.conf"),
-                          help="Path to neo config file")
-        argp.add_argument("--num-client-workers", type=int, default=24,
-                          help="Number of clients")
+        argp.add_argument(
+            "--runner-config",
+            default=get_absolute_path("config/neo4j.conf"),
+            help="Path to neo config file",
+        )
+        argp.add_argument("--num-client-workers", type=int, default=24, help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
-        assert not APOLLO or self.args.num_client_workers, \
-                "--client-num-clients is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, "--client-num-clients is obligatory flag on apollo"
         database = Neo(remaining_args, self.args.runner_config)
-        super(NeoRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers)
+        super(NeoRunner, self).__init__(remaining_args, database, self.args.num_client_workers)
 
 
 class MemgraphParallelRunner(_QueryRunner):
     """
     Configures memgraph database for QuerySuite execution.
     """
+
     def __init__(self, args):
         argp = ArgumentParser("MemgraphRunnerArgumentParser")
-        argp.add_argument("--num-database-workers", type=int, default=8,
-                          help="Number of workers")
-        argp.add_argument("--num-client-workers", type=int, default=24,
-                          help="Number of clients")
+        argp.add_argument("--num-database-workers", type=int, default=8, help="Number of workers")
+        argp.add_argument("--num-client-workers", type=int, default=24, help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
-        assert not APOLLO or self.args.num_database_workers, \
-                "--num-database-workers is obligatory flag on apollo"
-        assert not APOLLO or self.args.num_client_workers, \
-                "--num-client-workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_database_workers, "--num-database-workers is obligatory flag on apollo"
+        assert not APOLLO or self.args.num_client_workers, "--num-client-workers is obligatory flag on apollo"
         database = Memgraph(remaining_args, self.args.num_database_workers)
-        super(MemgraphParallelRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers)
+        super(MemgraphParallelRunner, self).__init__(remaining_args, database, self.args.num_client_workers)

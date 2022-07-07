@@ -1,20 +1,22 @@
 import sys
 import mgp
 import collections
+
 try:
     import networkx as nx
 except ImportError as import_error:
-    sys.stderr.write((
-        '\n'
-        'NOTE: Please install networkx to be able to use Memgraph NetworkX '
-        'wrappers. Using Python:\n'
-        + sys.version +
-        '\n'))
+    sys.stderr.write(
+        (
+            "\n"
+            "NOTE: Please install networkx to be able to use Memgraph NetworkX "
+            "wrappers. Using Python:\n" + sys.version + "\n"
+        )
+    )
     raise import_error
 
 
 class MemgraphAdjlistOuterDict(collections.abc.Mapping):
-    __slots__ = ('_ctx', '_succ', '_multi')
+    __slots__ = ("_ctx", "_succ", "_multi")
 
     def __init__(self, ctx, succ=True, multi=True):
         self._ctx = ctx
@@ -24,8 +26,7 @@ class MemgraphAdjlistOuterDict(collections.abc.Mapping):
     def __getitem__(self, key):
         if key not in self:
             raise KeyError
-        return MemgraphAdjlistInnerDict(key, succ=self._succ,
-                                        multi=self._multi)
+        return MemgraphAdjlistInnerDict(key, succ=self._succ, multi=self._multi)
 
     def __iter__(self):
         return iter(self._ctx.graph.vertices)
@@ -40,7 +41,7 @@ class MemgraphAdjlistOuterDict(collections.abc.Mapping):
 
 
 class MemgraphAdjlistInnerDict(collections.abc.Mapping):
-    __slots__ = ('_node', '_succ', '_multi', '_neighbors')
+    __slots__ = ("_node", "_succ", "_multi", "_neighbors")
 
     def __init__(self, node, succ=True, multi=True):
         self._node = node
@@ -71,31 +72,26 @@ class MemgraphAdjlistInnerDict(collections.abc.Mapping):
     def _get_neighbors(self):
         if not self._neighbors:
             if self._succ:
-                self._neighbors = set(
-                    e.to_vertex for e in self._node.out_edges)
+                self._neighbors = set(e.to_vertex for e in self._node.out_edges)
             else:
-                self._neighbors = set(
-                    e.from_vertex for e in self._node.in_edges)
+                self._neighbors = set(e.from_vertex for e in self._node.in_edges)
         return self._neighbors
 
     def _get_edge(self, neighbor):
         if self._succ:
-            edge = list(filter(lambda e: e.to_vertex == neighbor,
-                               self._node.out_edges))
+            edge = list(filter(lambda e: e.to_vertex == neighbor, self._node.out_edges))
         else:
-            edge = list(filter(lambda e: e.from_vertex == neighbor,
-                               self._node.in_edges))
+            edge = list(filter(lambda e: e.from_vertex == neighbor, self._node.in_edges))
 
         assert len(edge) >= 1
         if len(edge) > 1:
-            raise RuntimeError('Graph contains multiedges but '
-                               'is of non-multigraph type: {}'.format(edge))
+            raise RuntimeError("Graph contains multiedges but " "is of non-multigraph type: {}".format(edge))
 
         return edge[0]
 
 
 class MemgraphEdgeKeyDict(collections.abc.Mapping):
-    __slots__ = ('_node', '_neighbor', '_succ', '_edges')
+    __slots__ = ("_node", "_neighbor", "_succ", "_edges")
 
     def __init__(self, node, neighbor, succ=True):
         self._node = node
@@ -122,18 +118,14 @@ class MemgraphEdgeKeyDict(collections.abc.Mapping):
     def _get_edges(self):
         if not self._edges:
             if self._succ:
-                self._edges = list(filter(
-                    lambda e: e.to_vertex == self._neighbor,
-                    self._node.out_edges))
+                self._edges = list(filter(lambda e: e.to_vertex == self._neighbor, self._node.out_edges))
             else:
-                self._edges = list(filter(
-                    lambda e: e.from_vertex == self._neighbor,
-                    self._node.in_edges))
+                self._edges = list(filter(lambda e: e.from_vertex == self._neighbor, self._node.in_edges))
         return self._edges
 
 
 class UnhashableProperties(collections.abc.Mapping):
-    __slots__ = ('_properties')
+    __slots__ = "_properties"
 
     def __init__(self, properties):
         self._properties = properties
@@ -155,7 +147,7 @@ class UnhashableProperties(collections.abc.Mapping):
 
 
 class MemgraphNodeDict(collections.abc.Mapping):
-    __slots__ = ('_ctx',)
+    __slots__ = ("_ctx",)
 
     def __init__(self, ctx):
         self._ctx = ctx
@@ -187,8 +179,7 @@ class MemgraphNodeDict(collections.abc.Mapping):
 
 
 class MemgraphDiGraphBase:
-    def __init__(self, incoming_graph_data=None, ctx=None, multi=True,
-                 **kwargs):
+    def __init__(self, incoming_graph_data=None, ctx=None, multi=True, **kwargs):
         # NOTE: We assume that our graph will never be given any initial data
         # because we already pull our data from the Memgraph database. This
         # assert is triggered by certain NetworkX procedures because they
@@ -201,23 +192,30 @@ class MemgraphDiGraphBase:
         # modify the graph's internal attributes and don't try to populate it
         # with initial data or modify it.
 
-        self.node_dict_factory = lambda: MemgraphNodeDict(ctx) \
-            if ctx else self._error
+        self.node_dict_factory = lambda: MemgraphNodeDict(ctx) if ctx else self._error
         self.node_attr_dict_factory = self._error
 
-        self.adjlist_outer_dict_factory = \
-            lambda: MemgraphAdjlistOuterDict(ctx, multi=multi) \
-            if ctx else self._error
+        self.adjlist_outer_dict_factory = lambda: MemgraphAdjlistOuterDict(ctx, multi=multi) if ctx else self._error
         self.adjlist_inner_dict_factory = self._error
         self.edge_key_dict_factory = self._error
         self.edge_attr_dict_factory = self._error
 
         # NOTE: We forbid any mutating operations because our graph is
         # immutable and pulls its data from the Memgraph database.
-        for f in ['add_node', 'add_nodes_from', 'remove_node',
-                  'remove_nodes_from', 'add_edge', 'add_edges_from',
-                  'add_weighted_edges_from', 'new_edge_key', 'remove_edge',
-                  'remove_edges_from', 'update', 'clear']:
+        for f in [
+            "add_node",
+            "add_nodes_from",
+            "remove_node",
+            "remove_nodes_from",
+            "add_edge",
+            "add_edges_from",
+            "add_weighted_edges_from",
+            "new_edge_key",
+            "remove_edge",
+            "remove_edges_from",
+            "update",
+            "clear",
+        ]:
             setattr(self, f, lambda *args, **kwargs: self._error())
 
         super().__init__(None, **kwargs)
@@ -231,33 +229,29 @@ class MemgraphDiGraphBase:
         self._pred = MemgraphAdjlistOuterDict(ctx, succ=False, multi=multi)
 
     def _error(self):
-        raise RuntimeError('Modification operations are not supported')
+        raise RuntimeError("Modification operations are not supported")
 
 
 class MemgraphMultiDiGraph(MemgraphDiGraphBase, nx.MultiDiGraph):
     def __init__(self, incoming_graph_data=None, ctx=None, **kwargs):
-        super().__init__(incoming_graph_data=incoming_graph_data,
-                         ctx=ctx, multi=True, **kwargs)
+        super().__init__(incoming_graph_data=incoming_graph_data, ctx=ctx, multi=True, **kwargs)
 
 
 def MemgraphMultiGraph(incoming_graph_data=None, ctx=None, **kwargs):
-    return MemgraphMultiDiGraph(incoming_graph_data=incoming_graph_data,
-                                ctx=ctx, **kwargs).to_undirected(as_view=True)
+    return MemgraphMultiDiGraph(incoming_graph_data=incoming_graph_data, ctx=ctx, **kwargs).to_undirected(as_view=True)
 
 
 class MemgraphDiGraph(MemgraphDiGraphBase, nx.DiGraph):
     def __init__(self, incoming_graph_data=None, ctx=None, **kwargs):
-        super().__init__(incoming_graph_data=incoming_graph_data,
-                         ctx=ctx, multi=False, **kwargs)
+        super().__init__(incoming_graph_data=incoming_graph_data, ctx=ctx, multi=False, **kwargs)
 
 
 def MemgraphGraph(incoming_graph_data=None, ctx=None, **kwargs):
-    return MemgraphDiGraph(incoming_graph_data=incoming_graph_data,
-                           ctx=ctx, **kwargs).to_undirected(as_view=True)
+    return MemgraphDiGraph(incoming_graph_data=incoming_graph_data, ctx=ctx, **kwargs).to_undirected(as_view=True)
 
 
 class PropertiesDictionary(collections.abc.Mapping):
-    __slots__ = ('_ctx', '_prop', '_len')
+    __slots__ = ("_ctx", "_prop", "_len")
 
     def __init__(self, ctx, prop):
         self._ctx = ctx
@@ -270,8 +264,7 @@ class PropertiesDictionary(collections.abc.Mapping):
         try:
             return vertex.properties[self._prop]
         except KeyError:
-            raise KeyError(("{} doesn\t have the required " +
-                            "property '{}'").format(vertex, self._prop))
+            raise KeyError(("{} doesn\t have the required " + "property '{}'").format(vertex, self._prop))
 
     def __iter__(self):
         for v in self._ctx.graph.vertices:

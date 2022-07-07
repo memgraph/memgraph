@@ -23,7 +23,10 @@ def check_stream_no_filtering(
         message = messages.message_at(i)
         payload_as_str = message.payload().decode("utf-8")
         result_queries.append(
-            mgp.Record(query=f"Message: {payload_as_str}", parameters={"value": f"Parameter: {payload_as_str}"})
+            mgp.Record(
+                query=f"Message: {payload_as_str}",
+                parameters={"value": f"Parameter: {payload_as_str}"},
+            )
         )
 
     return result_queries
@@ -44,13 +47,17 @@ def check_stream_with_filtering(
             continue
 
         result_queries.append(
-            mgp.Record(query=f"Message: {payload_as_str}", parameters={"value": f"Parameter: {payload_as_str}"})
+            mgp.Record(
+                query=f"Message: {payload_as_str}",
+                parameters={"value": f"Parameter: {payload_as_str}"},
+            )
         )
 
         if "b" in payload_as_str:
             result_queries.append(
                 mgp.Record(
-                    query=f"Message: extra_{payload_as_str}", parameters={"value": f"Parameter: extra_{payload_as_str}"}
+                    query=f"Message: extra_{payload_as_str}",
+                    parameters={"value": f"Parameter: extra_{payload_as_str}"},
                 )
             )
 

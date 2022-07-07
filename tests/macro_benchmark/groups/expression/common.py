@@ -9,8 +9,10 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+
 def generate(expressions, repetitions):
     idx = 0
+
     def get_alias():
         nonlocal idx
         idx += 1

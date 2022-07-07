@@ -21,5 +21,6 @@ def main():
         if i != 0 and i % BATCH_SIZE == 0:
             print(";")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

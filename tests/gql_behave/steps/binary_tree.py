@@ -15,11 +15,11 @@ from behave import given
 import graph
 
 
-@given(u'the binary-tree-1 graph')
+@given("the binary-tree-1 graph")
 def step_impl(context):
-    graph.create_graph('binary-tree-1', context)
+    graph.create_graph("binary-tree-1", context)
 
 
-@given(u'the binary-tree-2 graph')
+@given("the binary-tree-2 graph")
 def step_impl(context):
-    graph.create_graph('binary-tree-2', context)
+    graph.create_graph("binary-tree-2", context)

@@ -24,234 +24,234 @@ def handle_error(context):
     @param context:
         behave.runner.Context, context of behave.
     """
-    assert(context.exception is not None)
+    assert context.exception is not None
 
 
-@then('an error should be raised')
+@then("an error should be raised")
 def error(context):
     handle_error(context)
 
 
-@then('a SyntaxError should be raised at compile time: NestedAggregation')
+@then("a SyntaxError should be raised at compile time: NestedAggregation")
 def syntax_error(context):
     handle_error(context)
 
 
-@then('TypeError should be raised at compile time: IncomparableValues')
+@then("TypeError should be raised at compile time: IncomparableValues")
 def type_error(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at compile time: IncomparableValues')
+@then("a TypeError should be raised at compile time: IncomparableValues")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: RequiresDirectedRelationship')
+@then("a SyntaxError should be raised at compile time: RequiresDirectedRelationship")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidRelationshipPattern')
+@then("a SyntaxError should be raised at compile time: InvalidRelationshipPattern")
 def syntax_error(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: MapElementAccessByNonString')
+@then("a TypeError should be raised at runtime: MapElementAccessByNonString")
 def type_error(context):
     handle_error(context)
 
 
-@then(u'a ConstraintVerificationFailed should be raised at runtime: DeleteConnectedNode')
+@then("a ConstraintVerificationFailed should be raised at runtime: DeleteConnectedNode")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: ListElementAccessByNonInteger')
+@then("a TypeError should be raised at runtime: ListElementAccessByNonInteger")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidArgumentType')
+@then("a SyntaxError should be raised at compile time: InvalidArgumentType")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: InvalidElementAccess')
+@then("a TypeError should be raised at runtime: InvalidElementAccess")
 def step(context):
     handle_error(context)
 
 
-@then(u'a ArgumentError should be raised at runtime: NumberOutOfRange')
+@then("a ArgumentError should be raised at runtime: NumberOutOfRange")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: InvalidArgumentValue')
+@then("a TypeError should be raised at runtime: InvalidArgumentValue")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: VariableAlreadyBound')
+@then("a SyntaxError should be raised at compile time: VariableAlreadyBound")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: IncomparableValues')
+@then("a TypeError should be raised at runtime: IncomparableValues")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at runtime: PropertyAccessOnNonMap')
+@then("a TypeError should be raised at runtime: PropertyAccessOnNonMap")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidUnicodeLiteral')
+@then("a SyntaxError should be raised at compile time: InvalidUnicodeLiteral")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SemanticError should be raised at compile time: MergeReadOwnWrites')
+@then("a SemanticError should be raised at compile time: MergeReadOwnWrites")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidAggregation')
+@then("a SyntaxError should be raised at compile time: InvalidAggregation")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: NoExpressionAlias')
+@then("a SyntaxError should be raised at compile time: NoExpressionAlias")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: UndefinedVariable')
+@then("a SyntaxError should be raised at compile time: UndefinedVariable")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: VariableTypeConflict')
+@then("a SyntaxError should be raised at compile time: VariableTypeConflict")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: DifferentColumnsInUnion')
+@then("a SyntaxError should be raised at compile time: DifferentColumnsInUnion")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidClauseComposition')
+@then("a SyntaxError should be raised at compile time: InvalidClauseComposition")
 def step(context):
     handle_error(context)
 
 
-@then(u'a TypeError should be raised at compile time: InvalidPropertyType')
+@then("a TypeError should be raised at compile time: InvalidPropertyType")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: ColumnNameConflict')
+@then("a SyntaxError should be raised at compile time: ColumnNameConflict")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: NoVariablesInScope')
+@then("a SyntaxError should be raised at compile time: NoVariablesInScope")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidDelete')
+@then("a SyntaxError should be raised at compile time: InvalidDelete")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: NegativeIntegerArgument')
+@then("a SyntaxError should be raised at compile time: NegativeIntegerArgument")
 def step(context):
     handle_error(context)
 
 
-@then(u'a EntityNotFound should be raised at runtime: DeletedEntityAccess')
+@then("a EntityNotFound should be raised at runtime: DeletedEntityAccess")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: RelationshipUniquenessViolation')
+@then("a SyntaxError should be raised at compile time: RelationshipUniquenessViolation")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: CreatingVarLength')
+@then("a SyntaxError should be raised at compile time: CreatingVarLength")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidParameterUse')
+@then("a SyntaxError should be raised at compile time: InvalidParameterUse")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: FloatingPointOverflow')
+@then("a SyntaxError should be raised at compile time: FloatingPointOverflow")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time InvalidArgumentExpression')
+@then("a SyntaxError should be raised at compile time InvalidArgumentExpression")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time InvalidUnicodeCharacter')
+@then("a SyntaxError should be raised at compile time InvalidUnicodeCharacter")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: NonConstantExpression')
+@then("a SyntaxError should be raised at compile time: NonConstantExpression")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: NoSingleRelationshipType')
+@then("a SyntaxError should be raised at compile time: NoSingleRelationshipType")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: UnknownFunction')
+@then("a SyntaxError should be raised at compile time: UnknownFunction")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidNumberLiteral')
+@then("a SyntaxError should be raised at compile time: InvalidNumberLiteral")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidArgumentExpression')
+@then("a SyntaxError should be raised at compile time: InvalidArgumentExpression")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidUnicodeCharacter')
+@then("a SyntaxError should be raised at compile time: InvalidUnicodeCharacter")
 def step(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidArgumentPassingMode')
+@then("a SyntaxError should be raised at compile time: InvalidArgumentPassingMode")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a SyntaxError should be raised at compile time: InvalidNumberOfArguments')
+@then("a SyntaxError should be raised at compile time: InvalidNumberOfArguments")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a ParameterMissing should be raised at compile time: MissingParameter')
+@then("a ParameterMissing should be raised at compile time: MissingParameter")
 def step_impl(context):
     handle_error(context)
 
 
-@then(u'a ProcedureError should be raised at compile time: ProcedureNotFound')
+@then("a ProcedureError should be raised at compile time: ProcedureNotFound")
 def step_impl(context):
     handle_error(context)

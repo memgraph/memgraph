@@ -18,13 +18,20 @@ import time
 from multiprocessing import Process, Value
 import common
 
-TRANSFORMATIONS_TO_CHECK = ["pulsar_transform.simple", "pulsar_transform.with_parameters"]
+TRANSFORMATIONS_TO_CHECK = [
+    "pulsar_transform.simple",
+    "pulsar_transform.with_parameters",
+]
 
 
 def check_vertex_exists_with_topic_and_payload(cursor, topic, payload_byte):
     decoded_payload = payload_byte.decode("utf-8")
     common.check_vertex_exists_with_properties(
-        cursor, {"topic": f'"{common.pulsar_default_namespace_topic(topic)}"', "payload": f'"{decoded_payload}"'}
+        cursor,
+        {
+            "topic": f'"{common.pulsar_default_namespace_topic(topic)}"',
+            "payload": f'"{decoded_payload}"',
+        },
     )
 
 
@@ -100,7 +107,8 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         assert len(vertices_with_msg) == 0
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
     producer.send(common.SIMPLE_MSG)
 
@@ -157,7 +165,8 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
     time.sleep(1)
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
     producer.send(common.SIMPLE_MSG)
     check_vertex_exists_with_topic_and_payload(cursor, pulsar_topics[0], common.SIMPLE_MSG)
@@ -263,7 +272,8 @@ def test_start_and_stop_during_check(pulsar_client, pulsar_topics, connection, o
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {BATCH_SIZE}"
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def message_sender(msg):
@@ -311,7 +321,8 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     time.sleep(1)
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
     producer.send(common.SIMPLE_MSG)
     assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
@@ -351,7 +362,8 @@ def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection)
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def messages_sender(nof_messages):
@@ -386,7 +398,8 @@ def test_start_stream_with_batch_limit_while_check_running(pulsar_client, pulsar
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def message_sender(message):
@@ -402,7 +415,8 @@ def test_check_while_stream_with_batch_limit_running(pulsar_client, pulsar_topic
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def message_sender(message):
@@ -420,7 +434,8 @@ def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {TRANSFORMATION} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def message_sender(msg):
@@ -438,7 +453,8 @@ def test_check_stream_different_number_of_queries_than_messages(pulsar_client, p
         return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM {TRANSFORMATION} BATCH_INTERVAL 3000 BATCH_SIZE  {batch_size} "
 
     producer = pulsar_client.create_producer(
-        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+        common.pulsar_default_namespace_topic(pulsar_topics[0]),
+        send_timeout_millis=60000,
     )
 
     def message_sender(msg):

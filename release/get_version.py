@@ -104,7 +104,9 @@ def retry(retry_limit, timeout=100):
                 except Exception:
                     time.sleep(timeout)
             return func(*args, **kwargs)
+
         return wrapper
+
     return inner_func
 
 
@@ -163,8 +165,15 @@ def format_version(variant, version, offering, distance=None, shorthash=None, su
 
 # Parse arguments.
 parser = argparse.ArgumentParser(description="Get the current version of Memgraph.")
-parser.add_argument("--open-source", action="store_true", help="set the current offering to 'open-source'")
-parser.add_argument("version", help="manual version override, if supplied the version isn't " "determined using git")
+parser.add_argument(
+    "--open-source",
+    action="store_true",
+    help="set the current offering to 'open-source'",
+)
+parser.add_argument(
+    "version",
+    help="manual version override, if supplied the version isn't " "determined using git",
+)
 parser.add_argument("suffix", help="custom suffix for the current version being built")
 parser.add_argument(
     "--variant",
@@ -173,7 +182,9 @@ parser.add_argument(
     help="which variant of the version string should be generated",
 )
 parser.add_argument(
-    "--memgraph-root-dir", help="The root directory of the checked out " "Memgraph repository.", default="."
+    "--memgraph-root-dir",
+    help="The root directory of the checked out " "Memgraph repository.",
+    default=".",
 )
 args = parser.parse_args()
 
@@ -256,14 +267,27 @@ for version in versions:
 if current_version is None:
     raise Exception("You are attempting to determine the version for a very " "old version of Memgraph!")
 version, branch, master_branch_merge = current_version
-distance = int(get_output("git", "rev-list", "--count", "--first-parent", master_branch_merge + ".." + current_hash))
+distance = int(
+    get_output(
+        "git",
+        "rev-list",
+        "--count",
+        "--first-parent",
+        master_branch_merge + ".." + current_hash,
+    )
+)
 version_str = ".".join(map(str, version)) + ".0"
 if distance == 0:
     print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
 else:
     print(
         format_version(
-            args.variant, version_str, offering, distance=distance, shorthash=current_hash_short, suffix=args.suffix
+            args.variant,
+            version_str,
+            offering,
+            distance=distance,
+            shorthash=current_hash_short,
+            suffix=args.suffix,
         ),
         end="",
     )

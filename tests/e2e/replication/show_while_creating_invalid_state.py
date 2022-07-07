@@ -141,10 +141,16 @@ def test_add_replica_invalid_timeout(connection):
     cursor = connection(7687, "main").cursor()
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';")
+        execute_and_fetch_all(
+            cursor,
+            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001';",
+        )
 
     with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT -5 TO '127.0.0.1:10001';")
+        execute_and_fetch_all(
+            cursor,
+            "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT -5 TO '127.0.0.1:10001';",
+        )
 
     actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert 0 == len(actual_data)

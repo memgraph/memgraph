@@ -188,7 +188,25 @@ bool operator!=(const Permissions &first, const Permissions &second) { return !(
 LabelPermissions::LabelPermissions(const std::unordered_map<std::string, int> &permissions)
     : permissions_(permissions) {}
 
-void LabelPermissions::Grant(const std::string &permission) { permissions_[permission] = 1; }
+void LabelPermissions::Grant(const std::string &label) { permissions_[label] = 1; }
+
+void LabelPermissions::Deny(const std::string &label) { permissions_[label] = 0; }
+
+void LabelPermissions::Revoke(const std::string &label) { permissions_.erase(label); }
+
+nlohmann::json LabelPermissions::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  data["labelPermissions"] = permissions_;
+  return data;
+}
+
+LabelPermissions LabelPermissions::Deserialize(const nlohmann::json &data) {
+  if (!data.is_object()) {
+    throw AuthException("Couldn't load permissions data!");
+  }
+
+  return {data["labelPermissions"]};
+}
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
@@ -208,6 +226,8 @@ nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
+  data["labelPermissions"] = labelPermissions_.Serialize();
+
   return data;
 }
 
@@ -219,7 +239,9 @@ Role Role::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["rolename"], permissions};
+  auto labelPermissions = LabelPermissions::Deserialize(data["labelPermissions"]);
+
+  return {data["rolename"], permissions, labelPermissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -304,6 +326,7 @@ nlohmann::json User::Serialize() const {
   data["username"] = username_;
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
+  data["labelPermissions"] = labelPermissions_.Serialize();
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
 }
@@ -316,7 +339,9 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["username"], data["password_hash"], permissions};
+  auto labelPermissions = LabelPermissions::Deserialize(data["labelPermissions"]);
+
+  return {data["username"], data["password_hash"], permissions, labelPermissions};
 }
 
 bool operator==(const User &first, const User &second) {

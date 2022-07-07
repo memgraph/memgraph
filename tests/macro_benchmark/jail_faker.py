@@ -28,6 +28,7 @@ from signal import *
 class ProcessException(Exception):
     pass
 
+
 class StorageException(Exception):
     pass
 
@@ -41,10 +42,11 @@ class Process:
         self._usage = {}
         self._files = []
 
-    def run(self, binary, args=None, env=None, timeout=120,
-            stdin="/dev/null", cwd="."):
-        if args is None: args = []
-        if env is None: env = {}
+    def run(self, binary, args=None, env=None, timeout=120, stdin="/dev/null", cwd="."):
+        if args is None:
+            args = []
+        if env is None:
+            env = {}
         # don't start a new process if one is already running
         if self._proc != None and self._proc.returncode == None:
             raise ProcessException
@@ -65,15 +67,14 @@ class Process:
         self._timeout = timeout
 
         # start process
-        self._proc = subprocess.Popen(exe, env=env, cwd=cwd,
-                stdin=open(stdin, "r"))
+        self._proc = subprocess.Popen(exe, env=env, cwd=cwd, stdin=open(stdin, "r"))
 
     def run_and_wait(self, *args, **kwargs):
         check = kwargs.pop("check", True)
         self.run(*args, **kwargs)
         return self.wait(check)
 
-    def wait(self, check = True):
+    def wait(self, check=True):
         if self._proc == None:
             raise ProcessException
         self._proc.wait()
@@ -100,18 +101,17 @@ class Process:
     # this is implemented only in the real API
     def set_cpus(self, cpus, hyper=True):
         s = "out" if not hyper else ""
-        sys.stderr.write("WARNING: Trying to set cpus for {} to "
-                "{} with{} hyperthreading!\n".format(str(self), cpus, s))
+        sys.stderr.write(
+            "WARNING: Trying to set cpus for {} to " "{} with{} hyperthreading!\n".format(str(self), cpus, s)
+        )
 
     # this is implemented only in the real API
     def set_nproc(self, nproc):
-        sys.stderr.write("WARNING: Trying to set nproc for {} to "
-                "{}!\n".format(str(self), nproc))
+        sys.stderr.write("WARNING: Trying to set nproc for {} to " "{}!\n".format(str(self), nproc))
 
     # this is implemented only in the real API
     def set_memory(self, memory):
-        sys.stderr.write("WARNING: Trying to set memory for {} to "
-                "{}\n".format(str(self), memory))
+        sys.stderr.write("WARNING: Trying to set memory for {} to " "{}\n".format(str(self), memory))
 
     # WARNING: this won't be implemented in the real API
     def get_pid(self):
@@ -121,7 +121,8 @@ class Process:
 
     def _set_usage(self, val, name, only_value=False):
         self._usage[name] = val
-        if only_value: return
+        if only_value:
+            return
         maxname = "max_" + name
         maxval = val
         if maxname in self._usage:
@@ -133,7 +134,8 @@ class Process:
         self._watchdog()
 
     def _update_usage(self):
-        if self._proc == None: return
+        if self._proc == None:
+            return
         try:
             f = open("/proc/{}/stat".format(self._proc.pid), "r")
             data_stat = f.read().split()
@@ -144,21 +146,20 @@ class Process:
         except:
             return
         # for a description of these fields see: man proc; man times
-        utime, stime, cutime, cstime = map(
-                lambda x: int(x) / self._ticks_per_sec, data_stat[13:17])
+        utime, stime, cutime, cstime = map(lambda x: int(x) / self._ticks_per_sec, data_stat[13:17])
         self._set_usage(utime + stime + cutime + cstime, "cpu", only_value=True)
         self._set_usage(utime + cutime, "cpu_user", only_value=True)
         self._set_usage(stime + cstime, "cpu_sys", only_value=True)
         self._set_usage(int(data_stat[19]), "threads")
-        mem_vm, mem_res, mem_shr = map(
-                lambda x: int(x) * self._page_size // 1024, data_statm[:3])
+        mem_vm, mem_res, mem_shr = map(lambda x: int(x) * self._page_size // 1024, data_statm[:3])
         self._set_usage(mem_res, "memory")
 
     def _watchdog(self):
-        if self._proc == None or self._proc.returncode != None: return
-        if time.time() - self._start_time < self._timeout: return
-        sys.stderr.write("Timeout of {}s reached, sending "
-                "SIGKILL to {}!\n".format(self._timeout, self))
+        if self._proc == None or self._proc.returncode != None:
+            return
+        if time.time() - self._start_time < self._timeout:
+            return
+        sys.stderr.write("Timeout of {}s reached, sending " "SIGKILL to {}!\n".format(self._timeout, self))
         self.send_signal(SIGKILL)
         self.get_status()
 
@@ -172,21 +173,26 @@ PROCESSES_NUM = 8
 _processes = [Process(i) for i in range(1, PROCESSES_NUM + 1)]
 _last_process = 0
 
+
 def _usage_updater():
     while True:
         for proc in _processes:
             proc._do_background_tasks()
         time.sleep(0.1)
 
+
 _thread = threading.Thread(target=_usage_updater, daemon=True)
 _thread.start()
+
 
 @atexit.register
 def cleanup():
     for proc in _processes:
-        if proc._proc == None: continue
+        if proc._proc == None:
+            continue
         proc.send_signal(SIGKILL)
         proc.get_status()
+
 
 # end of private methods ------------------------------------------------------
 
@@ -198,6 +204,7 @@ def get_process():
         _last_process += 1
         return proc
     return None
+
 
 def get_host_info():
     with open("/proc/meminfo") as f:
@@ -215,21 +222,24 @@ def get_host_info():
 
     threads, cpus = 0, set()
     for row in cpudata.split("\n\n"):
-        if not row: continue
+        if not row:
+            continue
         data = row.split("\n")
         core_id, physical_id = -1, -1
         for line in data:
             name, val = map(lambda x: x.strip(), line.split(":"))
-            if name == "physical id": physical_id = int(val)
-            elif name == "core id": core_id = int(val)
+            if name == "physical id":
+                physical_id = int(val)
+            elif name == "core id":
+                core_id = int(val)
         threads += 1
         cpus.add((core_id, physical_id))
     cpus = len(cpus)
 
     hyper = True if cpus != threads else False
 
-    return {"cpus": cpus, "memory": memory, "hyperthreading": hyper,
-            "threads": threads}
+    return {"cpus": cpus, "memory": memory, "hyperthreading": hyper, "threads": threads}
+
 
 # placeholder function that stores a label in the real API
 def store_label(label):
@@ -253,6 +263,8 @@ If chain is None, this function performs the following commands:
 If chain is either "INPUT" or "OUTPUT" then only that chain is cleared using
 the appropriate subset of the above mentioned commands.
 """
+
+
 def network_flush_rules(chain=None):
     print("Network flush rules: chain={}".format(chain))
 
@@ -300,12 +312,13 @@ in the following diagram:
     Other combinations of `chain`, `src`/`dst` and `sport`/`dport` can be used,
     but are advised to be used only when you exactly know what you are doing :)
 """
-def network_block_tcp(chain=None,
-                      src=None, dst=None,
-                      sport=None, dport=None,
-                      action=None):
-    print("Network block TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
-          "action={}".format(chain, src, dst, sport, dport, action))
+
+
+def network_block_tcp(chain=None, src=None, dst=None, sport=None, dport=None, action=None):
+    print(
+        "Network block TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
+        "action={}".format(chain, src, dst, sport, dport, action)
+    )
 
 
 """
@@ -319,28 +332,24 @@ same* parameters that were used to define the rule in the first place.
 All other documentation for this function is the same as for
 `network_block_tcp`, so take a look there.
 """
-def network_unblock_tcp(chain=None,
-                        src=None, dst=None,
-                        sport=None, dport=None,
-                        action=None):
-    print("Network unblock TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
-          "action={}".format(chain, src, dst, sport, dport, action))
+
+
+def network_unblock_tcp(chain=None, src=None, dst=None, sport=None, dport=None, action=None):
+    print(
+        "Network unblock TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
+        "action={}".format(chain, src, dst, sport, dport, action)
+    )
 
 
 # this function is deprecated
 def store_data(data):
     pass
 
+
 # placeholder function that returns real data in the real API
 def get_network_usage():
     usage = {
-        "lo": {
-            "bytes": {"rx": 0, "tx": 0},
-            "packets": {"rx": 0, "tx": 0}
-        },
-        "eth0": {
-            "bytes": {"rx": 0, "tx": 0},
-            "packets": {"rx": 0, "tx": 0}
-        }
+        "lo": {"bytes": {"rx": 0, "tx": 0}, "packets": {"rx": 0, "tx": 0}},
+        "eth0": {"bytes": {"rx": 0, "tx": 0}, "packets": {"rx": 0, "tx": 0}},
     }
     return usage

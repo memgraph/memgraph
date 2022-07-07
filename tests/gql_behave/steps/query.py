@@ -17,32 +17,29 @@ from behave import given, then, step, when
 from neo4j.graph import Node, Path, Relationship
 
 
-@given('parameters are')
+@given("parameters are")
 def parameters_step(context):
     context.test_parameters.set_parameters_from_table(context.table)
 
 
-@then('parameters are')
+@then("parameters are")
 def parameters_step(context):
     context.test_parameters.set_parameters_from_table(context.table)
 
 
-@step('having executed')
+@step("having executed")
 def having_executed_step(context):
-    context.results = database.query(
-        context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
 
 
-@when('executing query')
+@when("executing query")
 def executing_query_step(context):
-    context.results = database.query(
-        context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
 
 
-@when('executing control query')
+@when("executing control query")
 def executing_query_step(context):
-    context.results = database.query(
-        context.text, context, context.test_parameters.get_parameters())
+    context.results = database.query(context.text, context, context.test_parameters.get_parameters())
 
 
 def parse_props(props_key_value):
@@ -93,11 +90,11 @@ def to_string(element):
         # parsing Node
         sol = "("
         if element.labels:
-            sol += ':' + ': '.join(element.labels)
+            sol += ":" + ": ".join(element.labels)
 
         if element.keys():
             if element.labels:
-                sol += ' '
+                sol += " "
             sol += parse_props(element.items())
 
         sol += ")"
@@ -109,7 +106,7 @@ def to_string(element):
         if element.type:
             sol += element.type
         if element.keys():
-            sol += ' '
+            sol += " "
         sol += parse_props(element.items())
         sol += "]"
         return sol
@@ -144,12 +141,12 @@ def to_string(element):
 
     elif isinstance(element, list):
         # parsing list
-        sol = '['
+        sol = "["
         el_str = []
         for el in element:
             el_str.append(to_string(el))
-        sol += ', '.join(el_str)
-        sol += ']'
+        sol += ", ".join(el_str)
+        sol += "]"
 
         return sol
 
@@ -162,23 +159,22 @@ def to_string(element):
     elif isinstance(element, dict):
         # parsing map
         if len(element) == 0:
-            return '{}'
-        sol = '{'
+            return "{}"
+        sol = "{"
         for key, val in element.items():
-            sol += key + ':' + to_string(val) + ','
-        sol = sol[:-1] + '}'
+            sol += key + ":" + to_string(val) + ","
+        sol = sol[:-1] + "}"
         return sol
 
     elif isinstance(element, float):
         # parsing float, scientific
-        if 'e' in str(element):
-            if str(element)[-3] == '-':
+        if "e" in str(element):
+            if str(element)[-3] == "-":
                 zeroes = int(str(element)[-2:]) - 1
-                num_str = ''
-                if str(element)[0] == '-':
-                    num_str += '-'
-                num_str += '.' + zeroes * '0' + \
-                    str(element)[:-4].replace("-", "").replace(".", "")
+                num_str = ""
+                if str(element)[0] == "-":
+                    num_str += "-"
+                num_str += "." + zeroes * "0" + str(element)[:-4].replace("-", "").replace(".", "")
                 return num_str
 
     return str(element)
@@ -201,9 +197,14 @@ def get_result_rows(context, ignore_order):
         keys = result.keys()
         values = result.values()
         for i in range(0, len(keys)):
-            result_rows.append(keys[i] + ":" + parser.parse(
-                to_string(values[i]).replace("\n", "\\n").replace(" ", ""),
-                ignore_order))
+            result_rows.append(
+                keys[i]
+                + ":"
+                + parser.parse(
+                    to_string(values[i]).replace("\n", "\\n").replace(" ", ""),
+                    ignore_order,
+                )
+            )
     return result_rows
 
 
@@ -221,9 +222,7 @@ def get_expected_rows(context, ignore_order):
     expected_rows = []
     for row in context.table:
         for col in context.table.headings:
-            expected_rows.append(
-                col + ":" + parser.parse(row[col].replace(" ", ""),
-                                         ignore_order))
+            expected_rows.append(col + ":" + parser.parse(row[col].replace(" ", ""), ignore_order))
     return expected_rows
 
 
@@ -242,13 +241,13 @@ def validate(context, ignore_order):
 
     context.log.info("Expected: %s", str(expected_rows))
     context.log.info("Results:  %s", str(result_rows))
-    assert(len(expected_rows) == len(result_rows))
+    assert len(expected_rows) == len(result_rows)
 
     for i in range(0, len(expected_rows)):
         if expected_rows[i] in result_rows:
             result_rows.remove(expected_rows[i])
         else:
-            assert(False)
+            assert False
 
 
 def validate_in_order(context, ignore_order):
@@ -267,26 +266,26 @@ def validate_in_order(context, ignore_order):
 
     context.log.info("Expected: %s", str(expected_rows))
     context.log.info("Results:  %s", str(result_rows))
-    assert(len(expected_rows) == len(result_rows))
+    assert len(expected_rows) == len(result_rows)
 
     for i in range(0, len(expected_rows)):
         if expected_rows[i] != result_rows[i]:
-            assert(False)
+            assert False
 
 
-@then('the result should be')
+@then("the result should be")
 def expected_result_step(context):
     validate(context, False)
     check_exception(context)
 
 
-@then('the result should be, in order')
+@then("the result should be, in order")
 def expected_result_step(context):
     validate_in_order(context, False)
     check_exception(context)
 
 
-@then('the result should be (ignoring element order for lists)')
+@then("the result should be (ignoring element order for lists)")
 def expected_result_step(context):
     validate(context, True)
     check_exception(context)
@@ -295,20 +294,20 @@ def expected_result_step(context):
 def check_exception(context):
     if context.exception is not None:
         context.log.info("Exception when executing query!")
-        assert(False)
+        assert False
 
 
-@then('the result should be empty')
+@then("the result should be empty")
 def empty_result_step(context):
-    assert(len(context.results) == 0)
+    assert len(context.results) == 0
     check_exception(context)
 
 
-@then('the side effects should be')
+@then("the side effects should be")
 def side_effects_step(context):
     return
 
 
-@then('no side effects')
+@then("no side effects")
 def side_effects_step(context):
     return

@@ -20,7 +20,10 @@ import common
 
 TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 
-TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
+TRANSFORMATIONS_TO_CHECK_PY = [
+    "kafka_transform.simple",
+    "kafka_transform.with_parameters",
+]
 
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
@@ -463,7 +466,11 @@ def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka
         kafka_producer.send(kafka_topics[0], message).get(timeout=6000)
 
     def setup_function(start_check_stream, cursor, stream_name, batch_limit, timeout):
-        thread_stream_check = Process(target=start_check_stream, daemon=True, args=(stream_name, batch_limit, timeout))
+        thread_stream_check = Process(
+            target=start_check_stream,
+            daemon=True,
+            args=(stream_name, batch_limit, timeout),
+        )
         thread_stream_check.start()
         time.sleep(2)
         assert common.get_is_running(cursor, stream_name)
