@@ -188,7 +188,7 @@ class Streams final {
   void Persist(StreamStatus<TStream> &&status) {
     const std::string stream_name = status.name;
     if (!storage_.Put(stream_name, nlohmann::json(std::move(status)).dump())) {
-      throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
+      throw StreamsException{"Couldn't persist stream data for stream '{}'", stream_name};
     }
   }
 

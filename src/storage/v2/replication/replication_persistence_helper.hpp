@@ -10,12 +10,31 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
+
+#include <chrono>
+#include <compare>
+#include <optional>
+#include <string>
+
+#include <json/json.hpp>
+
+#include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
 
 namespace memgraph::storage::replication {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
+struct ReplicaStatus {
+  std::string name;
+  std::string ip_address;
+  uint16_t port;
+  ReplicationMode sync_mode;
+  std::chrono::seconds replica_check_frequency;
+  std::optional<ReplicationClientConfig::SSL> ssl;
 
-enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, CAN_BE_INVALID };
+  friend bool operator==(const ReplicaStatus &, const ReplicaStatus &) = default;
+};
+
+nlohmann::json ReplicaStatusToJSON(ReplicaStatus &&status);
+
+std::optional<ReplicaStatus> JSONToReplicaStatus(nlohmann::json &&data);
 }  // namespace memgraph::storage::replication
