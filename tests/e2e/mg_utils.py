@@ -1,7 +1,7 @@
 import time
 
 
-def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.5):
+def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.05):
     result = function_to_retrieve_data()
     start_time = time.time()
     while result != expected_value:
