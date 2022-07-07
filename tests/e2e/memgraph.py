@@ -76,11 +76,8 @@ class MemgraphInstanceRunner:
         self.stop()
         self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
-        self.data_directory = tempfile.TemporaryDirectory()
         args_mg = [
             self.binary_path,
-            "--data-directory",
-            self.data_directory.name,
             "--storage-wal-enabled",
             "--storage-snapshot-interval-sec",
             "300",
