@@ -385,7 +385,7 @@ int64_t LocalTime::NanosecondsSinceEpoch() const {
 std::string LocalTime::ToString() const {
   using milli = std::chrono::milliseconds;
   using micro = std::chrono::microseconds;
-  auto subseconds = milli(millisecond) + micro(microsecond);
+  const auto subseconds = milli(millisecond) + micro(microsecond);
 
   return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(hour), static_cast<int>(minute),
                      static_cast<int>(second), subseconds.count());

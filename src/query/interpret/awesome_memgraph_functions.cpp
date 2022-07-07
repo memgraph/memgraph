@@ -886,25 +886,32 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (arg.IsString()) {
+  }
+  if (arg.IsString()) {
     return TypedValue(arg, ctx.memory);
-  } else if (arg.IsInt()) {
+  }
+  if (arg.IsInt()) {
     // TODO: This is making a pointless copy of std::string, we may want to
     // use a different conversion to string
     return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-  } else if (arg.IsDouble()) {
-    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
-  } else if (arg.IsDate()) {
-    return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-  } else if (arg.IsLocalTime()) {
-    return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-  } else if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-  } else if (arg.IsDuration()) {
-    return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-  } else {
-    return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
   }
+  if (arg.IsDouble()) {
+    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+  }
+  if (arg.IsDate()) {
+    return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+  }
+  if (arg.IsLocalTime()) {
+    return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+  }
+  if (arg.IsLocalDateTime()) {
+    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+  }
+  if (arg.IsDuration()) {
+    return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
+  }
+
+  return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

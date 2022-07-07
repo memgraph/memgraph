@@ -665,6 +665,10 @@ TEST(TemporalTest, DurationConvertsToString) {
   const std::string duration5_expected_str = "P0DT-2H-57M-58.000033S";
   memgraph::utils::Duration duration6{{.day = -2, .hour = 3, .minute = 2, .second = 2, .microsecond = 33}};
   const std::string duration6_expected_str = "P-1DT-20H-57M-57.999967S";
+  memgraph::utils::Duration duration7{{.day = 20, .hour = 72, .minute = 154, .second = 312}};
+  const std::string duration7_expected_str = "P23DT2H39M12.000000S";
+  memgraph::utils::Duration duration8{{.day = 1, .hour = 23, .minute = 59, .second = 60}};
+  const std::string duration8_expected_str = "P2DT0H0M0.000000S";
 
   ASSERT_EQ(duration1_expected_str, duration1.ToString());
   ASSERT_EQ(duration2_expected_str, duration2.ToString());
@@ -672,4 +676,6 @@ TEST(TemporalTest, DurationConvertsToString) {
   ASSERT_EQ(duration4_expected_str, duration4.ToString());
   ASSERT_EQ(duration5_expected_str, duration5.ToString());
   ASSERT_EQ(duration6_expected_str, duration6.ToString());
+  ASSERT_EQ(duration7_expected_str, duration7.ToString());
+  ASSERT_EQ(duration8_expected_str, duration8.ToString());
 }
