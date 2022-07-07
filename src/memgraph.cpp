@@ -244,7 +244,7 @@ DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferF
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(restore_replicas_on_startup, false,
+DEFINE_bool(storage_restore_replicas_on_startup, true,
             "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
                                                                      // is implemented.
 #endif
@@ -1200,7 +1200,7 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = FLAGS_storage_recover_on_startup},
+                     .restore_replicas_on_startup = FLAGS_storage_restore_replicas_on_startup},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {

@@ -82,7 +82,6 @@ class MemgraphInstanceRunner:
             "--storage-snapshot-interval-sec",
             "300",
             "--storage-properties-on-edges",
-            "--restore-replicas-on-startup",  # TODO(42jeremy) this must be removed once T0835 is implemented.
         ] + self.args
         self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
