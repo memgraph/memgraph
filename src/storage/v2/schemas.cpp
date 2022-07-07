@@ -29,9 +29,8 @@ SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaP
 Schemas::SchemasList Schemas::ListSchemas() const {
   Schemas::SchemasList ret;
   ret.reserve(schemas_.size());
-  for (const auto &[label_props, schema_property] : schemas_) {
-    ret.emplace_back(label_props, schema_property);
-  }
+  std::transform(schemas_.begin(), schemas_.end(), std::back_inserter(ret),
+                 [](const auto &schema_property_type) { return schema_property_type; });
   return ret;
 }
 
