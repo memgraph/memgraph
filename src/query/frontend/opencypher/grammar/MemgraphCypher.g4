@@ -260,7 +260,7 @@ privilege : CREATE
 
 privilegeList : privilege ( ',' privilege )* ;
 
-labelList : label ( ',' label )* ;
+labelList : COLON label ( ',' COLON label )* ;
 
 label : ( '*' | symbolicName ) ;
 
