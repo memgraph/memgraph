@@ -864,13 +864,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
           for (const auto &schema_property : schema->second) {
             std::vector<TypedValue> schema_info_row;
             schema_info_row.reserve(2);
-
             schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
             schema_info_row.emplace_back(storage::SchemaTypeToString(schema_property.type));
-
             results.push_back(std::move(schema_info_row));
-            return results;
           }
+          return results;
         }
         throw QueryException(fmt::format("Schema on label :{} not found!", primary_label.name));
       };

@@ -135,10 +135,11 @@ cpp<#
     cpp<#))
 
 
-(defun clone-schema-property-map (source dest)
+(defun clone-schema-property-vector (source dest)
     #>cpp
-    for (const auto &[property, type]: ${source}) {
-      ${dest}[storage->GetPropertyIx(property.name)] = type;
+    ${dest}.reserve(${source}.size());
+    for (const auto &[property_ix, property_type]: ${source}) {
+      ${dest}.emplace_back(storage->GetPropertyIx(property_ix.name), property_type);
     }
     cpp<#)
 
@@ -2685,10 +2686,10 @@ cpp<#
                    #>cpp
                    ${dest} = storage->GetLabelIx(${source}.name);
                    cpp<#))
-    (schema_type_map "std::unordered_map<PropertyIx, common::SchemaType>"
+    (schema_type_map "std::vector<std::pair<PropertyIx, common::SchemaType>>"
       :slk-save #'slk-save-property-map
       :slk-load #'slk-load-property-map
-      :clone #'clone-schema-property-map
+      :clone #'clone-schema-property-vector
       :scope :public))
 
   (:public

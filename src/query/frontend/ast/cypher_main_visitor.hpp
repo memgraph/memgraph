@@ -857,7 +857,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return Schema*
    */
-  antlrcpp::Any visitSchemaTypeMap(MemgraphCypher::SchemaTypeMapContext *ctx) override;
+  antlrcpp::Any visitSchemaPropertyMap(MemgraphCypher::SchemaPropertyMapContext *ctx) override;
 
   /**
    * @return Schema*

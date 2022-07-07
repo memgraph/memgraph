@@ -17,6 +17,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <ranges>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -2390,16 +2391,18 @@ antlrcpp::Any CypherMainVisitor::visitPropertyType(MemgraphCypher::PropertyTypeC
 /**
  * @return Schema*
  */
-antlrcpp::Any CypherMainVisitor::visitSchemaTypeMap(MemgraphCypher::SchemaTypeMapContext *ctx) {
-  std::unordered_map<PropertyIx, common::SchemaType> map;
+antlrcpp::Any CypherMainVisitor::visitSchemaPropertyMap(MemgraphCypher::SchemaPropertyMapContext *ctx) {
+  std::vector<std::pair<PropertyIx, common::SchemaType>> schema_property_map;
   for (auto *property_key_pair : ctx->propertyKeyTypePair()) {
     PropertyIx key = property_key_pair->propertyKeyName()->accept(this);
     common::SchemaType type = property_key_pair->propertyType()->accept(this);
-    if (!map.insert({key, type}).second) {
+    if (std::ranges::find_if(schema_property_map, [&key](const auto &elem) { return elem.first == key; }) !=
+        schema_property_map.end()) {
       throw SemanticException("Same property name can't appear twice in a schema map.");
     }
+    schema_property_map.emplace_back(key, type);
   }
-  return map;
+  return schema_property_map;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) {
@@ -2407,7 +2410,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateSchema(MemgraphCypher::CreateSchemaC
   schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
   schema_query->label_ = AddLabel(ctx->labelName()->accept(this));
   schema_query->schema_type_map_ =
-      ctx->schemaTypeMap()->accept(this).as<std::unordered_map<PropertyIx, common::SchemaType>>();
+      ctx->schemaPropertyMap()->accept(this).as<std::vector<std::pair<PropertyIx, common::SchemaType>>>();
   query_ = schema_query;
   return schema_query;
 }

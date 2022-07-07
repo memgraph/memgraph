@@ -42,9 +42,8 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
   return list;
 }
 
-auto StringToUnorderedSet(const std::string &element, const size_t number_of_split_elements) {
+auto StringToUnorderedSet(const std::string &element) {
   const auto element_split = memgraph::utils::Split(element, ", ");
-  MG_ASSERT(element_split.size() == number_of_split_elements);
   return std::unordered_set<std::string>(element_split.begin(), element_split.end());
 };
 
@@ -1540,31 +1539,29 @@ TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
   // Show schemas
   {
     auto stream = Interpret("SHOW SCHEMAS");
-    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    ASSERT_EQ(stream.GetHeader().size(), 2U);
     const auto &header = stream.GetHeader();
     ASSERT_EQ(header[0], "label");
     ASSERT_EQ(header[1], "primary_key");
-    ASSERT_EQ(header[2], "primary_key_type");
     ASSERT_EQ(stream.GetResults().size(), 2U);
-    std::unordered_map<std::string, std::pair<std::unordered_set<std::string>, std::string>> result_table{
-        {"label", {{"name::String", "age::Integer"}, "Composite"}},
-        {"label2", {{"place::String", "dur::Duration"}, "Composite"}}};
+    std::unordered_map<std::string, std::unordered_set<std::string>> result_table{
+        {"label", {"name::String", "age::Integer"}}, {"label2", {"place::String", "dur::Duration"}}};
 
     const auto &result = stream.GetResults().front();
-    ASSERT_EQ(result.size(), 3U);
+    ASSERT_EQ(result.size(), 2U);
     const auto key1 = result[0].ValueString();
     ASSERT_TRUE(result_table.contains(key1));
-    const auto primary_key_split = StringToUnorderedSet(result[1].ValueString(), 2);
-    ASSERT_TRUE(primary_key_split == result_table[key1].first);
-    ASSERT_EQ(result[2].ValueString(), result_table[key1].second);
+    const auto primary_key_split = StringToUnorderedSet(result[1].ValueString());
+    ASSERT_EQ(primary_key_split.size(), 2);
+    ASSERT_TRUE(primary_key_split == result_table[key1]) << "actual value is: " << result[1].ValueString();
 
     const auto &result2 = stream.GetResults().front();
-    ASSERT_EQ(result2.size(), 3U);
+    ASSERT_EQ(result2.size(), 2U);
     const auto key2 = result2[0].ValueString();
     ASSERT_TRUE(result_table.contains(key2));
-    const auto primary_key_split2 = StringToUnorderedSet(result2[1].ValueString(), 2);
-    ASSERT_TRUE(primary_key_split2 == result_table[key2].first);
-    ASSERT_EQ(result2[2].ValueString(), result_table[key2].second);
+    const auto primary_key_split2 = StringToUnorderedSet(result2[1].ValueString());
+    ASSERT_EQ(primary_key_split2.size(), 2);
+    ASSERT_TRUE(primary_key_split2 == result_table[key2]) << "Real value is: " << result[1].ValueString();
   }
 }
 
@@ -1601,20 +1598,19 @@ TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
 
   // Show schemas
   auto stream = Interpret("SHOW SCHEMAS");
-  ASSERT_EQ(stream.GetHeader().size(), 3U);
+  ASSERT_EQ(stream.GetHeader().size(), 2U);
   const auto &header = stream.GetHeader();
   ASSERT_EQ(header[0], "label");
   ASSERT_EQ(header[1], "primary_key");
-  ASSERT_EQ(header[2], "primary_key_type");
   ASSERT_EQ(stream.GetResults().size(), 1U);
-  std::unordered_map<std::string, std::pair<std::unordered_set<std::string>, std::string>> result_table{
-      {"label4", {{"name::String", "age::Duration"}, "Composite"}}};
+  std::unordered_map<std::string, std::unordered_set<std::string>> result_table{
+      {"label4", {"name::String", "age::Duration"}}};
 
   const auto &result = stream.GetResults().front();
-  ASSERT_EQ(result.size(), 3U);
+  ASSERT_EQ(result.size(), 2U);
   const auto key1 = result[0].ValueString();
   ASSERT_TRUE(result_table.contains(key1));
-  const auto primary_key_split = StringToUnorderedSet(result[1].ValueString(), 2);
-  ASSERT_TRUE(primary_key_split == result_table[key1].first);
-  ASSERT_EQ(result[2].ValueString(), result_table[key1].second);
+  const auto primary_key_split = StringToUnorderedSet(result[1].ValueString());
+  ASSERT_EQ(primary_key_split.size(), 2);
+  ASSERT_TRUE(primary_key_split == result_table[key1]);
 }

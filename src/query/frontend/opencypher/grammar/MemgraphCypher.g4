@@ -393,8 +393,8 @@ propertyType : symbolicName ;
 
 propertyKeyTypePair : propertyKeyName propertyType ;
 
-schemaTypeMap : '(' propertyKeyTypePair ( ',' propertyKeyTypePair )* ')' ;
+schemaPropertyMap : '(' propertyKeyTypePair ( ',' propertyKeyTypePair )* ')' ;
 
-createSchema : CREATE SCHEMA ON ':' labelName schemaTypeMap ;
+createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyMap ;
 
 dropSchema : DROP SCHEMA ON ':' labelName ;
