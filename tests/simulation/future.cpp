@@ -26,7 +26,10 @@ void Wait(MgFuture<std::string> future_1, MgPromise<std::string> promise_2) {
 int main() {
   std::atomic_bool waiting = false;
 
-  std::function<void()> notifier = [&] { waiting.store(true, std::memory_order_seq_cst); };
+  std::function<bool()> notifier = [&] {
+    waiting.store(true, std::memory_order_seq_cst);
+    return false;
+  };
 
   auto [future_1, promise_1] = FuturePromisePairWithNotifier<std::string>(notifier);
   auto [future_2, promise_2] = FuturePromisePair<std::string>();

@@ -16,13 +16,9 @@
 #include "address.hpp"
 #include "errors.hpp"
 #include "future.hpp"
+#include "simulator_config.hpp"
 #include "simulator_handle.hpp"
 #include "transport.hpp"
-
-struct SimulatorConfig {
-  uint8_t drop_percent_;
-  uint64_t rng_seed_;
-};
 
 class SimulatorTransport {
  public:
@@ -32,8 +28,8 @@ class SimulatorTransport {
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request,
                                    uint64_t timeout_microseconds) {
-    std::function<void()> notifier = [=] { simulator_handle_->NotifySimulator(); };
-    auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(notifier);
+    std::function<bool()> maybe_tick_simulator = [=] { return simulator_handle_->MaybeTickSimulator(); };
+    auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(maybe_tick_simulator);
 
     simulator_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout_microseconds,
                                      std::move(promise));
@@ -62,11 +58,15 @@ class SimulatorTransport {
 
 class Simulator {
  public:
+  void SetConfig(SimulatorConfig config) { simulator_handle_->SetConfig(config); }
+
   Io<SimulatorTransport> Register(Address address, bool is_server) {
+    if (is_server) {
+      simulator_handle_->IncrementServerCount(address);
+    }
     return Io(SimulatorTransport(simulator_handle_, address), address);
   }
 
  private:
   std::shared_ptr<SimulatorHandle> simulator_handle_{std::make_shared<SimulatorHandle>()};
-  SimulatorConfig simulator_config_;
 };

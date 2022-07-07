@@ -38,7 +38,7 @@ int main() {
   auto cli_addr = Address::TestAddress(1);
   auto srv_addr = Address::TestAddress(2);
 
-  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, true);
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, false);
   Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
 
   // send request
@@ -54,7 +54,7 @@ int main() {
   auto srv_res = ResponseMsg{req.data};
 
   // send response
-  srv_io.Send(request_envelope.from, request_envelope.request_id, srv_res);
+  srv_io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
 
   // receive response
   auto response_result = response_future.Wait();

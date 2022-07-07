@@ -17,4 +17,4 @@ struct RetriesExhausted {};
 
 // Signifies that an operation was unable
 // to (fully) complete after a configured duration.
-struct Timeout {};
+struct TimedOut {};

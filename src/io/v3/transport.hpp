@@ -39,24 +39,27 @@ template <Message M>
 struct ResponseEnvelope {
   M message;
   uint64_t request_id;
-  Address from;
+  Address from_address;
 };
 
 template <Message M>
-using ResponseResult = BasicResult<Timeout, ResponseEnvelope<M>>;
+using ResponseResult = BasicResult<TimedOut, ResponseEnvelope<M>>;
 
 template <Message M>
 using ResponseFuture = MgFuture<ResponseResult<M>>;
+
+template <Message M>
+using ResponsePromise = MgPromise<ResponseResult<M>>;
 
 template <Message... Ms>
 struct RequestEnvelope {
   std::variant<Ms...> message;
   uint64_t request_id;
-  Address from;
+  Address from_address;
 };
 
 template <Message... Ms>
-using RequestResult = BasicResult<Timeout, RequestEnvelope<Ms...>>;
+using RequestResult = BasicResult<TimedOut, RequestEnvelope<Ms...>>;
 
 template <typename I>
 class Io {

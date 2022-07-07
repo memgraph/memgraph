@@ -5,7 +5,8 @@ set(io_v3_sources
     transport.hpp
     simulator.hpp
     simulator_handle.hpp
-    simulator_stats.hpp)
+    simulator_stats.hpp
+    simulator_config.hpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)
