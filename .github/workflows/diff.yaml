@@ -112,7 +112,7 @@ jobs:
           source /opt/toolchain-v4/activate
 
           # Restrict clang-tidy results only to the modified parts
-          git diff -U0 master... -- src ':!*.hpp' | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+          git diff -U0 master... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
 
           # Fail if any warning is reported
           ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null

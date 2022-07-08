@@ -41,11 +41,48 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   }
 
   rpc_client_.emplace(endpoint, &*rpc_context_);
-  TryInitializeClient();
+  TryInitializeClientSync();
 
   if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
     timeout_.emplace(*config.timeout);
     timeout_dispatcher_.emplace();
+  }
+
+  // Help the user to get the most accurate replica state possible.
+  if (config.replica_check_frequency > std::chrono::seconds(0)) {
+    replica_checker_.Run("Replica Checker", config.replica_check_frequency, [&] { FrequentCheck(); });
+  }
+}
+
+void Storage::ReplicationClient::TryInitializeClientAsync() {
+  thread_pool_.AddTask([this] {
+    rpc_client_->Abort();
+    this->TryInitializeClientSync();
+  });
+}
+
+void Storage::ReplicationClient::FrequentCheck() {
+  const auto is_success = std::invoke([this]() {
+    try {
+      auto stream{rpc_client_->Stream<replication::FrequentHeartbeatRpc>()};
+      const auto response = stream.AwaitResponse();
+      return response.success;
+    } catch (const rpc::RpcFailedException &) {
+      return false;
+    }
+  });
+  // States: READY, REPLICATING, RECOVERY, INVALID
+  // If success && ready, replicating, recovery -> stay the same because something good is going on.
+  // If success && INVALID -> [it's possible that replica came back to life] -> TryInitializeClient.
+  // If fail -> [replica is not reachable at all] -> INVALID state.
+  // NOTE: TryInitializeClient might return nothing if there is a branching point.
+  // NOTE: The early return pattern simplified the code, but the behavior should be as explained.
+  if (!is_success) {
+    replica_state_.store(replication::ReplicaState::INVALID);
+    return;
+  }
+  if (replica_state_.load() == replication::ReplicaState::INVALID) {
+    TryInitializeClientAsync();
   }
 }
 
@@ -100,7 +137,7 @@ void Storage::ReplicationClient::InitializeClient() {
   }
 }
 
-void Storage::ReplicationClient::TryInitializeClient() {
+void Storage::ReplicationClient::TryInitializeClientSync() {
   try {
     InitializeClient();
   } catch (const rpc::RpcFailedException &) {
@@ -113,10 +150,7 @@ void Storage::ReplicationClient::TryInitializeClient() {
 
 void Storage::ReplicationClient::HandleRpcFailure() {
   spdlog::error(utils::MessageWithLink("Couldn't replicate data to {}.", name_, "https://memgr.ph/replication"));
-  thread_pool_.AddTask([this] {
-    rpc_client_->Abort();
-    this->TryInitializeClient();
-  });
+  TryInitializeClientAsync();
 }
 
 replication::SnapshotRes Storage::ReplicationClient::TransferSnapshot(const std::filesystem::path &path) {
@@ -501,6 +535,33 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   }
 
   return recovery_steps;
+}
+
+Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
+  Storage::TimestampInfo info;
+  info.current_timestamp_of_replica = 0;
+  info.current_number_of_timestamp_behind_master = 0;
+
+  try {
+    auto stream{rpc_client_->Stream<replication::TimestampRpc>()};
+    const auto response = stream.AwaitResponse();
+    const auto is_success = response.success;
+    if (!is_success) {
+      replica_state_.store(replication::ReplicaState::INVALID);
+      HandleRpcFailure();
+    }
+    auto main_time_stamp = storage_->last_commit_timestamp_.load();
+    info.current_timestamp_of_replica = response.current_commit_timestamp;
+    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure(); // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't block
+  }
+
+  return info;
 }
 
 ////// TimeoutDispatcher //////

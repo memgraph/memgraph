@@ -124,6 +124,8 @@ class Storage::ReplicationClient {
 
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
+  Storage::TimestampInfo GetTimestampInfo();
+
  private:
   void FinalizeTransactionReplicationInternal();
 
@@ -142,16 +144,14 @@ class Storage::ReplicationClient {
 
   std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker);
 
+  void FrequentCheck();
   void InitializeClient();
-
-  void TryInitializeClient();
-
+  void TryInitializeClientSync();
+  void TryInitializeClientAsync();
   void HandleRpcFailure();
 
   std::string name_;
-
   Storage *storage_;
-
   std::optional<communication::ClientContext> rpc_context_;
   std::optional<rpc::Client> rpc_client_;
 
@@ -198,6 +198,8 @@ class Storage::ReplicationClient {
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
   std::atomic<replication::ReplicaState> replica_state_{replication::ReplicaState::INVALID};
+
+  utils::Scheduler replica_checker_;
 };
 
 }  // namespace memgraph::storage

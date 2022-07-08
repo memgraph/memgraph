@@ -9,4 +9,5 @@ target_link_libraries(mg-memory mg-utils fmt)
 
 if (ENABLE_JEMALLOC)
   target_link_libraries(mg-memory Jemalloc::Jemalloc)
+  target_compile_definitions(mg-memory PRIVATE USE_JEMALLOC=1)
 endif()

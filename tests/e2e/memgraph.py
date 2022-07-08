@@ -106,3 +106,10 @@ class MemgraphInstanceRunner:
         self.proc_mg.terminate()
         code = self.proc_mg.wait()
         assert code == 0, "The Memgraph process exited with non-zero!"
+
+    def kill(self):
+        if not self.is_running():
+            return
+        self.proc_mg.kill()
+        code = self.proc_mg.wait()
+        assert code == -9, "The killed Memgraph process exited with non-nine!"
