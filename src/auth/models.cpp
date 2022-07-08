@@ -249,11 +249,8 @@ LabelPermissions LabelPermissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  if (!data["grants"].is_number_unsigned() || !data["denies"].is_number_unsigned()) {
-    throw AuthException("Couldn't load permissions data!");
-  }
 
-  return LabelPermissions(data["grants"], data["denies"]);
+  return {data["grants"], data["denies"]};
 }
 
 std::unordered_set<std::string> LabelPermissions::grants() const { return grants_; }
@@ -273,6 +270,9 @@ Role::Role(const std::string &rolename, const Permissions &permissions, const La
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
+
+const LabelPermissions &Role::labelPermissions() const { return labelPermissions_; }
+LabelPermissions &Role::labelPermissions() { return labelPermissions_; }
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
