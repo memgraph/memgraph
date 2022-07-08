@@ -91,7 +91,7 @@ class Schemas {
   SchemasMap schemas_;
 };
 
-inline std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value);
+std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value);
 
 std::string SchemaTypeToString(common::SchemaType type);
 
