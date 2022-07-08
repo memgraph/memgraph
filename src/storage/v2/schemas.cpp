@@ -20,11 +20,14 @@ namespace memgraph::storage {
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type)
-    : status{status}, label{label}, violated_type{violated_type} {}
+    : status{status}, label{label}, violated_schema_property{violated_schema_property} {}
 
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
                                  PropertyValue violated_property_value)
-    : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
+    : status{status},
+      label{label},
+      violated_schema_property{violated_schema_property},
+      violated_property_value{violated_property_value} {}
 
 Schemas::SchemasList Schemas::ListSchemas() const {
   Schemas::SchemasList ret;
@@ -66,7 +69,7 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY, primary_label, schema_type);
     }
     // Property type check
-    //  TODO Can this be replaced with just property id check?
+    // TODO Can this be replaced with just property id check?
     if (auto vertex_property = vertex.properties.GetProperty(schema_type.property_id);
         PropertyTypeToSchemaType(vertex_property) != schema_type.type) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,

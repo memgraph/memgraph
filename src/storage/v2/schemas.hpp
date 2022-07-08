@@ -47,14 +47,14 @@ struct SchemaViolation {
 
   SchemaViolation(ValidationStatus status, LabelId label);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type);
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property);
 
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
+  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
                   PropertyValue violated_property_value);
 
   ValidationStatus status;
   LabelId label;
-  std::optional<SchemaProperty> violated_type;
+  std::optional<SchemaProperty> violated_schema_property;
   std::optional<PropertyValue> violated_property_value;
 };
 
