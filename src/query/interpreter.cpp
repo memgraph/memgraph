@@ -283,6 +283,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
   std::vector<std::string> labels = auth_query->labels_;
+  // std::vector<storage::LabelId> labels = NamesToLabels(labels, db_accessor);
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
