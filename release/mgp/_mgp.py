@@ -70,3 +70,12 @@ def type_path():
 class _MODULE:
     def add_read_procedure(wrapper):
         pass
+
+    def add_write_procedure(wrapper):
+        pass
+
+    def add_transformation(wrapper):
+        pass
+
+    def add_function(wrapper):
+        pass
