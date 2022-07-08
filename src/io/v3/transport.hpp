@@ -30,13 +30,16 @@ template <typename I>
 class Io;
 
 template <typename T>
-concept Message = requires(T a, uint8_t *ptr, size_t len) {
+concept Message = true;
+
+/*requires(T a, uint8_t *ptr, size_t len) {
   // These are placeholders and will be replaced
   // by some concept that identifies Thrift-generated
   // messages.
   { a.Serialize() } -> std::same_as<std::vector<uint8_t>>;
   { T::Deserialize(ptr, len) } -> std::same_as<T>;
 };
+*/
 
 template <Message M>
 struct ResponseEnvelope {

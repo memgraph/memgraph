@@ -12,6 +12,7 @@
 //#include <gtest/gtest.h>
 
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "io/v3/simulator.hpp"
@@ -33,37 +34,66 @@ struct ResponseMsg {
   static ResponseMsg Deserialize(uint8_t *ptr, size_t len) { return ResponseMsg{}; }
 };
 
+struct CounterState {
+  uint64_t highest_seen_;
+};
+
+struct CounterRequest {
+  uint64_t proposal_;
+};
+
+struct CounterResponse {
+  uint64_t highest_seen_;
+};
+
+void run_server(Io<SimulatorTransport> srv_io) {
+  CounterState state{};
+
+  while (!srv_io.ShouldShutDown()) {
+    auto request_result = srv_io.Receive<CounterRequest>();
+    if (request_result.HasError()) {
+      continue;
+    }
+    auto request_envelope = request_result.GetValue();
+    auto req = std::get<CounterRequest>(request_envelope.message);
+
+    state.highest_seen_ = std::max(state.highest_seen_, req.proposal_);
+
+    auto srv_res = CounterResponse{state.highest_seen_};
+
+    request_envelope.Reply(srv_res, srv_io);
+  }
+}
+
 int main() {
   auto simulator = Simulator();
   auto cli_addr = Address::TestAddress(1);
   auto srv_addr = Address::TestAddress(2);
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, false);
-  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, false);
+  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
+
+  auto srv_thread = std::jthread(run_server, std::move(srv_io));
 
   // send request
-  RequestMsg cli_req;
-  cli_req.data = "hello";
-  ResponseFuture<ResponseMsg> response_future = cli_io.Request<RequestMsg, ResponseMsg>(srv_addr, cli_req);
+  CounterRequest cli_req;
+  cli_req.proposal_ = 1;
 
-  // receive request
-  RequestResult<RequestMsg> request_result = srv_io.Receive<RequestMsg>();
-  auto request_envelope = request_result.GetValue();
-  RequestMsg req = std::get<RequestMsg>(request_envelope.message);
-
-  auto srv_res = ResponseMsg{req.data};
-
-  // send response
-  // srv_io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
-  request_envelope.Reply(srv_res, srv_io);
+  auto response_future = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
 
   // receive response
   auto response_result = response_future.Wait();
   auto response_envelope = response_result.GetValue();
 
-  MG_ASSERT(response_envelope.message.data == "hello");
+  MG_ASSERT(response_envelope.message.highest_seen_ == 1);
 
   std::cout << "IT WORKED :)" << std::endl;
+
+  simulator.ShutDown();
+
+  std::cout << "joining" << std::endl;
+  srv_thread.join();
+  std::cout << "exiting" << std::endl;
 
   return 0;
 }

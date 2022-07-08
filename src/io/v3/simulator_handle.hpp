@@ -136,8 +136,6 @@ class OpaquePromise {
         dtor_([](void *ptr) { static_cast<ResponsePromise<T> *>(ptr)->~ResponsePromise<T>(); }),
         is_awaited_([](void *ptr) { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); }),
         fill_([](void *this_ptr, OpaqueMessage opaque_message) {
-          std::cout << "expecting typeid " << typeid(T).name() << std::endl;
-          std::cout << "got typeid " << opaque_message.message.type().name() << std::endl;
           T message = std::any_cast<T>(std::move(opaque_message.message));
           auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                        .request_id = opaque_message.request_id,
@@ -208,9 +206,6 @@ class SimulatorHandle {
       }
     }
 
-    std::cout << "wait count: " << blocked_servers << std::endl;
-    std::cout << "srv count: " << servers_ << std::endl;
-
     if (blocked_servers < servers_) {
       // we only need to advance the simulator when all
       // servers have reached a quiescent state, blocked
@@ -255,6 +250,13 @@ class SimulatorHandle {
   void SetConfig(SimulatorConfig config) {
     std::unique_lock<std::mutex> lock(mu_);
     config_ = config;
+    cv_.notify_all();
+  }
+
+  void ShutDown() {
+    std::unique_lock<std::mutex> lock(mu_);
+    should_shut_down_ = true;
+    cv_.notify_all();
   }
 
   bool ShouldShutDown() {
@@ -327,9 +329,16 @@ class SimulatorHandle {
  private:
   std::mutex mu_{};
   std::condition_variable cv_;
+
+  // messages that have not yet been scheduled or dropped
   std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
+
+  // the responsese to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
+
+  // messages that are sent to servers that may later receive them
   std::map<Address, std::vector<OpaqueMessage>> can_receive_;
+
   uint64_t cluster_wide_time_microseconds_ = 0;
   bool should_shut_down_ = false;
   SimulatorStats stats_;

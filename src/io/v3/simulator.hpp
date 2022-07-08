@@ -60,6 +60,8 @@ class Simulator {
  public:
   void SetConfig(SimulatorConfig config) { simulator_handle_->SetConfig(config); }
 
+  void ShutDown() { simulator_handle_->ShutDown(); }
+
   Io<SimulatorTransport> Register(Address address, bool is_server) {
     if (is_server) {
       simulator_handle_->IncrementServerCount(address);
