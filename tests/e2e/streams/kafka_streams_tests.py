@@ -15,6 +15,7 @@ import sys
 import pytest
 import mgclient
 import time
+from mg_utils import mg_sleep_and_assert
 from multiprocessing import Process, Value
 import common
 
@@ -465,8 +466,11 @@ def test_start_stream_with_batch_limit_while_check_running(kafka_producer, kafka
     def setup_function(start_check_stream, cursor, stream_name, batch_limit, timeout):
         thread_stream_check = Process(target=start_check_stream, daemon=True, args=(stream_name, batch_limit, timeout))
         thread_stream_check.start()
-        time.sleep(2)
-        assert common.get_is_running(cursor, stream_name)
+
+        def is_running():
+            return common.get_is_running(cursor, stream_name)
+
+        assert mg_sleep_and_assert(True, is_running)
         message_sender(common.SIMPLE_MSG)
         thread_stream_check.join()
 
