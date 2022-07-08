@@ -4242,12 +4242,11 @@ void AssertSchemaPropertyMap(auto &schema_property_map,
                              std::vector<std::pair<std::string, memgraph::common::SchemaType>> properties_type,
                              auto &ast_generator) {
   EXPECT_EQ(schema_property_map.size(), properties_type.size());
-  for (const auto &[property_name, type] : properties_type) {
-    const auto property_ix = ast_generator.Prop(property_name);
-    const auto element = std::ranges::find_if(schema_property_map,
-                                              [property_ix](const auto &elem) { return elem.first == property_ix; });
-    EXPECT_TRUE(element != schema_property_map.end());
-    EXPECT_EQ(element->second, type);
+  for (size_t i{0}; i < schema_property_map.size(); ++i) {
+    // Assert PropertyId
+    EXPECT_EQ(schema_property_map[i].first, ast_generator.Prop(properties_type[i].first));
+    // Assert Property Type
+    EXPECT_EQ(schema_property_map[i].second, properties_type[i].second);
   }
 }
 
