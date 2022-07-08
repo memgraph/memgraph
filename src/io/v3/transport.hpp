@@ -26,6 +26,9 @@ using memgraph::utils::BasicResult;
 
 class SimulatorHandle;
 
+template <typename I>
+class Io;
+
 template <typename T>
 concept Message = requires(T a, uint8_t *ptr, size_t len) {
   // These are placeholders and will be replaced
@@ -56,6 +59,11 @@ struct RequestEnvelope {
   std::variant<Ms...> message;
   uint64_t request_id;
   Address from_address;
+
+  template <Message T, typename I>
+  void Reply(T response, Io<I> &io) {
+    io.Send(from_address, request_id, response);
+  }
 };
 
 template <Message... Ms>

@@ -44,23 +44,26 @@ int main() {
   // send request
   RequestMsg cli_req;
   cli_req.data = "hello";
-  ResponseFuture<ResponseMsg> response_future = cli_io.template Request<RequestMsg, ResponseMsg>(srv_addr, cli_req);
+  ResponseFuture<ResponseMsg> response_future = cli_io.Request<RequestMsg, ResponseMsg>(srv_addr, cli_req);
 
   // receive request
-  RequestResult<RequestMsg> request_result = srv_io.template Receive<RequestMsg>();
+  RequestResult<RequestMsg> request_result = srv_io.Receive<RequestMsg>();
   auto request_envelope = request_result.GetValue();
   RequestMsg req = std::get<RequestMsg>(request_envelope.message);
 
   auto srv_res = ResponseMsg{req.data};
 
   // send response
-  srv_io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
+  // srv_io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
+  request_envelope.Reply(srv_res, srv_io);
 
   // receive response
   auto response_result = response_future.Wait();
   auto response_envelope = response_result.GetValue();
 
   MG_ASSERT(response_envelope.message.data == "hello");
+
+  std::cout << "IT WORKED :)" << std::endl;
 
   return 0;
 }

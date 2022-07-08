@@ -143,7 +143,8 @@ class OpaquePromise {
                                                        .request_id = opaque_message.request_id,
                                                        .from_address = opaque_message.from_address};
           ResponsePromise<T> *promise = static_cast<ResponsePromise<T> *>(this_ptr);
-          promise->Fill(std::move(response_envelope));
+          auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
+          unique_promise->Fill(std::move(response_envelope));
         }),
         time_out_([](void *ptr) {
           ResponseResult<T> result = TimedOut{};
@@ -163,6 +164,7 @@ class OpaquePromise {
   void Fill(OpaqueMessage &&opaque_message) {
     MG_ASSERT(ptr_ != nullptr);
     fill_(ptr_, std::move(opaque_message));
+    ptr_ = nullptr;
   }
 
   ~OpaquePromise() {
