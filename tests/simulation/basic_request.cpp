@@ -11,32 +11,9 @@
 
 //#include <gtest/gtest.h>
 
-#include <string>
 #include <thread>
-#include <vector>
 
 #include "io/v3/simulator.hpp"
-#include "utils/terminate_handler.hpp"
-
-struct RequestMsg {
-  std::string data;
-
-  std::vector<uint8_t> Serialize() { return std::vector<uint8_t>(); }
-
-  static RequestMsg Deserialize(uint8_t *ptr, size_t len) { return RequestMsg{}; }
-};
-
-struct ResponseMsg {
-  std::string data;
-
-  std::vector<uint8_t> Serialize() { return std::vector<uint8_t>(); }
-
-  static ResponseMsg Deserialize(uint8_t *ptr, size_t len) { return ResponseMsg{}; }
-};
-
-struct CounterState {
-  uint64_t highest_seen_;
-};
 
 struct CounterRequest {
   uint64_t proposal_;
@@ -47,7 +24,7 @@ struct CounterResponse {
 };
 
 void run_server(Io<SimulatorTransport> srv_io) {
-  CounterState state{};
+  uint64_t highest_seen_;
 
   while (!srv_io.ShouldShutDown()) {
     auto request_result = srv_io.Receive<CounterRequest>();
@@ -87,13 +64,9 @@ int main() {
 
   MG_ASSERT(response_envelope.message.highest_seen_ == 1);
 
-  std::cout << "IT WORKED :)" << std::endl;
-
   simulator.ShutDown();
 
-  std::cout << "joining" << std::endl;
   srv_thread.join();
-  std::cout << "exiting" << std::endl;
 
   return 0;
 }
