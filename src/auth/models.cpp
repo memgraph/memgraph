@@ -8,7 +8,10 @@
 
 #include "auth/models.hpp"
 
+#include <algorithm>
+#include <iterator>
 #include <regex>
+#include <unordered_set>
 
 #include <gflags/gflags.h>
 
@@ -100,12 +103,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-Permissions::Permissions(uint64_t grants, uint64_t denies) {
-  // The deny bitmask has higher priority than the grant bitmask.
-  denies_ = denies;
-  // Mask out the grant bitmask to make sure that it is correct.
-  grants_ = grants & (~denies);
-}
+Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {}
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
@@ -185,19 +183,104 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
+LabelPermissions::LabelPermissions(const std::unordered_set<std::string> &grants,
+                                   const std::unordered_set<std::string> &denies)
+    : grants_(grants), denies_(denies) {}
+
+PermissionLevel LabelPermissions::Has(const std::string &permission) const {
+  if (denies_.find(permission) != denies_.end()) {
+    return PermissionLevel::DENY;
+  }
+
+  if (grants_.find(permission) != denies_.end()) {
+    return PermissionLevel::GRANT;
+  }
+
+  return PermissionLevel::NEUTRAL;
+}
+
+void LabelPermissions::Grant(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grants_.find(permission) == grants_.end()) {
+    grants_.insert(permission);
+  }
+}
+
+void LabelPermissions::Revoke(const std::string &permission) {
+  auto deniedPermissionIter = denies_.find(permission);
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+}
+
+void LabelPermissions::Deny(const std::string &permission) {
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+
+  if (denies_.find(permission) == denies_.end()) {
+    denies_.insert(permission);
+  }
+}
+
+std::unordered_set<std::string> LabelPermissions::GetGrants() const { return grants_; }
+
+std::unordered_set<std::string> LabelPermissions::GetDenies() const { return denies_; }
+
+nlohmann::json LabelPermissions::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  data["grants"] = grants_;
+  data["denies"] = denies_;
+  return data;
+}
+
+LabelPermissions LabelPermissions::Deserialize(const nlohmann::json &data) {
+  if (!data.is_object()) {
+    throw AuthException("Couldn't load permissions data!");
+  }
+
+  return {data["grants"], data["denies"]};
+}
+
+std::unordered_set<std::string> LabelPermissions::grants() const { return grants_; }
+std::unordered_set<std::string> LabelPermissions::denies() const { return denies_; }
+
+bool operator==(const LabelPermissions &first, const LabelPermissions &second) {
+  return first.grants() == second.grants() && first.denies() == second.denies();
+}
+
+bool operator!=(const LabelPermissions &first, const LabelPermissions &second) { return !(first == second); }
+
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
-Role::Role(const std::string &rolename, const Permissions &permissions)
-    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
+Role::Role(const std::string &rolename, const Permissions &permissions, const LabelPermissions &labelPermissions)
+    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions), labelPermissions_(labelPermissions) {}
 
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
 
+const LabelPermissions &Role::labelPermissions() const { return labelPermissions_; }
+LabelPermissions &Role::labelPermissions() { return labelPermissions_; }
+
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
+  data["labelPermissions"] = labelPermissions_.Serialize();
   return data;
 }
 
@@ -209,17 +292,23 @@ Role Role::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["rolename"], permissions};
+  auto labelPermissions = LabelPermissions::Deserialize(data["labelPermissions"]);
+  return {data["rolename"], permissions, labelPermissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
-  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
+  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
+         first.labelPermissions_ == second.labelPermissions_;
 }
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
-User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)
-    : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
+User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+           const LabelPermissions &labelPermissions)
+    : username_(utils::ToLowerCase(username)),
+      password_hash_(password_hash),
+      permissions_(permissions),
+      labelPermissions_(labelPermissions) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_.empty()) return true;
@@ -262,16 +351,38 @@ void User::ClearRole() { role_ = std::nullopt; }
 
 Permissions User::GetPermissions() const {
   if (role_) {
-    return Permissions(permissions_.grants() | role_->permissions().grants(),
-                       permissions_.denies() | role_->permissions().denies());
+    return {permissions_.grants() | role_->permissions().grants(),
+            permissions_.denies() | role_->permissions().denies()};
   }
   return permissions_;
+}
+
+LabelPermissions User::GetLabelPermissions() const {
+  if (role_) {
+    std::unordered_set<std::string> resultGrants;
+
+    std::set_union(labelPermissions_.grants().begin(), labelPermissions_.grants().end(),
+                   role_->labelPermissions().grants().begin(), role_->labelPermissions().grants().end(),
+                   std::inserter(resultGrants, resultGrants.begin()));
+
+    std::unordered_set<std::string> resultDenies;
+
+    std::set_union(labelPermissions_.denies().begin(), labelPermissions_.denies().end(),
+                   role_->labelPermissions().denies().begin(), role_->labelPermissions().denies().end(),
+                   std::inserter(resultDenies, resultDenies.begin()));
+
+    return {resultGrants, resultDenies};
+  }
+  return labelPermissions_;
 }
 
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
+
+const LabelPermissions &User::labelPermissions() const { return labelPermissions_; }
+LabelPermissions &User::labelPermissions() { return labelPermissions_; }
 
 const Role *User::role() const {
   if (role_.has_value()) {
@@ -297,11 +408,13 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["username"], data["password_hash"], permissions};
+  auto labelPermissions = LabelPermissions::Deserialize(data["labelPermissions"]);
+  return {data["username"], data["password_hash"], permissions, labelPermissions};
 }
 
 bool operator==(const User &first, const User &second) {
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ && first.role_ == second.role_;
+         first.permissions_ == second.permissions_ && first.labelPermissions_ == second.labelPermissions_ &&
+         first.role_ == second.role_;
 }
 }  // namespace memgraph::auth
