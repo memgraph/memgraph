@@ -39,7 +39,7 @@ int main() {
   auto srv_addr = Address::TestAddress(2);
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, false);
-  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
+  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, false);
 
   // send request
   RequestMsg cli_req;

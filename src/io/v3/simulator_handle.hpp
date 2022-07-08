@@ -135,13 +135,15 @@ class OpaquePromise {
         ptr_((void *)promise.release()),
         dtor_([](void *ptr) { static_cast<ResponsePromise<T> *>(ptr)->~ResponsePromise<T>(); }),
         is_awaited_([](void *ptr) { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); }),
-        fill_([](void *this_ptr, std::any msg_any) {
+        fill_([](void *this_ptr, OpaqueMessage opaque_message) {
           std::cout << "expecting typeid " << typeid(T).name() << std::endl;
-          std::cout << "got typeid " << msg_any.type().name() << std::endl;
-          MG_ASSERT(typeid(T) == msg_any.type(), "type id mismatch");
-          ResponseResult<T> message = std::any_cast<ResponseResult<T>>(std::move(msg_any));
-          auto promise = static_cast<ResponsePromise<T> *>(this_ptr);
-          promise->Fill(std::move(message));
+          std::cout << "got typeid " << opaque_message.message.type().name() << std::endl;
+          T message = std::any_cast<T>(std::move(opaque_message.message));
+          auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
+                                                       .request_id = opaque_message.request_id,
+                                                       .from_address = opaque_message.from_address};
+          ResponsePromise<T> *promise = static_cast<ResponsePromise<T> *>(this_ptr);
+          promise->Fill(std::move(response_envelope));
         }),
         time_out_([](void *ptr) {
           ResponseResult<T> result = TimedOut{};
@@ -160,7 +162,7 @@ class OpaquePromise {
 
   void Fill(OpaqueMessage &&opaque_message) {
     MG_ASSERT(ptr_ != nullptr);
-    fill_(ptr_, std::move(opaque_message.message));
+    fill_(ptr_, std::move(opaque_message));
   }
 
   ~OpaquePromise() {
@@ -174,7 +176,7 @@ class OpaquePromise {
   void *ptr_;
   std::function<void(void *)> dtor_;
   std::function<bool(void *)> is_awaited_;
-  std::function<void(void *, std::any)> fill_;
+  std::function<void(void *, OpaqueMessage)> fill_;
   std::function<void(void *)> time_out_;
 };
 
@@ -203,6 +205,9 @@ class SimulatorHandle {
         }
       }
     }
+
+    std::cout << "wait count: " << blocked_servers << std::endl;
+    std::cout << "srv count: " << servers_ << std::endl;
 
     if (blocked_servers < servers_) {
       // we only need to advance the simulator when all
@@ -239,9 +244,6 @@ class SimulatorHandle {
       const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());
       om_vec->second.emplace_back(std::move(opaque_message));
     }
-
-    std::cout << "wait count: " << blocked_servers << std::endl;
-    std::cout << "srv count: " << servers_ << std::endl;
 
     cv_.notify_all();
 
@@ -314,7 +316,10 @@ class SimulatorHandle {
 
   template <Message M>
   void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
-    std::abort();
+    std::unique_lock<std::mutex> lock(mu_);
+    std::any message_any(std::move(message));
+    OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
+    in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
   }
 
  private:
