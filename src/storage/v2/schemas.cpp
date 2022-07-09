@@ -95,10 +95,12 @@ std::optional<SchemaViolation> Schemas::ValidateVertexCreate(const LabelId prima
   if (!utils::Contains(vertex.labels, primary_label)) {
     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
   }
-  if (std::ranges::find_if(schema->second, [property_id](const auto &schema_property) {
-        return property_id == schema_property.property_id;
-      }) == schema->second.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label);
+  if (const auto schema_property = std::ranges::find_if(
+          schema->second,
+          [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
+      schema_property == schema->second.end()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label,
+                           *schema_property);
   }
   return std::nullopt;
 }
