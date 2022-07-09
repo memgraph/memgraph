@@ -246,12 +246,14 @@ TEST_F(InterpreterTest, Parameters) {
 // Run CREATE/MATCH/MERGE queries with property map
 TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   {
+    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)"));
     std::map<std::string, memgraph::storage::PropertyValue> property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(25);
-    auto stream = Interpret("CREATE (n $prop) RETURN n", {
-                                                             {"prop", memgraph::storage::PropertyValue(property_map)},
-                                                         });
+    auto stream =
+        Interpret("CREATE (n:label $prop) RETURN n", {
+                                                         {"prop", memgraph::storage::PropertyValue(property_map)},
+                                                     });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -261,11 +263,12 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
+    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :Person(name STRING, age INTEGER)"));
     std::map<std::string, memgraph::storage::PropertyValue> property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(25);
     Interpret("CREATE (:Person)");
-    auto stream = Interpret("MATCH (m: Person) CREATE (n $prop) RETURN n",
+    auto stream = Interpret("MATCH (m: Person) CREATE (n:Person $prop) RETURN n",
                             {
                                 {"prop", memgraph::storage::PropertyValue(property_map)},
                             });
@@ -278,13 +281,14 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
+    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
     std::map<std::string, memgraph::storage::PropertyValue> property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["weight"] = memgraph::storage::PropertyValue(121);
-    auto stream =
-        Interpret("CREATE ()-[r:TO $prop]->() RETURN r", {
-                                                             {"prop", memgraph::storage::PropertyValue(property_map)},
-                                                         });
+    auto stream = Interpret("CREATE (:L1 {name: 'name1'})-[r:TO $prop]->(:L1 {name: 'name2'}) RETURN r",
+                            {
+                                {"prop", memgraph::storage::PropertyValue(property_map)},
+                            });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "r");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -304,10 +308,11 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
                  memgraph::query::SemanticException);
   }
   {
+    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L2(name STRING, age INTEGER)"));
     std::map<std::string, memgraph::storage::PropertyValue> property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(15);
-    ASSERT_THROW(Interpret("MERGE (n $prop) RETURN n",
+    ASSERT_THROW(Interpret("MERGE (n:L2 $prop) RETURN n",
                            {
                                {"prop", memgraph::storage::PropertyValue(property_map)},
                            }),
@@ -1116,7 +1121,7 @@ void AssertAllValuesAreZero(const std::map<std::string, memgraph::communication:
                             const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
-    ASSERT_EQ(value.ValueInt(), 0);
+    ASSERT_EQ(value.ValueInt(), 0) << "Value " << key << " actual: " << value.ValueInt() << ", expected 0";
   }
 }
 
@@ -1128,9 +1133,10 @@ TEST_F(InterpreterTest, ExecutionStatsIsValid) {
     ASSERT_EQ(stream.GetSummary().count("stats"), 0);
   }
   {
+    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
     std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
                           "properties-set", "labels-added",  "labels-removed"};
-    auto [stream, qid] = Prepare("CREATE ();");
+    auto [stream, qid] = Prepare("CREATE (:L1 {name: 'name1'});");
     Pull(&stream);
 
     ASSERT_EQ(stream.GetSummary().count("stats"), 1);
@@ -1143,8 +1149,10 @@ TEST_F(InterpreterTest, ExecutionStatsIsValid) {
 }
 
 TEST_F(InterpreterTest, ExecutionStatsValues) {
+  EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
   {
-    auto [stream, qid] = Prepare("CREATE (),(),(),();");
+    auto [stream, qid] =
+        Prepare("CREATE (:L1{name: 'name1'}),(:L1{name: 'name2'}),(:L1{name: 'name3'}),(:L1{name: 'name4'});");
 
     Pull(&stream);
     auto stats = stream.GetSummary().at("stats").ValueMap();
@@ -1178,7 +1186,7 @@ TEST_F(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"nodes-deleted", "relationships-deleted"});
   }
   {
-    auto [stream, qid] = Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L2);");
+    auto [stream, qid] = Prepare("CREATE (:L1:L2:L3), (:L1), (:L1), (:L1:L2);");
     Pull(&stream);
 
     auto stats = stream.GetSummary().at("stats").ValueMap();
