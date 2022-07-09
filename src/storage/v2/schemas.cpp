@@ -105,6 +105,20 @@ std::optional<SchemaViolation> Schemas::ValidateVertexCreate(const LabelId prima
   return std::nullopt;
 }
 
+[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateAddLabel(const LabelId secondary_label) {
+  if (schemas_.contains(secondary_label)) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, secondary_label);
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateRemoveLabel(const LabelId label) {
+  if (schemas_.contains(label)) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_CANNOT_REMOVE_PRIMARY_LABEL, label);
+  }
+  return std::nullopt;
+}
+
 std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
   switch (property_value.type()) {
     case PropertyValue::Type::Bool: {

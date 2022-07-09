@@ -850,8 +850,6 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
         continue;
       }
       switch (prev.delta->action) {
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
         case Delta::Action::ADD_IN_EDGE:
         case Delta::Action::ADD_OUT_EDGE:
         case Delta::Action::REMOVE_IN_EDGE:
@@ -859,27 +857,34 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
         case Delta::Action::RECREATE_OBJECT: {
           break;
         }
+        case Delta::Action::ADD_LABEL: {
+          // Validate cannot add another primary key label
+          auto schema_violation = storage_->schemas_.ValidateAddLabel(delta.label);
+          break;
+        }
+        case Delta::Action::REMOVE_LABEL: {
+          // Validate cannot remove primary key label
+          auto schema_violation = storage_->schemas_.ValidateRemoveLabel(delta.label);
+          break;
+        }
         case Delta::Action::DELETE_OBJECT: {
           // Validate on vertex creation
           // No need to take any locks here because we modified this vertex and no
           // one else can touch it until we commit.
           auto schema_violation = storage_->schemas_.ValidateVertexCreate(prev.vertex->labels[0], *prev.vertex);
-          if (schema_violation) {
-            Abort();
-            return {*schema_violation};
-          }
           break;
         }
         case Delta::Action::SET_PROPERTY: {
           // Validate that no primary key is being updated
           // How to check what has changed?
-          auto schema_violation = storage_->schemas_.ValidateVertexUpdate(prev.vertex->labels[0], delta.property.key);
-          if (schema_violation) {
-            Abort();
-            return {*schema_violation};
-          }
+          auto schema_violation =
+              storage_->schemas_.ValidateVertexUpdate(prev.vertex->labels[0], *prev.vertex, delta.property.key);
           break;
         }
+      }
+      if (schema_violation) {
+        Abort();
+        return {*schema_violation};
       }
     }
 

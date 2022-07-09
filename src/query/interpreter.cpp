@@ -2363,18 +2363,20 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                 const auto &label_name = db_accessor.LabelToName(schema_violation.label);
                 switch (schema_violation.status) {
                   case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
-                    throw storage::SchemaViolationException("No schema defined for the label :{}", label_name);
+                    throw storage::SchemaViolationException(
+                        "Trigger failed to commit due to schema isn't defined for the label :{}", label_name);
                   }
                   case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL: {
                     // This is not supposed to happen every
-                    throw storage::SchemaViolationException("Error!");
+                    throw storage::SchemaViolationException("Trigger failed to commit!");
                   }
                   case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
                     MG_ASSERT(schema_violation.violated_schema_property);
                     const auto &property_name =
                         db_accessor.PropertyToName(schema_violation.violated_schema_property->property_id);
-                    throw storage::SchemaViolationException("Vertex has no property {} defined by schema on label :{}",
-                                                            property_name, label_name);
+                    throw storage::SchemaViolationException(
+                        "Trigger failed to commit due to vertex has no property {} defined by schema on label :{}",
+                        property_name, label_name);
                   }
                   case storage::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
                     MG_ASSERT(schema_violation.violated_schema_property);
@@ -2386,9 +2388,25 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                     const auto &vertex_property_type = storage::SchemaTypeToString(
                         *storage::PropertyTypeToSchemaType(*schema_violation.violated_property_value));
                     throw storage::SchemaViolationException(
-                        "Vertex has incorrect property {} type {} defined by schema on label :{}. The property must be "
+                        "Trigger failed to commit due to vertex has incorrect property {} type {} defined by schema on "
+                        "label :{}. The property must be "
                         "of type {}",
                         property_name, schema_property_type, label_name, vertex_property_type);
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
+                    throw storage::SchemaViolationException(
+                        fmt::format("Trigger failed to commit due to updating primary key property {} not allowed!",
+                                    storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL: {
+                    throw storage::SchemaViolationException(
+                        fmt::format("Cannot add primary label {} to vertex which already has one",
+                                    storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_CANNOT_REMOVE_PRIMARY_LABEL: {
+                    throw storage::SchemaViolationException(
+                        fmt::format("Cannot remove primary label {}",
+                                    storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
                   }
                 }
               }},
@@ -2463,20 +2481,24 @@ void Interpreter::Commit() {
                 }
               }
             },
-            [&execution_db_accessor = execution_db_accessor_](const storage::SchemaViolation schema_violation) {
+            [&execution_db_accessor = execution_db_accessor_,
+             reset_necessary_members](const storage::SchemaViolation schema_violation) {
               const auto &label_name = execution_db_accessor->LabelToName(schema_violation.label);
               switch (schema_violation.status) {
                 case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+                  reset_necessary_members();
                   throw storage::SchemaViolationException("No schema defined for the label :{}", label_name);
                 }
                 case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL: {
                   // This is not supposed to happen every
+                  reset_necessary_members();
                   throw storage::SchemaViolationException("Error!");
                 }
                 case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
                   MG_ASSERT(schema_violation.violated_schema_property);
                   const auto &property_name =
                       execution_db_accessor->PropertyToName(schema_violation.violated_schema_property->property_id);
+                  reset_necessary_members();
                   throw storage::SchemaViolationException("Vertex has no property {} defined by schema on label :{}",
                                                           property_name, label_name);
                 }
@@ -2489,10 +2511,29 @@ void Interpreter::Commit() {
                       storage::SchemaTypeToString(schema_violation.violated_schema_property->type);
                   const auto &vertex_property_type = storage::SchemaTypeToString(
                       *storage::PropertyTypeToSchemaType(*schema_violation.violated_property_value));
+                  reset_necessary_members();
                   throw storage::SchemaViolationException(
                       "Vertex has incorrect property {} type {} defined by schema on label :{}. The property must be "
                       "of type {}",
                       property_name, schema_property_type, label_name, vertex_property_type);
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
+                  reset_necessary_members();
+                  throw storage::SchemaViolationException(
+                      fmt::format("Vertex has immutable primary key property {}",
+                                  storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL: {
+                  reset_necessary_members();
+                  throw storage::SchemaViolationException(
+                      fmt::format("Cannot add primary label {} to vertex which already has one",
+                                  storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_CANNOT_REMOVE_PRIMARY_LABEL: {
+                  reset_necessary_members();
+                  throw storage::SchemaViolationException(
+                      fmt::format("Cannot remove primary label {}",
+                                  storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
                 }
               }
             }},

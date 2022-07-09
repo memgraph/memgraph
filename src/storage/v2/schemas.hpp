@@ -43,7 +43,9 @@ struct SchemaViolation {
     VERTEX_HAS_NO_PROPERTY,
     NO_SCHEMA_DEFINED_FOR_LABEL,
     VERTEX_PROPERTY_WRONG_TYPE,
-    VERTEX_UPDATE_PRIMARY_KEY
+    VERTEX_UPDATE_PRIMARY_KEY,
+    VERTEX_ALREADY_HAS_PRIMARY_LABEL,
+    VERTEX_CANNOT_REMOVE_PRIMARY_LABEL,
   };
 
   SchemaViolation(ValidationStatus status, LabelId label);
@@ -90,6 +92,10 @@ class Schemas {
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertexUpdate(LabelId primary_label, const Vertex &vertex,
                                                                     PropertyId property_id);
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId secondary_label);
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label);
 
  private:
   SchemasMap schemas_;
