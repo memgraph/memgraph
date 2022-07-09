@@ -136,6 +136,8 @@ class UniqueConstraints {
 
   void Clear() { constraints_.clear(); }
 
+  bool Empty() const noexcept { return constraints_.empty(); }
+
  private:
   std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
 };

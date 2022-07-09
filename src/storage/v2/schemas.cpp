@@ -19,7 +19,8 @@
 namespace memgraph::storage {
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type)
+
+SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property)
     : status{status}, label{label}, violated_schema_property{violated_schema_property} {}
 
 SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
