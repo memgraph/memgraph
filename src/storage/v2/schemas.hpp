@@ -42,7 +42,8 @@ struct SchemaViolation {
     VERTEX_HAS_NO_PRIMARY_LABEL,
     VERTEX_HAS_NO_PROPERTY,
     NO_SCHEMA_DEFINED_FOR_LABEL,
-    VERTEX_PROPERTY_WRONG_TYPE
+    VERTEX_PROPERTY_WRONG_TYPE,
+    VERTEX_UPDATE_PRIMARY_KEY
   };
 
   SchemaViolation(ValidationStatus status, LabelId label);
@@ -85,7 +86,10 @@ class Schemas {
   // does not exist
   [[nodiscard]] bool DropSchema(LabelId label);
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
+  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(LabelId primary_label, const Vertex &vertex);
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexUpdate(LabelId primary_label, const Vertex &vertex,
+                                                                    PropertyId property_id);
 
  private:
   SchemasMap schemas_;

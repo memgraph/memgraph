@@ -863,7 +863,7 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
           // Validate on vertex creation
           // No need to take any locks here because we modified this vertex and no
           // one else can touch it until we commit.
-          auto schema_violation = storage_->schemas_.ValidateVertex(prev.vertex->labels[0], *prev.vertex);
+          auto schema_violation = storage_->schemas_.ValidateVertexCreate(prev.vertex->labels[0], *prev.vertex);
           if (schema_violation) {
             Abort();
             return {*schema_violation};
@@ -872,6 +872,12 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
         }
         case Delta::Action::SET_PROPERTY: {
           // Validate that no primary key is being updated
+          // How to check what has changed?
+          auto schema_violation = storage_->schemas_.ValidateVertexUpdate(prev.vertex->labels[0], delta.property.key);
+          if (schema_violation) {
+            Abort();
+            return {*schema_violation};
+          }
           break;
         }
       }
@@ -890,7 +896,7 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return {*validation_result};
       }
     }
 
@@ -975,7 +981,7 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return {*unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <ranges>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -55,12 +56,13 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
 
 bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
 
-std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
+std::optional<SchemaViolation> Schemas::ValidateVertexCreate(const LabelId primary_label, const Vertex &vertex) {
   // TODO Check for multiple defined primary labels
   const auto schema = schemas_.find(primary_label);
   if (schema == schemas_.end()) {
     return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
   }
+  // Should we care about this check?
   if (!utils::Contains(vertex.labels, primary_label)) {
     return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
   }
@@ -80,6 +82,24 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
   // TODO after the introduction of vertex hashing introduce check for vertex
   // primary key uniqueness
 
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateVertexUpdate(const LabelId primary_label,
+                                                                           const Vertex &vertex,
+                                                                           const PropertyId property_id) {
+  const auto schema = schemas_.find(primary_label);
+  if (schema == schemas_.end()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
+  }
+  if (!utils::Contains(vertex.labels, primary_label)) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
+  }
+  if (std::ranges::find_if(schema->second, [property_id](const auto &schema_property) {
+        return property_id == schema_property.property_id;
+      }) == schema->second.end()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label);
+  }
   return std::nullopt;
 }
 
