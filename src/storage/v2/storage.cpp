@@ -466,6 +466,19 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
+VertexAccessor Storage::Accessor::CreateVertex(const LabelId primary_label) {
+  OOMExceptionEnabler oom_exception;
+  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto acc = storage_->vertices_.access();
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+
+  delta->prev.Set(&*it);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+}
+
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -815,7 +828,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { ret
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
+utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -825,6 +838,45 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     // it.
     storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
+    // Validate schema
+    std::optional<SchemaViolation> schema_violation;
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        continue;
+      }
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        continue;
+      }
+      switch (prev.delta->action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+        case Delta::Action::RECREATE_OBJECT: {
+          break;
+        }
+        case Delta::Action::DELETE_OBJECT: {
+          // Validate on vertex creation
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          auto schema_violation = storage_->schemas_.ValidateVertex(prev.vertex->labels[0], *prev.vertex);
+          if (schema_violation) {
+            Abort();
+            return {*schema_violation};
+          }
+          break;
+        }
+        case Delta::Action::SET_PROPERTY: {
+          // Validate that no primary key is being updated
+          break;
+        }
+      }
+    }
+
     // Validate that existence constraints are satisfied for all modified
     // vertices.
     for (const auto &delta : transaction_.deltas) {
@@ -842,7 +894,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       }
     }
 
-    // Result of validating the vertex against unqiue constraints. It has to be
+    // Result of validating the vertex against unique constraints. It has to be
     // declared outside of the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
     std::optional<ConstraintViolation> unique_constraint_violation;

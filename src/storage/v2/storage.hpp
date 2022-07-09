@@ -220,6 +220,9 @@ class Storage final {
     ~Accessor();
 
     /// @throw std::bad_alloc
+    VertexAccessor CreateVertex(LabelId primary_label);
+
+    /// @throw std::bad_alloc
     VertexAccessor CreateVertex();
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
@@ -322,7 +325,8 @@ class Storage final {
     /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();

@@ -43,6 +43,7 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schemas.hpp"
 #include "utils/algorithm.hpp"
@@ -2332,28 +2333,66 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
-          break;
-        }
-      }
+    auto maybe_violation = db_accessor.Commit();
+    if (maybe_violation.HasError()) {
+      std::visit(
+          utils::Overloaded{
+              [&db_accessor, &trigger](const storage::ConstraintViolation &constraint_violation) {
+                switch (constraint_violation.type) {
+                  case storage::ConstraintViolation::Type::EXISTENCE: {
+                    const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                    MG_ASSERT(constraint_violation.properties.size() == 1U);
+                    const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                    spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})",
+                                 trigger.Name(), label_name, property_name);
+                    break;
+                  }
+                  case storage::ConstraintViolation::Type::UNIQUE: {
+                    const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                    std::stringstream property_names_stream;
+                    utils::PrintIterable(
+                        property_names_stream, constraint_violation.properties, ", ",
+                        [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+                    spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
+                                 trigger.Name(), label_name, property_names_stream.str());
+                    break;
+                  }
+                }
+              },
+              [&db_accessor](const storage::SchemaViolation &schema_violation) {
+                const auto &label_name = db_accessor.LabelToName(schema_violation.label);
+                switch (schema_violation.status) {
+                  case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+                    throw storage::SchemaViolationException("No schema defined for the label :{}", label_name);
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL: {
+                    // This is not supposed to happen every
+                    throw storage::SchemaViolationException("Error!");
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
+                    MG_ASSERT(schema_violation.violated_schema_property);
+                    const auto &property_name =
+                        db_accessor.PropertyToName(schema_violation.violated_schema_property->property_id);
+                    throw storage::SchemaViolationException("Vertex has no property {} defined by schema on label :{}",
+                                                            property_name, label_name);
+                  }
+                  case storage::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
+                    MG_ASSERT(schema_violation.violated_schema_property);
+                    MG_ASSERT(schema_violation.violated_property_value);
+                    const auto &property_name =
+                        db_accessor.PropertyToName(schema_violation.violated_schema_property->property_id);
+                    const auto &schema_property_type =
+                        storage::SchemaTypeToString(schema_violation.violated_schema_property->type);
+                    const auto &vertex_property_type = storage::SchemaTypeToString(
+                        *storage::PropertyTypeToSchemaType(*schema_violation.violated_property_value));
+                    throw storage::SchemaViolationException(
+                        "Vertex has incorrect property {} type {} defined by schema on label :{}. The property must be "
+                        "of type {}",
+                        property_name, schema_property_type, label_name, vertex_property_type);
+                  }
+                }
+              }},
+          maybe_violation.GetError());
     }
   }
 }
@@ -2395,31 +2434,69 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
-        break;
-      }
-    }
+  auto maybe_violation = db_accessor_->Commit();
+  if (maybe_violation.HasError()) {
+    std::visit(
+        utils::Overloaded{
+            [&](const storage::ConstraintViolation &constraint_violation) {
+              switch (constraint_violation.type) {
+                case storage::ConstraintViolation::Type::EXISTENCE: {
+                  auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
+                  reset_necessary_members();
+                  throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
+                                       property_name);
+                  break;
+                }
+                case storage::ConstraintViolation::Type::UNIQUE: {
+                  auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
+                  std::stringstream property_names_stream;
+                  utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                                       [this](auto &stream, const auto &prop) {
+                                         stream << execution_db_accessor_->PropertyToName(prop);
+                                       });
+                  reset_necessary_members();
+                  throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
+                                       property_names_stream.str());
+                  break;
+                }
+              }
+            },
+            [&execution_db_accessor = execution_db_accessor_](const storage::SchemaViolation schema_violation) {
+              const auto &label_name = execution_db_accessor->LabelToName(schema_violation.label);
+              switch (schema_violation.status) {
+                case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+                  throw storage::SchemaViolationException("No schema defined for the label :{}", label_name);
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL: {
+                  // This is not supposed to happen every
+                  throw storage::SchemaViolationException("Error!");
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
+                  MG_ASSERT(schema_violation.violated_schema_property);
+                  const auto &property_name =
+                      execution_db_accessor->PropertyToName(schema_violation.violated_schema_property->property_id);
+                  throw storage::SchemaViolationException("Vertex has no property {} defined by schema on label :{}",
+                                                          property_name, label_name);
+                }
+                case storage::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
+                  MG_ASSERT(schema_violation.violated_schema_property);
+                  MG_ASSERT(schema_violation.violated_property_value);
+                  const auto &property_name =
+                      execution_db_accessor->PropertyToName(schema_violation.violated_schema_property->property_id);
+                  const auto &schema_property_type =
+                      storage::SchemaTypeToString(schema_violation.violated_schema_property->type);
+                  const auto &vertex_property_type = storage::SchemaTypeToString(
+                      *storage::PropertyTypeToSchemaType(*schema_violation.violated_property_value));
+                  throw storage::SchemaViolationException(
+                      "Vertex has incorrect property {} type {} defined by schema on label :{}. The property must be "
+                      "of type {}",
+                      property_name, schema_property_type, label_name, vertex_property_type);
+                }
+              }
+            }},
+        maybe_violation.GetError());
   }
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
