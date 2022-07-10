@@ -37,7 +37,6 @@ def test_simple(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS '{','.join(pulsar_topics)}' TRANSFORM {transformation}",
     )
     common.start_stream(cursor, "test")
-    time.sleep(5)
 
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(
@@ -66,8 +65,6 @@ def test_separate_consumers(pulsar_client, pulsar_topics, connection, transforma
     for stream_name in stream_names:
         common.start_stream(cursor, stream_name)
 
-    time.sleep(5)
-
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(topic, send_timeout_millis=60000)
         producer.send(common.SIMPLE_MSG)
@@ -89,7 +86,6 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
 
     def assert_message_not_consumed(message):
         vertices_with_msg = common.execute_and_fetch_all(
@@ -154,7 +150,6 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE {BATCH_SIZE}",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -308,7 +303,6 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     )
 
     common.start_stream(cursor, "test_stream")
-    time.sleep(1)
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -317,7 +311,6 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
 
     common.start_stream(cursor, "test_stream")
-    time.sleep(1)
     producer.send(b"CREATE (n:VERTEX { id : 42 })")
     assert common.check_one_result_row(cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
@@ -332,7 +325,6 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{LOCAL}'",
     )
     common.start_stream(cursor, "test")
-    time.sleep(5)
 
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(

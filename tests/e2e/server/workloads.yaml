@@ -4,7 +4,7 @@ bolt_port: &bolt_port "7687"
 template_cluster: &template_cluster
   cluster:
     server:
-      args: ["--bolt-port=7687", "--log-level=TRACE", "--"]
+      args: ["--bolt-port=7687", "--log-level=TRACE"]
       log_file: "server-connection-e2e.log"
 template_cluster_ssl: &template_cluster_ssl
   cluster:
@@ -18,7 +18,6 @@ template_cluster_ssl: &template_cluster_ssl
           *cert_file,
           "--bolt-key-file",
           *key_file,
-          "--",
         ]
       log_file: "server-connection-ssl-e2e.log"
       ssl: true

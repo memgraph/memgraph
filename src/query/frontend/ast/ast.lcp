@@ -2375,10 +2375,7 @@ cpp<#
    (port "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (sync_mode "SyncMode" :scope :public)
-   (timeout "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression")))
+   (sync_mode "SyncMode" :scope :public))
 
   (:public
     (lcp:define-enum action

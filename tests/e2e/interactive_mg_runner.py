@@ -36,6 +36,7 @@ import os
 import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
+import tempfile
 import time
 import sys
 from inspect import signature
@@ -67,7 +68,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "log_file": "main.log",
         "setup_queries": [
             "REGISTER REPLICA replica1 SYNC TO '127.0.0.1:10001'",
-            "REGISTER REPLICA replica2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
+            "REGISTER REPLICA replica2 SYNC TO '127.0.0.1:10002'",
         ],
     },
 }
@@ -103,7 +104,7 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def _start_instance(name, args, log_file, queries, use_ssl, procdir):
+def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
     ), "If this raises, you are trying to start an instance with the same name than one already running."
@@ -113,7 +114,8 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir):
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
-    binary_args = args + ["--log-file", log_file_path]
+    data_directory_path = os.path.join(BUILD_DIR, data_directory)
+    binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
@@ -175,8 +177,13 @@ def start_instance(context, name, procdir):
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
+        data_directory = ""
+        if "data_directory" in value:
+            data_directory = value["data_directory"]
+        else:
+            data_directory = tempfile.TemporaryDirectory().name
 
-        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir)
+        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory)
         mg_instances[name] = instance
 
     assert len(mg_instances) == 1

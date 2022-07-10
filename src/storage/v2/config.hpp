@@ -49,7 +49,7 @@ struct Config {
     uint64_t wal_file_flush_every_n_tx{100000};
 
     bool snapshot_on_exit{false};
-
+    bool restore_replicas_on_startup{false};
   } durability;
 
   struct Transaction {
