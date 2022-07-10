@@ -18,6 +18,15 @@ architecture() {
     uname -m
 }
 
+check_architecture() {
+    if [ "$(architecture)" != "$1" ]; then
+        echo "Not the right architecture!"
+        exit 1
+    else
+        echo "The right architecture."
+    fi
+}
+
 check_all_yum() {
     local missing=""
     for pkg in $1; do

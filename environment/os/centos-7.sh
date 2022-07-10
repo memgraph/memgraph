@@ -6,6 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 check_operating_system "centos-7"
+check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc gcc-c++ make # generic build tools
