@@ -32,6 +32,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "common/types.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -2213,6 +2214,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {AuthQuery::Privilege::MODULE_READ});
   check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE});
+  check_auth_query(&ast_generator, "GRANT SCHEMA TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SCHEMA});
 }
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
@@ -2253,6 +2256,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::MODULE_READ});
   check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE});
+  check_auth_query(&ast_generator, "DENY SCHEMA TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SCHEMA});
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
@@ -2295,6 +2300,8 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
                    {}, {AuthQuery::Privilege::MODULE_READ});
   check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
                    {}, {AuthQuery::Privilege::MODULE_WRITE});
+  check_auth_query(&ast_generator, "REVOKE SCHEMA FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::SCHEMA});
 }
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
@@ -4210,4 +4217,111 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
     ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
   }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowSchemas) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("SHOW SCHEMAS"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->action_, SchemaQuery::Action::SHOW_SCHEMAS);
+}
+
+TEST_P(CypherMainVisitorTest, TestShowSchema) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA ON label"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA :label"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA label"), SyntaxException);
+
+  auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("SHOW SCHEMA ON :label"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->action_, SchemaQuery::Action::SHOW_SCHEMA);
+  EXPECT_EQ(query->label_, ast_generator.Label("label"));
+}
+
+void AssertSchemaPropertyMap(auto &schema_property_map,
+                             std::vector<std::pair<std::string, memgraph::common::SchemaType>> properties_type,
+                             auto &ast_generator) {
+  EXPECT_EQ(schema_property_map.size(), properties_type.size());
+  for (size_t i{0}; i < schema_property_map.size(); ++i) {
+    // Assert PropertyId
+    EXPECT_EQ(schema_property_map[i].first, ast_generator.Prop(properties_type[i].first));
+    // Assert Property Type
+    EXPECT_EQ(schema_property_map[i].second, properties_type[i].second);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestCreateSchema) {
+  {
+    auto &ast_generator = *GetParam();
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label()"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(123 INTEGER)"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name TYPE)"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, age)"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, DURATION)"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON label(name INTEGER)"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name INTEGER)"), SemanticException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name STRING)"), SemanticException);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("CREATE SCHEMA ON :label1(name STRING)"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, SchemaQuery::Action::CREATE_SCHEMA);
+    EXPECT_EQ(query->label_, ast_generator.Label("label1"));
+    AssertSchemaPropertyMap(query->schema_type_map_, {{"name", memgraph::common::SchemaType::STRING}}, ast_generator);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("CREATE SCHEMA ON :label2(name string)"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, SchemaQuery::Action::CREATE_SCHEMA);
+    EXPECT_EQ(query->label_, ast_generator.Label("label2"));
+    AssertSchemaPropertyMap(query->schema_type_map_, {{"name", memgraph::common::SchemaType::STRING}}, ast_generator);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SchemaQuery *>(
+        ast_generator.ParseQuery("CREATE SCHEMA ON :label3(first_name STRING, last_name STRING)"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, SchemaQuery::Action::CREATE_SCHEMA);
+    EXPECT_EQ(query->label_, ast_generator.Label("label3"));
+    AssertSchemaPropertyMap(
+        query->schema_type_map_,
+        {{"first_name", memgraph::common::SchemaType::STRING}, {"last_name", memgraph::common::SchemaType::STRING}},
+        ast_generator);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SchemaQuery *>(
+        ast_generator.ParseQuery("CREATE SCHEMA ON :label4(name STRING, age INTEGER, dur DURATION, birthday1 "
+                                 "LOCALDATETIME, birthday2 DATE, some_time LOCALTIME, speaks_truth BOOL)"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_, SchemaQuery::Action::CREATE_SCHEMA);
+    EXPECT_EQ(query->label_, ast_generator.Label("label4"));
+    AssertSchemaPropertyMap(query->schema_type_map_,
+                            {
+                                {"name", memgraph::common::SchemaType::STRING},
+                                {"age", memgraph::common::SchemaType::INT},
+                                {"dur", memgraph::common::SchemaType::DURATION},
+                                {"birthday1", memgraph::common::SchemaType::LOCALDATETIME},
+                                {"birthday2", memgraph::common::SchemaType::DATE},
+                                {"some_time", memgraph::common::SchemaType::LOCALTIME},
+                                {"speaks_truth", memgraph::common::SchemaType::BOOL},
+                            },
+                            ast_generator);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestDropSchema) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON label"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA :label"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON :label()"), SyntaxException);
+
+  auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("DROP SCHEMA ON :label"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->action_, SchemaQuery::Action::DROP_SCHEMA);
+  EXPECT_EQ(query->label_, ast_generator.Label("label"));
 }

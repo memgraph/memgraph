@@ -26,13 +26,30 @@ SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaP
                                  PropertyValue violated_property_value)
     : status{status}, label{label}, violated_type{violated_type}, violated_property_value{violated_property_value} {}
 
-bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
-  return schemas_.insert({primary_label, schemas_types}).second;
+Schemas::SchemasList Schemas::ListSchemas() const {
+  Schemas::SchemasList ret;
+  ret.reserve(schemas_.size());
+  std::transform(schemas_.begin(), schemas_.end(), std::back_inserter(ret),
+                 [](const auto &schema_property_type) { return schema_property_type; });
+  return ret;
 }
 
-bool Schemas::DeleteSchema(const LabelId primary_label) {
-  return schemas_.erase(primary_label);
+std::optional<Schemas::Schema> Schemas::GetSchema(const LabelId primary_label) const {
+  if (auto schema_map = schemas_.find(primary_label); schema_map != schemas_.end()) {
+    return Schema{schema_map->first, schema_map->second};
+  }
+  return std::nullopt;
 }
+
+bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+  if (schemas_.contains(primary_label)) {
+    return false;
+  }
+  schemas_.emplace(primary_label, schemas_types);
+  return true;
+}
+
+bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
 
 std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_label, const Vertex &vertex) {
   // TODO Check for multiple defined primary labels
@@ -51,7 +68,7 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
     // Property type check
     //  TODO Can this be replaced with just property id check?
     if (auto vertex_property = vertex.properties.GetProperty(schema_type.property_id);
-        PropertyValueTypeToSchemaProperty(vertex_property) != schema_type.type) {
+        PropertyTypeToSchemaType(vertex_property) != schema_type.type) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,
                              vertex_property);
     }
@@ -62,13 +79,66 @@ std::optional<SchemaViolation> Schemas::ValidateVertex(const LabelId primary_lab
   return std::nullopt;
 }
 
-Schemas::SchemasList Schemas::ListSchemas() const {
-  Schemas::SchemasList ret;
-  ret.reserve(schemas_.size());
-  for (const auto &[label_props, schema_property] : schemas_) {
-    ret.emplace_back(label_props, schema_property);
+std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
+  switch (property_value.type()) {
+    case PropertyValue::Type::Bool: {
+      return common::SchemaType::BOOL;
+    }
+    case PropertyValue::Type::Int: {
+      return common::SchemaType::INT;
+    }
+    case PropertyValue::Type::String: {
+      return common::SchemaType::STRING;
+    }
+    case PropertyValue::Type::TemporalData: {
+      switch (property_value.ValueTemporalData().type) {
+        case TemporalType::Date: {
+          return common::SchemaType::DATE;
+        }
+        case TemporalType::LocalDateTime: {
+          return common::SchemaType::LOCALDATETIME;
+        }
+        case TemporalType::LocalTime: {
+          return common::SchemaType::LOCALTIME;
+        }
+        case TemporalType::Duration: {
+          return common::SchemaType::DURATION;
+        }
+      }
+    }
+    case PropertyValue::Type::Double:
+    case PropertyValue::Type::Null:
+    case PropertyValue::Type::Map:
+    case PropertyValue::Type::List: {
+      return std::nullopt;
+    }
   }
-  return ret;
+}
+
+std::string SchemaTypeToString(const common::SchemaType type) {
+  switch (type) {
+    case common::SchemaType::BOOL: {
+      return "Bool";
+    }
+    case common::SchemaType::INT: {
+      return "Integer";
+    }
+    case common::SchemaType::STRING: {
+      return "String";
+    }
+    case common::SchemaType::DATE: {
+      return "Date";
+    }
+    case common::SchemaType::LOCALTIME: {
+      return "LocalTime";
+    }
+    case common::SchemaType::LOCALDATETIME: {
+      return "LocalDateTime";
+    }
+    case common::SchemaType::DURATION: {
+      return "Duration";
+    }
+  }
 }
 
 }  // namespace memgraph::storage

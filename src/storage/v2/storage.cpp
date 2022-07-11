@@ -1241,6 +1241,17 @@ SchemasInfo Storage::ListAllSchemas() const {
   return {schemas_.ListSchemas()};
 }
 
+std::optional<Schemas::Schema> Storage::GetSchema(const LabelId primary_label) const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return schemas_.GetSchema(primary_label);
+}
+
+bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+  return schemas_.CreateSchema(primary_label, schemas_types);
+}
+
+bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
+
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
   auto edge_count = edge_count_.load(std::memory_order_acquire);

@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <filesystem>
+#include <unordered_set>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
@@ -38,6 +40,11 @@ auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
     list.push_back(x.ValueEdge());
   }
   return list;
+}
+
+auto StringToUnorderedSet(const std::string &element) {
+  const auto element_split = memgraph::utils::Split(element, ", ");
+  return std::unordered_set<std::string>(element_split.begin(), element_split.end());
 };
 
 struct InterpreterFaker {
@@ -1464,4 +1471,146 @@ TEST_F(InterpreterTest, LoadCsvClauseNotification) {
             "convert the parsed row values to the appropriate type. This can be done using the built-in "
             "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   ASSERT_EQ(notification["description"].ValueString(), "");
+}
+
+TEST_F(InterpreterTest, CreateSchemaMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)"),
+               memgraph::query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, ShowSchemasMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("SHOW SCHEMAS"), memgraph::query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, ShowSchemaMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("SHOW SCHEMA ON :label"), memgraph::query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, DropSchemaMulticommandTransaction) {
+  Interpret("BEGIN");
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label"), memgraph::query::ConstraintInMulticommandTxException);
+  Interpret("ROLLBACK");
+}
+
+TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
+  // Empty schema type map should result with syntax exception.
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::query::SyntaxException);
+
+  // Duplicate properties are should also cause an exception
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"), memgraph::query::SemanticException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name INTEGER);"), memgraph::query::SemanticException);
+
+  {
+    // Cannot create same schema twice
+    Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
+    ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING);"), memgraph::query::QueryException);
+  }
+  // Show schema
+  {
+    auto stream = Interpret("SHOW SCHEMA ON :label");
+    ASSERT_EQ(stream.GetHeader().size(), 2U);
+    const auto &header = stream.GetHeader();
+    ASSERT_EQ(header[0], "property_name");
+    ASSERT_EQ(header[1], "property_type");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    std::unordered_map<std::string, std::string> result_table{{"age", "Integer"}, {"name", "String"}};
+
+    const auto &result = stream.GetResults().front();
+    ASSERT_EQ(result.size(), 2U);
+    const auto key1 = result[0].ValueString();
+    ASSERT_TRUE(result_table.contains(key1));
+    ASSERT_EQ(result[1].ValueString(), result_table[key1]);
+
+    const auto &result2 = stream.GetResults().front();
+    ASSERT_EQ(result2.size(), 2U);
+    const auto key2 = result2[0].ValueString();
+    ASSERT_TRUE(result_table.contains(key2));
+    ASSERT_EQ(result[1].ValueString(), result_table[key2]);
+  }
+  // Create Another Schema
+  Interpret("CREATE SCHEMA ON :label2(place STRING, dur DURATION)");
+
+  // Show schemas
+  {
+    auto stream = Interpret("SHOW SCHEMAS");
+    ASSERT_EQ(stream.GetHeader().size(), 2U);
+    const auto &header = stream.GetHeader();
+    ASSERT_EQ(header[0], "label");
+    ASSERT_EQ(header[1], "primary_key");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+    std::unordered_map<std::string, std::unordered_set<std::string>> result_table{
+        {"label", {"name::String", "age::Integer"}}, {"label2", {"place::String", "dur::Duration"}}};
+
+    const auto &result = stream.GetResults().front();
+    ASSERT_EQ(result.size(), 2U);
+    const auto key1 = result[0].ValueString();
+    ASSERT_TRUE(result_table.contains(key1));
+    const auto primary_key_split = StringToUnorderedSet(result[1].ValueString());
+    ASSERT_EQ(primary_key_split.size(), 2);
+    ASSERT_TRUE(primary_key_split == result_table[key1]) << "actual value is: " << result[1].ValueString();
+
+    const auto &result2 = stream.GetResults().front();
+    ASSERT_EQ(result2.size(), 2U);
+    const auto key2 = result2[0].ValueString();
+    ASSERT_TRUE(result_table.contains(key2));
+    const auto primary_key_split2 = StringToUnorderedSet(result2[1].ValueString());
+    ASSERT_EQ(primary_key_split2.size(), 2);
+    ASSERT_TRUE(primary_key_split2 == result_table[key2]) << "Real value is: " << result[1].ValueString();
+  }
+}
+
+TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
+  Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
+  // Wrong syntax for dropping schema.
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::query::SyntaxException);
+  // Cannot drop non existant schema.
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label1;"), memgraph::query::QueryException);
+
+  // Create Schema and Drop
+  auto get_number_of_schemas = [this]() {
+    auto stream = Interpret("SHOW SCHEMAS");
+    return stream.GetResults().size();
+  };
+
+  ASSERT_EQ(get_number_of_schemas(), 1);
+  Interpret("CREATE SCHEMA ON :label1(name STRING, age INTEGER)");
+  ASSERT_EQ(get_number_of_schemas(), 2);
+  Interpret("CREATE SCHEMA ON :label2(name STRING, sex BOOL)");
+  ASSERT_EQ(get_number_of_schemas(), 3);
+  Interpret("DROP SCHEMA ON :label1");
+  ASSERT_EQ(get_number_of_schemas(), 2);
+  Interpret("CREATE SCHEMA ON :label3(name STRING, birthday LOCALDATETIME)");
+  ASSERT_EQ(get_number_of_schemas(), 3);
+  Interpret("DROP SCHEMA ON :label2");
+  ASSERT_EQ(get_number_of_schemas(), 2);
+  Interpret("CREATE SCHEMA ON :label4(name STRING, age DURATION)");
+  ASSERT_EQ(get_number_of_schemas(), 3);
+  Interpret("DROP SCHEMA ON :label3");
+  ASSERT_EQ(get_number_of_schemas(), 2);
+  Interpret("DROP SCHEMA ON :label");
+  ASSERT_EQ(get_number_of_schemas(), 1);
+
+  // Show schemas
+  auto stream = Interpret("SHOW SCHEMAS");
+  ASSERT_EQ(stream.GetHeader().size(), 2U);
+  const auto &header = stream.GetHeader();
+  ASSERT_EQ(header[0], "label");
+  ASSERT_EQ(header[1], "primary_key");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  std::unordered_map<std::string, std::unordered_set<std::string>> result_table{
+      {"label4", {"name::String", "age::Duration"}}};
+
+  const auto &result = stream.GetResults().front();
+  ASSERT_EQ(result.size(), 2U);
+  const auto key1 = result[0].ValueString();
+  ASSERT_TRUE(result_table.contains(key1));
+  const auto primary_key_split = StringToUnorderedSet(result[1].ValueString());
+  ASSERT_EQ(primary_key_split.size(), 2);
+  ASSERT_TRUE(primary_key_split == result_table[key1]);
 }

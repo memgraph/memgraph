@@ -414,11 +414,13 @@ class Storage final {
 
   ConstraintsInfo ListAllConstraints() const;
 
-  bool CreateSchema(LabelId primary_label, std::vector<SchemaProperty> &schemas_types);
-
-  bool DeleteSchema(LabelId primary_label);
-
   SchemasInfo ListAllSchemas() const;
+
+  std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
+
+  bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
+
+  bool DropSchema(LabelId primary_label);
 
   StorageInfo GetInfo() const;
 
