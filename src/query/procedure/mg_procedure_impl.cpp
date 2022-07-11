@@ -2797,27 +2797,25 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
       result);
 }
 
-mgp_error mgp_log(const enum mgp_log_level log_level, const char *output) {
-  return WrapExceptions([=] {
-    switch (log_level) {
-      case Trace:
-        spdlog::trace(output);
-        return;
-      case Debug:
-        spdlog::debug(output);
-        return;
-      case Info:
-        spdlog::info(output);
-        return;
-      case Warn:
-        spdlog::warn(output);
-        return;
-      case Error:
-        spdlog::error(output);
-        return;
-      case Critical:
-        spdlog::critical(output);
-        return;
-    }
-  });
+void mgp_log(const enum mgp_log_level log_level, const char *output) {
+  switch (log_level) {
+    case mgp_log_level::MGP_LOG_LEVEL_TRACE:
+      spdlog::trace(output);
+      return;
+    case mgp_log_level::MGP_LOG_LEVEL_DEBUG:
+      spdlog::debug(output);
+      return;
+    case mgp_log_level::MGP_LOG_LEVEL_INFO:
+      spdlog::info(output);
+      return;
+    case mgp_log_level::MGP_LOG_LEVEL_WARN:
+      spdlog::warn(output);
+      return;
+    case mgp_log_level::MGP_LOG_LEVEL_ERROR:
+      spdlog::error(output);
+      return;
+    case mgp_log_level::MGP_LOG_LEVEL_CRITICAL:
+      spdlog::critical(output);
+      return;
+  }
 }

@@ -1619,7 +1619,7 @@ class Logger:
         self._logger = _mgp._LOGGER
 
     def info(self, out: str) -> None:
-        _mgp._LOGGER.info(out)
+        self._logger.info(out)
 
     def warning(self, out: str) -> None:
         self._logger.warning(out)

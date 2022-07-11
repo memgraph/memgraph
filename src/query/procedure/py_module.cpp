@@ -2062,25 +2062,31 @@ void PyLoggerAddLog(const enum mgp_log_level level, const char *out) { mgp_log(l
 
 PyObject *PyLoggerAddInfoLog(PyLogger *self, PyObject *args) {
   const char *out = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
 
-  PyLoggerAddLog(mgp_log_level::Info, out);
+  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_INFO, out);
 
   Py_RETURN_NONE;
 }
 
 PyObject *PyLoggerAddWarningLog(PyLogger *self, PyObject *args) {
   const char *out = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
-  PyLoggerAddLog(mgp_log_level::Warn, out);
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
+  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_WARN, out);
 
   Py_RETURN_NONE;
 }
 
 PyObject *PyLoggerAddErrorLog(PyLogger *self, PyObject *args) {
   const char *out = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
-  PyLoggerAddLog(mgp_log_level::Error, out);
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
+  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_ERROR, out);
 
   Py_RETURN_NONE;
 }
@@ -2088,8 +2094,11 @@ PyObject *PyLoggerAddErrorLog(PyLogger *self, PyObject *args) {
 PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
   const char *out = nullptr;
 
-  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
-  PyLoggerAddLog(mgp_log_level::Critical, out);
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
+
+  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_CRITICAL, out);
 
   Py_RETURN_NONE;
 }
@@ -2097,8 +2106,10 @@ PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
 PyObject *PyLoggerAddTraceLog(PyLogger *self, PyObject *args) {
   const char *out = nullptr;
 
-  if (!PyArg_ParseTuple(args, "s", &out)) return nullptr;
-  PyLoggerAddLog(mgp_log_level::Trace, out);
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
+  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_TRACE, out);
 
   Py_RETURN_NONE;
 }
