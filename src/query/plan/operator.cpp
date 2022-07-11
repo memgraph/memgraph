@@ -404,10 +404,17 @@ class ScanAllCursor : public Cursor {
       vertices_.emplace(std::move(next_vertices.value()));
       vertices_it_.emplace(vertices_.value().begin());
     }
-
-    frame[output_symbol_] = *vertices_it_.value();
-    ++vertices_it_.value();
-    return true;
+    while (vertices_it_.value() != vertices_.value().end()) {
+      VertexAccessor vector = *vertices_it_.value();
+      auto labels = vector.Labels(memgraph::storage::View::NEW).GetValue();
+      if (context.label_checker->IsUserAuthorized(labels)) {
+        frame[output_symbol_] = *vertices_it_.value();
+        ++vertices_it_.value();
+        return true;
+      }
+      ++vertices_it_.value();
+    }
+    return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }

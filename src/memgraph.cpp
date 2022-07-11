@@ -38,6 +38,7 @@
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
+#include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -746,6 +747,23 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
+  memgraph::auth::User GetUser(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+
+      return user.value();
+    } catch (const memgraph::auth::AuthException &e) {
+      throw memgraph::query::QueryRuntimeException(e.what());
+    }
+  }
+
   void GrantPrivilege(const std::string &user_or_role,
                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                       const std::vector<std::string> &labels) override {
@@ -1250,6 +1268,7 @@ int main(int argc, char **argv) {
   AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
+  // interpreter_context.label_checker = &label_checker;
 
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then

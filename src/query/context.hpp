@@ -13,8 +13,10 @@
 
 #include <type_traits>
 
+#include "auth/models.hpp"
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/label_checker.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
@@ -72,6 +74,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
+  LabelChecker *label_checker{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
