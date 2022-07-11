@@ -10,12 +10,13 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <chrono>
 #include <optional>
 #include <string>
 
 namespace memgraph::storage::replication {
 struct ReplicationClientConfig {
-  std::optional<double> timeout;
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
@@ -24,6 +25,8 @@ struct ReplicationClientConfig {
   struct SSL {
     std::string key_file = "";
     std::string cert_file = "";
+
+    friend bool operator==(const SSL &, const SSL &) = default;
   };
 
   std::optional<SSL> ssl;

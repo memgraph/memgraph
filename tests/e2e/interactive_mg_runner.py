@@ -36,12 +36,14 @@ import os
 import subprocess
 from argparse import ArgumentParser
 from pathlib import Path
+import tempfile
 import time
 import sys
 from inspect import signature
 
 import yaml
 from memgraph import MemgraphInstanceRunner
+from memgraph import extract_bolt_port
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -66,7 +68,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         "log_file": "main.log",
         "setup_queries": [
             "REGISTER REPLICA replica1 SYNC TO '127.0.0.1:10001'",
-            "REGISTER REPLICA replica2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
+            "REGISTER REPLICA replica2 SYNC TO '127.0.0.1:10002'",
         ],
     },
 }
@@ -95,13 +97,25 @@ def load_args():
     return parser.parse_args()
 
 
-def _start_instance(name, args, log_file, queries, use_ssl, procdir):
-    assert name not in MEMGRAPH_INSTANCES.keys()
-      # If this raises, you are trying to start an instance with the same name than one already running.
+def is_port_in_use(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+
+def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory):
+    assert (
+        name not in MEMGRAPH_INSTANCES.keys()
+    ), "If this raises, you are trying to start an instance with the same name than one already running."
+    assert not is_port_in_use(
+        extract_bolt_port(args)
+    ), "If this raises, you are trying to start an instance on a port already used by one already running instance."
     mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
     MEMGRAPH_INSTANCES[name] = mg_instance
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
-    binary_args = args + ["--log-file", log_file_path]
+    data_directory_path = os.path.join(BUILD_DIR, data_directory)
+    binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
@@ -109,6 +123,8 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir):
     mg_instance.start(args=binary_args)
     for query in queries:
         mg_instance.query(query)
+
+    assert mg_instance.is_running(), "An error occured after starting Memgraph instance: application stopped running."
 
 
 def stop_all():
@@ -161,8 +177,13 @@ def start_instance(context, name, procdir):
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
+        data_directory = ""
+        if "data_directory" in value:
+            data_directory = value["data_directory"]
+        else:
+            data_directory = tempfile.TemporaryDirectory().name
 
-        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir)
+        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory)
         mg_instances[name] = instance
 
     assert len(mg_instances) == 1

@@ -275,18 +275,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   replication_query->replica_name_ = ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
   if (ctx->SYNC()) {
     replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
-    if (ctx->WITH() && ctx->TIMEOUT()) {
-      if (ctx->timeout->numberLiteral()) {
-        // we accept both double and integer literals
-        replication_query->timeout_ = ctx->timeout->accept(this);
-      } else {
-        throw SemanticException("Timeout should be a integer or double literal!");
-      }
-    }
   } else if (ctx->ASYNC()) {
-    if (ctx->WITH() && ctx->TIMEOUT()) {
-      throw SyntaxException("Timeout can be set only for the SYNC replication mode!");
-    }
     replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
   }
 
