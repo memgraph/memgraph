@@ -2061,6 +2061,7 @@ struct PyLogger {
 void PyLoggerAddLog(const enum mgp_log_level level, const char *out) { mgp_log(level, out); }
 
 PyObject *PyLoggerAddInfoLog(PyLogger *self, PyObject *args) {
+  MG_ASSERT(self);
   const char *out = nullptr;
   if (!PyArg_ParseTuple(args, "s", &out)) {
     return nullptr;
@@ -2072,6 +2073,7 @@ PyObject *PyLoggerAddInfoLog(PyLogger *self, PyObject *args) {
 }
 
 PyObject *PyLoggerAddWarningLog(PyLogger *self, PyObject *args) {
+  MG_ASSERT(self);
   const char *out = nullptr;
   if (!PyArg_ParseTuple(args, "s", &out)) {
     return nullptr;
@@ -2082,6 +2084,7 @@ PyObject *PyLoggerAddWarningLog(PyLogger *self, PyObject *args) {
 }
 
 PyObject *PyLoggerAddErrorLog(PyLogger *self, PyObject *args) {
+  MG_ASSERT(self);
   const char *out = nullptr;
   if (!PyArg_ParseTuple(args, "s", &out)) {
     return nullptr;
@@ -2092,6 +2095,7 @@ PyObject *PyLoggerAddErrorLog(PyLogger *self, PyObject *args) {
 }
 
 PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
+  MG_ASSERT(self);
   const char *out = nullptr;
 
   if (!PyArg_ParseTuple(args, "s", &out)) {
@@ -2104,6 +2108,7 @@ PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
 }
 
 PyObject *PyLoggerAddTraceLog(PyLogger *self, PyObject *args) {
+  MG_ASSERT(self);
   const char *out = nullptr;
 
   if (!PyArg_ParseTuple(args, "s", &out)) {
@@ -2265,7 +2270,7 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_query_module);
   MG_ASSERT(py_mgp.SetAttr("_MODULE", py_query_module));
 
-  auto *py_logger = PyObject_New(PyLogger, &PyLoggerType);
+  auto *py_logger = reinterpret_cast<PyObject *>(PyObject_New(PyLogger, &PyLoggerType));
   MG_ASSERT(py_mgp.SetAttr("_LOGGER", reinterpret_cast<PyObject *>(py_logger)));
 
   auto ret = fun();
