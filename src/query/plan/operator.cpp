@@ -407,7 +407,7 @@ class ScanAllCursor : public Cursor {
     while (vertices_it_.value() != vertices_.value().end()) {
       VertexAccessor vector = *vertices_it_.value();
       auto labels = vector.Labels(memgraph::storage::View::NEW).GetValue();
-      if (context.label_checker->IsUserAuthorized(labels)) {
+      if (context.label_checker->IsUserAuthorized(labels) || !context.label_checker) {
         frame[output_symbol_] = *vertices_it_.value();
         ++vertices_it_.value();
         return true;
