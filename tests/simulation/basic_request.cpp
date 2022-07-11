@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-//#include <gtest/gtest.h>
-
 #include <thread>
 
 #include "io/v3/simulator.hpp"
@@ -24,7 +22,7 @@ struct CounterResponse {
 };
 
 void run_server(Io<SimulatorTransport> srv_io) {
-  uint64_t highest_seen_;
+  uint64_t highest_seen;
 
   while (!srv_io.ShouldShutDown()) {
     auto request_result = srv_io.Receive<CounterRequest>();
@@ -34,9 +32,9 @@ void run_server(Io<SimulatorTransport> srv_io) {
     auto request_envelope = request_result.GetValue();
     auto req = std::get<CounterRequest>(request_envelope.message);
 
-    state.highest_seen_ = std::max(state.highest_seen_, req.proposal_);
+    highest_seen = std::max(highest_seen, req.proposal_);
 
-    auto srv_res = CounterResponse{state.highest_seen_};
+    auto srv_res = CounterResponse{highest_seen};
 
     request_envelope.Reply(srv_res, srv_io);
   }
