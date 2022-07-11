@@ -2239,10 +2239,11 @@ cpp<#
    (user "std::string" :scope :public)
    (role "std::string" :scope :public)
    (user-or-role "std::string" :scope :public)
-   (labels "std::vector<std::string>" :scope :public)
+
    (password "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
+   (labels "std::vector<std::string>" :scope :public)
    (privileges "std::vector<Privilege>" :scope :public))
   (:public
     (lcp:define-enum action
@@ -2265,14 +2266,14 @@ cpp<#
     #>cpp
     AuthQuery(Action action, std::string user, std::string role,
               std::string user_or_role, Expression *password,
-              std::vector<Privilege> privileges, std::vector<std::string> labels)
+              std::vector<std::string> labels ,std::vector<Privilege> privileges)
         : action_(action),
           user_(user),
           role_(role),
           user_or_role_(user_or_role),
           password_(password),
-          privileges_(privileges),
-          labels_(labels) {}
+          labels_(labels),
+          privileges_(privileges){}
     cpp<#)
   (:private
     #>cpp
@@ -2297,7 +2298,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET
+    AuthQuery::Privilege::WEBSOCKET,
     AuthQuery::Privilege::LABELS};
 cpp<#
 

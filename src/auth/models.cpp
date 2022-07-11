@@ -396,6 +396,7 @@ nlohmann::json User::Serialize() const {
   data["username"] = username_;
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
+  data["labelPermissions"] = labelPermissions_.Serialize();
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
 }
@@ -417,4 +418,5 @@ bool operator==(const User &first, const User &second) {
          first.permissions_ == second.permissions_ && first.labelPermissions_ == second.labelPermissions_ &&
          first.role_ == second.role_;
 }
+
 }  // namespace memgraph::auth
