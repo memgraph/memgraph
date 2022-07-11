@@ -93,6 +93,27 @@ class Shared {
     return ret;
   }
 
+  bool IsReady() {
+    std::unique_lock<std::mutex> lock(mu_);
+    return item_;
+  }
+
+  std::optional<T> TryGet() {
+    std::unique_lock<std::mutex> lock(mu_);
+
+    if (item_) {
+      T ret = std::move(item_).value();
+      item_.reset();
+
+      waiting_ = false;
+      consumed_ = true;
+
+      return ret;
+    } else {
+      return std::nullopt;
+    }
+  }
+
   void Fill(T item) {
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -140,8 +161,29 @@ class MgFuture {
   MgFuture &operator=(const MgFuture &) = delete;
   ~MgFuture() = default;
 
-  // Block on the corresponding promise to be filled,
-  // returning the inner item when ready.
+  /// Returns true if the MgFuture is ready to
+  /// be consumed using TryGet or Wait (prefer Wait
+  /// if you know it's ready, because it doesn't
+  /// return an optional.
+  bool IsReady() {
+    MG_ASSERT(!consumed_or_moved_, "Called IsReady after MgFuture already consumed!");
+    return shared_->IsReady();
+  }
+
+  /// Non-blocking method that returns the inner
+  /// item if it's already ready, or std::nullopt
+  /// if it is not ready yet.
+  std::optional<T> TryGet() {
+    MG_ASSERT(!consumed_or_moved_, "Called TryGet after MgFuture already consumed!");
+    std::optional<T> ret = shared_->TryGet();
+    if (ret) {
+      consumed_or_moved_ = true;
+    }
+    return ret;
+  }
+
+  /// Block on the corresponding promise to be filled,
+  /// returning the inner item when ready.
   T Wait() {
     MG_ASSERT(!consumed_or_moved_, "MgFuture should only be consumed with Wait once!");
     T ret = shared_->Wait();
