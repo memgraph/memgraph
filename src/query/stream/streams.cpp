@@ -619,10 +619,10 @@ void Streams::Drop(const std::string &stream_name) {
   // no running Test function for this consumer, therefore it can be erased.
   std::visit([&](const auto &stream_data) { stream_data.stream_source->Lock(); }, it->second);
 
-  locked_streams->erase(it);
   if (!storage_.Delete(stream_name)) {
     throw StreamsException("Couldn't delete stream '{}' from persistent store!", stream_name);
   }
+  locked_streams->erase(it);
 
   // TODO(antaljanosbenjamin) Release the transformation
 }

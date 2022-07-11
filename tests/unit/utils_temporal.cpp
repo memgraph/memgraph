@@ -609,3 +609,73 @@ TEST(TemporalTest, LocalDateTimeDelta) {
   ASSERT_EQ(two_years_after_unix_epoch - unix_epoch,
             memgraph::utils::Duration({.day = 761, .millisecond = 20, .microsecond = 34}));
 }
+
+TEST(TemporalTest, DateConvertsToString) {
+  const auto date1 = memgraph::utils::Date({1970, 1, 2});
+  const std::string date1_expected_str = "1970-01-02";
+  const auto date2 = memgraph::utils::Date({0000, 1, 1});
+  const std::string date2_expected_str = "0000-01-01";
+  const auto date3 = memgraph::utils::Date({2022, 7, 4});
+  const std::string date3_expected_str = "2022-07-04";
+
+  ASSERT_EQ(date1_expected_str, date1.ToString());
+  ASSERT_EQ(date2_expected_str, date2.ToString());
+  ASSERT_EQ(date3_expected_str, date3.ToString());
+}
+
+TEST(TemporalTest, LocalTimeConvertsToString) {
+  const auto lt1 = memgraph::utils::LocalTime({13, 2, 40, 100, 50});
+  const std::string lt1_expected_str = "13:02:40.100050";
+  const auto lt2 = memgraph::utils::LocalTime({13, 2, 40});
+  const std::string lt2_expected_str = "13:02:40.000000";
+  const auto lt3 = memgraph::utils::LocalTime({0, 0, 0});
+  const std::string lt3_expected_str = "00:00:00.000000";
+  const auto lt4 = memgraph::utils::LocalTime({3, 2, 4, 6, 7});
+  const std::string lt4_expected_str = "03:02:04.006007";
+
+  ASSERT_EQ(lt1_expected_str, lt1.ToString());
+  ASSERT_EQ(lt2_expected_str, lt2.ToString());
+  ASSERT_EQ(lt3_expected_str, lt3.ToString());
+  ASSERT_EQ(lt4_expected_str, lt4.ToString());
+}
+
+TEST(TemporalTest, LocalDateTimeConvertsToString) {
+  const auto ldt1 = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59});
+  const std::string ldt1_expected_str = "1970-01-02T23:02:59.000000";
+  const auto ldt2 = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59, 456, 123});
+  const std::string ldt2_expected_str = "1970-01-02T23:02:59.456123";
+  const auto ldt3 = memgraph::utils::LocalDateTime({1997, 8, 24}, {16, 32, 9});
+  const std::string ldt3_expected_str = "1997-08-24T16:32:09.000000";
+
+  ASSERT_EQ(ldt1_expected_str, ldt1.ToString());
+  ASSERT_EQ(ldt2_expected_str, ldt2.ToString());
+  ASSERT_EQ(ldt3_expected_str, ldt3.ToString());
+}
+
+TEST(TemporalTest, DurationConvertsToString) {
+  memgraph::utils::Duration duration1{{.minute = 2, .second = 2, .microsecond = 33}};
+  const std::string duration1_expected_str = "P0DT0H2M2.000033S";
+  memgraph::utils::Duration duration2{{.hour = 2.5, .minute = 2, .second = 2, .microsecond = 33}};
+  const std::string duration2_expected_str = "P0DT2H32M2.000033S";
+  memgraph::utils::Duration duration3{{.hour = 1.25, .minute = 2, .second = 2}};
+  const std::string duration3_expected_str = "P0DT1H17M2.000000S";
+  memgraph::utils::Duration duration4{{.day = 20, .hour = 1.25, .minute = 2, .second = 2}};
+  const std::string duration4_expected_str = "P20DT1H17M2.000000S";
+  memgraph::utils::Duration duration5{{.hour = -3, .minute = 2, .second = 2, .microsecond = -33}};
+  const std::string duration5_expected_str = "P0DT-2H-57M-58.000033S";
+  memgraph::utils::Duration duration6{{.day = -2, .hour = 3, .minute = 2, .second = 2, .microsecond = 33}};
+  const std::string duration6_expected_str = "P-1DT-20H-57M-57.999967S";
+  memgraph::utils::Duration duration7{{.day = 20, .hour = 72, .minute = 154, .second = 312}};
+  const std::string duration7_expected_str = "P23DT2H39M12.000000S";
+  memgraph::utils::Duration duration8{{.day = 1, .hour = 23, .minute = 59, .second = 60}};
+  const std::string duration8_expected_str = "P2DT0H0M0.000000S";
+
+  ASSERT_EQ(duration1_expected_str, duration1.ToString());
+  ASSERT_EQ(duration2_expected_str, duration2.ToString());
+  ASSERT_EQ(duration3_expected_str, duration3.ToString());
+  ASSERT_EQ(duration4_expected_str, duration4.ToString());
+  ASSERT_EQ(duration5_expected_str, duration5.ToString());
+  ASSERT_EQ(duration6_expected_str, duration6.ToString());
+  ASSERT_EQ(duration7_expected_str, duration7.ToString());
+  ASSERT_EQ(duration8_expected_str, duration8.ToString());
+}

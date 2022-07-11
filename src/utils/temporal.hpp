@@ -87,20 +87,9 @@ struct Duration {
   int64_t SubDaysAsNanoseconds() const;
   int64_t SubSecondsAsNanoseconds() const;
 
-  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) {
-    // Format [nD]T[nH]:[nM]:[nS].
-    namespace chrono = std::chrono;
-    auto micros = chrono::microseconds(dur.microseconds);
-    const auto dd = GetAndSubtractDuration<chrono::days>(micros);
-    const auto h = GetAndSubtractDuration<chrono::hours>(micros);
-    const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
-    const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
-    os << fmt::format("P{}DT{}H{}M", dd, h, m);
-    if (s == 0 && micros.count() < 0) {
-      os << '-';
-    }
-    return os << fmt::format("{}.{:0>6}S", s, std::abs(micros.count()));
-  }
+  std::string ToString() const;
+
+  friend std::ostream &operator<<(std::ostream &os, const Duration &dur) { return os << dur.ToString(); }
 
   Duration operator-() const;
 
@@ -155,13 +144,11 @@ struct Date {
   explicit Date(int64_t microseconds);
   explicit Date(const DateParameters &date_parameters);
 
-  friend std::ostream &operator<<(std::ostream &os, const Date &date) {
-    return os << fmt::format("{:0>2}-{:0>2}-{:0>2}", date.year, static_cast<int>(date.month),
-                             static_cast<int>(date.day));
-  }
+  friend std::ostream &operator<<(std::ostream &os, const Date &date) { return os << date.ToString(); }
 
   int64_t MicrosecondsSinceEpoch() const;
   int64_t DaysSinceEpoch() const;
+  std::string ToString() const;
 
   friend Date operator+(const Date &date, const Duration &dur) {
     namespace chrono = std::chrono;
@@ -217,17 +204,11 @@ struct LocalTime {
   // Epoch means the start of the day, i,e, midnight
   int64_t MicrosecondsSinceEpoch() const;
   int64_t NanosecondsSinceEpoch() const;
+  std::string ToString() const;
 
   auto operator<=>(const LocalTime &) const = default;
 
-  friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) {
-    namespace chrono = std::chrono;
-    using milli = chrono::milliseconds;
-    using micro = chrono::microseconds;
-    const auto subseconds = milli(lt.millisecond) + micro(lt.microsecond);
-    return os << fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(lt.hour), static_cast<int>(lt.minute),
-                             static_cast<int>(lt.second), subseconds.count());
-  }
+  friend std::ostream &operator<<(std::ostream &os, const LocalTime &lt) { return os << lt.ToString(); }
 
   friend LocalTime operator+(const LocalTime &local_time, const Duration &dur) {
     namespace chrono = std::chrono;
@@ -279,13 +260,11 @@ struct LocalDateTime {
   int64_t MicrosecondsSinceEpoch() const;
   int64_t SecondsSinceEpoch() const;  // seconds since epoch
   int64_t SubSecondsAsNanoseconds() const;
+  std::string ToString() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
-  friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) {
-    os << ldt.date << 'T' << ldt.local_time;
-    return os;
-  }
+  friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) { return os << ldt.ToString(); }
 
   friend LocalDateTime operator+(const LocalDateTime &dt, const Duration &dur) {
     const auto local_date_time_as_duration = Duration(dt.MicrosecondsSinceEpoch());
