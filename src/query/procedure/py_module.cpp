@@ -2270,8 +2270,9 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_query_module);
   MG_ASSERT(py_mgp.SetAttr("_MODULE", py_query_module));
 
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
   auto *py_logger = reinterpret_cast<PyObject *>(PyObject_New(PyLogger, &PyLoggerType));
-  MG_ASSERT(py_mgp.SetAttr("_LOGGER", reinterpret_cast<PyObject *>(py_logger)));
+  MG_ASSERT(py_mgp.SetAttr("_LOGGER", py_logger));
 
   auto ret = fun();
   auto maybe_exc = py::FetchError();
