@@ -9,27 +9,28 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/storage.hpp"
 #include <algorithm>
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <variant>
+#include "storage/v3/storage.hpp"
 
 #include <gflags/gflags.h>
 
 #include "io/network/endpoint.hpp"
-#include "storage/v2/durability/durability.hpp"
-#include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices.hpp"
-#include "storage/v2/mvcc.hpp"
-#include "storage/v2/replication/config.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v3/durability/durability.hpp"
+#include "storage/v3/durability/metadata.hpp"
+#include "storage/v3/durability/paths.hpp"
+#include "storage/v3/durability/snapshot.hpp"
+#include "storage/v3/durability/wal.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/indices.hpp"
+#include "storage/v3/mvcc.hpp"
+#include "storage/v3/replication/config.hpp"
+#include "storage/v3/schemas.hpp"
+#include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -40,9 +41,9 @@
 #include "utils/uuid.hpp"
 
 /// REPLICATION ///
-#include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/replication/replication_server.hpp"
-#include "storage/v2/replication/rpc.hpp"
+#include "storage/v3/replication/replication_client.hpp"
+#include "storage/v3/replication/replication_server.hpp"
+#include "storage/v3/replication/rpc.hpp"
 
 namespace memgraph::storage {
 
@@ -463,12 +464,13 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
-  auto delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+
   delta->prev.Set(&*it);
-  return VertexAccessor(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_);
+  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
@@ -1233,6 +1235,22 @@ ConstraintsInfo Storage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
+
+SchemasInfo Storage::ListAllSchemas() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {schemas_.ListSchemas()};
+}
+
+std::optional<Schemas::Schema> Storage::GetSchema(const LabelId primary_label) const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return schemas_.GetSchema(primary_label);
+}
+
+bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+  return schemas_.CreateSchema(primary_label, schemas_types);
+}
+
+bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
 
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
