@@ -27,3 +27,5 @@ endfunction(add_simulation_test)
 add_simulation_test(future.cpp thread)
 
 add_simulation_test(basic_request.cpp address)
+
+add_simulation_test(raft.cpp address)
