@@ -260,9 +260,11 @@ privilege : CREATE
 
 privilegeList : privilege ( ',' privilege )* ;
 
-labelList : COLON label ( ',' COLON label )* ;
+labelList : '*' | listOfLabels ;
 
-label : ( '*' | symbolicName ) ;
+listOfLabels : label ( ',' label )* ;
+
+label : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 

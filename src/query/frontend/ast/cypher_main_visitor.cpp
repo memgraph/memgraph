@@ -1336,12 +1336,12 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
  */
 antlrcpp::Any CypherMainVisitor::visitLabelList(MemgraphCypher::LabelListContext *ctx) {
   std::vector<std::string> labels;
-  for (auto *label : ctx->label()) {
-    if (label->ASTERISK()) {
-      labels.push_back("*");
-    } else {
+  if (ctx->listOfLabels()) {
+    for (auto *label : ctx->listOfLabels()->label()) {
       labels.push_back(label->symbolicName()->accept(this).as<std::string>());
     }
+  } else {
+    labels.emplace_back("*");
   }
 
   return labels;

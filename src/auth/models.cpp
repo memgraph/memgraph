@@ -103,6 +103,8 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
+const std::string ASTERISK = "*";
+
 Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {}
 
 PermissionLevel Permissions::Has(Permission permission) const {
@@ -200,10 +202,21 @@ PermissionLevel LabelPermissions::Has(const std::string &permission) const {
 }
 
 void LabelPermissions::Grant(const std::string &permission) {
+  if (permission == ASTERISK) {
+    grants_.clear();
+    grants_.insert(permission);
+
+    return;
+  }
+
   auto deniedPermissionIter = denies_.find(permission);
 
   if (deniedPermissionIter != denies_.end()) {
     denies_.erase(deniedPermissionIter);
+  }
+
+  if (grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) {
+    grants_.erase(ASTERISK);
   }
 
   if (grants_.find(permission) == grants_.end()) {
@@ -212,6 +225,13 @@ void LabelPermissions::Grant(const std::string &permission) {
 }
 
 void LabelPermissions::Revoke(const std::string &permission) {
+  if (permission == ASTERISK) {
+    grants_.clear();
+    denies_.clear();
+
+    return;
+  }
+
   auto deniedPermissionIter = denies_.find(permission);
   auto grantedPermissionIter = grants_.find(permission);
 
@@ -225,10 +245,21 @@ void LabelPermissions::Revoke(const std::string &permission) {
 }
 
 void LabelPermissions::Deny(const std::string &permission) {
+  if (permission == ASTERISK) {
+    denies_.clear();
+    denies_.insert(permission);
+
+    return;
+  }
+
   auto grantedPermissionIter = grants_.find(permission);
 
   if (grantedPermissionIter != grants_.end()) {
     grants_.erase(grantedPermissionIter);
+  }
+
+  if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
+    denies_.erase(ASTERISK);
   }
 
   if (denies_.find(permission) == denies_.end()) {
