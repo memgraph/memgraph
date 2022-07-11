@@ -16,3 +16,7 @@ pip install poetry
 ## Why is this not automatized?
 
 Because someone always has to manually bump up the version in `pyproject.toml`
+
+## Why does `_mgp.py` exists?
+BEcause we are mocking here all the types that are created by memgraph
+in order to fix typing errors in `mgp.py`.
