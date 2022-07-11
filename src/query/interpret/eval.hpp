@@ -111,7 +111,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(IfOperator &if_operator) override {
     auto condition = if_operator.condition_->Accept(*this);
     if (condition.IsNull()) {
-      return if_operator.then_expression_->Accept(*this);
+      return if_operator.else_expression_->Accept(*this);
     }
     if (condition.type() != TypedValue::Type::Bool) {
       // At the moment IfOperator is used only in CASE construct.
