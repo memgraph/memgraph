@@ -11,6 +11,7 @@ authors = [
 ]
 license = "Apache-2.0"
 readme = "README.md"
+include = ["mgp.py", "_mgp.py"]
 
 [tool.poetry.dependencies]
 python = "^3.7"

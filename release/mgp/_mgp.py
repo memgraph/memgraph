@@ -86,15 +86,46 @@ class Path:
 
 
 class Graph:
-    pass
+    def is_valid() -> bool:  # type: ignore
+        pass
 
 
 class CypherType:
     pass
 
 
-def type_nullable():
-    pass
+class Message:
+    def is_valid() -> bool:  # type: ignore
+        pass
+
+    def source_type() -> str:  # type: ignore
+        pass
+
+    def topic_name() -> str:  # type: ignore
+        pass
+
+    def key() -> bytes:  # type: ignore
+        pass
+
+    def timestamp() -> int:  # type: ignore
+        pass
+
+    def offset() -> int:  # type: ignore
+        pass
+
+    def payload() -> bytes:  # type: ignore
+        pass
+
+
+class Messages:
+    def is_valid() -> bool:  # type: ignore
+        pass
+
+    def message_at(self, id: int) -> Message:  # type: ignore
+        pass
+
+    def total_messages() -> int:  # type: ignore
+        pass
 
 
 class UnknownError(Exception):
@@ -142,11 +173,11 @@ class SerializationError(Exception):
     pass
 
 
-def type_any():
+def type_nullable(elem: Any):
     pass
 
 
-def type_list():
+def type_list(elem: Any):
     pass
 
 
@@ -186,15 +217,39 @@ def type_path():
     pass
 
 
+def type_date():
+    pass
+
+
+def type_local_time():
+    pass
+
+
+def type_local_date_time():
+    pass
+
+
+def type_duration():
+    pass
+
+
+def type_any():
+    pass
+
+
 class _MODULE:
+    @staticmethod
     def add_read_procedure(wrapper):
         pass
 
+    @staticmethod
     def add_write_procedure(wrapper):
         pass
 
+    @staticmethod
     def add_transformation(wrapper):
         pass
 
+    @staticmethod
     def add_function(wrapper):
         pass
