@@ -36,6 +36,15 @@ struct OpaqueMessage {
   uint64_t request_id;
   std::any message;
 
+  /// Recursively tries to match a specific type from the outer
+  /// variant's parameter pack against the type of the std::any,
+  /// and if it matches, make it concrete and return it. Otherwise,
+  /// move on and compare the any with the next type from the
+  /// parameter pack.
+  ///
+  /// Return is the full std::variant<Ts...> type that holds the
+  /// full parameter pack without interfering with recursive
+  /// narrowing expansion.
   template <typename Return, Message Head, Message... Rest>
   std::optional<Return> Unpack(std::any &&a) {
     if (typeid(Head) == a.type()) {
@@ -44,12 +53,17 @@ struct OpaqueMessage {
     }
 
     if constexpr (sizeof...(Rest) > 0) {
-      return Unpack<Return, Rest...>(a);
+      return Unpack<Return, Rest...>(std::move(a));
     } else {
       return std::nullopt;
     }
   }
 
+  /// High level "user-facing" conversion function that lets
+  /// people interested in conversion only supply a single
+  /// parameter pack for the types that they want to compare
+  /// with the any and potentially include in the returned
+  /// variant.
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) std::optional<std::variant<Ms...>> VariantFromAny(std::any &&a) {
     return Unpack<std::variant<Ms...>, Ms...>(std::move(a));
