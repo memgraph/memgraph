@@ -18,19 +18,24 @@ roles_config = config["roles"]
 # Initialize LDAP server.
 tls = None
 if server_config["encryption"] != "disabled":
-    cert_file = server_config["cert_file"] if server_config["cert_file"] \
-        else None
+    cert_file = server_config["cert_file"] if server_config["cert_file"] else None
     key_file = server_config["key_file"] if server_config["key_file"] else None
     ca_file = server_config["ca_file"] if server_config["ca_file"] else None
-    validate = ssl.CERT_REQUIRED if server_config["validate_cert"] \
-        else ssl.CERT_NONE
-    tls = ldap3.Tls(local_private_key_file=key_file,
-                    local_certificate_file=cert_file,
-                    ca_certs_file=ca_file,
-                    validate=validate)
+    validate = ssl.CERT_REQUIRED if server_config["validate_cert"] else ssl.CERT_NONE
+    tls = ldap3.Tls(
+        local_private_key_file=key_file,
+        local_certificate_file=cert_file,
+        ca_certs_file=ca_file,
+        validate=validate,
+    )
 use_ssl = server_config["encryption"] == "ssl"
-server = ldap3.Server(server_config["host"], port=server_config["port"],
-                      tls=tls, use_ssl=use_ssl, get_info=ldap3.ALL)
+server = ldap3.Server(
+    server_config["host"],
+    port=server_config["port"],
+    tls=tls,
+    use_ssl=use_ssl,
+    get_info=ldap3.ALL,
+)
 
 
 # Main authentication/authorization function.
@@ -40,14 +45,12 @@ def authenticate(username, password):
         return {"authenticated": False, "role": ""}
 
     # Create the DN of the user
-    dn = users_config["prefix"] + ldap3.utils.dn.escape_rdn(username) + \
-        users_config["suffix"]
+    dn = users_config["prefix"] + ldap3.utils.dn.escape_rdn(username) + users_config["suffix"]
 
     # Bind to the server
     conn = ldap3.Connection(server, dn, password)
     if server_config["encryption"] == "starttls" and not conn.start_tls():
-        print("ERROR: Couldn't issue STARTTLS to the LDAP server!",
-              file=sys.stderr)
+        print("ERROR: Couldn't issue STARTTLS to the LDAP server!", file=sys.stderr)
         return {"authenticated": False, "role": ""}
     if not conn.bind():
         return {"authenticated": False, "role": ""}
@@ -56,25 +59,32 @@ def authenticate(username, password):
     if roles_config["root_dn"] != "":
         # search for role
         search_filter = "(&(objectclass={objclass})({attr}={value}))".format(
-                objclass=roles_config["root_objectclass"],
-                attr=roles_config["user_attribute"],
-                value=ldap3.utils.conv.escape_filter_chars(dn))
-        succ = conn.search(roles_config["root_dn"], search_filter,
-                           search_scope=ldap3.LEVEL,
-                           attributes=[roles_config["role_attribute"]])
+            objclass=roles_config["root_objectclass"],
+            attr=roles_config["user_attribute"],
+            value=ldap3.utils.conv.escape_filter_chars(dn),
+        )
+        succ = conn.search(
+            roles_config["root_dn"],
+            search_filter,
+            search_scope=ldap3.LEVEL,
+            attributes=[roles_config["role_attribute"]],
+        )
         if not succ or len(conn.entries) == 0:
             return {"authenticated": True, "role": ""}
         if len(conn.entries) > 1:
-            roles = list(map(lambda x: x[roles_config["role_attribute"]].value,
-                             conn.entries))
+            roles = list(map(lambda x: x[roles_config["role_attribute"]].value, conn.entries))
             # Because we don't know exactly which role the user should have
             # we authorize the user with an empty role.
-            print("WARNING: Found more than one role for "
-                  "user '" + username + "':", ", ".join(roles) + "!",
-                  file=sys.stderr)
+            print(
+                "WARNING: Found more than one role for " "user '" + username + "':",
+                ", ".join(roles) + "!",
+                file=sys.stderr,
+            )
             return {"authenticated": True, "role": ""}
-        return {"authenticated": True,
-                "role": conn.entries[0][roles_config["role_attribute"]].value}
+        return {
+            "authenticated": True,
+            "role": conn.entries[0][roles_config["role_attribute"]].value,
+        }
     else:
         return {"authenticated": True, "role": ""}
 
