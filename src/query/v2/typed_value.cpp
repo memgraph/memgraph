@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/typed_value.hpp"
+#include "query/v2/typed_value.hpp"
 
 #include <fmt/format.h>
 #include <chrono>

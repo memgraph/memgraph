@@ -17,10 +17,10 @@
 #include <variant>
 #include <vector>
 
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/semantic/symbol.hpp"
-#include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/frontend/ast/ast_visitor.hpp"
+#include "query/v2/frontend/semantic/symbol.hpp"
+#include "query/v2/interpret/awesome_memgraph_functions.hpp"
+#include "query/v2/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/typeinfo.hpp"
 

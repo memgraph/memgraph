@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/rule_based_planner.hpp"
+#include "query/v2/plan/rule_based_planner.hpp"
 
 #include <algorithm>
 #include <functional>

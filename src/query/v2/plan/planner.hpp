@@ -17,14 +17,14 @@
 
 #pragma once
 
-#include "query/plan/cost_estimator.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/preprocess.hpp"
-#include "query/plan/pretty_print.hpp"
-#include "query/plan/rewrite/index_lookup.hpp"
-#include "query/plan/rule_based_planner.hpp"
-#include "query/plan/variable_start_planner.hpp"
-#include "query/plan/vertex_count_cache.hpp"
+#include "query/v2/plan/cost_estimator.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/preprocess.hpp"
+#include "query/v2/plan/pretty_print.hpp"
+#include "query/v2/plan/rewrite/index_lookup.hpp"
+#include "query/v2/plan/rule_based_planner.hpp"
+#include "query/v2/plan/variable_start_planner.hpp"
+#include "query/v2/plan/vertex_count_cache.hpp"
 
 namespace memgraph::query::v2 {
 

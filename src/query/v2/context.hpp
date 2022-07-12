@@ -13,12 +13,12 @@
 
 #include <type_traits>
 
-#include "query/common.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/metadata.hpp"
-#include "query/parameters.hpp"
-#include "query/plan/profile.hpp"
-#include "query/trigger.hpp"
+#include "query/v2/common.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
+#include "query/v2/metadata.hpp"
+#include "query/v2/parameters.hpp"
+#include "query/v2/plan/profile.hpp"
+#include "query/v2/trigger.hpp"
 #include "utils/async_timer.hpp"
 
 namespace memgraph::query::v2 {

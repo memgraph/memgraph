@@ -16,7 +16,7 @@
 
 #include <json/json.hpp>
 
-#include "query/typed_value.hpp"
+#include "query/v2/typed_value.hpp"
 
 namespace memgraph::query::v2 {
 

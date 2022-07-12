@@ -9,17 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/trigger.hpp"
+#include "query/v2/trigger.hpp"
 
 #include <concepts>
 
-#include "query/context.hpp"
-#include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/interpret/frame.hpp"
-#include "query/serialization/property_value.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/context.hpp"
+#include "query/v2/cypher_query_interpreter.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/interpret/frame.hpp"
+#include "query/v2/serialization/property_value.hpp"
+#include "query/v2/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/memory.hpp"
 

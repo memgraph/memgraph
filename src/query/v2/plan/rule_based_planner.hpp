@@ -17,10 +17,10 @@
 
 #include "gflags/gflags.h"
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/preprocess.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast_visitor.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/preprocess.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 

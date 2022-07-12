@@ -14,9 +14,9 @@
 #include <string>
 
 #include "antlr4-runtime.h"
-#include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/v2/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
 namespace memgraph::query::v2::frontend::opencypher {
 

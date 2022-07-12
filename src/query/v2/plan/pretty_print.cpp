@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/pretty_print.hpp"
+#include "query/v2/plan/pretty_print.hpp"
 #include <variant>
 
-#include "query/db_accessor.hpp"
-#include "query/frontend/ast/pretty_print.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::v2::plan {

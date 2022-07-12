@@ -13,7 +13,7 @@
 
 #include <iostream>
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
 
 namespace memgraph::query::v2 {
 

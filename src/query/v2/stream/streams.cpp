@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/stream/streams.hpp"
+#include "query/v2/stream/streams.hpp"
 
 #include <shared_mutex>
 #include <string_view>
@@ -20,15 +20,15 @@
 
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
-#include "query/db_accessor.hpp"
-#include "query/discard_value_stream.hpp"
-#include "query/exceptions.hpp"
-#include "query/interpreter.hpp"
-#include "query/procedure/mg_procedure_helpers.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
-#include "query/procedure/module.hpp"
-#include "query/stream/sources.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/discard_value_stream.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/interpreter.hpp"
+#include "query/v2/procedure/mg_procedure_helpers.hpp"
+#include "query/v2/procedure/mg_procedure_impl.hpp"
+#include "query/v2/procedure/module.hpp"
+#include "query/v2/stream/sources.hpp"
+#include "query/v2/typed_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"

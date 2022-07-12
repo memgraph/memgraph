@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/interpret/eval.hpp"
+#include "query/v2/interpret/eval.hpp"
 
 namespace memgraph::query::v2 {
 

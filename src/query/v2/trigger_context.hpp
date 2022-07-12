@@ -20,8 +20,8 @@
 #include <utility>
 #include <vector>
 
-#include "query/db_accessor.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/concepts.hpp"

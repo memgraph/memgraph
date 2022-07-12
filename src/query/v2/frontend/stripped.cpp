@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/frontend/stripped.hpp"
+#include "query/v2/frontend/stripped.hpp"
 
 #include <cctype>
 #include <cstdint>
@@ -18,12 +18,12 @@
 #include <string>
 #include <vector>
 
-#include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
-#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
-#include "query/frontend/parsing.hpp"
-#include "query/frontend/stripped_lexer_constants.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/v2/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#include "query/v2/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#include "query/v2/frontend/parsing.hpp"
+#include "query/v2/frontend/stripped_lexer_constants.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"

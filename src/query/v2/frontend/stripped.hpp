@@ -14,7 +14,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "query/parameters.hpp"
+#include "query/v2/parameters.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::v2::frontend {

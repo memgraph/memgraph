@@ -18,9 +18,9 @@
 #include <optional>
 #include <vector>
 
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
 
 namespace memgraph::query::v2 {
 

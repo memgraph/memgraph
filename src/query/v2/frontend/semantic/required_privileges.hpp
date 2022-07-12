@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
 
 namespace memgraph::query::v2 {
 std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query);

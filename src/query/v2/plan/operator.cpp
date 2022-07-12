@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/operator.hpp"
+#include "query/v2/plan/operator.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -26,17 +26,17 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "query/context.hpp"
-#include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/interpret/eval.hpp"
-#include "query/path.hpp"
-#include "query/plan/scoped_profile.hpp"
-#include "query/procedure/cypher_types.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
-#include "query/procedure/module.hpp"
+#include "query/v2/context.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
+#include "query/v2/interpret/eval.hpp"
+#include "query/v2/path.hpp"
+#include "query/v2/plan/scoped_profile.hpp"
+#include "query/v2/procedure/cypher_types.hpp"
+#include "query/v2/procedure/mg_procedure_impl.hpp"
+#include "query/v2/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"

@@ -11,10 +11,10 @@
 
 #pragma once
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/parameters.hpp"
-#include "query/plan/operator.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/parameters.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query/v2/typed_value.hpp"
 
 namespace memgraph::query::v2::plan {
 

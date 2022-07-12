@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/procedure/module.hpp"
+#include "query/v2/procedure/module.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -22,8 +22,8 @@ extern "C" {
 #include <unistd.h>
 
 #include "py/py.hpp"
-#include "query/procedure/mg_procedure_helpers.hpp"
-#include "query/procedure/py_module.hpp"
+#include "query/v2/procedure/mg_procedure_helpers.hpp"
+#include "query/v2/procedure/py_module.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"

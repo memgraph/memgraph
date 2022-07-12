@@ -16,7 +16,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "query/exceptions.hpp"
+#include "query/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"

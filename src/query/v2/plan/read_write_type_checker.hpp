@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "query/plan/operator.hpp"
+#include "query/v2/plan/operator.hpp"
 
 namespace memgraph::query::v2::plan {
 

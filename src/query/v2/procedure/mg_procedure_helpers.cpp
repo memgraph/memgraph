@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/v2/procedure/mg_procedure_helpers.hpp"
 
 namespace memgraph::query::v2::procedure {
 MgpUniquePtr<mgp_value> GetStringValueOrSetError(const char *string, mgp_memory *memory, mgp_result *result) {

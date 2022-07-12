@@ -20,8 +20,8 @@
 #include <utility>
 #include <vector>
 
-#include "query/db_accessor.hpp"
-#include "query/path.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"

@@ -16,7 +16,7 @@
 #include "cppitertools/slice.hpp"
 #include "gflags/gflags.h"
 
-#include "query/plan/rule_based_planner.hpp"
+#include "query/v2/plan/rule_based_planner.hpp"
 
 DECLARE_uint64(query_max_plans);
 

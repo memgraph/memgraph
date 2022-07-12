@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include "query/config.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/frontend/stripped.hpp"
-#include "query/plan/planner.hpp"
+#include "query/v2/config.hpp"
+#include "query/v2/frontend/ast/cypher_main_visitor.hpp"
+#include "query/v2/frontend/opencypher/parser.hpp"
+#include "query/v2/frontend/semantic/required_privileges.hpp"
+#include "query/v2/frontend/semantic/symbol_generator.hpp"
+#include "query/v2/frontend/stripped.hpp"
+#include "query/v2/plan/planner.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/timer.hpp"
 

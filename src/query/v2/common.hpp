@@ -17,11 +17,11 @@
 #include <string>
 #include <string_view>
 
-#include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/semantic/symbol.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/semantic/symbol.hpp"
+#include "query/v2/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"

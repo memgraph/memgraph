@@ -14,7 +14,7 @@
 #include <memory>
 #include <vector>
 
-#include "query/typed_value.hpp"
+#include "query/v2/typed_value.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query::v2 {

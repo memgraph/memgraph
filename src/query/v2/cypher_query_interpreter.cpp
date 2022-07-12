@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/cypher_query_interpreter.hpp"
+#include "query/v2/cypher_query_interpreter.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");

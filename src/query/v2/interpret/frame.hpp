@@ -13,8 +13,8 @@
 
 #include <vector>
 
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/typed_value.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
+#include "query/v2/typed_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"

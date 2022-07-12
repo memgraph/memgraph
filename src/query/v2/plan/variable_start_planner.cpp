@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/variable_start_planner.hpp"
+#include "query/v2/plan/variable_start_planner.hpp"
 
 #include <limits>
 #include <queue>

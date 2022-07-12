@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/profile.hpp"
+#include "query/v2/plan/profile.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -17,7 +17,7 @@
 #include <fmt/format.h>
 #include <json/json.hpp>
 
-#include "query/context.hpp"
+#include "query/v2/context.hpp"
 #include "utils/likely.hpp"
 
 namespace memgraph::query::v2::plan {

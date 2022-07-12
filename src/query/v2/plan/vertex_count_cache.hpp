@@ -14,7 +14,7 @@
 
 #include <optional>
 
-#include "query/typed_value.hpp"
+#include "query/v2/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"

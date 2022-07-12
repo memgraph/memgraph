@@ -13,7 +13,7 @@
 //
 // Created by Teon Banek on 24-03-2017
 
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/v2/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -21,8 +21,8 @@
 #include <unordered_set>
 #include <variant>
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 

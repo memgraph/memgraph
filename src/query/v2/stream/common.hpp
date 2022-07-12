@@ -19,7 +19,7 @@
 
 #include <json/json.hpp>
 
-#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/v2/procedure/mg_procedure_impl.hpp"
 
 namespace memgraph::query::v2::stream {
 

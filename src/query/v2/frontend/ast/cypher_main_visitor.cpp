@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/v2/frontend/ast/cypher_main_visitor.hpp"
 
 #include <algorithm>
 #include <climits>
@@ -27,13 +27,13 @@
 
 #include <boost/preprocessor/cat.hpp>
 
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/parsing.hpp"
-#include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module.hpp"
-#include "query/stream/common.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast_visitor.hpp"
+#include "query/v2/frontend/parsing.hpp"
+#include "query/v2/interpret/awesome_memgraph_functions.hpp"
+#include "query/v2/procedure/module.hpp"
+#include "query/v2/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"

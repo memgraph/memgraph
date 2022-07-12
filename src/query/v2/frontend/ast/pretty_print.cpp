@@ -9,11 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/frontend/ast/pretty_print.hpp"
+#include "query/v2/frontend/ast/pretty_print.hpp"
 
 #include <type_traits>
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 

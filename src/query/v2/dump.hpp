@@ -13,8 +13,8 @@
 
 #include <ostream>
 
-#include "query/db_accessor.hpp"
-#include "query/stream.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/stream.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::query::v2 {

@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/serialization/property_value.hpp"
+#include "query/v2/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 

@@ -13,8 +13,8 @@
 
 #include <cstdint>
 
-#include "query/context.hpp"
-#include "query/plan/profile.hpp"
+#include "query/v2/context.hpp"
+#include "query/v2/plan/profile.hpp"
 #include "utils/likely.hpp"
 #include "utils/tsc.hpp"
 

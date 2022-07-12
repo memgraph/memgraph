@@ -22,8 +22,8 @@
 #include <string_view>
 #include <unordered_map>
 
-#include "query/procedure/cypher_types.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/v2/procedure/cypher_types.hpp"
+#include "query/v2/procedure/mg_procedure_impl.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
 

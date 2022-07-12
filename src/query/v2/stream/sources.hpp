@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "query/stream/common.hpp"
+#include "query/v2/stream/common.hpp"
 
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/pulsar/consumer.hpp"

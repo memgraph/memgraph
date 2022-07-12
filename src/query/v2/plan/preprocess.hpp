@@ -18,9 +18,9 @@
 #include <unordered_set>
 #include <vector>
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/operator.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
+#include "query/v2/plan/operator.hpp"
 
 namespace memgraph::query::v2::plan {
 

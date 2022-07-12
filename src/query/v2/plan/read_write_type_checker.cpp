@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/read_write_type_checker.hpp"
+#include "query/v2/plan/read_write_type_checker.hpp"
 
 #define PRE_VISIT(TOp, RWType, continue_visiting) \
   bool ReadWriteTypeChecker::PreVisit(TOp &op) {  \

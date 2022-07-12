@@ -14,8 +14,8 @@
 #include <map>
 #include <string>
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/semantic/symbol.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2 {

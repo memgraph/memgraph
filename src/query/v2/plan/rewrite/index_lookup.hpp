@@ -25,8 +25,8 @@
 
 #include <gflags/gflags.h>
 
-#include "query/plan/operator.hpp"
-#include "query/plan/preprocess.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/preprocess.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 

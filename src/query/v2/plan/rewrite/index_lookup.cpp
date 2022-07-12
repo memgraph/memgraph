@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/rewrite/index_lookup.hpp"
+#include "query/v2/plan/rewrite/index_lookup.hpp"
 
 #include "utils/flag_validation.hpp"
 
