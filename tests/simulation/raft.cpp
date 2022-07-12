@@ -19,6 +19,8 @@ using Op = std::vector<uint8_t>;
 using Term = uint64_t;
 using LogIndex = uint64_t;
 
+/// The request that a client sends to request that
+/// the cluster replicates their data.
 struct ReplicationRequest {
   std::vector<uint8_t> opaque_data;
 };
@@ -58,39 +60,30 @@ struct RequestVotesResponse {
   bool vote_granted;
 };
 
-struct PersistentState {
+struct CommonState {
   Term current_term;
   std::optional<Address> voted_for;
   std::vector<std::pair<Term, Op>> log;
+  LogIndex commit_index;
+  LogIndex last_applied;
 };
 
-struct VolatileState {
-  Term commit_index;
-  Term last_applied;
+struct FollowerTracker {
+  Address address;
+  LogIndex next_index;
+  std::optional<ResponseFuture<AppendEntriesResponse>> in_flight_message;
 };
 
-struct LeaderState {
-  // for each server, index of the next log entry
-  // to send to that server (initialized to leader
-  // last log index + 1)
-  std::map<Address, Term> next_index;
-  // or each server, index of highest log entry
-  // known to be replicated on server
-  // (initialized to 0, increases monotonically)
-  std::map<Address, Term> match_index;
+struct Leader {
+  std::vector<FollowerTracker> followers;
 };
 
-template <Message M>
-struct SingleRequestEnvelope {
-  M message;
-  uint64_t request_id;
-  Address from_address;
-
-  template <Message T, typename I>
-  void Reply(T response, Io<I> &io) {
-    io.Send(from_address, request_id, response);
-  }
+struct Candidate {
+  std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes;
+  size_t successful_votes;
 };
+
+struct Follower {};
 
 class Server {
  public:
@@ -108,33 +101,19 @@ class Server {
       }
 
       auto request = request_result.GetValue();
-      std::variant<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest> message = request.message;
 
-      if (AppendEntriesRequest *m = std::get_if<AppendEntriesRequest>(&message)) {
-        std::cout << "RECEIVED AppendEntries :)" << std::endl;
-        SingleRequestEnvelope<AppendEntriesRequest> re = {
-            .message = std::move(*m), .request_id = request.request_id, .from_address = request.from_address};
-        HandleAppendEntriesRequest(re);
-      } else if (RequestVotesRequest *m = std::get_if<RequestVotesRequest>(&message)) {
-        std::cout << "RECEIVED RequestVotes :)" << std::endl;
-        SingleRequestEnvelope<RequestVotesRequest> re = {
-            .message = std::move(*m), .request_id = request.request_id, .from_address = request.from_address};
-        HandleRequestVotesRequest(re);
-      } else if (ReplicationRequest *m = std::get_if<ReplicationRequest>(&message)) {
-        std::cout << "RECEIVED ReplicationRequest :)" << std::endl;
-        SingleRequestEnvelope<ReplicationRequest> re = {
-            .message = std::move(*m), .request_id = request.request_id, .from_address = request.from_address};
-        HandleReplicationRequest(re);
-      } else {
-        std::cout << "RECEIVED BAD REQUEST :(" << std::endl;
-      }
+      // dispatch the message to a handler based on our role,
+      // which can be specified in the Handle first argument,
+      // or it can be `auto` if it's a handler for several roles
+      // or messages.
+      std::visit([&](auto &&msg, auto &&role) { return Handle(role, msg, request.request_id, request.from_address); },
+                 request.message, role_);
     }
   }
 
  private:
-  PersistentState ps_;
-  VolatileState vs_;
-  std::optional<LeaderState> ls_;
+  CommonState common_state_;
+  std::variant<Leader, Candidate, Follower> role_ = Candidate{};
   Io<SimulatorTransport> io_;
   std::vector<Address> peers_;
   uint64_t last_heard_from_leader_;
@@ -142,31 +121,59 @@ class Server {
   /// Periodic protocol maintenance. Leaders (re)send AppendEntriesRequest to followers
   /// and followers try to become the leader if they haven't heard from the leader within
   /// a randomized timeout.
-  void Cron() {
-    if (ls_) {
-    } else {
-    }
+  void Cron() {}
+
+  // all roles can receive RequestVotes and possibly become a follower
+  void Handle(auto &, RequestVotesRequest &req, uint64_t request_id, Address from_address) {
+    std::cout << "RECEIVED RequestVotes :)" << std::endl;
+    auto res = RequestVotesResponse{};
+
+    io_.Send(from_address, request_id, res);
   }
 
-  void HandleAppendEntriesRequest(SingleRequestEnvelope<AppendEntriesRequest> &req) {
-    auto res = AppendEntriesResponse{};
-    auto &aer = req.message;
+  // only leaders actually handle replication requests
+  void Handle(Leader &, ReplicationRequest &req, uint64_t request_id, Address from_address) {
+    std::cout << "RECEIVED ReplicationRequest :)" << std::endl;
 
+    // we are the leader. add item to log and send AppendEntries to peers
+    common_state_.log.emplace_back(std::pair(common_state_.current_term, std::move(req.opaque_data)));
+
+    // TODO add message to pending requests buffer, reply asynchronously
+  }
+
+  // non-leaders respond to replication requests with a redirection to the leader
+  void Handle(auto &, ReplicationRequest &req, uint64_t request_id, Address from_address) {
+    auto res = ReplicationResponse{};
+
+    res.success = false;
+    if (common_state_.voted_for) {
+      std::cout << "redirecting client to known leader with port " << common_state_.voted_for->last_known_port
+                << std::endl;
+      res.retry_leader = *common_state_.voted_for;
+    }
+
+    io_.Send(from_address, request_id, res);
+  }
+
+  // anyone can receive an AppendEntriesRequest and potentially be flipped to a follower
+  // state.
+  void Handle(auto &, AppendEntriesRequest &aer, uint64_t request_id, Address from_address) {
+    std::cout << "RECEIVED AppendEntries from a leader" << std::endl;
     bool error = false;
 
-    if (req.from_address != ps_.voted_for) {
+    if (from_address != common_state_.voted_for) {
       std::cout << "req.from_address is not who we voted for" << std::endl;
       error |= true;
-    } else if (aer.term != ps_.current_term) {
+    } else if (aer.term != common_state_.current_term) {
       std::cout << "req.term differs from our current leader term" << std::endl;
       error |= true;
-    } else if (aer.prev_log_index > ps_.log.size()) {
+    } else if (aer.prev_log_index > common_state_.log.size()) {
       std::cout << "req.prev_log_index is above our last applied log index" << std::endl;
       // TODO: buffer this and apply it later rather than having to wait for
       // the leader to double-send future segments to us.
       error |= true;
     } else {
-      auto [prev_log_term, data] = ps_.log.at(aer.prev_log_index);
+      auto [prev_log_term, data] = common_state_.log.at(aer.prev_log_index);
 
       if (aer.prev_log_term != prev_log_term) {
         std::cout << "req.prev_log_term differs from our leader term at that slot" << std::endl;
@@ -181,45 +188,27 @@ class Server {
       // possibly chop-off stuff that was replaced by
       // things with different terms (we got data that
       // hasn't reached consensus yet, which is normal)
-      // MG_ASSERT(req.last_log_index > vs_.commit_index);
-      ps_.log.resize(aer.prev_log_index);
+      // MG_ASSERT(req.last_log_index > common_state_.commit_index);
+      common_state_.log.resize(aer.prev_log_index);
 
-      ps_.log.insert(ps_.log.end(), aer.entries.begin(), aer.entries.end());
+      common_state_.log.insert(common_state_.log.end(), aer.entries.begin(), aer.entries.end());
 
-      vs_.commit_index = std::min(aer.leader_commit, ps_.log.size());
-
-      res.success = true;
-    } else {
-      res.success = false;
+      common_state_.commit_index = std::min(aer.leader_commit, common_state_.log.size());
     }
 
-    res.last_log_term = ps_.current_term;
-    res.last_log_index = ps_.log.size();
+    auto res = AppendEntriesResponse{
+        .success = !error,
+        .last_log_term = common_state_.current_term,
+        .last_log_index = common_state_.log.size(),
+    };
 
-    req.Reply(res, io_);
+    io_.Send(from_address, request_id, res);
   }
 
-  void HandleRequestVotesRequest(SingleRequestEnvelope<RequestVotesRequest> &req) {
-    auto srv_res = RequestVotesResponse{};
-
-    req.Reply(srv_res, io_);
-  }
-
-  void HandleReplicationRequest(SingleRequestEnvelope<ReplicationRequest> &req) {
-    auto srv_res = ReplicationResponse{};
-
-    if (ls_) {
-      // we are the leader. add item to log and send AppendEntries to peers
-      ps_.log.emplace_back(std::pair(ps_.current_term, std::move(req.message.opaque_data)));
-    } else {
-      srv_res.success = false;
-      if (ps_.voted_for) {
-        std::cout << "redirecting client to known leader with port " << ps_.voted_for->last_known_port << std::endl;
-        srv_res.retry_leader = *ps_.voted_for;
-      }
-    }
-
-    req.Reply(srv_res, io_);
+  // unhandled messages should trigger an assertion failure
+  void Handle(auto &, auto &, uint64_t request_id, Address from_address) {
+    std::cout << "RECEIVED unhandled message :(" << std::endl;
+    std::terminate();
   }
 };
 
