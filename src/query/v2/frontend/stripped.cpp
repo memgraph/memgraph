@@ -99,7 +99,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
   auto replace_stripped = [this, &token_strings](int position, const auto &value, const std::string &new_value) {
-    literals_.Add(position, storage::PropertyValue(value));
+    literals_.Add(position, storage::v3::PropertyValue(value));
     token_strings.push_back(new_value);
   };
 

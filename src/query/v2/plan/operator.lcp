@@ -26,7 +26,7 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/frontend/semantic/symbol.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/id_types.hpp"
+#include "storage/v3/id_types.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 #include "utils/memory.hpp"
@@ -355,7 +355,7 @@ and false on every following Pull.")
   slk::Load(&size, reader);
   self->${member}.resize(size);
   for (size_t i = 0; i < size; ++i) {
-    storage::PropertyId prop;
+    storage::v3::PropertyId prop;
     slk::Load(&prop, reader);
     auto *expr = query::LoadAstPointer<query::Expression>(
         &helper->ast_storage, reader);
@@ -370,7 +370,7 @@ and false on every following Pull.")
       destination_props.resize(props->size());
       for (auto i0 = 0; i0 < props->size(); ++i0) {
         {
-          storage::PropertyId first1 = (*props)[i0].first;
+          storage::v3::PropertyId first1 = (*props)[i0].first;
           Expression *second2;
           second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
           destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
@@ -382,12 +382,12 @@ and false on every following Pull.")
   cpp<#)
 
 #>cpp
-using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
+using PropertiesMapList = std::vector<std::pair<storage::v3::PropertyId, Expression *>>;
 cpp<#
 
 (lcp:define-struct node-creation-info ()
   ((symbol "Symbol")
-   (labels "std::vector<storage::LabelId>")
+   (labels "std::vector<storage::v3::LabelId>")
    (properties "std::variant<PropertiesMapList, ParameterLookup *>"
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
@@ -400,15 +400,15 @@ cpp<#
   NodeCreationInfo() = default;
 
   NodeCreationInfo(
-      Symbol symbol, std::vector<storage::LabelId> labels,
+      Symbol symbol, std::vector<storage::v3::LabelId> labels,
       std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+  NodeCreationInfo(Symbol symbol, std::vector<storage::v3::LabelId> labels,
                     PropertiesMapList properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup* properties)
+  NodeCreationInfo(Symbol symbol, std::vector<storage::v3::LabelId> labels, ParameterLookup* properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
   cpp<#))
 
@@ -479,7 +479,7 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
                :clone #'clone-variant-properties)
-   (edge-type "::storage::EdgeTypeId")
+   (edge-type "::storage::v3::EdgeTypeId")
    (direction "::EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
@@ -489,15 +489,15 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
     EdgeCreationInfo() = default;
 
     EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
-      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+      storage::v3::EdgeTypeId edge_type, EdgeAtom::Direction direction)
     : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
     EdgeCreationInfo(Symbol symbol, PropertiesMapList properties,
-      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+      storage::v3::EdgeTypeId edge_type, EdgeAtom::Direction direction)
     : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
     EdgeCreationInfo(Symbol symbol, ParameterLookup* properties,
-      storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+      storage::v3::EdgeTypeId edge_type, EdgeAtom::Direction direction)
     : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
   cpp<#))
 
@@ -596,13 +596,13 @@ chained in cases when longer paths need creating.
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
    (output-symbol "Symbol" :scope :public)
-   (view "::storage::View" :scope :public
+   (view "::storage::v3::View" :scope :public
          :documentation
          "Controls which graph state is used to produce vertices.
 
-If @c storage::View::OLD, @c ScanAll will produce vertices visible in the
+If @c storage::v3::View::OLD, @c ScanAll will produce vertices visible in the
 previous graph state, before modifications done by current transaction &
-command. With @c storage::View::NEW, all vertices will be produced the current
+command. With @c storage::v3::View::NEW, all vertices will be produced the current
 transaction sees along with their modifications."))
 
   (:documentation
@@ -624,7 +624,7 @@ with a constructor argument.
    #>cpp
    ScanAll() {}
    ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-           storage::View view = storage::View::OLD);
+           storage::v3::View view = storage::v3::View::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -639,7 +639,7 @@ with a constructor argument.
   (:clone))
 
 (lcp:define-class scan-all-by-label (scan-all)
-  ((label "::storage::LabelId" :scope :public))
+  ((label "::storage::v3::LabelId" :scope :public))
   (:documentation
    "Behaves like @c ScanAll, but this operator produces only vertices with
 given label.
@@ -651,8 +651,8 @@ given label.
    #>cpp
    ScanAllByLabel() {}
    ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
-                  Symbol output_symbol, storage::LabelId label,
-                  storage::View view = storage::View::OLD);
+                  Symbol output_symbol, storage::v3::LabelId label,
+                  storage::v3::View view = storage::v3::View::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
@@ -717,8 +717,8 @@ given label.
   cpp<#)
 
 (lcp:define-class scan-all-by-label-property-range (scan-all)
-  ((label "::storage::LabelId" :scope :public)
-   (property "::storage::PropertyId" :scope :public)
+  ((label "::storage::v3::LabelId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
    (property-name "std::string" :scope :public)
    (lower-bound "std::optional<Bound>" :scope :public
                 :slk-save #'slk-save-optional-bound
@@ -752,15 +752,15 @@ property value which is inside a range (inclusive or exlusive).
     * @param property Property from which the value will be looked up from.
     * @param lower_bound Optional lower @c Bound.
     * @param upper_bound Optional upper @c Bound.
-    * @param view storage::View used when obtaining vertices.
+    * @param view storage::v3::View used when obtaining vertices.
     */
    ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                               Symbol output_symbol, storage::LabelId label,
-                               storage::PropertyId property,
+                               Symbol output_symbol, storage::v3::LabelId label,
+                               storage::v3::PropertyId property,
                                const std::string &property_name,
                                std::optional<Bound> lower_bound,
                                std::optional<Bound> upper_bound,
-                               storage::View view = storage::View::OLD);
+                               storage::v3::View view = storage::v3::View::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -769,8 +769,8 @@ property value which is inside a range (inclusive or exlusive).
   (:clone))
 
 (lcp:define-class scan-all-by-label-property-value (scan-all)
-  ((label "::storage::LabelId" :scope :public)
-   (property "::storage::PropertyId" :scope :public)
+  ((label "::storage::v3::LabelId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
    (property-name "std::string" :scope :public)
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -793,14 +793,14 @@ property value.
     * @param label Label which the vertex must have.
     * @param property Property from which the value will be looked up from.
     * @param expression Expression producing the value of the vertex property.
-    * @param view storage::View used when obtaining vertices.
+    * @param view storage::v3::View used when obtaining vertices.
     */
    ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                               Symbol output_symbol, storage::LabelId label,
-                               storage::PropertyId property,
+                               Symbol output_symbol, storage::v3::LabelId label,
+                               storage::v3::PropertyId property,
                                const std::string &property_name,
                                Expression *expression,
-                               storage::View view = storage::View::OLD);
+                               storage::v3::View view = storage::v3::View::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -809,8 +809,8 @@ property value.
   (:clone))
 
 (lcp:define-class scan-all-by-label-property (scan-all)
-  ((label "::storage::LabelId" :scope :public)
-   (property "::storage::PropertyId" :scope :public)
+  ((label "::storage::v3::LabelId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
    (property-name "std::string" :scope :public)
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
@@ -827,10 +827,10 @@ given label and property.
    #>cpp
    ScanAllByLabelProperty() {}
    ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input,
-                          Symbol output_symbol, storage::LabelId label,
-                          storage::PropertyId property,
+                          Symbol output_symbol, storage::v3::LabelId label,
+                          storage::v3::PropertyId property,
                           const std::string &property_name,
-                          storage::View view = storage::View::OLD);
+                          storage::v3::View view = storage::v3::View::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    cpp<#)
@@ -850,7 +850,7 @@ given label and property.
     ScanAllById() {}
     ScanAllById(const std::shared_ptr<LogicalOperator> &input,
                 Symbol output_symbol, Expression *expression,
-                storage::View view = storage::View::OLD);
+                storage::v3::View view = storage::v3::View::OLD);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -870,8 +870,8 @@ This is where a TypedValue containing a list of expanded edges will be stored.")
    (direction "::EdgeAtom::Direction"
               :documentation "EdgeAtom::Direction determining the direction of edge
 expansion. The direction is relative to the starting vertex for each expansion.")
-   (edge-types "std::vector<storage::EdgeTypeId>"
-               :documentation "storage::EdgeTypeId specifying which edges we want
+   (edge-types "std::vector<storage::v3::EdgeTypeId>"
+               :documentation "storage::v3::EdgeTypeId specifying which edges we want
 to expand. If empty, all edges are valid. If not empty, only edges with one of
 the given types are valid.")
    (existing-node :bool :documentation "If the given node atom refer to a symbol
@@ -884,7 +884,7 @@ that has already been expanded and should be just validated in the frame."))
           :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (common "ExpandCommon" :scope :public)
-   (view "::storage::View" :scope :public
+   (view "::storage::v3::View" :scope :public
          :documentation
          "State from which the input node should get expanded."))
   (:documentation
@@ -912,8 +912,8 @@ pulled.")
     */
    Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
           Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
-          const std::vector<storage::EdgeTypeId> &edge_types, bool existing_node,
-          storage::View view);
+          const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node,
+          storage::v3::View view);
 
    Expand() {}
 
@@ -936,10 +936,10 @@ pulled.")
 
     private:
      using InEdgeT = std::remove_reference_t<decltype(
-         *std::declval<VertexAccessor>().InEdges(storage::View::OLD))>;
+         *std::declval<VertexAccessor>().InEdges(storage::v3::View::OLD))>;
      using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
      using OutEdgeT = std::remove_reference_t<decltype(
-         *std::declval<VertexAccessor>().OutEdges(storage::View::OLD))>;
+         *std::declval<VertexAccessor>().OutEdges(storage::v3::View::OLD))>;
      using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
 
      const Expand &self_;
@@ -1059,7 +1059,7 @@ pulled.")
     ExpandVariable(const std::shared_ptr<LogicalOperator> &input,
                    Symbol input_symbol, Symbol node_symbol, Symbol edge_symbol,
                    EdgeAtom::Type type, EdgeAtom::Direction direction,
-                   const std::vector<storage::EdgeTypeId> &edge_types,
+                   const std::vector<storage::v3::EdgeTypeId> &edge_types,
                    bool is_reverse, Expression *lower_bound,
                    Expression *upper_bound, bool existing_node,
                    ExpansionLambda filter_lambda,
@@ -1265,7 +1265,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (property "::storage::PropertyId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup"))
@@ -1282,7 +1282,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    SetProperty() {}
 
    SetProperty(const std::shared_ptr<LogicalOperator> &input,
-               storage::PropertyId property, PropertyLookup *lhs,
+               storage::v3::PropertyId property, PropertyLookup *lhs,
                Expression *rhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1375,7 +1375,7 @@ that the old properties are discarded and replaced with new ones.")
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
-   (labels "std::vector<storage::LabelId>" :scope :public))
+   (labels "std::vector<storage::v3::LabelId>" :scope :public))
   (:documentation
    "Logical operator for setting an arbitrary number of labels on a Vertex.
 
@@ -1385,7 +1385,7 @@ It does NOT remove labels that are already set on that Vertex.")
    SetLabels() {}
 
    SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-             const std::vector<storage::LabelId> &labels);
+             const std::vector<storage::v3::LabelId> &labels);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1417,7 +1417,7 @@ It does NOT remove labels that are already set on that Vertex.")
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
-   (property "::storage::PropertyId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup")))
@@ -1428,7 +1428,7 @@ It does NOT remove labels that are already set on that Vertex.")
    RemoveProperty() {}
 
    RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
-                  storage::PropertyId property, PropertyLookup *lhs);
+                  storage::v3::PropertyId property, PropertyLookup *lhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1461,7 +1461,7 @@ It does NOT remove labels that are already set on that Vertex.")
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
-   (labels "std::vector<storage::LabelId>" :scope :public))
+   (labels "std::vector<storage::v3::LabelId>" :scope :public))
   (:documentation
    "Logical operator for removing an arbitrary number of labels on a Vertex.
 
@@ -1471,7 +1471,7 @@ If a label does not exist on a Vertex, nothing happens.")
    RemoveLabels() {}
 
    RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
-                Symbol input_symbol, const std::vector<storage::LabelId> &labels);
+                Symbol input_symbol, const std::vector<storage::v3::LabelId> &labels);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;

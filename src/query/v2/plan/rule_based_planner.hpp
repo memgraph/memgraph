@@ -65,7 +65,7 @@ struct MatchContext {
   // to during generation.
   std::unordered_set<Symbol> &bound_symbols;
   // Determines whether the match should see the new graph state or not.
-  storage::View view = storage::View::OLD;
+  storage::v3::View view = storage::v3::View::OLD;
   // All the newly established symbols in match.
   std::vector<Symbol> new_symbols{};
 };
@@ -213,7 +213,7 @@ class RuleBasedPlanner {
           }
           // TODO: When we add support for write and eager procedures, we will
           // need to plan this operator with Accumulate and pass in
-          // storage::View::NEW.
+          // storage::v3::View::NEW.
           input_op = std::make_unique<plan::CallProcedure>(
               std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
               result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
@@ -239,11 +239,11 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  storage::LabelId GetLabel(LabelIx label) { return context_->db->NameToLabel(label.name); }
+  storage::v3::LabelId GetLabel(LabelIx label) { return context_->db->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return context_->db->NameToProperty(prop.name); }
+  storage::v3::PropertyId GetProperty(PropertyIx prop) { return context_->db->NameToProperty(prop.name); }
 
-  storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
+  storage::v3::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
   std::unique_ptr<LogicalOperator> GenCreate(Create &create, std::unique_ptr<LogicalOperator> input_op,
                                              const SymbolTable &symbol_table,
@@ -260,7 +260,7 @@ class RuleBasedPlanner {
                                                        std::unordered_set<Symbol> &bound_symbols) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
-      std::vector<storage::LabelId> labels;
+      std::vector<storage::v3::LabelId> labels;
       labels.reserve(node.labels_.size());
       for (const auto &label : node.labels_) {
         labels.push_back(GetLabel(label));
@@ -354,7 +354,7 @@ class RuleBasedPlanner {
       return std::make_unique<plan::SetProperties>(std::move(input_op), input_symbol, set->expression_, op);
     } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
-      std::vector<storage::LabelId> labels;
+      std::vector<storage::v3::LabelId> labels;
       labels.reserve(set->labels_.size());
       for (const auto &label : set->labels_) {
         labels.push_back(GetLabel(label));
@@ -365,7 +365,7 @@ class RuleBasedPlanner {
                                                     rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      std::vector<storage::LabelId> labels;
+      std::vector<storage::v3::LabelId> labels;
       labels.reserve(rem->labels_.size());
       for (const auto &label : rem->labels_) {
         labels.push_back(GetLabel(label));
@@ -409,7 +409,7 @@ class RuleBasedPlanner {
         auto existing_node = utils::Contains(bound_symbols, node_symbol);
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
         MG_ASSERT(!utils::Contains(bound_symbols, edge_symbol), "Existing edges are not supported");
-        std::vector<storage::EdgeTypeId> edge_types;
+        std::vector<storage::v3::EdgeTypeId> edge_types;
         edge_types.reserve(edge->edge_types_.size());
         for (const auto &type : edge->edge_types_) {
           edge_types.push_back(GetEdgeType(type));
@@ -460,8 +460,8 @@ class RuleBasedPlanner {
           }
 
           // TODO: Pass weight lambda.
-          MG_ASSERT(match_context.view == storage::View::OLD,
-                    "ExpandVariable should only be planned with storage::View::OLD");
+          MG_ASSERT(match_context.view == storage::v3::View::OLD,
+                    "ExpandVariable should only be planned with storage::v3::View::OLD");
           last_op = std::make_unique<ExpandVariable>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
                                                      edge->type_, expansion.direction, edge_types, expansion.is_flipped,
                                                      edge->lower_bound_, edge->upper_bound_, existing_node,
@@ -514,7 +514,7 @@ class RuleBasedPlanner {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
-    MatchContext match_ctx{matching, *context_->symbol_table, bound_symbols_copy, storage::View::NEW};
+    MatchContext match_ctx{matching, *context_->symbol_table, bound_symbols_copy, storage::v3::View::NEW};
 
     std::vector<Symbol> bound_symbols(context_->bound_symbols.begin(), context_->bound_symbols.end());
 

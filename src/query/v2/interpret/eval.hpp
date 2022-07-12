@@ -34,7 +34,7 @@ namespace memgraph::query::v2 {
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view)
+                      storage::v3::View view)
       : frame_(frame), symbol_table_(&symbol_table), ctx_(&ctx), dba_(dba), view_(view) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
@@ -379,7 +379,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+          if (has_label.HasError() && has_label.GetError() == storage::v3::Error::NONEXISTENT_OBJECT) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
@@ -387,17 +387,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // we simulate that behavior.
             // TODO (mferencevic, teon.banek): Remove once MERGE is
             // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+            has_label = vertex.HasLabel(storage::v3::View::NEW, GetLabel(label));
           }
           if (has_label.HasError()) {
             switch (has_label.GetError()) {
-              case storage::Error::DELETED_OBJECT:
+              case storage::v3::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
-              case storage::Error::NONEXISTENT_OBJECT:
+              case storage::v3::Error::NONEXISTENT_OBJECT:
                 throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case storage::Error::SERIALIZATION_ERROR:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
+              case storage::v3::Error::SERIALIZATION_ERROR:
+              case storage::v3::Error::VERTEX_HAS_EDGES:
+              case storage::v3::Error::PROPERTIES_DISABLED:
                 throw QueryRuntimeException("Unexpected error when accessing labels.");
             }
           }
@@ -689,26 +689,26 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
  private:
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+  storage::v3::PropertyValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::v3::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(storage::v3::View::NEW, ctx_->properties[prop.ix]);
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
+        case storage::v3::Error::NONEXISTENT_OBJECT:
           throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
+        case storage::v3::Error::SERIALIZATION_ERROR:
+        case storage::v3::Error::VERTEX_HAS_EDGES:
+        case storage::v3::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when getting a property.");
       }
     }
@@ -716,9 +716,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+  storage::v3::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::v3::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -729,27 +729,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
+        case storage::v3::Error::NONEXISTENT_OBJECT:
           throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
+        case storage::v3::Error::SERIALIZATION_ERROR:
+        case storage::v3::Error::VERTEX_HAS_EDGES:
+        case storage::v3::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when getting a property.");
       }
     }
     return *maybe_prop;
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
+  storage::v3::LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
-  storage::View view_;
+  storage::v3::View view_;
 };
 
 /// A helper function for evaluating an expression that's an int.

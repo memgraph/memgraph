@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "storage/v2/view.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query::v2 {
@@ -35,7 +35,7 @@ struct FunctionContext {
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
-  storage::View view;
+  storage::v3::View view;
 };
 
 /// Return the function implementation with the given name.

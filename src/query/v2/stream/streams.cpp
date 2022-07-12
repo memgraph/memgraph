@@ -47,7 +47,7 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::map<std::string, storage::v3::PropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -83,7 +83,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
 
 template <typename TMessage>
 void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
-                              mgp_result &result, storage::Storage::Accessor &storage_accessor,
+                              mgp_result &result, storage::v3::storage::v3::Accessor &storage_accessor,
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
@@ -97,7 +97,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
     std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
                    [](const TMessage &message) { return mgp_message{message}; });
-    mgp_graph graph{&db_accessor, storage::View::OLD, nullptr};
+    mgp_graph graph{&db_accessor, storage::v3::View::OLD, nullptr};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
@@ -501,7 +501,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       interpreter->Abort();
     }};
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static std::map<std::string, storage::v3::PropertyValue> empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -509,7 +509,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
+          storage::v3::PropertyValue params_prop{params_value};
 
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);

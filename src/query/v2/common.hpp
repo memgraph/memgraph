@@ -22,9 +22,9 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/frontend/semantic/symbol.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2 {
@@ -76,28 +76,28 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
 }
 
 template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
-                                           const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
+concept AccessorWithSetProperty = requires(T accessor, const storage::v3::PropertyId key,
+                                           const storage::v3::PropertyValue new_value) {
+  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::Result<storage::v3::PropertyValue>>;
 };
 
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+storage::v3::PropertyValue PropsSetChecked(T *record, const storage::v3::PropertyId &key, const TypedValue &value) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
+    auto maybe_old_value = record->SetProperty(key, storage::v3::PropertyValue(value));
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
+        case storage::v3::Error::SERIALIZATION_ERROR:
           throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
+        case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to set properties on a deleted object.");
-        case storage::Error::PROPERTIES_DISABLED:
+        case storage::v3::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::NONEXISTENT_OBJECT:
+        case storage::v3::Error::VERTEX_HAS_EDGES:
+        case storage::v3::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     }

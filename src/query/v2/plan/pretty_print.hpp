@@ -131,15 +131,15 @@ nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
 
 nlohmann::json ToJson(const Symbol &symbol);
 
-nlohmann::json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::EdgeTypeId edge_type, const DbAccessor &dba);
 
-nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::LabelId label, const DbAccessor &dba);
 
-nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::PropertyId property, const DbAccessor &dba);
 
 nlohmann::json ToJson(NamedExpression *nexpr);
 
-nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
+nlohmann::json ToJson(const std::vector<std::pair<storage::v3::PropertyId, Expression *>> &properties,
                       const DbAccessor &dba);
 
 nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);

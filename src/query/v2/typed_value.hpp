@@ -171,8 +171,8 @@ class TypedValue {
     duration_v = value;
   }
 
-  // conversion function to storage::PropertyValue
-  explicit operator storage::PropertyValue() const;
+  // conversion function to storage::v3::PropertyValue
+  explicit operator storage::v3::PropertyValue() const;
 
   // copy constructors for non-primitive types
   explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -276,10 +276,10 @@ class TypedValue {
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::v3::PropertyValue &value);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::v3::PropertyValue &value, utils::MemoryResource *memory);
 
   // move constructors for non-primitive types
 
@@ -406,13 +406,13 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::v3::PropertyValue &&other);
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::v3::PropertyValue &&other, utils::MemoryResource *memory);
 
   // copy assignment operators
   TypedValue &operator=(const char *);
@@ -497,7 +497,7 @@ class TypedValue {
   bool IsNumeric() const;
 
   /** Convenience function for checking if this TypedValue can be converted into
-   * storage::PropertyValue */
+   * storage::v3::PropertyValue */
   bool IsPropertyValue() const;
 
   utils::MemoryResource *GetMemoryResource() const { return memory_; }

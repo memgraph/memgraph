@@ -235,18 +235,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // converts an optional ScanAll range bound into a property value
   // if the bound is present and is a constant expression convertible to
   // a property value. otherwise returns nullopt
-  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
+  std::optional<utils::Bound<storage::v3::PropertyValue>> BoundToPropertyValue(
       std::optional<ScanAllByLabelPropertyRange::Bound> bound) {
     if (bound) {
       auto property_value = ConstPropertyValue(bound->value());
-      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+      if (property_value) return utils::Bound<storage::v3::PropertyValue>(*property_value, bound->type());
     }
     return std::nullopt;
   }
 
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
-  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
+  std::optional<storage::v3::PropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {

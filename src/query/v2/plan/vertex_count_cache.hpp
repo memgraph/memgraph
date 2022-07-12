@@ -15,8 +15,8 @@
 #include <optional>
 
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
 
@@ -38,20 +38,21 @@ class VertexCountCache {
     return *vertices_count_;
   }
 
-  int64_t VerticesCount(storage::LabelId label) {
+  int64_t VerticesCount(storage::v3::LabelId label) {
     if (label_vertex_count_.find(label) == label_vertex_count_.end())
       label_vertex_count_[label] = db_->VerticesCount(label);
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) {
+  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property) {
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end())
       label_property_vertex_count_[key] = db_->VerticesCount(label, property);
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
+  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
+                        const storage::v3::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
     // TODO: Why do we even need TypedValue in this whole file?
@@ -61,9 +62,9 @@ class VertexCountCache {
     return value_vertex_count.at(tv_value);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
+                        const std::optional<utils::Bound<storage::v3::PropertyValue>> &lower,
+                        const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) {
     auto label_prop = std::make_pair(label, property);
     auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
@@ -72,23 +73,23 @@ class VertexCountCache {
     return bounds_vertex_count.at(bounds);
   }
 
-  bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
+  bool LabelIndexExists(storage::v3::LabelId label) { return db_->LabelIndexExists(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, storage::PropertyId property) {
+  bool LabelPropertyIndexExists(storage::v3::LabelId label, storage::v3::PropertyId property) {
     return db_->LabelPropertyIndexExists(label, property);
   }
 
  private:
-  typedef std::pair<storage::LabelId, storage::PropertyId> LabelPropertyKey;
+  typedef std::pair<storage::v3::LabelId, storage::v3::PropertyId> LabelPropertyKey;
 
   struct LabelPropertyHash {
     size_t operator()(const LabelPropertyKey &key) const {
-      return utils::HashCombine<storage::LabelId, storage::PropertyId>{}(key.first, key.second);
+      return utils::HashCombine<storage::v3::LabelId, storage::v3::PropertyId>{}(key.first, key.second);
     }
   };
 
-  typedef std::pair<std::optional<utils::Bound<storage::PropertyValue>>,
-                    std::optional<utils::Bound<storage::PropertyValue>>>
+  typedef std::pair<std::optional<utils::Bound<storage::v3::PropertyValue>>,
+                    std::optional<utils::Bound<storage::v3::PropertyValue>>>
       BoundsKey;
 
   struct BoundsHash {
@@ -120,7 +121,7 @@ class VertexCountCache {
 
   TDbAccessor *db_;
   std::optional<int64_t> vertices_count_;
-  std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
+  std::unordered_map<storage::v3::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
   std::unordered_map<
       LabelPropertyKey,

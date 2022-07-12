@@ -25,8 +25,8 @@
 #include "query/v2/exceptions.hpp"
 #include "query/v2/stream.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -70,41 +70,41 @@ void DumpPreciseDouble(std::ostream *os, double value) {
 }
 
 namespace {
-void DumpDate(std::ostream &os, const storage::TemporalData &value) {
+void DumpDate(std::ostream &os, const storage::v3::TemporalData &value) {
   utils::Date date(value.microseconds);
   os << "DATE(\"" << date << "\")";
 }
 
-void DumpLocalTime(std::ostream &os, const storage::TemporalData &value) {
+void DumpLocalTime(std::ostream &os, const storage::v3::TemporalData &value) {
   utils::LocalTime lt(value.microseconds);
   os << "LOCALTIME(\"" << lt << "\")";
 }
 
-void DumpLocalDateTime(std::ostream &os, const storage::TemporalData &value) {
+void DumpLocalDateTime(std::ostream &os, const storage::v3::TemporalData &value) {
   utils::LocalDateTime ldt(value.microseconds);
   os << "LOCALDATETIME(\"" << ldt << "\")";
 }
 
-void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
+void DumpDuration(std::ostream &os, const storage::v3::TemporalData &value) {
   utils::Duration dur(value.microseconds);
   os << "DURATION(\"" << dur << "\")";
 }
 
-void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
+void DumpTemporalData(std::ostream &os, const storage::v3::TemporalData &value) {
   switch (value.type) {
-    case storage::TemporalType::Date: {
+    case storage::v3::TemporalType::Date: {
       DumpDate(os, value);
       return;
     }
-    case storage::TemporalType::LocalTime: {
+    case storage::v3::TemporalType::LocalTime: {
       DumpLocalTime(os, value);
       return;
     }
-    case storage::TemporalType::LocalDateTime: {
+    case storage::v3::TemporalType::LocalDateTime: {
       DumpLocalDateTime(os, value);
       return;
     }
-    case storage::TemporalType::Duration: {
+    case storage::v3::TemporalType::Duration: {
       DumpDuration(os, value);
       return;
     }
@@ -112,31 +112,31 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
 }
 }  // namespace
 
-void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
+void DumpPropertyValue(std::ostream *os, const storage::v3::PropertyValue &value) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
+    case storage::v3::PropertyValue::Type::Null:
       *os << "Null";
       return;
-    case storage::PropertyValue::Type::Bool:
+    case storage::v3::PropertyValue::Type::Bool:
       *os << (value.ValueBool() ? "true" : "false");
       return;
-    case storage::PropertyValue::Type::String:
+    case storage::v3::PropertyValue::Type::String:
       *os << utils::Escape(value.ValueString());
       return;
-    case storage::PropertyValue::Type::Int:
+    case storage::v3::PropertyValue::Type::Int:
       *os << value.ValueInt();
       return;
-    case storage::PropertyValue::Type::Double:
+    case storage::v3::PropertyValue::Type::Double:
       DumpPreciseDouble(os, value.ValueDouble());
       return;
-    case storage::PropertyValue::Type::List: {
+    case storage::v3::PropertyValue::Type::List: {
       *os << "[";
       const auto &list = value.ValueList();
       utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) { DumpPropertyValue(&os, item); });
       *os << "]";
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::v3::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();
       utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
@@ -146,7 +146,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
       *os << "}";
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case storage::v3::PropertyValue::Type::TemporalData: {
       DumpTemporalData(*os, value.ValueTemporalData());
       return;
     }
@@ -154,7 +154,7 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
 }
 
 void DumpProperties(std::ostream *os, query::DbAccessor *dba,
-                    const std::map<storage::PropertyId, storage::PropertyValue> &store,
+                    const std::map<storage::v3::PropertyId, storage::v3::PropertyValue> &store,
                     std::optional<int64_t> property_id = std::nullopt) {
   *os << "{";
   if (property_id) {
@@ -171,16 +171,16 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
 void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
-  auto maybe_labels = vertex.Labels(storage::View::OLD);
+  auto maybe_labels = vertex.Labels(storage::v3::View::OLD);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
-      case storage::Error::DELETED_OBJECT:
+      case storage::v3::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
+      case storage::v3::Error::NONEXISTENT_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
+      case storage::v3::Error::SERIALIZATION_ERROR:
+      case storage::v3::Error::VERTEX_HAS_EDGES:
+      case storage::v3::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting labels.");
     }
   }
@@ -188,16 +188,16 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
     *os << ":" << EscapeName(dba->LabelToName(label));
   }
   *os << " ";
-  auto maybe_props = vertex.Properties(storage::View::OLD);
+  auto maybe_props = vertex.Properties(storage::v3::View::OLD);
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
-      case storage::Error::DELETED_OBJECT:
+      case storage::v3::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
-      case storage::Error::NONEXISTENT_OBJECT:
+      case storage::v3::Error::NONEXISTENT_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
+      case storage::v3::Error::SERIALIZATION_ERROR:
+      case storage::v3::Error::VERTEX_HAS_EDGES:
+      case storage::v3::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
@@ -215,16 +215,16 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "v." << kInternalPropertyId << " = " << edge.To().CypherId() << " ";
   *os << "CREATE (u)-[";
   *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
-  auto maybe_props = edge.Properties(storage::View::OLD);
+  auto maybe_props = edge.Properties(storage::v3::View::OLD);
   if (maybe_props.HasError()) {
     switch (maybe_props.GetError()) {
-      case storage::Error::DELETED_OBJECT:
+      case storage::v3::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
-      case storage::Error::NONEXISTENT_OBJECT:
+      case storage::v3::Error::NONEXISTENT_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from an edge that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
+      case storage::v3::Error::SERIALIZATION_ERROR:
+      case storage::v3::Error::VERTEX_HAS_EDGES:
+      case storage::v3::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
@@ -235,24 +235,24 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "]->(v);";
 }
 
-void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::LabelId label) {
+void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::v3::LabelId label) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                            storage::PropertyId property) {
+void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::v3::LabelId label,
+                            storage::v3::PropertyId property) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
       << ");";
 }
 
-void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                             storage::PropertyId property) {
+void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::v3::LabelId label,
+                             storage::v3::PropertyId property) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
       << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
-void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                          const std::set<storage::PropertyId> &properties) {
+void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::v3::LabelId label,
+                          const std::set<storage::v3::PropertyId> &properties) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT ";
   utils::PrintIterable(*os, properties, ", ", [&dba](auto &stream, const auto &property) {
     stream << "u." << EscapeName(dba->PropertyToName(property));
@@ -264,7 +264,7 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
 
 PullPlanDump::PullPlanDump(DbAccessor *dba)
     : dba_(dba),
-      vertices_iterable_(dba->Vertices(storage::View::OLD)),
+      vertices_iterable_(dba->Vertices(storage::v3::View::OLD)),
       pull_chunks_{// Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
@@ -482,7 +482,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
       // If we have a saved iterable from a previous pull
       // we need to use the same iterable
       if (!maybe_edge_iterable) {
-        maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
+        maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::v3::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
       MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");

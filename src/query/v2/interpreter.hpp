@@ -30,7 +30,7 @@
 #include "query/v2/stream/streams.hpp"
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/isolation_level.hpp"
+#include "storage/v3/isolation_level.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -168,10 +168,10 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::v3::Storage *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory);
 
-  storage::Storage *db;
+  storage::v3::Storage *db;
 
   // ANTLR has singleton instance that is shared between threads. It is
   // protected by locks inside of ANTLR. Unfortunately, they are not protected
@@ -224,7 +224,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::PropertyValue> &params,
+  PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::v3::PropertyValue> &params,
                         const std::string *username);
 
   /**
@@ -275,8 +275,8 @@ class Interpreter final {
 
   void RollbackTransaction();
 
-  void SetNextTransactionIsolationLevel(storage::IsolationLevel isolation_level);
-  void SetSessionIsolationLevel(storage::IsolationLevel isolation_level);
+  void SetNextTransactionIsolationLevel(storage::v3::IsolationLevel isolation_level);
+  void SetSessionIsolationLevel(storage::v3::IsolationLevel isolation_level);
 
   /**
    * Abort the current multicommand transaction.
@@ -325,20 +325,20 @@ class Interpreter final {
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::Storage::Accessor> db_accessor_;
+  std::unique_ptr<storage::v3::storage::v3::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
-  std::optional<storage::IsolationLevel> interpreter_isolation_level;
-  std::optional<storage::IsolationLevel> next_transaction_isolation_level;
+  std::optional<storage::v3::IsolationLevel> interpreter_isolation_level;
+  std::optional<storage::v3::IsolationLevel> next_transaction_isolation_level;
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper);
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
-  std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
+  std::optional<storage::v3::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
     return std::count_if(query_executions_.begin(), query_executions_.end(),

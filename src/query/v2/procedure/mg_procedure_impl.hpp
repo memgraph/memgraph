@@ -26,7 +26,7 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/procedure/cypher_type_ptr.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
@@ -77,9 +77,9 @@ struct mgp_value {
   /// @throw std::bad_alloc
   mgp_value(const memgraph::query::v2::TypedValue &, mgp_graph *, memgraph::utils::MemoryResource *);
 
-  /// Construct by copying memgraph::storage::PropertyValue using memgraph::utils::MemoryResource.
+  /// Construct by copying memgraph::storage::v3::PropertyValue using memgraph::utils::MemoryResource.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::storage::PropertyValue &, memgraph::utils::MemoryResource *);
+  mgp_value(const memgraph::storage::v3::PropertyValue &, memgraph::utils::MemoryResource *);
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;
@@ -572,17 +572,17 @@ struct mgp_func_result {
 
 struct mgp_graph {
   memgraph::query::v2::DbAccessor *impl;
-  memgraph::storage::View view;
+  memgraph::storage::v3::View view;
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::v2::ExecutionContext *ctx;
 
-  static mgp_graph WritableGraph(memgraph::query::v2::DbAccessor &acc, memgraph::storage::View view,
+  static mgp_graph WritableGraph(memgraph::query::v2::DbAccessor &acc, memgraph::storage::v3::View view,
                                  memgraph::query::v2::ExecutionContext &ctx) {
     return mgp_graph{&acc, view, &ctx};
   }
 
-  static mgp_graph NonWritableGraph(memgraph::query::v2::DbAccessor &acc, memgraph::storage::View view) {
+  static mgp_graph NonWritableGraph(memgraph::query::v2::DbAccessor &acc, memgraph::storage::v3::View view) {
     return mgp_graph{&acc, view, nullptr};
   }
 };
@@ -590,7 +590,7 @@ struct mgp_graph {
 // Prevents user to use ExecutionContext in writable callables
 struct mgp_func_context {
   memgraph::query::v2::DbAccessor *impl;
-  memgraph::storage::View view;
+  memgraph::storage::v3::View view;
 };
 struct mgp_properties_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_properties_iterator>;

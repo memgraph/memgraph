@@ -21,7 +21,7 @@
 #include "query/v2/interpret/frame.hpp"
 #include "query/v2/serialization/property_value.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
 
@@ -151,7 +151,7 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 }  // namespace
 
 Trigger::Trigger(std::string name, const std::string &query,
-                 const std::map<std::string, storage::PropertyValue> &user_parameters,
+                 const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
                  std::optional<std::string> owner, const query::AuthChecker *auth_checker)
@@ -333,7 +333,7 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
 }
 
 void TriggerStore::AddTrigger(std::string name, const std::string &query,
-                              const std::map<std::string, storage::PropertyValue> &user_parameters,
+                              const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,

@@ -101,7 +101,7 @@ struct PlanCacheEntry {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
+  std::map<std::string, storage::v3::PropertyValue> user_parameters;
   Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
@@ -110,7 +110,7 @@ struct ParsedQuery {
   bool is_cacheable{true};
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::v3::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
                        const InterpreterConfig::Query &query_config);
 

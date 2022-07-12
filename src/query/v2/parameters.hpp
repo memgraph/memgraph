@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
 
 /**
@@ -32,7 +32,7 @@ struct Parameters {
    * @param position Token position in query of value.
    * @param value
    */
-  void Add(int position, const storage::PropertyValue &value) { storage_.emplace_back(position, value); }
+  void Add(int position, const storage::v3::PropertyValue &value) { storage_.emplace_back(position, value); }
 
   /**
    *  Returns the value found for the given token position.
@@ -40,7 +40,7 @@ struct Parameters {
    *  @param position Token position in query of value.
    *  @return Value for the given token position.
    */
-  const storage::PropertyValue &AtTokenPosition(int position) const {
+  const storage::v3::PropertyValue &AtTokenPosition(int position) const {
     auto found = std::find_if(storage_.begin(), storage_.end(), [&](const auto &a) { return a.first == position; });
     MG_ASSERT(found != storage_.end(), "Token position must be present in container");
     return found->second;
@@ -53,7 +53,7 @@ struct Parameters {
    * @param position Which stripped param is sought.
    * @return Token position and value for sought param.
    */
-  const std::pair<int, storage::PropertyValue> &At(int position) const {
+  const std::pair<int, storage::v3::PropertyValue> &At(int position) const {
     MG_ASSERT(position < static_cast<int>(storage_.size()), "Invalid position");
     return storage_[position];
   }
@@ -65,7 +65,7 @@ struct Parameters {
   auto end() const { return storage_.end(); }
 
  private:
-  std::vector<std::pair<int, storage::PropertyValue>> storage_;
+  std::vector<std::pair<int, storage::v3::PropertyValue>> storage_;
 };
 
 }  // namespace memgraph::query::v2

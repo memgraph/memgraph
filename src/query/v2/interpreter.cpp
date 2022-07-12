@@ -43,7 +43,7 @@
 #include "query/v2/stream/common.hpp"
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -127,7 +127,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
 
 class ReplQueryHandler final : public query::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::Storage *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::v3::Storage *db) : db_(db) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -150,9 +150,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
     switch (db_->GetReplicationRole()) {
-      case storage::ReplicationRole::MAIN:
+      case storage::v3::ReplicationRole::MAIN:
         return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::ReplicationRole::REPLICA:
+      case storage::v3::ReplicationRole::REPLICA:
         return ReplicationQuery::ReplicationRole::REPLICA;
     }
     throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
@@ -162,19 +162,19 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   void RegisterReplica(const std::string &name, const std::string &socket_address,
                        const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
                        const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
     }
 
-    storage::replication::ReplicationMode repl_mode;
+    storage::v3::replication::ReplicationMode repl_mode;
     switch (sync_mode) {
       case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::replication::ReplicationMode::ASYNC;
+        repl_mode = storage::v3::replication::ReplicationMode::ASYNC;
         break;
       }
       case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::replication::ReplicationMode::SYNC;
+        repl_mode = storage::v3::replication::ReplicationMode::SYNC;
         break;
       }
     }
@@ -196,7 +196,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
       // replica can't unregister a replica
       throw QueryRuntimeException("Replica can't unregister a replica!");
     }
@@ -207,7 +207,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   using Replica = ReplicationQueryHandler::Replica;
   std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
+    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
       // replica can't show registered replicas (it shouldn't have any)
       throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
     }
@@ -221,10 +221,10 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       replica.name = repl_info.name;
       replica.socket_address = repl_info.endpoint.SocketAddress();
       switch (repl_info.mode) {
-        case storage::replication::ReplicationMode::SYNC:
+        case storage::v3::replication::ReplicationMode::SYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
           break;
-        case storage::replication::ReplicationMode::ASYNC:
+        case storage::v3::replication::ReplicationMode::ASYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }
@@ -237,16 +237,16 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           repl_info.timestamp_info.current_number_of_timestamp_behind_master;
 
       switch (repl_info.state) {
-        case storage::replication::ReplicaState::READY:
+        case storage::v3::replication::ReplicaState::READY:
           replica.state = ReplicationQuery::ReplicaState::READY;
           break;
-        case storage::replication::ReplicaState::REPLICATING:
+        case storage::v3::replication::ReplicaState::REPLICATING:
           replica.state = ReplicationQuery::ReplicaState::REPLICATING;
           break;
-        case storage::replication::ReplicaState::RECOVERY:
+        case storage::v3::replication::ReplicaState::RECOVERY:
           replica.state = ReplicationQuery::ReplicaState::RECOVERY;
           break;
-        case storage::replication::ReplicaState::INVALID:
+        case storage::v3::replication::ReplicaState::INVALID:
           replica.state = ReplicationQuery::ReplicaState::INVALID;
           break;
       }
@@ -259,7 +259,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   }
 
  private:
-  storage::Storage *db_;
+  storage::v3::Storage *db_;
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -276,7 +276,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -443,7 +443,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
 
   Callback callback;
   switch (repl_query->action_) {
@@ -684,7 +684,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
 
   Callback callback;
   switch (stream_query->action_) {
@@ -820,7 +820,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
 
   Callback callback;
   switch (setting_query->action_) {
@@ -1056,7 +1056,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::Storage *db, const InterpreterConfig config,
+InterpreterContext::InterpreterContext(storage::v3::Storage *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
     : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
 
@@ -1075,8 +1075,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ =
-          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::storage::v3::Accessor>(
+          interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
@@ -1137,7 +1137,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
@@ -1276,7 +1276,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto cypher_query_plan = CypherQueryToPlan(
@@ -1347,7 +1347,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
   auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
 
-  std::vector<storage::PropertyId> properties;
+  std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
@@ -1575,7 +1575,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 }
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
-                       const std::map<std::string, storage::PropertyValue> &user_parameters,
+                       const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
                        InterpreterContext *interpreter_context, DbAccessor *dba, std::optional<std::string> owner) {
   return {
       {},
@@ -1625,7 +1625,8 @@ Callback ShowTriggers(InterpreterContext *interpreter_context) {
 
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  DbAccessor *dba,
+                                  const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
                                   const std::string *username) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -1676,7 +1677,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
 PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                  std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
                                  DbAccessor *dba,
-                                 const std::map<std::string, storage::PropertyValue> & /*user_parameters*/,
+                                 const std::map<std::string, storage::v3::PropertyValue> & /*user_parameters*/,
                                  const std::string *username) {
   if (in_explicit_transaction) {
     throw StreamQueryInMulticommandTxException();
@@ -1707,11 +1708,11 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, const bool in_explici
 constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel isolation_level) noexcept {
   switch (isolation_level) {
     case IsolationLevelQuery::IsolationLevel::SNAPSHOT_ISOLATION:
-      return storage::IsolationLevel::SNAPSHOT_ISOLATION;
+      return storage::v3::IsolationLevel::SNAPSHOT_ISOLATION;
     case IsolationLevelQuery::IsolationLevel::READ_COMMITTED:
-      return storage::IsolationLevel::READ_COMMITTED;
+      return storage::v3::IsolationLevel::READ_COMMITTED;
     case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
-      return storage::IsolationLevel::READ_UNCOMMITTED;
+      return storage::v3::IsolationLevel::READ_UNCOMMITTED;
   }
 }
 
@@ -1760,7 +1761,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
-            case storage::Storage::CreateSnapshotError::DisabledForReplica:
+            case storage::v3::storage::v3::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
           }
@@ -1816,7 +1817,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::Storage *db, utils::MemoryResource *execution_memory) {
+                               storage::v3::Storage *db, utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -1913,7 +1914,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   std::function<void(Notification &)> handler;
 
   auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
-  std::vector<storage::PropertyId> properties;
+  std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
   properties_string.reserve(constraint_query->constraint_.properties.size());
@@ -1959,7 +1960,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           break;
         case Constraint::Type::UNIQUE:
-          std::set<storage::PropertyId> property_set;
+          std::set<storage::v3::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
           }
@@ -1987,22 +1988,22 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                   label_name, property_names_stream.str());
             }
             switch (res.GetValue()) {
-              case storage::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
+              case storage::v3::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
                     "At least one property must be used for unique "
                     "constraints.");
-              case storage::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
+              case storage::v3::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
                 throw SyntaxException(
                     "Too many properties specified. Limit of {} properties "
                     "for unique constraints is exceeded.",
-                    storage::kUniqueConstraintsMaxProperties);
-              case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
+                    storage::v3::kUniqueConstraintsMaxProperties);
+              case storage::v3::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
                 constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
                                 properties_stringified);
                 break;
-              case storage::UniqueConstraints::CreationStatus::SUCCESS:
+              case storage::v3::UniqueConstraints::CreationStatus::SUCCESS:
                 break;
             }
           };
@@ -2034,7 +2035,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           };
           break;
         case Constraint::Type::UNIQUE:
-          std::set<storage::PropertyId> property_set;
+          std::set<storage::v3::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
           }
@@ -2049,24 +2050,24 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
             switch (res) {
-              case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
+              case storage::v3::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
                     "At least one property must be used for unique "
                     "constraints.");
                 break;
-              case storage::UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
+              case storage::v3::UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
                 throw SyntaxException(
                     "Too many properties specified. Limit of {} properties for "
                     "unique constraints is exceeded.",
-                    storage::kUniqueConstraintsMaxProperties);
+                    storage::v3::kUniqueConstraintsMaxProperties);
                 break;
-              case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
+              case storage::v3::UniqueConstraints::DeletionStatus::NOT_FOUND:
                 constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
                                 properties_stringified);
                 break;
-              case storage::UniqueConstraints::DeletionStatus::SUCCESS:
+              case storage::v3::UniqueConstraints::DeletionStatus::SUCCESS:
                 break;
             }
             return std::vector<std::vector<TypedValue>>();
@@ -2104,7 +2105,7 @@ void Interpreter::RollbackTransaction() {
 }
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params,
+                                                const std::map<std::string, storage::v3::PropertyValue> &params,
                                                 const std::string *username) {
   if (!in_explicit_transaction_) {
     query_executions_.clear();
@@ -2151,8 +2152,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ =
-          std::make_unique<storage::Storage::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::storage::v3::Accessor>(
+          interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
@@ -2232,7 +2233,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     UpdateTypeCount(rw_type);
 
     if (const auto query_type = query_execution->prepared_query->rw_type;
-        interpreter_context_->db->GetReplicationRole() == storage::ReplicationRole::REPLICA &&
+        interpreter_context_->db->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA &&
         (query_type == RWType::W || query_type == RWType::RW)) {
       query_execution = nullptr;
       throw QueryException("Write query forbidden on the replica!");
@@ -2281,7 +2282,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     if (maybe_constraint_violation.HasError()) {
       const auto &constraint_violation = maybe_constraint_violation.GetError();
       switch (constraint_violation.type) {
-        case storage::ConstraintViolation::Type::EXISTENCE: {
+        case storage::v3::ConstraintViolation::Type::EXISTENCE: {
           const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
           MG_ASSERT(constraint_violation.properties.size() == 1U);
           const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
@@ -2289,7 +2290,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                        label_name, property_name);
           break;
         }
-        case storage::ConstraintViolation::Type::UNIQUE: {
+        case storage::v3::ConstraintViolation::Type::UNIQUE: {
           const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
           std::stringstream property_names_stream;
           utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
@@ -2344,7 +2345,7 @@ void Interpreter::Commit() {
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
     switch (constraint_violation.type) {
-      case storage::ConstraintViolation::Type::EXISTENCE: {
+      case storage::v3::ConstraintViolation::Type::EXISTENCE: {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         MG_ASSERT(constraint_violation.properties.size() == 1U);
         auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
@@ -2353,7 +2354,7 @@ void Interpreter::Commit() {
                              property_name);
         break;
       }
-      case storage::ConstraintViolation::Type::UNIQUE: {
+      case storage::v3::ConstraintViolation::Type::UNIQUE: {
         auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
         std::stringstream property_names_stream;
         utils::PrintIterable(
@@ -2404,7 +2405,7 @@ void Interpreter::AbortCommand(std::unique_ptr<QueryExecution> *query_execution)
   }
 }
 
-std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
+std::optional<storage::v3::IsolationLevel> Interpreter::GetIsolationLevelOverride() {
   if (next_transaction_isolation_level) {
     const auto isolation_level = *next_transaction_isolation_level;
     next_transaction_isolation_level.reset();
@@ -2414,11 +2415,11 @@ std::optional<storage::IsolationLevel> Interpreter::GetIsolationLevelOverride() 
   return interpreter_isolation_level;
 }
 
-void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel isolation_level) {
+void Interpreter::SetNextTransactionIsolationLevel(const storage::v3::IsolationLevel isolation_level) {
   next_transaction_isolation_level.emplace(isolation_level);
 }
 
-void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
+void Interpreter::SetSessionIsolationLevel(const storage::v3::IsolationLevel isolation_level) {
   interpreter_isolation_level.emplace(isolation_level);
 }
 

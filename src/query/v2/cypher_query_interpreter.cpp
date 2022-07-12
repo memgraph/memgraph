@@ -20,7 +20,7 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60, "Time to live for cached query 
 namespace memgraph::query::v2 {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::v3::PropertyValue> &params,
                        utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
                        const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query

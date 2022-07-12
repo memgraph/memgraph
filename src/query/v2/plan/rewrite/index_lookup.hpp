@@ -119,7 +119,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return true;
     }
     std::unique_ptr<ScanAll> indexed_scan;
-    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::View::OLD);
+    ScanAll dst_scan(expand.input(), expand.common_.node_symbol, storage::v3::View::OLD);
     // With expand to existing we only get real gains with BFS, because we use a
     // different algorithm then, so prefer expand to existing.
     if (expand.type_ == EdgeAtom::Type::BREADTH_FIRST) {
@@ -483,9 +483,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  storage::LabelId GetLabel(LabelIx label) { return db_->NameToLabel(label.name); }
+  storage::v3::LabelId GetLabel(LabelIx label) { return db_->NameToLabel(label.name); }
 
-  storage::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
+  storage::v3::PropertyId GetProperty(PropertyIx prop) { return db_->NameToProperty(prop.name); }
 
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");

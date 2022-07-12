@@ -27,8 +27,8 @@
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_helpers.hpp"
 #include "query/v2/stream/common.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
@@ -189,7 +189,7 @@ template <typename TFunc, typename... Args>
 
 // Graph mutations
 bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
-  return graph.view == memgraph::storage::View::NEW && graph.ctx != nullptr;
+  return graph.view == memgraph::storage::v3::View::NEW && graph.ctx != nullptr;
 }
 
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
@@ -503,28 +503,28 @@ mgp_value::mgp_value(const memgraph::query::v2::TypedValue &tv, mgp_graph *graph
   }
 }
 
-mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils::MemoryResource *m) : memory(m) {
+mgp_value::mgp_value(const memgraph::storage::v3::PropertyValue &pv, memgraph::utils::MemoryResource *m) : memory(m) {
   switch (pv.type()) {
-    case memgraph::storage::PropertyValue::Type::Null:
+    case memgraph::storage::v3::PropertyValue::Type::Null:
       type = MGP_VALUE_TYPE_NULL;
       break;
-    case memgraph::storage::PropertyValue::Type::Bool:
+    case memgraph::storage::v3::PropertyValue::Type::Bool:
       type = MGP_VALUE_TYPE_BOOL;
       bool_v = pv.ValueBool();
       break;
-    case memgraph::storage::PropertyValue::Type::Int:
+    case memgraph::storage::v3::PropertyValue::Type::Int:
       type = MGP_VALUE_TYPE_INT;
       int_v = pv.ValueInt();
       break;
-    case memgraph::storage::PropertyValue::Type::Double:
+    case memgraph::storage::v3::PropertyValue::Type::Double:
       type = MGP_VALUE_TYPE_DOUBLE;
       double_v = pv.ValueDouble();
       break;
-    case memgraph::storage::PropertyValue::Type::String:
+    case memgraph::storage::v3::PropertyValue::Type::String:
       type = MGP_VALUE_TYPE_STRING;
       new (&string_v) memgraph::utils::pmr::string(pv.ValueString(), m);
       break;
-    case memgraph::storage::PropertyValue::Type::List: {
+    case memgraph::storage::v3::PropertyValue::Type::List: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
@@ -539,7 +539,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
-    case memgraph::storage::PropertyValue::Type::Map: {
+    case memgraph::storage::v3::PropertyValue::Type::Map: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
@@ -553,25 +553,25 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       map_v = allocator.new_object<mgp_map>(std::move(items));
       break;
     }
-    case memgraph::storage::PropertyValue::Type::TemporalData: {
+    case memgraph::storage::v3::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = pv.ValueTemporalData();
       switch (temporal_data.type) {
-        case memgraph::storage::TemporalType::Date: {
+        case memgraph::storage::v3::TemporalType::Date: {
           type = MGP_VALUE_TYPE_DATE;
           date_v = NewRawMgpObject<mgp_date>(m, temporal_data.microseconds);
           break;
         }
-        case memgraph::storage::TemporalType::LocalTime: {
+        case memgraph::storage::v3::TemporalType::LocalTime: {
           type = MGP_VALUE_TYPE_LOCAL_TIME;
           local_time_v = NewRawMgpObject<mgp_local_time>(m, temporal_data.microseconds);
           break;
         }
-        case memgraph::storage::TemporalType::LocalDateTime: {
+        case memgraph::storage::v3::TemporalType::LocalDateTime: {
           type = MGP_VALUE_TYPE_LOCAL_DATE_TIME;
           local_date_time_v = NewRawMgpObject<mgp_local_date_time>(m, temporal_data.microseconds);
           break;
         }
-        case memgraph::storage::TemporalType::Duration: {
+        case memgraph::storage::v3::TemporalType::Duration: {
           type = MGP_VALUE_TYPE_DURATION;
           duration_v = NewRawMgpObject<mgp_duration>(m, temporal_data.microseconds);
           break;
@@ -1517,10 +1517,10 @@ mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
 }
 
 namespace {
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value);
+memgraph::storage::v3::PropertyValue ToPropertyValue(const mgp_value &value);
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
-  memgraph::storage::PropertyValue result{std::vector<memgraph::storage::PropertyValue>{}};
+memgraph::storage::v3::PropertyValue ToPropertyValue(const mgp_list &list) {
+  memgraph::storage::v3::PropertyValue result{std::vector<memgraph::storage::v3::PropertyValue>{}};
   auto &result_list = result.ValueList();
   for (const auto &value : list.elems) {
     result_list.push_back(ToPropertyValue(value));
@@ -1528,8 +1528,8 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
   return result;
 }
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
-  memgraph::storage::PropertyValue result{std::map<std::string, memgraph::storage::PropertyValue>{}};
+memgraph::storage::v3::PropertyValue ToPropertyValue(const mgp_map &map) {
+  memgraph::storage::v3::PropertyValue result{std::map<std::string, memgraph::storage::v3::PropertyValue>{}};
   auto &result_map = result.ValueMap();
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
@@ -1537,35 +1537,35 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
   return result;
 }
 
-memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
+memgraph::storage::v3::PropertyValue ToPropertyValue(const mgp_value &value) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
-      return memgraph::storage::PropertyValue{};
+      return memgraph::storage::v3::PropertyValue{};
     case MGP_VALUE_TYPE_BOOL:
-      return memgraph::storage::PropertyValue{value.bool_v};
+      return memgraph::storage::v3::PropertyValue{value.bool_v};
     case MGP_VALUE_TYPE_INT:
-      return memgraph::storage::PropertyValue{value.int_v};
+      return memgraph::storage::v3::PropertyValue{value.int_v};
     case MGP_VALUE_TYPE_DOUBLE:
-      return memgraph::storage::PropertyValue{value.double_v};
+      return memgraph::storage::v3::PropertyValue{value.double_v};
     case MGP_VALUE_TYPE_STRING:
-      return memgraph::storage::PropertyValue{std::string{value.string_v}};
+      return memgraph::storage::v3::PropertyValue{std::string{value.string_v}};
     case MGP_VALUE_TYPE_LIST:
       return ToPropertyValue(*value.list_v);
     case MGP_VALUE_TYPE_MAP:
       return ToPropertyValue(*value.map_v);
     case MGP_VALUE_TYPE_DATE:
-      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
-          memgraph::storage::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::v3::PropertyValue{memgraph::storage::v3::TemporalData{
+          memgraph::storage::v3::TemporalType::Date, value.date_v->date.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_TIME:
-      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
-          memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::v3::PropertyValue{memgraph::storage::v3::TemporalData{
+          memgraph::storage::v3::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
-      return memgraph::storage::PropertyValue{
-          memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
-                                          value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
+      return memgraph::storage::v3::PropertyValue{
+          memgraph::storage::v3::TemporalData{memgraph::storage::v3::TemporalType::LocalDateTime,
+                                              value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_DURATION:
-      return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
-                                                                              value.duration_v->duration.microseconds}};
+      return memgraph::storage::v3::PropertyValue{memgraph::storage::v3::TemporalData{
+          memgraph::storage::v3::TemporalType::Duration, value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value! "};
     case MGP_VALUE_TYPE_EDGE:
@@ -1585,14 +1585,14 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when setting a property of a vertex.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize setting a property of a vertex."};
       }
     }
@@ -1626,14 +1626,14 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when adding a label to a vertex!");
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when adding a label to a vertex.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize adding a label to a vertex."};
       }
     }
@@ -1658,14 +1658,14 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a label from a vertex!");
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing a label from a vertex.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a label from a vertex."};
       }
     }
@@ -1699,13 +1699,13 @@ mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
         auto maybe_labels = v->impl.Labels(v->graph->view);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting vertex labels.");
           }
         }
@@ -1721,13 +1721,13 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
         auto maybe_labels = v->impl.Labels(v->graph->view);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a label of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting a label of a vertex!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a label of a vertex.");
           }
         }
@@ -1747,22 +1747,22 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
 mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *result) {
   return WrapExceptions(
       [v, name] {
-        memgraph::storage::LabelId label;
+        memgraph::storage::v3::LabelId label;
         label = v->graph->impl->NameToLabel(name);
 
         auto maybe_has_label = v->impl.HasLabel(v->graph->view, label);
         if (maybe_has_label.HasError()) {
           switch (maybe_has_label.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot check the existence of a label on a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when checking the existence of a label "
                   "on "
                   "a vertex!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when checking the existence of a label on a vertex.");
           }
         }
@@ -1782,14 +1782,14 @@ mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *m
         auto maybe_prop = v->impl.GetProperty(v->graph->view, key);
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting a property of a vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a property of a vertex.");
           }
         }
@@ -1808,15 +1808,15 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
         auto maybe_props = v->impl.Properties(v->graph->view);
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the properties of a "
                   "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the properties of a vertex.");
           }
         }
@@ -1836,15 +1836,15 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         auto maybe_edges = v->impl.InEdges(v->graph->view);
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the inbound edges of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the inbound edges of a "
                   "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
@@ -1868,15 +1868,15 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         auto maybe_edges = v->impl.OutEdges(v->graph->view);
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the outbound edges of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the outbound edges of a "
                   "vertex.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the outbound edges of a vertex.");
           }
         }
@@ -1983,14 +1983,14 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
         auto maybe_prop = e->impl.GetProperty(view, key);
         if (maybe_prop.HasError()) {
           switch (maybe_prop.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get a property of a deleted edge!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting a property of an edge.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting a property of an edge.");
           }
         }
@@ -2009,15 +2009,15 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
           throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of an edge!");
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
           throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when setting a property of an edge.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize setting a property of an edge."};
       }
     }
@@ -2052,14 +2052,14 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
         auto maybe_props = e->impl.Properties(view);
         if (maybe_props.HasError()) {
           switch (maybe_props.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
                   "Query modules shouldn't have access to nonexistent objects when getting the properties of an edge.");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               LOG_FATAL("Unexpected error when getting the properties of an edge.");
           }
         }
@@ -2071,7 +2071,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = graph->impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
+        auto maybe_vertex = graph->impl->FindVertex(memgraph::storage::v3::Gid::FromInt(id.as_int), graph->view);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
@@ -2113,14 +2113,14 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
-        case memgraph::storage::Error::DELETED_OBJECT:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
           LOG_FATAL("Unexpected error when removing a vertex.");
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           throw std::logic_error{"Cannot remove a vertex that has edges!"};
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
@@ -2148,13 +2148,13 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a vertex!");
-        case memgraph::storage::Error::DELETED_OBJECT:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing a vertex.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing a vertex."};
       }
     }
@@ -2195,14 +2195,14 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         auto edge = graph->impl->InsertEdge(&from->impl, &to->impl, from->graph->impl->NameToEdgeType(type.name));
         if (edge.HasError()) {
           switch (edge.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw DeletedObjectException{"Cannot add an edge to a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               LOG_FATAL("Query modules shouldn't have access to nonexistent objects when creating an edge!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
               LOG_FATAL("Unexpected error when creating an edge.");
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
               throw SerializationException{"Cannot serialize creating an edge."};
           }
         }
@@ -2227,13 +2227,13 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
     if (result.HasError()) {
       switch (result.GetError()) {
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
           LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing an edge!");
-        case memgraph::storage::Error::DELETED_OBJECT:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::v3::Error::DELETED_OBJECT:
+        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
           LOG_FATAL("Unexpected error when removing an edge.");
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
           throw SerializationException{"Cannot serialize removing an edge."};
       }
     }

@@ -26,17 +26,17 @@
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/trigger_context.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::query::v2 {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
-                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor, utils::SpinLock *antlr_lock,
-                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                   const query::AuthChecker *auth_checker);
+                   const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
+                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
+                   std::optional<std::string> owner, const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context,
@@ -85,7 +85,7 @@ struct TriggerStore {
                        const query::AuthChecker *auth_checker);
 
   void AddTrigger(std::string name, const std::string &query,
-                  const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
+                  const std::map<std::string, storage::v3::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   utils::SpinLock *antlr_lock, const InterpreterConfig::Query &query_config,
                   std::optional<std::string> owner, const query::AuthChecker *auth_checker);

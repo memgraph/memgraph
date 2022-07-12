@@ -15,7 +15,7 @@
 
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/stream.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v3/storage.hpp"
 
 namespace memgraph::query::v2 {
 
@@ -31,13 +31,13 @@ struct PullPlanDump {
  private:
   query::DbAccessor *dba_ = nullptr;
 
-  std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
-  std::optional<storage::ConstraintsInfo> constraints_info_ = std::nullopt;
+  std::optional<storage::v3::IndicesInfo> indices_info_ = std::nullopt;
+  std::optional<storage::v3::ConstraintsInfo> constraints_info_ = std::nullopt;
 
-  using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::View::OLD));
+  using VertexAccessorIterable = decltype(std::declval<query::DbAccessor>().Vertices(storage::v3::View::OLD));
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
-  using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
+  using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::v3::View::OLD));
   using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().begin());
 
   VertexAccessorIterable vertices_iterable_;

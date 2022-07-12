@@ -13,20 +13,20 @@
 
 #include <json/json.hpp>
 
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 
 namespace memgraph::query::v2::serialization {
 
-nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value);
+nlohmann::json SerializePropertyValue(const storage::v3::PropertyValue &property_value);
 
-nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values);
+nlohmann::json SerializePropertyValueVector(const std::vector<storage::v3::PropertyValue> &values);
 
-nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters);
+nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::v3::PropertyValue> &parameters);
 
-storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data);
+storage::v3::PropertyValue DeserializePropertyValue(const nlohmann::json &data);
 
-std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data);
+std::vector<storage::v3::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data);
 
-std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data);
+std::map<std::string, storage::v3::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data);
 
 }  // namespace memgraph::query::v2::serialization

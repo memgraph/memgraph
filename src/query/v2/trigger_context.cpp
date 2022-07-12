@@ -20,7 +20,7 @@
 #include "query/v2/interpret/frame.hpp"
 #include "query/v2/serialization/property_value.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query::v2 {
@@ -61,7 +61,7 @@ concept LabelUpdateContext = utils::SameAsAnyOf<T, detail::SetVertexLabel, detai
 
 template <LabelUpdateContext TContext>
 TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
-  std::unordered_map<storage::LabelId, std::vector<TypedValue>> vertices_by_labels;
+  std::unordered_map<storage::v3::LabelId, std::vector<TypedValue>> vertices_by_labels;
 
   for (const auto &value : values) {
     if (value.IsValid()) {
@@ -213,13 +213,13 @@ template <detail::ObjectAccessor TAccessor>
 }  // namespace
 
 namespace detail {
-bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
+bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
 std::map<std::string, TypedValue> SetVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
-bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View::OLD); }
+bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
@@ -265,7 +265,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     // adapt created_vertices_
     auto it = created_vertices_.begin();
     for (auto &created_vertex : created_vertices_) {
-      if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::View::OLD); maybe_vertex) {
+      if (auto maybe_vertex = accessor->FindVertex(created_vertex.object.Gid(), storage::v3::View::OLD); maybe_vertex) {
         *it = detail::CreatedObject{*maybe_vertex};
         ++it;
       }
@@ -280,7 +280,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   const auto adapt_context_with_vertex = [accessor](auto *values) {
     auto it = values->begin();
     for (auto &value : *values) {
-      if (auto maybe_vertex = accessor->FindVertex(value.object.Gid(), storage::View::OLD); maybe_vertex) {
+      if (auto maybe_vertex = accessor->FindVertex(value.object.Gid(), storage::v3::View::OLD); maybe_vertex) {
         *it = std::move(value);
         it->object = *maybe_vertex;
         ++it;
@@ -298,11 +298,11 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     // adapt created_edges
     auto it = created_edges_.begin();
     for (auto &created_edge : created_edges_) {
-      const auto maybe_from_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::View::OLD);
+      const auto maybe_from_vertex = accessor->FindVertex(created_edge.object.From().Gid(), storage::v3::View::OLD);
       if (!maybe_from_vertex) {
         continue;
       }
-      auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
+      auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::v3::View::OLD);
       MG_ASSERT(maybe_out_edges.HasValue());
       const auto edge_gid = created_edge.object.Gid();
       for (const auto &edge : *maybe_out_edges) {
@@ -322,8 +322,8 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   const auto adapt_context_with_edge = [accessor](auto *values) {
     auto it = values->begin();
     for (const auto &value : *values) {
-      if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
-        auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
+      if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::v3::View::OLD); maybe_vertex) {
+        auto maybe_out_edges = maybe_vertex->OutEdges(storage::v3::View::OLD);
         MG_ASSERT(maybe_out_edges.HasValue());
         for (const auto &edge : *maybe_out_edges) {
           if (edge.Gid() == value.object.Gid()) {
@@ -432,7 +432,7 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
   }
 }
 
-void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const storage::LabelId label_id,
+void TriggerContextCollector::UpdateLabelMap(const VertexAccessor vertex, const storage::v3::LabelId label_id,
                                              const LabelChange change) {
   auto &registry = GetRegistry<VertexAccessor>();
   if (!registry.should_register_updated_objects || registry.created_objects.count(vertex.Gid())) {
@@ -508,12 +508,13 @@ bool TriggerContextCollector::ShouldRegisterVertexLabelChange() const {
   return vertex_registry_.should_register_updated_objects;
 }
 
-void TriggerContextCollector::RegisterSetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id) {
+void TriggerContextCollector::RegisterSetVertexLabel(const VertexAccessor &vertex,
+                                                     const storage::v3::LabelId label_id) {
   UpdateLabelMap(vertex, label_id, LabelChange::ADD);
 }
 
 void TriggerContextCollector::RegisterRemovedVertexLabel(const VertexAccessor &vertex,
-                                                         const storage::LabelId label_id) {
+                                                         const storage::v3::LabelId label_id) {
   UpdateLabelMap(vertex, label_id, LabelChange::REMOVE);
 }
 

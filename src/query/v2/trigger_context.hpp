@@ -22,8 +22,8 @@
 
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/concepts.hpp"
 #include "utils/fnv.hpp"
 
@@ -45,7 +45,7 @@ template <ObjectAccessor TAccessor>
 struct CreatedObject {
   explicit CreatedObject(const TAccessor &object) : object{object} {}
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -57,7 +57,7 @@ template <ObjectAccessor TAccessor>
 struct DeletedObject {
   explicit DeletedObject(const TAccessor &object) : object{object} {}
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -67,7 +67,7 @@ struct DeletedObject {
 
 template <ObjectAccessor TAccessor>
 struct SetObjectProperty {
-  explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
+  explicit SetObjectProperty(const TAccessor &object, storage::v3::PropertyId key, TypedValue old_value,
                              TypedValue new_value)
       : object{object}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
@@ -78,17 +78,17 @@ struct SetObjectProperty {
             {"new", new_value}};
   }
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
   TAccessor object;
-  storage::PropertyId key;
+  storage::v3::PropertyId key;
   TypedValue old_value;
   TypedValue new_value;
 };
 
 template <ObjectAccessor TAccessor>
 struct RemovedObjectProperty {
-  explicit RemovedObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value)
+  explicit RemovedObjectProperty(const TAccessor &object, storage::v3::PropertyId key, TypedValue old_value)
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
@@ -97,33 +97,33 @@ struct RemovedObjectProperty {
             {"old", old_value}};
   }
 
-  bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+  bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
   TAccessor object;
-  storage::PropertyId key;
+  storage::v3::PropertyId key;
   TypedValue old_value;
 };
 
 struct SetVertexLabel {
-  explicit SetVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
+  explicit SetVertexLabel(const VertexAccessor &vertex, const storage::v3::LabelId label_id)
       : object{vertex}, label_id{label_id} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
   bool IsValid() const;
 
   VertexAccessor object;
-  storage::LabelId label_id;
+  storage::v3::LabelId label_id;
 };
 
 struct RemovedVertexLabel {
-  explicit RemovedVertexLabel(const VertexAccessor &vertex, const storage::LabelId label_id)
+  explicit RemovedVertexLabel(const VertexAccessor &vertex, const storage::v3::LabelId label_id)
       : object{vertex}, label_id{label_id} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const;
   bool IsValid() const;
 
   VertexAccessor object;
-  storage::LabelId label_id;
+  storage::v3::LabelId label_id;
 };
 }  // namespace detail
 
@@ -235,14 +235,14 @@ class TriggerContextCollector {
 
   template <detail::ObjectAccessor TAccessor>
   using PropertyChangesMap =
-      std::unordered_map<std::pair<TAccessor, storage::PropertyId>, PropertyChangeInfo, HashPairWithAccessor>;
+      std::unordered_map<std::pair<TAccessor, storage::v3::PropertyId>, PropertyChangeInfo, HashPairWithAccessor>;
 
   template <detail::ObjectAccessor TAccessor>
   struct Registry {
     bool should_register_created_objects{false};
     bool should_register_deleted_objects{false};
     bool should_register_updated_objects{false};  // Set/removed properties (and labels for vertices)
-    std::unordered_map<storage::Gid, detail::CreatedObject<TAccessor>> created_objects;
+    std::unordered_map<storage::v3::Gid, detail::CreatedObject<TAccessor>> created_objects;
     std::vector<detail::DeletedObject<TAccessor>> deleted_objects;
     // During the transaction, a single property on a single object could be changed multiple times.
     // We want to register only the global change, at the end of the transaction. The change consists of
@@ -292,7 +292,7 @@ class TriggerContextCollector {
   }
 
   template <detail::ObjectAccessor TAccessor>
-  void RegisterSetObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value,
+  void RegisterSetObjectProperty(const TAccessor &object, const storage::v3::PropertyId key, TypedValue old_value,
                                  TypedValue new_value) {
     auto &registry = GetRegistry<TAccessor>();
     if (!registry.should_register_updated_objects) {
@@ -313,7 +313,7 @@ class TriggerContextCollector {
   }
 
   template <detail::ObjectAccessor TAccessor>
-  void RegisterRemovedObjectProperty(const TAccessor &object, const storage::PropertyId key, TypedValue old_value) {
+  void RegisterRemovedObjectProperty(const TAccessor &object, const storage::v3::PropertyId key, TypedValue old_value) {
     // property is already removed
     if (old_value.IsNull()) {
       return;
@@ -323,8 +323,8 @@ class TriggerContextCollector {
   }
 
   bool ShouldRegisterVertexLabelChange() const;
-  void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
-  void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
+  void RegisterSetVertexLabel(const VertexAccessor &vertex, storage::v3::LabelId label_id);
+  void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::v3::LabelId label_id);
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;
 
  private:
@@ -343,7 +343,8 @@ class TriggerContextCollector {
         const_cast<const TriggerContextCollector *>(this)->GetRegistry<TAccessor>());
   }
 
-  using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPairWithAccessor>;
+  using LabelChangesMap =
+      std::unordered_map<std::pair<VertexAccessor, storage::v3::LabelId>, int8_t, HashPairWithAccessor>;
   using LabelChangesLists = std::pair<std::vector<detail::SetVertexLabel>, std::vector<detail::RemovedVertexLabel>>;
 
   enum class LabelChange : int8_t { REMOVE = -1, ADD = 1 };
@@ -352,7 +353,7 @@ class TriggerContextCollector {
 
   [[nodiscard]] static LabelChangesLists LabelMapToList(LabelChangesMap &&label_changes);
 
-  void UpdateLabelMap(VertexAccessor vertex, storage::LabelId label_id, LabelChange change);
+  void UpdateLabelMap(VertexAccessor vertex, storage::v3::LabelId label_id, LabelChange change);
 
   Registry<VertexAccessor> vertex_registry_;
   Registry<EdgeAccessor> edge_registry_;

@@ -394,13 +394,13 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
+        case storage::v3::Error::NONEXISTENT_OBJECT:
           throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
+        case storage::v3::Error::SERIALIZATION_ERROR:
+        case storage::v3::Error::VERTEX_HAS_EDGES:
+        case storage::v3::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when getting properties.");
       }
     }
@@ -445,16 +445,16 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
 
 namespace {
 
-size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
+size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
   if (maybe_degree.HasError()) {
     switch (maybe_degree.GetError()) {
-      case storage::Error::DELETED_OBJECT:
+      case storage::v3::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
+      case storage::v3::Error::NONEXISTENT_OBJECT:
         throw query::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
+      case storage::v3::Error::SERIALIZATION_ERROR:
+      case storage::v3::Error::VERTEX_HAS_EDGES:
+      case storage::v3::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when getting node degree.");
     }
   }
@@ -599,13 +599,13 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     auto maybe_props = record_accessor.Properties(ctx.view);
     if (maybe_props.HasError()) {
       switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
+        case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
+        case storage::v3::Error::NONEXISTENT_OBJECT:
           throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
+        case storage::v3::Error::SERIALIZATION_ERROR:
+        case storage::v3::Error::VERTEX_HAS_EDGES:
+        case storage::v3::Error::PROPERTIES_DISABLED:
           throw QueryRuntimeException("Unexpected error when getting keys.");
       }
     }
@@ -632,13 +632,13 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
-      case storage::Error::DELETED_OBJECT:
+      case storage::v3::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
+      case storage::v3::Error::NONEXISTENT_OBJECT:
         throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
+      case storage::v3::Error::SERIALIZATION_ERROR:
+      case storage::v3::Error::VERTEX_HAS_EDGES:
+      case storage::v3::Error::PROPERTIES_DISABLED:
         throw QueryRuntimeException("Unexpected error when getting labels.");
     }
   }

@@ -19,38 +19,38 @@
 #include <string_view>
 #include <utility>
 
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::v2 {
 
-TypedValue::TypedValue(const storage::PropertyValue &value)
-    // TODO: MemoryResource in storage::PropertyValue
+TypedValue::TypedValue(const storage::v3::PropertyValue &value)
+    // TODO: MemoryResource in storage::v3::PropertyValue
     : TypedValue(value, utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(const storage::v3::PropertyValue &value, utils::MemoryResource *memory) : memory_(memory) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
+    case storage::v3::PropertyValue::Type::Null:
       type_ = Type::Null;
       return;
-    case storage::PropertyValue::Type::Bool:
+    case storage::v3::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = value.ValueBool();
       return;
-    case storage::PropertyValue::Type::Int:
+    case storage::v3::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = value.ValueInt();
       return;
-    case storage::PropertyValue::Type::Double:
+    case storage::v3::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = value.ValueDouble();
       return;
-    case storage::PropertyValue::Type::String:
+    case storage::v3::PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(value.ValueString(), memory_);
       return;
-    case storage::PropertyValue::Type::List: {
+    case storage::v3::PropertyValue::Type::List: {
       type_ = Type::List;
       const auto &vec = value.ValueList();
       new (&list_v) TVector(memory_);
@@ -58,32 +58,32 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       for (const auto &v : vec) list_v.emplace_back(v);
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::v3::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
       new (&map_v) TMap(memory_);
       for (const auto &kv : map) map_v.emplace(kv.first, kv.second);
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case storage::v3::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = value.ValueTemporalData();
       switch (temporal_data.type) {
-        case storage::TemporalType::Date: {
+        case storage::v3::TemporalType::Date: {
           type_ = Type::Date;
           new (&date_v) utils::Date(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalTime: {
+        case storage::v3::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
           new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalDateTime: {
+        case storage::v3::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
           new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::Duration: {
+        case storage::v3::TemporalType::Duration: {
           type_ = Type::Duration;
           new (&duration_v) utils::Duration(temporal_data.microseconds);
           break;
@@ -95,32 +95,32 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
   LOG_FATAL("Unsupported type");
 }
 
-TypedValue::TypedValue(storage::PropertyValue &&other) /* noexcept */
-    // TODO: MemoryResource in storage::PropertyValue, so this can be noexcept
+TypedValue::TypedValue(storage::v3::PropertyValue &&other) /* noexcept */
+    // TODO: MemoryResource in storage::v3::PropertyValue, so this can be noexcept
     : TypedValue(std::move(other), utils::NewDeleteResource()) {}
 
-TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
+TypedValue::TypedValue(storage::v3::PropertyValue &&other, utils::MemoryResource *memory) : memory_(memory) {
   switch (other.type()) {
-    case storage::PropertyValue::Type::Null:
+    case storage::v3::PropertyValue::Type::Null:
       type_ = Type::Null;
       break;
-    case storage::PropertyValue::Type::Bool:
+    case storage::v3::PropertyValue::Type::Bool:
       type_ = Type::Bool;
       bool_v = other.ValueBool();
       break;
-    case storage::PropertyValue::Type::Int:
+    case storage::v3::PropertyValue::Type::Int:
       type_ = Type::Int;
       int_v = other.ValueInt();
       break;
-    case storage::PropertyValue::Type::Double:
+    case storage::v3::PropertyValue::Type::Double:
       type_ = Type::Double;
       double_v = other.ValueDouble();
       break;
-    case storage::PropertyValue::Type::String:
+    case storage::v3::PropertyValue::Type::String:
       type_ = Type::String;
       new (&string_v) TString(other.ValueString(), memory_);
       break;
-    case storage::PropertyValue::Type::List: {
+    case storage::v3::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
       new (&list_v) TVector(memory_);
@@ -128,32 +128,32 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       for (auto &v : vec) list_v.emplace_back(std::move(v));
       break;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::v3::PropertyValue::Type::Map: {
       type_ = Type::Map;
       auto &map = other.ValueMap();
       new (&map_v) TMap(memory_);
       for (auto &kv : map) map_v.emplace(kv.first, std::move(kv.second));
       break;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case storage::v3::PropertyValue::Type::TemporalData: {
       const auto &temporal_data = other.ValueTemporalData();
       switch (temporal_data.type) {
-        case storage::TemporalType::Date: {
+        case storage::v3::TemporalType::Date: {
           type_ = Type::Date;
           new (&date_v) utils::Date(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalTime: {
+        case storage::v3::TemporalType::LocalTime: {
           type_ = Type::LocalTime;
           new (&local_time_v) utils::LocalTime(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::LocalDateTime: {
+        case storage::v3::TemporalType::LocalDateTime: {
           type_ = Type::LocalDateTime;
           new (&local_date_time_v) utils::LocalDateTime(temporal_data.microseconds);
           break;
         }
-        case storage::TemporalType::Duration: {
+        case storage::v3::TemporalType::Duration: {
           type_ = Type::Duration;
           new (&duration_v) utils::Duration(temporal_data.microseconds);
           break;
@@ -163,7 +163,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     }
   }
 
-  other = storage::PropertyValue();
+  other = storage::v3::PropertyValue();
 }
 
 TypedValue::TypedValue(const TypedValue &other)
@@ -267,36 +267,37 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
   other.DestroyValue();
 }
 
-TypedValue::operator storage::PropertyValue() const {
+TypedValue::operator storage::v3::PropertyValue() const {
   switch (type_) {
     case TypedValue::Type::Null:
-      return storage::PropertyValue();
+      return storage::v3::PropertyValue();
     case TypedValue::Type::Bool:
-      return storage::PropertyValue(bool_v);
+      return storage::v3::PropertyValue(bool_v);
     case TypedValue::Type::Int:
-      return storage::PropertyValue(int_v);
+      return storage::v3::PropertyValue(int_v);
     case TypedValue::Type::Double:
-      return storage::PropertyValue(double_v);
+      return storage::v3::PropertyValue(double_v);
     case TypedValue::Type::String:
-      return storage::PropertyValue(std::string(string_v));
+      return storage::v3::PropertyValue(std::string(string_v));
     case TypedValue::Type::List:
-      return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
+      return storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
-      std::map<std::string, storage::PropertyValue> map;
+      std::map<std::string, storage::v3::PropertyValue> map;
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
-      return storage::PropertyValue(std::move(map));
+      return storage::v3::PropertyValue(std::move(map));
     }
     case Type::Date:
-      return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
+      return storage::v3::PropertyValue(
+          storage::v3::TemporalData{storage::v3::TemporalType::Date, date_v.MicrosecondsSinceEpoch()});
     case Type::LocalTime:
-      return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
+      return storage::v3::PropertyValue(
+          storage::v3::TemporalData{storage::v3::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
     case Type::LocalDateTime:
-      return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
+      return storage::v3::PropertyValue(storage::v3::TemporalData{storage::v3::TemporalType::LocalDateTime,
+                                                                  local_date_time_v.MicrosecondsSinceEpoch()});
     case Type::Duration:
-      return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
+      return storage::v3::PropertyValue(
+          storage::v3::TemporalData{storage::v3::TemporalType::Duration, duration_v.microseconds});
     default:
       break;
   }
