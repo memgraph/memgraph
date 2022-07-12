@@ -73,6 +73,16 @@ Feature: Aggregations
             | n |
             | 5 |
 
+    Scenario: Count test 07:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN count(null)
+        """
+        Then the result should be:
+            | count(null) |
+            | 0           |
+
     Scenario: Sum test 01:
         Given an empty graph
         And having executed
@@ -113,6 +123,16 @@ Feature: Aggregations
             | n | a.x |
             | 4 | 0   |
             | 4 | 1   |
+
+    Scenario: Sum test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN sum(null)
+        """
+        Then the result should be:
+            | sum(null) |
+            | 0         |
 
     Scenario: Avg test 01:
         Given an empty graph
@@ -155,6 +175,16 @@ Feature: Aggregations
             | 2.0 | 0   |
             | 4.0 | 1   |
 
+    Scenario: Avg test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN avg(null)
+        """
+        Then the result should be:
+            | avg(null) |
+            | 0         |
+
     Scenario: Min test 01:
         Given an empty graph
         And having executed
@@ -195,6 +225,16 @@ Feature: Aggregations
             | n | a.x |
             | 1 | 0   |
             | 4 | 1   |
+
+    Scenario: Min test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN min(null)
+        """
+        Then the result should be:
+            | min(null) |
+            | 0         |
 
     Scenario: Max test 01:
         Given an empty graph
@@ -237,6 +277,16 @@ Feature: Aggregations
             | 3 | 0   |
             | 4 | 1   |
 
+    Scenario: Max test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN max(null)
+        """
+        Then the result should be:
+            | max(null) |
+            | 0         |
+
     Scenario: Collect test 01:
         Given an empty graph
         And having executed
@@ -278,4 +328,3 @@ Feature: Aggregations
         Then the result should be
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
-
