@@ -1,4 +1,4 @@
-name: Release CentOS 8
+name: Release CentOS 9
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, CentOS8]
+    runs-on: [self-hosted, Linux, X64, CentOS9]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -47,7 +47,7 @@ jobs:
 
   coverage_build:
     name: "Coverage build"
-    runs-on: [self-hosted, Linux, X64, CentOS8]
+    runs-on: [self-hosted, Linux, X64, CentOS9]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -104,7 +104,7 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, CentOS8]
+    runs-on: [self-hosted, Linux, X64, CentOS9]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -180,7 +180,7 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, CentOS8]
+    runs-on: [self-hosted, Linux, X64, CentOS9]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
