@@ -256,14 +256,18 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][1].ValueInt(), 0);
   // min
-  EXPECT_TRUE(results[0][2].IsNull());
-  // max
-  EXPECT_TRUE(results[0][3].IsNull());
-  // sum
-  EXPECT_TRUE(results[0][4].IsNull());
-  // avg
-  EXPECT_TRUE(results[0][5].IsNull());
-  // collect list
+  EXPECT_EQ(results[0][2].ValueInt(), 0);
+  // EXPECT_TRUE(results[0][2].IsNull());
+  //  max
+  EXPECT_EQ(results[0][3].ValueInt(), 0);
+  // EXPECT_TRUE(results[0][3].IsNull());
+  //  sum
+  EXPECT_EQ(results[0][4].ValueInt(), 0);
+  // EXPECT_TRUE(results[0][4].IsNull());
+  //  avg
+  EXPECT_EQ(results[0][5].ValueInt(), 0);
+  // EXPECT_TRUE(results[0][5].IsNull());
+  //  collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
   EXPECT_EQ(ToIntList(results[0][6]).size(), 0);
   // collect map
