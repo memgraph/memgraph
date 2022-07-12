@@ -267,6 +267,8 @@ class LabelChecker final : public memgraph::query::LabelChecker {
     const auto user_label_permissions = user_->GetLabelPermissions();
     auto *dba = dba_;
 
+    if (user_label_permissions.Has("*") == memgraph::auth::PermissionLevel::GRANT) return true;
+
     return std::all_of(labels.begin(), labels.end(), [&user_label_permissions, dba](const auto label) {
       return user_label_permissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
     });
@@ -958,10 +960,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
   if (username.has_value()) {
-    memgraph::auth::User user = interpreter_context->auth->GetUser(*username);
-    LabelChecker label_checker{&user, dba};
-
-    ctx_.label_checker = &label_checker;
+    memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
+    ctx_.label_checker = new LabelChecker{user, dba};
   }
 
   if (interpreter_context->config.execution_timeout_sec > 0) {

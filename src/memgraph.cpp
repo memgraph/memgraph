@@ -747,7 +747,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  memgraph::auth::User GetUser(const std::string &username) override {
+  memgraph::auth::User *GetUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user name.");
     }
@@ -758,7 +758,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
 
-      return user.value();
+      return new memgraph::auth::User(*user);
+
     } catch (const memgraph::auth::AuthException &e) {
       throw memgraph::query::QueryRuntimeException(e.what());
     }
@@ -821,17 +822,21 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
+
         for (const auto &label : labels) {
           edit_fun(&user->labelPermissions(), label);
         }
+
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
+
         for (const auto &label : labels) {
           edit_fun(&role->labelPermissions(), label);
         }
+
         locked_auth->SaveRole(*role);
       }
     } catch (const memgraph::auth::AuthException &e) {
@@ -1268,7 +1273,6 @@ int main(int argc, char **argv) {
   AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
-  // interpreter_context.label_checker = &label_checker;
 
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
