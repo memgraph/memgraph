@@ -191,6 +191,12 @@ class MgFuture {
     return ret;
   }
 
+  /// Marks this MgFuture as canceled.
+  void Cancel() {
+    MG_ASSERT(!consumed_or_moved_, "MgFuture::Cancel called on a future that was already moved or consumed!");
+    consumed_or_moved_ = true;
+  }
+
  private:
   MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
@@ -223,7 +229,7 @@ class MgPromise {
 
   // Fill the expected item into the Future.
   void Fill(T item) {
-    MG_ASSERT(!filled_or_moved_, "MgPromise::Fill called twice on the same promise!");
+    MG_ASSERT(!filled_or_moved_, "MgPromise::Fill called on a promise that is already filled or moved!");
     shared_->Fill(item);
     filled_or_moved_ = true;
   }
