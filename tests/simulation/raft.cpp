@@ -72,15 +72,18 @@ struct FollowerTracker {
   Address address;
   LogIndex next_index;
   std::optional<ResponseFuture<AppendEntriesResponse>> in_flight_message;
+  uint64_t last_received_append_entries_timestamp = 0;
 };
 
 struct Leader {
   std::vector<FollowerTracker> followers;
+  uint64_t last_received_response_timestamp = 0;
 };
 
 struct Candidate {
   std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes;
   size_t successful_votes;
+  uint64_t last_received_vote_timestamp = 0;
 };
 
 struct Follower {};
@@ -91,23 +94,26 @@ class Server {
 
   void Run() {
     // 120ms between Cron calls
-    io_.SetDefaultTimeoutMicroseconds(120000);
+    uint64_t cron_interval = 120000;
+    io_.SetDefaultTimeoutMicroseconds(cron_interval / 2);
+
+    uint64_t last_cron = 0;
 
     while (!io_.ShouldShutDown()) {
+      auto now = io_.Now();
+      if (now - last_cron > cron_interval) {
+        Cron();
+        last_cron = now;
+      }
+
       auto request_result = io_.Receive<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest>();
       if (request_result.HasError()) {
-        Cron();
         continue;
       }
 
-      auto request = request_result.GetValue();
+      auto request = std::move(request_result.GetValue());
 
-      // dispatch the message to a handler based on our role,
-      // which can be specified in the Handle first argument,
-      // or it can be `auto` if it's a handler for several roles
-      // or messages.
-      std::visit([&](auto &&msg, auto &&role) { return Handle(role, msg, request.request_id, request.from_address); },
-                 request.message, role_);
+      Handle(std::move(request.message), request.request_id, request.from_address);
     }
   }
 
@@ -118,10 +124,42 @@ class Server {
   std::vector<Address> peers_;
   uint64_t last_heard_from_leader_;
 
-  /// Periodic protocol maintenance. Leaders (re)send AppendEntriesRequest to followers
-  /// and followers try to become the leader if they haven't heard from the leader within
-  /// a randomized timeout.
-  void Cron() {}
+  /// Periodic protocol maintenance.
+  void Cron() {
+    // dispatch periodic logic based on our role to a specific Cron method.
+    std::visit([&](auto &&role) { Cron(role); }, role_);
+  }
+
+  void Cron(Candidate &) {
+    // TODO retry request-votes requests if we haven't made progress after some threshold
+  }
+
+  void Cron(Follower &) {
+    // TODO become candidate if we haven't heard from others
+  }
+
+  // Leaders (re)send AppendEntriesRequest to followers.
+  void Cron(Leader &) {
+    // TODO time-out client requests if we haven't made progress after some threshold
+  }
+
+  /// **********************************************
+  /// Handle + std::visit is how code is dispatched
+  /// to certain events at certain states.
+  ///
+  /// Handle(role, message, ...)
+  /// takes as the first argument a reference
+  /// to its role, and as the second argument, the
+  /// message that has been received.
+  /// **********************************************
+  void Handle(auto message_variant, uint64_t request_id, Address from_address) {
+    // dispatch the message to a handler based on our role,
+    // which can be specified in the Handle first argument,
+    // or it can be `auto` if it's a handler for several roles
+    // or messages.
+    std::visit([&](auto &&msg, auto &&role) { Handle(role, msg, request_id, from_address); },
+               std::move(message_variant), role_);
+  }
 
   // all roles can receive RequestVotes and possibly become a follower
   void Handle(auto &, RequestVotesRequest &req, uint64_t request_id, Address from_address) {
