@@ -47,7 +47,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    EXPECT_FALSE(res.HasError());
+    EXPECT_TRUE(res.HasError());
   }
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
