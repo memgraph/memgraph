@@ -404,8 +404,9 @@ class Storage final {
   ///     * `EMPTY_PROPERTIES` if the property set is empty, or
   ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
   //        limit of maximum number of properties.
-  [[nodiscard]] UniqueConstraints::DeletionStatus DropUniqueConstraint_renamed(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
+  DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                       std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
 

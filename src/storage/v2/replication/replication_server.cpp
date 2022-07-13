@@ -573,9 +573,10 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage_->NameToProperty(prop));
         }
-        auto ret = storage_->DropUniqueConstraint_renamed(storage_->NameToLabel(delta.operation_label_properties.label),
-                                                          properties, timestamp);
-        if (ret != UniqueConstraints::DeletionStatus::SUCCESS) throw utils::BasicException("Invalid transaction!");
+        auto ret = storage_->DropUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
+                                                  properties, timestamp);
+        if (ret.HasError() || ret.GetValue() != UniqueConstraints::DeletionStatus::SUCCESS)
+          throw utils::BasicException("Invalid transaction!");
         break;
       }
     }

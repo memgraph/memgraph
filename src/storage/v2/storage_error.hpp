@@ -59,4 +59,10 @@ struct StorageUniqueConstraintDefinitionError {
   bool operator==(const StorageUniqueConstraintDefinitionError &) const = default;
 };
 
+struct StorageUniqueConstraintDroppingError {
+  std::variant<ReplicationError> error;
+
+  bool operator==(const StorageUniqueConstraintDroppingError &) const = default;
+};
+
 }  // namespace memgraph::storage

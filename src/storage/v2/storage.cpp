@@ -1313,19 +1313,25 @@ Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &prope
   return StorageUniqueConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint_renamed(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
+Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                              const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP,
-                                                             label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+                                           properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::DeletionStatus::SUCCESS;
+
+  if (success) {
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDroppingError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
