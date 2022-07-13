@@ -33,6 +33,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -220,7 +221,8 @@ class Storage final {
     ~Accessor();
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(LabelId primary_label);
+    VertexAccessor CreateVertex(storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+                                std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties);
 
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex();
@@ -325,8 +327,7 @@ class Storage final {
     /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Commit(
-        std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -343,6 +344,7 @@ class Storage final {
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
+    SchemaValidator schema_validator;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;

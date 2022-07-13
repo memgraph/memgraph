@@ -14,6 +14,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <variant>
 
 #include <gflags/gflags.h>
@@ -25,12 +26,15 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -430,6 +434,7 @@ Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
       // during exclusive operations.
       storage_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction(isolation_level)),
+      schema_validator{storage->schemas_},
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
@@ -437,6 +442,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
+      schema_validator{storage_->schemas_},
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       config_(other.config_) {
@@ -466,8 +472,16 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
-VertexAccessor Storage::Accessor::CreateVertex(const LabelId primary_label) {
+VertexAccessor Storage::Accessor::CreateVertex(
+    const storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+    std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
+  auto schema_violation = schema_validator.ValidateVertexCreate(primary_label, labels, properties);
+  if (schema_violation) {
+    // Handle violation
+    throw utils::BasicException("This is a schema violation exception.");
+  }
+
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
@@ -828,7 +842,7 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { ret
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Storage::Accessor::Commit(
+utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
@@ -838,56 +852,6 @@ utils::BasicResult<std::variant<ConstraintViolation, SchemaViolation>, void> Sto
     // it.
     storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
-    // Validate schema
-    std::optional<SchemaViolation> schema_violation;
-    for (const auto &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        continue;
-      }
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-      switch (prev.delta->action) {
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-        case Delta::Action::RECREATE_OBJECT: {
-          break;
-        }
-        case Delta::Action::ADD_LABEL: {
-          // Validate cannot add another primary key label
-          auto schema_violation = storage_->schemas_.ValidateAddLabel(delta.label);
-          break;
-        }
-        case Delta::Action::REMOVE_LABEL: {
-          // Validate cannot remove primary key label
-          auto schema_violation = storage_->schemas_.ValidateRemoveLabel(delta.label);
-          break;
-        }
-        case Delta::Action::DELETE_OBJECT: {
-          // Validate on vertex creation
-          // No need to take any locks here because we modified this vertex and no
-          // one else can touch it until we commit.
-          auto schema_violation = storage_->schemas_.ValidateVertexCreate(prev.vertex->labels[0], *prev.vertex);
-          break;
-        }
-        case Delta::Action::SET_PROPERTY: {
-          // Validate that no primary key is being updated
-          // How to check what has changed?
-          auto schema_violation =
-              storage_->schemas_.ValidateVertexUpdate(prev.vertex->labels[0], *prev.vertex, delta.property.key);
-          break;
-        }
-      }
-      if (schema_violation) {
-        Abort();
-        return {*schema_violation};
-      }
-    }
-
     // Validate that existence constraints are satisfied for all modified
     // vertices.
     for (const auto &delta : transaction_.deltas) {

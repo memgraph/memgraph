@@ -216,6 +216,54 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   return (*frame)[node_info.symbol].ValueVertex();
 }
 
+VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, Frame *frame,
+                                            ExecutionContext &context) {
+  auto &dba = *context.db_accessor;
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
+  // when we update PropertyValue with custom allocator.
+  std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> properties;
+  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+    properties.reserve(node_info_properties->size());
+    for (const auto &[key, value_expression] : *node_info_properties) {
+      properties.emplace_back(key, storage::PropertyValue(value_expression->Accept(evaluator)));
+    }
+  } else {
+    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties)).ValueMap();
+    properties.reserve(property_map.size());
+
+    for (const auto &[key, value] : property_map) {
+      auto property_id = dba.NameToProperty(key);
+      // PropsSetChecked(&new_node, property_id, value);
+      properties.emplace_back(property_id, value);
+    }
+  }
+  auto new_node = dba.InsertVertex(node_info.labels[0], node_info.labels, properties);
+  context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
+  for (auto label : node_info.labels) {
+    auto maybe_error = new_node.AddLabel(label);
+    if (maybe_error.HasError()) {
+      switch (maybe_error.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw TransactionSerializationException();
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to set a label on a deleted node.");
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Unexpected error when setting a label.");
+      }
+    }
+    context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
+  }
+
+  (*frame)[node_info.symbol] = new_node;
+  return (*frame)[node_info.symbol].ValueVertex();
+}
+
 ACCEPT_WITH_INPUT(CreateNode)
 
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {

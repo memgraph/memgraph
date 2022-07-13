@@ -15,6 +15,7 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include <vector>
 
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
@@ -251,6 +252,11 @@ class DbAccessor final {
 
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
+  VertexAccessor InsertVertex(const storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+                              std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
+    return VertexAccessor(accessor_->CreateVertex(primary_label, labels, properties));
+  }
+
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type) {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
@@ -324,9 +330,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<std::variant<storage::ConstraintViolation, storage::SchemaViolation>, void> Commit() {
-    return accessor_->Commit();
-  }
+  utils::BasicResult<storage::ConstraintViolation, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 
