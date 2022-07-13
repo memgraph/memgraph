@@ -235,15 +235,19 @@ class SimulatorHandle {
       return false;
     }
 
+    if (config_.scramble_messages) {
+      // scramble messages
+      std::uniform_int_distribution<size_t> swap_distrib(0, in_flight_.size() - 1);
+      size_t swap_index = swap_distrib(rng_);
+      std::swap(in_flight_[swap_index], in_flight_.back());
+    }
+
     auto [to_address, opaque_message] = std::move(in_flight_.back());
     in_flight_.pop_back();
 
     std::uniform_int_distribution<int> drop_distrib(0, 99);
     int drop_threshold = drop_distrib(rng_);
     bool should_drop = drop_threshold < config_.drop_percent;
-    std::cout << "drop threshold is " << drop_threshold << std::endl;
-    std::cout << "drop_percent is " << config_.drop_percent << std::endl;
-    std::cout << "should_drop is " << should_drop << std::endl;
 
     PromiseKey promise_key{.requester_address = to_address,
                            .request_id = opaque_message.request_id,

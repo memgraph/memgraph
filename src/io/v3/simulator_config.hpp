@@ -14,5 +14,6 @@
 struct SimulatorConfig {
   int drop_percent = 0;
   bool perform_timeouts = false;
+  bool scramble_messages = true;
   uint64_t rng_seed = 0;
 };
