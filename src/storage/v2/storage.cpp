@@ -1164,11 +1164,11 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-utils::BasicResult<StorageDataDefinitionError, void> Storage::CreateIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
-    return StorageDataDefinitionError{DataDefinitionError::EXISTANT_INDEX};
+    return StorageIndexDefinitionError{DataDefinitionError::EXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   const auto success =
@@ -1180,14 +1180,14 @@ utils::BasicResult<StorageDataDefinitionError, void> Storage::CreateIndex(
     return {};
   }
 
-  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-utils::BasicResult<StorageDataDefinitionError, void> Storage::CreateIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
-    return StorageDataDefinitionError{DataDefinitionError::EXISTANT_INDEX};
+    return StorageIndexDefinitionError{DataDefinitionError::EXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
@@ -1199,14 +1199,14 @@ utils::BasicResult<StorageDataDefinitionError, void> Storage::CreateIndex(
     return {};
   }
 
-  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) {
-    return StorageDataDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+    return StorageIndexDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success =
@@ -1218,14 +1218,14 @@ utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
     return {};
   }
 
-  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.DropIndex(label, property)) {
-    return StorageDataDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+    return StorageIndexDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
@@ -1239,7 +1239,7 @@ utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
     return {};
   }
 
-  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 IndicesInfo Storage::ListAllIndices() const {

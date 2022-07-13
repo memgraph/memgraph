@@ -355,18 +355,18 @@ class Storage final {
   EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
-  utils::BasicResult<StorageDataDefinitionError, void> CreateIndex(
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// @throw std::bad_alloc
-  utils::BasicResult<StorageDataDefinitionError, void> CreateIndex(
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  utils::BasicResult<StorageDataDefinitionError, void> DropIndex(LabelId label,
-                                                                 std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  utils::BasicResult<StorageDataDefinitionError, void> DropIndex(LabelId label, PropertyId property,
-                                                                 std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 

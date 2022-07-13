@@ -35,10 +35,10 @@ enum class DataDefinitionError {
   NONEXISTANT_CONSTRAINT,
 };
 
-struct StorageDataDefinitionError {
+struct StorageIndexDefinitionError {
   std::variant<DataDefinitionError, ReplicationError> error;
 
-  bool operator==(const StorageDataDefinitionError &) const = default;
+  bool operator==(const StorageIndexDefinitionError &) const = default;
 };
 
 }  // namespace memgraph::storage
