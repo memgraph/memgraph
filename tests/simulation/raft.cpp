@@ -50,8 +50,7 @@ struct AppendEntriesResponse {
 
 struct RequestVotesRequest {
   Term term;
-  Term candidate_id;
-  Term last_log_index;
+  LogIndex last_log_index;
   Term last_log_term;
 };
 
@@ -66,6 +65,7 @@ struct CommonState {
   std::vector<std::pair<Term, Op>> log;
   LogIndex commit_index;
   LogIndex last_applied;
+  uint64_t randomized_timeout;
 };
 
 struct FollowerTracker {
@@ -86,18 +86,24 @@ struct Candidate {
   uint64_t last_received_vote_timestamp = 0;
 };
 
-struct Follower {};
+struct Follower {
+  uint64_t last_received_append_entries_timestamp = 0;
+};
 
+using Role = std::variant<Candidate, Leader, Follower>;
+
+template <typename IoImpl>
 class Server {
  public:
-  Server(Io<SimulatorTransport> io, std::vector<Address> peers) : io_(io), peers_(peers) {}
+  Server(Io<IoImpl> io, std::vector<Address> peers) : io_(io), peers_(peers) {}
 
   void Run() {
     // 120ms between Cron calls
     uint64_t cron_interval = 120000;
-    io_.SetDefaultTimeoutMicroseconds(cron_interval / 2);
-
     uint64_t last_cron = 0;
+
+    common_state_.randomized_timeout = RandomTimeout(100000, 150000);
+    io_.SetDefaultTimeoutMicroseconds(RandomTimeout(100000, 150000));
 
     while (!io_.ShouldShutDown()) {
       auto now = io_.Now();
@@ -106,7 +112,7 @@ class Server {
         last_cron = now;
       }
 
-      auto request_result = io_.Receive<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest>();
+      auto request_result = io_.template Receive<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest>();
       if (request_result.HasError()) {
         continue;
       }
@@ -119,68 +125,162 @@ class Server {
 
  private:
   CommonState common_state_;
-  std::variant<Leader, Candidate, Follower> role_ = Candidate{};
-  Io<SimulatorTransport> io_;
+  Role role_ = Candidate{};
+  Io<IoImpl> io_;
   std::vector<Address> peers_;
   uint64_t last_heard_from_leader_;
 
+  uint64_t RandomTimeout(uint64_t min, uint64_t max) {
+    std::uniform_int_distribution<> time_distrib(min, max);
+    return io_.Rand(time_distrib);
+  }
+
+  LogIndex LastLogIndex() { return common_state_.log.size(); }
+
+  Term LastLogTerm() {
+    if (common_state_.log.empty()) {
+      return 0;
+    } else {
+      auto &[term, data] = common_state_.log.back();
+      return term;
+    }
+  }
+
+  /// Broadcast RequestVotes to all peers and return a vector of response futures
+  std::vector<ResponseFuture<RequestVotesResponse>> BroadcastVotes() {
+    std::vector<ResponseFuture<RequestVotesResponse>> ret{};
+
+    RequestVotesRequest request{
+        .term = common_state_.current_term,
+        .last_log_index = LastLogIndex(),
+        .last_log_term = LastLogTerm(),
+    };
+
+    for (const auto &peer : peers_) {
+      ResponseFuture<RequestVotesResponse> future =
+          io_.template Request<RequestVotesRequest, RequestVotesResponse>(peer, std::move(request));
+      ret.emplace_back(std::move(future));
+    }
+
+    return ret;
+  }
+
   /// Periodic protocol maintenance.
-  void Cron() {
+  std::optional<Role> Cron() {
     // dispatch periodic logic based on our role to a specific Cron method.
-    std::visit([&](auto &&role) { Cron(role); }, role_);
+    return std::visit([&](auto &&role) { return Cron(role); }, role_);
   }
 
-  void Cron(Candidate &) {
+  // Candidates keep sending RequestVotes to peers until:
+  // 1. receiving AppendEntries with a higher term (become Follower)
+  // 2. receiving RequestVotes with a higher term (become a Follower)
+  // 3. receiving a quorum of responses to our last batch of RequestVotes (become a Leader)
+  std::optional<Role> Cron(Candidate &candidate) {
     // TODO retry request-votes requests if we haven't made progress after some threshold
+    if (candidate.outstanding_votes.empty() && candidate.successful_votes == 0) {
+      // initial candidate state
+      std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes = BroadcastVotes();
+      return Candidate{
+          .outstanding_votes = std::move(outstanding_votes),
+          .successful_votes = 0,
+          .last_received_vote_timestamp = 0,
+      };
+    } else {
+      return std::nullopt;
+    }
   }
 
-  void Cron(Follower &) {
-    // TODO become candidate if we haven't heard from others
+  // Followers become candidates if we haven't heard from the leader
+  // after a randomized timeout.
+  std::optional<Role> Cron(Follower &follower) {
+    auto now = io_.Now();
+    auto time_since_last_append_entries = now - follower.last_received_append_entries_timestamp;
+
+    // randomized follower timeout with a range of 100-150ms.
+    if (time_since_last_append_entries > RandomTimeout(100000, 150000)) {
+      std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes = BroadcastVotes();
+      return Candidate{
+          .outstanding_votes = std::move(outstanding_votes),
+          .successful_votes = 0,
+          .last_received_vote_timestamp = 0,
+      };
+    } else {
+      return std::nullopt;
+    }
   }
 
   // Leaders (re)send AppendEntriesRequest to followers.
-  void Cron(Leader &) {
+  std::optional<Role> Cron(Leader &) {
     // TODO time-out client requests if we haven't made progress after some threshold
+    return std::nullopt;
   }
 
   /// **********************************************
-  /// Handle + std::visit is how code is dispatched
-  /// to certain events at certain states.
+  /// Handle + std::visit is how events are dispatched
+  /// to certain code based on Server role.
   ///
   /// Handle(role, message, ...)
   /// takes as the first argument a reference
   /// to its role, and as the second argument, the
   /// message that has been received.
   /// **********************************************
-  void Handle(auto message_variant, uint64_t request_id, Address from_address) {
+  std::optional<Role> Handle(
+      std::variant<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest> &&message_variant,
+      uint64_t request_id, Address from_address) {
     // dispatch the message to a handler based on our role,
     // which can be specified in the Handle first argument,
     // or it can be `auto` if it's a handler for several roles
     // or messages.
-    std::visit([&](auto &&msg, auto &&role) { Handle(role, msg, request_id, from_address); },
-               std::move(message_variant), role_);
+    return std::visit([&](auto &&msg, auto &&role) { return Handle(role, std::move(msg), request_id, from_address); },
+                      std::move(message_variant), role_);
+
+    // TODO(m3) maybe replace std::visit with get_if for explicit prioritized matching, [[likely]] etc...
   }
 
   // all roles can receive RequestVotes and possibly become a follower
-  void Handle(auto &, RequestVotesRequest &req, uint64_t request_id, Address from_address) {
+  template <typename AllRoles>
+  std::optional<Role> Handle(AllRoles &, RequestVotesRequest &&req, uint64_t request_id, Address from_address) {
     std::cout << "RECEIVED RequestVotes :)" << std::endl;
-    auto res = RequestVotesResponse{};
+    bool last_log_term_dominates = req.last_log_term >= LastLogTerm();
+    bool term_dominates = req.term > common_state_.current_term;
+    bool last_log_index_dominates = req.last_log_index >= LastLogIndex();
+    bool new_leader = last_log_term_dominates && term_dominates && last_log_index_dominates;
+
+    RequestVotesResponse res{
+        .term = std::max(req.term, common_state_.current_term),
+        .vote_granted = new_leader,
+    };
 
     io_.Send(from_address, request_id, res);
+
+    if (new_leader) {
+      // become a follower
+      common_state_.current_term = req.term;
+      common_state_.voted_for = from_address;
+      return Follower{
+          .last_received_append_entries_timestamp = io_.Now(),
+      };
+    } else {
+      return std::nullopt;
+    }
   }
 
-  // only leaders actually handle replication requests
-  void Handle(Leader &, ReplicationRequest &req, uint64_t request_id, Address from_address) {
-    std::cout << "RECEIVED ReplicationRequest :)" << std::endl;
+  // only leaders actually handle replication requests from clients
+  std::optional<Role> Handle(Leader &, ReplicationRequest &&req, uint64_t request_id, Address from_address) {
+    std::cout << "leader RECEIVED ReplicationRequest :)" << std::endl;
 
     // we are the leader. add item to log and send AppendEntries to peers
     common_state_.log.emplace_back(std::pair(common_state_.current_term, std::move(req.opaque_data)));
 
     // TODO add message to pending requests buffer, reply asynchronously
+    return std::nullopt;
   }
 
   // non-leaders respond to replication requests with a redirection to the leader
-  void Handle(auto &, ReplicationRequest &req, uint64_t request_id, Address from_address) {
+  // template<typename AllRoles>
+  template <typename AllRoles>
+  std::optional<Role> Handle(const AllRoles &, ReplicationRequest &&req, uint64_t request_id, Address from_address) {
+    std::cout << "all RECEIVED ReplicationRequest :)" << std::endl;
     auto res = ReplicationResponse{};
 
     res.success = false;
@@ -191,11 +291,14 @@ class Server {
     }
 
     io_.Send(from_address, request_id, res);
+
+    return std::nullopt;
   }
 
   // anyone can receive an AppendEntriesRequest and potentially be flipped to a follower
   // state.
-  void Handle(auto &, AppendEntriesRequest &aer, uint64_t request_id, Address from_address) {
+  template <typename AllRoles>
+  std::optional<Role> Handle(AllRoles &, AppendEntriesRequest &&aer, uint64_t request_id, Address from_address) {
     std::cout << "RECEIVED AppendEntries from a leader" << std::endl;
     bool error = false;
 
@@ -241,19 +344,26 @@ class Server {
     };
 
     io_.Send(from_address, request_id, res);
-  }
 
-  // unhandled messages should trigger an assertion failure
-  void Handle(auto &, auto &, uint64_t request_id, Address from_address) {
-    std::cout << "RECEIVED unhandled message :(" << std::endl;
-    std::terminate();
+    return std::nullopt;
   }
 };
 
-void RunServer(Server server) { server.Run(); }
+template <typename IoImpl>
+void RunServer(Server<IoImpl> server) {
+  server.Run();
+}
 
 int main() {
-  auto simulator = Simulator();
+  auto config = SimulatorConfig{
+      .drop_percent = 0,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = 0,
+  };
+
+  auto simulator = Simulator(config);
+
   auto cli_addr = Address::TestAddress(1);
   auto srv_addr_1 = Address::TestAddress(2);
   auto srv_addr_2 = Address::TestAddress(3);
@@ -272,15 +382,15 @@ int main() {
   Server srv_2{srv_io_2, srv_2_peers};
   Server srv_3{srv_io_3, srv_3_peers};
 
-  auto srv_thread_1 = std::jthread(RunServer, std::move(srv_1));
-  auto srv_thread_2 = std::jthread(RunServer, std::move(srv_2));
-  auto srv_thread_3 = std::jthread(RunServer, std::move(srv_3));
+  auto srv_thread_1 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_1));
+  auto srv_thread_2 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_2));
+  auto srv_thread_3 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_3));
 
   // send request
   ReplicationRequest cli_req;
   cli_req.opaque_data = std::vector<uint8_t>{1, 2, 3, 4};
 
-  auto response_future = cli_io.Request<ReplicationRequest, ReplicationResponse>(srv_addr_1, cli_req);
+  auto response_future = cli_io.RequestWithTimeout<ReplicationRequest, ReplicationResponse>(srv_addr_1, cli_req, 100);
 
   // receive response
   auto response_result = response_future.Wait();

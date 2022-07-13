@@ -383,7 +383,7 @@ class SimulatorHandle {
   // messages that are sent to servers that may later receive them
   std::map<Address, std::vector<OpaqueMessage>> can_receive_;
 
-  uint64_t cluster_wide_time_microseconds_ = 0;
+  uint64_t cluster_wide_time_microseconds_ = 100000000;
   bool should_shut_down_ = false;
   SimulatorStats stats_;
   size_t blocked_on_receive_ = 0;
