@@ -1365,10 +1365,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
           const auto &storage_error = maybe_index_error.GetError();
           const auto error = storage_error.error;
           std::visit(
-              [&index_notification, &label_name, &properties_stringified, &invalidate_plan_cache]<typename T>(T &&arg) {
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  invalidate_plan_cache();
+                  EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
                   throw ReplicationException();
                 } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
                   auto data_definition_error = arg;
@@ -1395,21 +1395,32 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (properties.empty()) {
-          if (!interpreter_context->db->DropIndex_renamed(label)) {
-            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-          }
-        } else {
-          MG_ASSERT(properties.size() == 1U);
-          if (!interpreter_context->db->DropIndex_renamed(label, properties[0])) {
-            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-          }
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error = properties.empty() ? interpreter_context->db->DropIndex(label)
+                                                    : interpreter_context->db->DropIndex(label, properties[0]);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          const auto &storage_error = maybe_index_error.GetError();
+          const auto error = storage_error.error;
+          std::visit(
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
+                using ErrorType = std::remove_cvref_t<T>;
+                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                  throw ReplicationException();
+                } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                  auto data_definition_error = arg;
+                  MG_ASSERT(storage::DataDefinitionError::NONEXISTANT_INDEX == data_definition_error,
+                            "Unexpected error received. Workflow is incorrect.");
+                  index_notification.code = NotificationCode::NONEXISTANT_INDEX;
+                  index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
+                                                         label_name, properties_stringified);
+                } else {
+                  static_assert(always_false_v<T>, "Missing type from variant visitor");
+                }
+              },
+              error);
         }
-        invalidate_plan_cache();
       };
       break;
     }

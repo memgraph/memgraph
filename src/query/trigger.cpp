@@ -196,6 +196,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                       const TriggerContext &context, const AuthChecker *auth_checker) const {
+  // #NoCommit something to do in this method/class
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }

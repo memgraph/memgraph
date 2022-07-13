@@ -362,10 +362,11 @@ class Storage final {
   utils::BasicResult<StorageDataDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  [[nodiscard]] bool DropIndex_renamed(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageDataDefinitionError, void> DropIndex(LabelId label,
+                                                                 std::optional<uint64_t> desired_commit_timestamp = {});
 
-  [[nodiscard]] bool DropIndex_renamed(LabelId label, PropertyId property,
-                                       std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageDataDefinitionError, void> DropIndex(LabelId label, PropertyId property,
+                                                                 std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 

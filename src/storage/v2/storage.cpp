@@ -1202,29 +1202,44 @@ utils::BasicResult<StorageDataDefinitionError, void> Storage::CreateIndex(
   return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-bool Storage::DropIndex_renamed(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.DropIndex(label)) return false;
+  if (!indices_.label_index.DropIndex(label)) {
+    return StorageDataDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit =
+  auto success =
       AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-bool Storage::DropIndex_renamed(LabelId label, PropertyId property,
-                                const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageDataDefinitionError, void> Storage::DropIndex(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.DropIndex(label, property)) return false;
+  if (!indices_.label_property_index.DropIndex(label, property)) {
+    return StorageDataDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+  }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit = AppendToWalDataDefinition(
-      durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageDataDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 IndicesInfo Storage::ListAllIndices() const {
