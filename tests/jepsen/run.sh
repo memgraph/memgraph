@@ -140,7 +140,7 @@ case $1 in
             redirect_stderr_logs="/dev/stderr"
         fi
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
+        docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $CONTROL_LEIN_RUN_ARGS" #1> $redirect_stdout_logs 2> $redirect_stderr_logs
         # To be able to archive the run result even if the run fails.
         jepsen_run_exit_status=$?
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
