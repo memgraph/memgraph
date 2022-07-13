@@ -1247,17 +1247,28 @@ IndicesInfo Storage::ListAllIndices() const {
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint_renamed(
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
+  if (ret.HasError()) {
+    return StorageExistenceConstraintDefinitionError{ret.GetError()};
+  }
+  if (!ret.GetValue()) {
+    return StorageExistenceConstraintDefinitionError{DataDefinitionError::EXISTANT_CONSTRAINT};
+  }
+
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit = AppendToWalDataDefinition(
-      durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 bool Storage::DropExistenceConstraint_renamed(LabelId label, PropertyId property,

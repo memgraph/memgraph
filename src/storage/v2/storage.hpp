@@ -370,13 +370,16 @@ class Storage final {
 
   IndicesInfo ListAllIndices() const;
 
-  /// Creates an existence constraint. Returns true if the constraint was
-  /// successfuly added, false if it already exists and a `ConstraintViolation`
-  /// if there is an existing vertex violating the constraint.
+  /// Creates an existence constraint. Returns void if the constraint was
+  /// successfuly added, an error otherwise.
+  /// Error can be:
+  /// -`ConstraintViolation` if it already exists.
+  /// -`DataDefinitionError::EXISTANT_CONSTRAINT' if there is an existing vertex violating the constraint.
+  /// -`ReplicationError` if a sync replica has not confirmed receiving the update.
   ///
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  [[nodiscard]] utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint_renamed(
+  [[nodiscard]] utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes an existence constraint. Returns true if the constraint was

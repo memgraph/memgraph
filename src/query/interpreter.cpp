@@ -1363,7 +1363,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
         if (maybe_index_error.HasError()) {
           const auto &storage_error = maybe_index_error.GetError();
-          const auto error = storage_error.error;
+          const auto &error = storage_error.error;
           std::visit(
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
@@ -1371,7 +1371,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                   EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
                   throw ReplicationException();
                 } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
-                  auto data_definition_error = arg;
+                  auto &data_definition_error = arg;
                   MG_ASSERT(storage::DataDefinitionError::EXISTANT_INDEX == data_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::EXISTANT_INDEX;
@@ -1402,7 +1402,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
         if (maybe_index_error.HasError()) {
           const auto &storage_error = maybe_index_error.GetError();
-          const auto error = storage_error.error;
+          const auto &error = storage_error.error;
           std::visit(
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
@@ -1948,21 +1948,39 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateExistenceConstraint_renamed(label, properties[0]);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              MG_ASSERT(violation.properties.size() == 1U);
-              auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
-              throw QueryRuntimeException(
-                  "Unable to create existence constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_name);
-            }
-            if (res.HasValue() && !res.GetValue()) {
-              constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} already exists.", label_name, properties_stringified);
+            auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
+
+            if (maybe_constraint_error.HasError()) {
+              const auto &storage_error = maybe_constraint_error.GetError();
+              const auto &error = storage_error.error;
+              std::visit(
+                  [&interpreter_context, &label_name, &properties_stringified,
+                   &constraint_notification]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      auto label_name = interpreter_context->db->LabelToName(violation.label);
+                      MG_ASSERT(violation.properties.size() == 1U);
+                      auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
+                      throw QueryRuntimeException(
+                          "Unable to create existence constraint :{}({}), because an "
+                          "existing node violates it.",
+                          label_name, property_name);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                      auto data_definition_error = arg;
+                      MG_ASSERT(storage::DataDefinitionError::EXISTANT_CONSTRAINT == data_definition_error,
+                                "Unexpected error received. Workflow is incorrect.");
+                      constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
+                                      properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException();
+                    } else {
+                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
           };
           break;
@@ -2364,7 +2382,7 @@ void Interpreter::Commit() {
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
     const auto &storage_error = maybe_commit_error.GetError();
-    const auto error = storage_error.error;
+    const auto &error = storage_error.error;
 
     std::visit(
         [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members]<typename T>(T &&arg) {
