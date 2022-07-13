@@ -27,28 +27,30 @@ struct StorageDataManipulationError {
   bool operator==(const StorageDataManipulationError &) const = default;
 };
 
-// #NoCommit from /home/jeremy/dev/memgraph/src/query/metadata.hpp, see how to avoid duplication
-enum class DataDefinitionError {
+enum class IndexDefinitionError {
   EXISTANT_INDEX,
-  EXISTANT_CONSTRAINT,
   NONEXISTANT_INDEX,
-  NONEXISTANT_CONSTRAINT,
 };
 
 struct StorageIndexDefinitionError {
-  std::variant<DataDefinitionError, ReplicationError> error;
+  std::variant<IndexDefinitionError, ReplicationError> error;
 
   bool operator==(const StorageIndexDefinitionError &) const = default;
 };
 
+enum class ConstraintDefinitionError {
+  EXISTANT_CONSTRAINT,
+  NONEXISTANT_CONSTRAINT,
+};
+
 struct StorageExistenceConstraintDefinitionError {
-  std::variant<ConstraintViolation, DataDefinitionError, ReplicationError> error;
+  std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError> error;
 
   bool operator==(const StorageExistenceConstraintDefinitionError &) const = default;
 };
 
 struct StorageExistenceConstraintDroppingError {
-  std::variant<DataDefinitionError, ReplicationError> error;
+  std::variant<ConstraintDefinitionError, ReplicationError> error;
 
   bool operator==(const StorageExistenceConstraintDroppingError &) const = default;
 };

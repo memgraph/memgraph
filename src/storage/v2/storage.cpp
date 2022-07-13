@@ -1168,7 +1168,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
-    return StorageIndexDefinitionError{DataDefinitionError::EXISTANT_INDEX};
+    return StorageIndexDefinitionError{IndexDefinitionError::EXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   const auto success =
@@ -1187,7 +1187,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
-    return StorageIndexDefinitionError{DataDefinitionError::EXISTANT_INDEX};
+    return StorageIndexDefinitionError{IndexDefinitionError::EXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
@@ -1206,7 +1206,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) {
-    return StorageIndexDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+    return StorageIndexDefinitionError{IndexDefinitionError::NONEXISTANT_INDEX};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success =
@@ -1225,7 +1225,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.DropIndex(label, property)) {
-    return StorageIndexDefinitionError{DataDefinitionError::NONEXISTANT_INDEX};
+    return StorageIndexDefinitionError{IndexDefinitionError::NONEXISTANT_INDEX};
   }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
@@ -1255,7 +1255,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::Cre
     return StorageExistenceConstraintDefinitionError{ret.GetError()};
   }
   if (!ret.GetValue()) {
-    return StorageExistenceConstraintDefinitionError{DataDefinitionError::EXISTANT_CONSTRAINT};
+    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError::EXISTANT_CONSTRAINT};
   }
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -1275,7 +1275,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropE
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
-    return StorageExistenceConstraintDroppingError{DataDefinitionError::NONEXISTANT_CONSTRAINT};
+    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError::NONEXISTANT_CONSTRAINT};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,

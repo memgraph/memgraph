@@ -1370,9 +1370,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                   EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
                   throw ReplicationException();
-                } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &data_definition_error = arg;
-                  MG_ASSERT(storage::DataDefinitionError::EXISTANT_INDEX == data_definition_error,
+                  MG_ASSERT(storage::IndexDefinitionError::EXISTANT_INDEX == data_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::EXISTANT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
@@ -1408,9 +1408,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                   throw ReplicationException();
-                } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto data_definition_error = arg;
-                  MG_ASSERT(storage::DataDefinitionError::NONEXISTANT_INDEX == data_definition_error,
+                  MG_ASSERT(storage::IndexDefinitionError::NONEXISTANT_INDEX == data_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::NONEXISTANT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
@@ -1966,9 +1966,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "Unable to create existence constraint :{}({}), because an "
                           "existing node violates it.",
                           label_name, property_name);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       auto data_definition_error = arg;
-                      MG_ASSERT(storage::DataDefinitionError::EXISTANT_CONSTRAINT == data_definition_error,
+                      MG_ASSERT(storage::ConstraintDefinitionError::EXISTANT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
                       constraint_notification.title =
@@ -2071,9 +2071,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               std::visit(
                   [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
-                    if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       auto data_definition_error = arg;
-                      MG_ASSERT(storage::DataDefinitionError::NONEXISTANT_CONSTRAINT == data_definition_error,
+                      MG_ASSERT(storage::ConstraintDefinitionError::NONEXISTANT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
                       constraint_notification.title =
