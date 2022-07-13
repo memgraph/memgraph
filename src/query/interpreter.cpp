@@ -2109,7 +2109,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &storage_error = maybe_constraint_error.GetError();
               const auto &error = storage_error.error;
               std::visit(
-                  [&interpreter_context]<typename T>(T &&arg) {
+                  []<typename T>(T &&) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                       throw ReplicationException();
