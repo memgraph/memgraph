@@ -1998,21 +1998,34 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateUniqueConstraint_renamed(label, property_set);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              std::stringstream property_names_stream;
-              utils::PrintIterable(property_names_stream, violation.properties, ", ",
-                                   [&interpreter_context](auto &stream, const auto &prop) {
-                                     stream << interpreter_context->db->PropertyToName(prop);
-                                   });
-              throw QueryRuntimeException(
-                  "Unable to create unique constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_names_stream.str());
+            auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set);
+            if (maybe_constraint_error.HasError()) {
+              const auto &storage_error = maybe_constraint_error.GetError();
+              const auto &error = storage_error.error;
+              std::visit(
+                  [&interpreter_context]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      auto label_name = interpreter_context->db->LabelToName(violation.label);
+                      std::stringstream property_names_stream;
+                      utils::PrintIterable(property_names_stream, violation.properties, ", ",
+                                           [&interpreter_context](auto &stream, const auto &prop) {
+                                             stream << interpreter_context->db->PropertyToName(prop);
+                                           });
+                      throw QueryRuntimeException(
+                          "Unable to create unique constraint :{}({}), because an "
+                          "existing node violates it.",
+                          label_name, property_names_stream.str());
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException();
+                    } else {
+                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
-            switch (res.GetValue()) {
+            switch (maybe_constraint_error.GetValue()) {
               case storage::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
                     "At least one property must be used for unique "

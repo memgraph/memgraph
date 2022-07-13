@@ -1290,19 +1290,27 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropE
   return StorageExistenceConstraintDroppingError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint_renamed(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret;
+  if (ret.HasError()) {
+    return StorageUniqueConstraintDefinitionError{ret.GetError()};
+  } else if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+    return ret.GetValue();
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit = AppendToWalDataDefinition(
-      durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
+                                           properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::CreationStatus::SUCCESS;
+
+  if (success) {
+    return UniqueConstraints::CreationStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint_renamed(

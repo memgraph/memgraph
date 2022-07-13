@@ -558,8 +558,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage_->NameToProperty(prop));
         }
-        auto ret = storage_->CreateUniqueConstraint_renamed(
-            storage_->NameToLabel(delta.operation_label_properties.label), properties, timestamp);
+        auto ret = storage_->CreateUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
+                                                    properties, timestamp);
         if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
           throw utils::BasicException("Invalid transaction!");
         break;

@@ -384,8 +384,8 @@ class Storage final {
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Creates a unique constraint. In the case of two vertices violating the
-  /// constraint, it returns `ConstraintViolation`. Otherwise returns a
-  /// `UniqueConstraints::CreationStatus` enum with the following possibilities:
+  /// constraint or if a sync replica has not confirmed reception, it returns `StorageUniqueConstraintDefinitionError`.
+  /// Otherwise returns a `UniqueConstraints::CreationStatus` enum with the following possibilities:
   ///     * `SUCCESS` if the constraint was successfully created,
   ///     * `ALREADY_EXISTS` if the constraint already existed,
   ///     * `EMPTY_PROPERTIES` if the property set is empty, or
@@ -393,9 +393,9 @@ class Storage final {
   //        limit of maximum number of properties.
   ///
   /// @throw std::bad_alloc
-  [[nodiscard]] utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
-  CreateUniqueConstraint_renamed(LabelId label, const std::set<PropertyId> &properties,
-                                 std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                         std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
   /// enum with the following possibilities:
