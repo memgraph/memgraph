@@ -528,13 +528,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   // as `expr1 < n.prop AND n.prop < expr2`.
 }
 
-static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
+static void ParseForeach(query::v2::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
-    if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+    if (auto *merge = utils::Downcast<query::v2::Merge>(clause)) {
       query_part.merge_matching.emplace_back(Matching{});
       AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part.merge_matching.back());
-    } else if (auto *nested = utils::Downcast<query::Foreach>(clause)) {
+    } else if (auto *nested = utils::Downcast<query::v2::Foreach>(clause)) {
       ParseForeach(*nested, query_part, storage, symbol_table);
     }
   }
@@ -557,14 +557,14 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      if (auto *merge = utils::Downcast<query::v2::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
-      } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+      } else if (auto *foreach = utils::Downcast<query::v2::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
-      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
-                 utils::IsSubtype(*clause, query::CallProcedure::kType) ||
-                 utils::IsSubtype(*clause, query::LoadCsv::kType)) {
+      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::v2::Unwind::kType) ||
+                 utils::IsSubtype(*clause, query::v2::CallProcedure::kType) ||
+                 utils::IsSubtype(*clause, query::v2::LoadCsv::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();

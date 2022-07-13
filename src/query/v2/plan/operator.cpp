@@ -625,7 +625,7 @@ auto UnwrapEdgesResult(storage::v3::Result<TEdges> &&result) {
       case storage::v3::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get relationships of a deleted node.");
       case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
+        throw query::v2::QueryRuntimeException("Trying to get relationships from a node that doesn't exist.");
       case storage::v3::Error::VERTEX_HAS_EDGES:
       case storage::v3::Error::SERIALIZATION_ERROR:
       case storage::v3::Error::PROPERTIES_DISABLED:
@@ -1058,7 +1058,7 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class STShortestPathCursor : public query::plan::Cursor {
+class STShortestPathCursor : public query::v2::plan::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
@@ -1276,7 +1276,7 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 };
 
-class SingleSourceShortestPathCursor : public query::plan::Cursor {
+class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
  public:
   SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -1432,7 +1432,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
-class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
+class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -1734,7 +1734,7 @@ class ConstructNamedPathCursor : public Cursor {
     }
 
     DMG_ASSERT(start_vertex.IsVertex(), "First named path element must be a vertex");
-    query::Path path(start_vertex.ValueVertex(), pull_memory);
+    query::v2::Path path(start_vertex.ValueVertex(), pull_memory);
 
     // If the last path element symbol was for an edge list, then
     // the next symbol is a vertex and it should not append to the path
@@ -1971,7 +1971,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
             }
 
             context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::v2::EdgeAccessor>()) {
               return;
             }
             for (const auto &edge : (*res)->second) {
@@ -2156,7 +2156,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
         case storage::v3::Error::SERIALIZATION_ERROR:
         case storage::v3::Error::VERTEX_HAS_EDGES:
         case storage::v3::Error::PROPERTIES_DISABLED:

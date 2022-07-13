@@ -186,7 +186,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::v2::ListLiteral>(unwind.input_expression_))
       unwind_value = literal->elements_.size();
     else
       unwind_value = MiscParam::kUnwindNoLiteral;
@@ -201,7 +201,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // First estimate cardinality and then increment the cost.
 
     double foreach_elements{0};
-    if (auto *literal = utils::Downcast<query::ListLiteral>(foreach.expression_)) {
+    if (auto *literal = utils::Downcast<query::v2::ListLiteral>(foreach.expression_)) {
       foreach_elements = literal->elements_.size();
     } else {
       foreach_elements = MiscParam::kForeachNoLiteral;

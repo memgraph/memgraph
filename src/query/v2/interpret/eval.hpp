@@ -394,7 +394,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
               case storage::v3::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::v3::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+                throw query::v2::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
               case storage::v3::Error::SERIALIZATION_ERROR:
               case storage::v3::Error::VERTEX_HAS_EDGES:
               case storage::v3::Error::PROPERTIES_DISABLED:
@@ -705,7 +705,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+          throw query::v2::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::v3::Error::SERIALIZATION_ERROR:
         case storage::v3::Error::VERTEX_HAS_EDGES:
         case storage::v3::Error::PROPERTIES_DISABLED:
@@ -732,7 +732,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
+          throw query::v2::QueryRuntimeException("Trying to get a property from an object that doesn't exist.");
         case storage::v3::Error::SERIALIZATION_ERROR:
         case storage::v3::Error::VERTEX_HAS_EDGES:
         case storage::v3::Error::PROPERTIES_DISABLED:

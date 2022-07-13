@@ -36,7 +36,7 @@ class Parser {
     parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::SyntaxException(error_listener_.error_);
+      throw query::v2::SyntaxException(error_listener_.error_);
     }
   }
 

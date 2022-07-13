@@ -48,7 +48,7 @@ class PostProcessor final {
 
   template <class TVertexCounts>
   double EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts) {
-    return query::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
+    return query::v2::plan::EstimatePlanCost(vertex_counts, parameters_, *plan);
   }
 
   template <class TPlanningContext>

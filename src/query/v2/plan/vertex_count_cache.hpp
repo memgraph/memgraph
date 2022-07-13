@@ -96,11 +96,11 @@ class VertexCountCache {
     size_t operator()(const BoundsKey &key) const {
       const auto &maybe_lower = key.first;
       const auto &maybe_upper = key.second;
-      query::TypedValue lower;
-      query::TypedValue upper;
+      query::v2::TypedValue lower;
+      query::v2::TypedValue upper;
       if (maybe_lower) lower = TypedValue(maybe_lower->value());
       if (maybe_upper) upper = TypedValue(maybe_upper->value());
-      query::TypedValue::Hash hash;
+      query::v2::TypedValue::Hash hash;
       return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
   };
@@ -109,11 +109,11 @@ class VertexCountCache {
     bool operator()(const BoundsKey &a, const BoundsKey &b) const {
       auto bound_equal = [](const auto &maybe_bound_a, const auto &maybe_bound_b) {
         if (maybe_bound_a && maybe_bound_b && maybe_bound_a->type() != maybe_bound_b->type()) return false;
-        query::TypedValue bound_a;
-        query::TypedValue bound_b;
+        query::v2::TypedValue bound_a;
+        query::v2::TypedValue bound_b;
         if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
         if (maybe_bound_b) bound_b = TypedValue(maybe_bound_b->value());
-        return query::TypedValue::BoolEqual{}(bound_a, bound_b);
+        return query::v2::TypedValue::BoolEqual{}(bound_a, bound_b);
       };
       return bound_equal(a.first, b.first) && bound_equal(a.second, b.second);
     }
@@ -125,7 +125,7 @@ class VertexCountCache {
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
   std::unordered_map<
       LabelPropertyKey,
-      std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
+      std::unordered_map<query::v2::TypedValue, int64_t, query::v2::TypedValue::Hash, query::v2::TypedValue::BoolEqual>,
       LabelPropertyHash>
       property_value_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,

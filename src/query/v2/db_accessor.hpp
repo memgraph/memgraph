@@ -191,7 +191,7 @@ inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.F
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class DbAccessor final {
-  storage::v3::storage::v3::Accessor *accessor_;
+  storage::v3::Storage::Accessor *accessor_;
 
   class VerticesIterable final {
     storage::v3::VerticesIterable iterable_;
@@ -223,7 +223,7 @@ class DbAccessor final {
   };
 
  public:
-  explicit DbAccessor(storage::v3::storage::v3::Accessor *accessor) : accessor_(accessor) {}
+  explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
 
   std::optional<VertexAccessor> FindVertex(storage::v3::Gid gid, storage::v3::View view) {
     auto maybe_vertex = accessor_->FindVertex(gid, view);

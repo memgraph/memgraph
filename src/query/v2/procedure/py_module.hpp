@@ -57,7 +57,7 @@ mgp_value *PyObjectToMgpValue(PyObject *, mgp_memory *);
 ///
 /// The function is to be used before Py_Initialize via the following code.
 ///
-///     PyImport_AppendInittab("_mgp", &query::procedure::PyInitMgpModule);
+///     PyImport_AppendInittab("_mgp", &query::v2::procedure::PyInitMgpModule);
 PyObject *PyInitMgpModule();
 
 /// Create an instance of _mgp.Graph class.

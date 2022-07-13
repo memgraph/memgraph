@@ -185,12 +185,12 @@ class RuleBasedPlanner {
         if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
                                      *context.ast_storage);
-        } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+        } else if (auto *merge = utils::Downcast<query::v2::Merge>(clause)) {
           input_op = GenMerge(*merge, std::move(input_op), query_part.merge_matching[merge_id++]);
           // Treat MERGE clause as write, because we do not know if it will
           // create anything.
           is_write = true;
-        } else if (auto *with = utils::Downcast<query::With>(clause)) {
+        } else if (auto *with = utils::Downcast<query::v2::With>(clause)) {
           input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, is_write, context.bound_symbols,
                                    *context.ast_storage);
           // WITH clause advances the command, so reset the flag.
@@ -198,12 +198,12 @@ class RuleBasedPlanner {
         } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
           is_write = true;
           input_op = std::move(op);
-        } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
+        } else if (auto *unwind = utils::Downcast<query::v2::Unwind>(clause)) {
           const auto &symbol = context.symbol_table->at(*unwind->named_expression_);
           context.bound_symbols.insert(symbol);
           input_op =
               std::make_unique<plan::Unwind>(std::move(input_op), unwind->named_expression_->expression_, symbol);
-        } else if (auto *call_proc = utils::Downcast<query::CallProcedure>(clause)) {
+        } else if (auto *call_proc = utils::Downcast<query::v2::CallProcedure>(clause)) {
           std::vector<Symbol> result_symbols;
           result_symbols.reserve(call_proc->result_identifiers_.size());
           for (const auto *ident : call_proc->result_identifiers_) {
@@ -217,14 +217,14 @@ class RuleBasedPlanner {
           input_op = std::make_unique<plan::CallProcedure>(
               std::move(input_op), call_proc->procedure_name_, call_proc->arguments_, call_proc->result_fields_,
               result_symbols, call_proc->memory_limit_, call_proc->memory_scale_, call_proc->is_write_);
-        } else if (auto *load_csv = utils::Downcast<query::LoadCsv>(clause)) {
+        } else if (auto *load_csv = utils::Downcast<query::v2::LoadCsv>(clause)) {
           const auto &row_sym = context.symbol_table->at(*load_csv->row_var_);
           context.bound_symbols.insert(row_sym);
 
           input_op =
               std::make_unique<plan::LoadCsv>(std::move(input_op), load_csv->file_, load_csv->with_header_,
                                               load_csv->ignore_bad_, load_csv->delimiter_, load_csv->quote_, row_sym);
-        } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
+        } else if (auto *foreach = utils::Downcast<query::v2::Foreach>(clause)) {
           is_write = true;
           input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                          query_part, merge_id);
@@ -343,16 +343,16 @@ class RuleBasedPlanner {
                                                      std::unordered_set<Symbol> &bound_symbols) {
     if (auto *create = utils::Downcast<Create>(clause)) {
       return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols);
-    } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
+    } else if (auto *del = utils::Downcast<query::v2::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
-    } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
+    } else if (auto *set = utils::Downcast<query::v2::SetProperty>(clause)) {
       return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
                                                  set->property_lookup_, set->expression_);
-    } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
+    } else if (auto *set = utils::Downcast<query::v2::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE : plan::SetProperties::Op::REPLACE;
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       return std::make_unique<plan::SetProperties>(std::move(input_op), input_symbol, set->expression_, op);
-    } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
+    } else if (auto *set = utils::Downcast<query::v2::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       std::vector<storage::v3::LabelId> labels;
       labels.reserve(set->labels_.size());
@@ -360,10 +360,10 @@ class RuleBasedPlanner {
         labels.push_back(GetLabel(label));
       }
       return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, labels);
-    } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
+    } else if (auto *rem = utils::Downcast<query::v2::RemoveProperty>(clause)) {
       return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
                                                     rem->property_lookup_);
-    } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
+    } else if (auto *rem = utils::Downcast<query::v2::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
       std::vector<storage::v3::LabelId> labels;
       labels.reserve(rem->labels_.size());
@@ -510,7 +510,7 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  auto GenMerge(query::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching) {
+  auto GenMerge(query::v2::Merge &merge, std::unique_ptr<LogicalOperator> input_op, const Matching &matching) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
     std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
@@ -536,7 +536,7 @@ class RuleBasedPlanner {
     return std::make_unique<plan::Merge>(std::move(input_op), std::move(on_match), std::move(on_create));
   }
 
-  std::unique_ptr<LogicalOperator> HandleForeachClause(query::Foreach *foreach,
+  std::unique_ptr<LogicalOperator> HandleForeachClause(query::v2::Foreach *foreach,
                                                        std::unique_ptr<LogicalOperator> input_op,
                                                        const SymbolTable &symbol_table,
                                                        std::unordered_set<Symbol> &bound_symbols,
@@ -545,9 +545,9 @@ class RuleBasedPlanner {
     bound_symbols.insert(symbol);
     std::unique_ptr<LogicalOperator> op = std::make_unique<plan::Once>();
     for (auto *clause : foreach->clauses_) {
-      if (auto *nested_for_each = utils::Downcast<query::Foreach>(clause)) {
+      if (auto *nested_for_each = utils::Downcast<query::v2::Foreach>(clause)) {
         op = HandleForeachClause(nested_for_each, std::move(op), symbol_table, bound_symbols, query_part, merge_id);
-      } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
+      } else if (auto *merge = utils::Downcast<query::v2::Merge>(clause)) {
         op = GenMerge(*merge, std::move(op), query_part.merge_matching[merge_id++]);
       } else {
         op = HandleWriteClause(clause, op, symbol_table, bound_symbols);

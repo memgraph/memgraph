@@ -223,7 +223,7 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
   for (size_t i = 0; i < n_args; ++i) {
     auto arg = args[i];
     std::string_view name;
-    const query::procedure::CypherType *type;
+    const query::v2::procedure::CypherType *type;
     if (is_not_optional_arg(i)) {
       name = callable.args[i].first;
       type = callable.args[i].second;

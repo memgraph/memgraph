@@ -32,13 +32,13 @@ cpp<#
 
 (defun slk-save-ast-pointer (member)
   #>cpp
-  query::SaveAstPointer(self.${member}, builder);
+  query::v2::SaveAstPointer(self.${member}, builder);
   cpp<#)
 
 (defun slk-load-ast-pointer (type)
   (lambda (member)
     #>cpp
-    self->${member} = query::LoadAstPointer<query::${type}>(storage, reader);
+    self->${member} = query::v2::LoadAstPointer<query::v2::${type}>(storage, reader);
     cpp<#))
 
 (defun slk-save-ast-vector (member)
@@ -46,7 +46,7 @@ cpp<#
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto *val : self.${member}) {
-    query::SaveAstPointer(val, builder);
+    query::v2::SaveAstPointer(val, builder);
   }
   cpp<#)
 
@@ -57,7 +57,7 @@ cpp<#
     slk::Load(&size, reader);
     self->${member}.resize(size);
     for (size_t i = 0; i < size; ++i) {
-      self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader);
+      self->${member}[i] = query::v2::LoadAstPointer<query::v2::${type}>(storage, reader);
     }
     cpp<#))
 
@@ -67,7 +67,7 @@ cpp<#
   slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
     slk::Save(entry.first, builder);
-    query::SaveAstPointer(entry.second, builder);
+    query::v2::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
 
@@ -76,9 +76,9 @@ cpp<#
   size_t size = 0;
   slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
-    query::PropertyIx key;
+    query::v2::PropertyIx key;
     slk::Load(&key, reader, storage);
-    auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
+    auto *value = query::v2::LoadAstPointer<query::v2::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
   cpp<#)
@@ -96,8 +96,8 @@ cpp<#
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
-    query::SaveAstPointer(entry.first, builder);
-    query::SaveAstPointer(entry.second, builder);
+    query::v2::SaveAstPointer(entry.first, builder);
+    query::v2::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
 
@@ -106,8 +106,8 @@ cpp<#
   size_t size = 0;
   slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
-    auto *key = query::LoadAstPointer<query::Expression>(storage, reader);
-    auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
+    auto *key = query::v2::LoadAstPointer<query::v2::Expression>(storage, reader);
+    auto *value = query::v2::LoadAstPointer<query::v2::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
   cpp<#)
@@ -151,21 +151,21 @@ cpp<#
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "Label")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *")))))
 
 (lcp:define-struct property-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "Property")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *")))))
 
 (lcp:define-struct edge-type-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "EdgeType")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *")))))
 
 #>cpp
 inline bool operator==(const LabelIx &a, const LabelIx &b) {
@@ -290,7 +290,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
   (:clone :return-type (lambda (typename)
                          (format nil "~A*" typename))
           :args '((storage "AstStorage *"))
@@ -831,7 +831,7 @@ cpp<#
              :clone :copy
              :slk-load (lambda (member)
                         #>cpp
-                        self->${member} = query::NameToFunction(self->function_name_);
+                        self->${member} = query::v2::NameToFunction(self->function_name_);
                         cpp<#)))
   (:public
     #>cpp
@@ -1402,13 +1402,13 @@ cpp<#
                    :slk-load (slk-load-ast-pointer "Expression")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+      (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
       (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        if (auto *properties = std::get_if<std::unordered_map<query::PropertyIx, query::Expression *>>(&properties_)) {
+        if (auto *properties = std::get_if<std::unordered_map<query::v2::PropertyIx, query::v2::Expression *>>(&properties_)) {
           for (auto &property : *properties) {
             if (cont) {
               cont = property.second->Accept(visitor);
@@ -1833,7 +1833,7 @@ cpp<#
    (expression "Expression *"
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-struct return-body ()
@@ -1865,7 +1865,7 @@ cpp<#
           :slk-load (slk-load-ast-pointer "Expression")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
-  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class return (clause)
@@ -2339,7 +2339,7 @@ cpp<#
   (:public
     (lcp:define-enum type (exists unique node-key)
       (:serialize (:lcp))))
-  (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class constraint-query (query)

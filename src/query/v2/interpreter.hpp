@@ -194,7 +194,7 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
-  query::stream::Streams streams;
+  query::v2::stream::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -212,7 +212,7 @@ class Interpreter final {
 
   struct PrepareResult {
     std::vector<std::string> headers;
-    std::vector<query::AuthQuery::Privilege> privileges;
+    std::vector<query::v2::AuthQuery::Privilege> privileges;
     std::optional<int> qid;
   };
 
@@ -222,7 +222,7 @@ class Interpreter final {
    * Preparing a query means to preprocess the query and save it for
    * future calls of `Pull`.
    *
-   * @throw query::QueryException
+   * @throw query::v2::QueryException
    */
   PrepareResult Prepare(const std::string &query, const std::map<std::string, storage::v3::PropertyValue> &params,
                         const std::string *username);
@@ -241,7 +241,7 @@ class Interpreter final {
    * further.
    *
    * @throw utils::BasicException
-   * @throw query::QueryException
+   * @throw query::v2::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> PullAll(TStream *result_stream) {
@@ -263,7 +263,7 @@ class Interpreter final {
    * otherwise the last query should be used.
    *
    * @throw utils::BasicException
-   * @throw query::QueryException
+   * @throw query::v2::QueryException
    */
   template <typename TStream>
   std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
@@ -325,7 +325,7 @@ class Interpreter final {
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::v3::storage::v3::Accessor> db_accessor_;
+  std::unique_ptr<storage::v3::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};

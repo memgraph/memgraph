@@ -168,7 +168,7 @@ using PropertyChangesLists =
 
 template <detail::ObjectAccessor TAccessor>
 [[nodiscard]] PropertyChangesLists<TAccessor> PropertyMapToList(
-    query::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
+    query::v2::TriggerContextCollector::PropertyChangesMap<TAccessor> &&map) {
   std::vector<detail::SetObjectProperty<TAccessor>> set_object_properties;
   std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
 
@@ -198,7 +198,7 @@ template <detail::ObjectAccessor TAccessor>
 }
 
 template <detail::ObjectAccessor TAccessor>
-[[nodiscard]] ChangesSummary<TAccessor> Summarize(query::TriggerContextCollector::Registry<TAccessor> &&registry) {
+[[nodiscard]] ChangesSummary<TAccessor> Summarize(query::v2::TriggerContextCollector::Registry<TAccessor> &&registry) {
   auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(registry.property_changes));
   std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
   created_objects_vec.reserve(registry.created_objects.size());

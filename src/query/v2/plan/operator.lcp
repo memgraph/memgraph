@@ -246,21 +246,21 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    cpp<#)
   (:serialize
    (:slk :base t
-         :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
-         :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
+         :save-args '((helper "query::v2::plan::LogicalOperator::SaveHelper *"))
+         :load-args '((helper "query::v2::plan::LogicalOperator::SlkLoadHelper *"))))
   (:type-info :base t)
   (:clone :args '((storage "AstStorage *"))
           :base t))
 
 (defun slk-save-ast-pointer (member)
   #>cpp
-  query::SaveAstPointer(self.${member}, builder);
+  query::v2::SaveAstPointer(self.${member}, builder);
   cpp<#)
 
 (defun slk-load-ast-pointer (type)
   (lambda (member)
     #>cpp
-    self->${member} = query::LoadAstPointer<query::${type}>(
+    self->${member} = query::v2::LoadAstPointer<query::v2::${type}>(
         &helper->ast_storage, reader);
     cpp<#))
 
@@ -269,7 +269,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto *val : self.${member}) {
-    query::SaveAstPointer(val, builder);
+    query::v2::SaveAstPointer(val, builder);
   }
   cpp<#)
 
@@ -282,14 +282,14 @@ can serve as inputs to others and thus a sequence of operations is formed.")
     for (size_t i = 0;
          i < size;
          ++i) {
-      self->${member}[i] = query::LoadAstPointer<query::${type}>(
+      self->${member}[i] = query::v2::LoadAstPointer<query::v2::${type}>(
           &helper->ast_storage, reader);
     }
     cpp<#))
 
 (defun slk-save-operator-pointer (member)
   #>cpp
-  slk::Save<query::plan::LogicalOperator>(self.${member}, builder,
+  slk::Save<query::v2::plan::LogicalOperator>(self.${member}, builder,
                                           &helper->saved_ops,
                                           [&helper](const auto &val,
                                                     auto *builder) {
@@ -299,7 +299,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun slk-load-operator-pointer (member)
   #>cpp
-  slk::Load<query::plan::LogicalOperator>(&self->${member}, reader, &helper->loaded_ops,
+  slk::Load<query::v2::plan::LogicalOperator>(&self->${member}, reader, &helper->loaded_ops,
       [&helper](auto *op, auto *reader) {
         slk::ConstructAndLoad(op, reader, helper);
       });
@@ -345,7 +345,7 @@ and false on every following Pull.")
   slk::Save(size, builder);
   for (const auto &kv : self.${member}) {
     slk::Save(kv.first, builder);
-    query::SaveAstPointer(kv.second, builder);
+    query::v2::SaveAstPointer(kv.second, builder);
   }
   cpp<#)
 
@@ -357,7 +357,7 @@ and false on every following Pull.")
   for (size_t i = 0; i < size; ++i) {
     storage::v3::PropertyId prop;
     slk::Load(&prop, reader);
-    auto *expr = query::LoadAstPointer<query::Expression>(
+    auto *expr = query::v2::LoadAstPointer<query::v2::Expression>(
         &helper->ast_storage, reader);
     self->${member}[i] = {prop, expr};
   }
@@ -392,8 +392,8 @@ cpp<#
                :slk-save #'slk-save-properties
                :slk-load #'slk-load-properties
                :clone #'clone-variant-properties))
-  (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
-                    :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
+  (:serialize (:slk :save-args '((helper "query::v2::plan::LogicalOperator::SaveHelper *"))
+                    :load-args '((helper "query::v2::plan::LogicalOperator::SlkLoadHelper *"))))
   (:clone :args '((storage "AstStorage *")))
   (:public
    #>cpp
@@ -481,8 +481,8 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
                :clone #'clone-variant-properties)
    (edge-type "::storage::v3::EdgeTypeId")
    (direction "::EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"))
-  (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
-                    :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
+  (:serialize (:slk :save-args '((helper "query::v2::plan::LogicalOperator::SaveHelper *"))
+                    :load-args '((helper "query::v2::plan::LogicalOperator::SlkLoadHelper *"))))
   (:clone :args '((storage "AstStorage *")))
   (:public
    #>cpp
@@ -676,7 +676,7 @@ given label.
       break;
   }
   slk::Save(bound_type, builder);
-  query::SaveAstPointer(bound.value(), builder);
+  query::v2::SaveAstPointer(bound.value(), builder);
   cpp<#)
 
 (defun slk-load-optional-bound (member)
@@ -700,9 +700,9 @@ given label.
     default:
       throw slk::SlkDecodeException("Loading unknown BoundType");
   }
-  auto *value = query::LoadAstPointer<query::Expression>(
+  auto *value = query::v2::LoadAstPointer<query::v2::Expression>(
       &helper->ast_storage, reader);
-  self->${member}.emplace(utils::Bound<query::Expression *>(value, bound_type));
+  self->${member}.emplace(utils::Bound<query::v2::Expression *>(value, bound_type));
   cpp<#)
 
 (defun clone-optional-bound (source dest)
@@ -966,10 +966,10 @@ pulled.")
                :slk-save #'slk-save-ast-pointer
                :slk-load (lambda (member)
                            #>cpp
-                           self->${member} = query::LoadAstPointer<query::Expression>(
+                           self->${member} = query::v2::LoadAstPointer<query::v2::Expression>(
                                ast_storage, reader);
                            cpp<#)))
-  (:serialize (:slk :load-args '((ast-storage "query::AstStorage *"))))
+  (:serialize (:slk :load-args '((ast-storage "query::v2::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class expand-variable (logical-operator)
@@ -1004,7 +1004,7 @@ pulled.")
                                 self->${member} = std::nullopt;
                                 return;
                               }
-                              query::plan::ExpansionLambda lambda;
+                              query::v2::plan::ExpansionLambda lambda;
                               slk::Load(&lambda, reader, &helper->ast_storage);
                               self->${member}.emplace(lambda);
                               cpp<#))
@@ -1662,8 +1662,8 @@ elements are in an undefined state after aggregation.")
       "An aggregation element, contains:
        (input data expression, key expression - only used in COLLECT_MAP, type of
        aggregation, output symbol).")
-     (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
-                       :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *"))))
+     (:serialize (:slk :save-args '((helper "query::v2::plan::LogicalOperator::SaveHelper *"))
+                       :load-args '((helper "query::v2::plan::LogicalOperator::SlkLoadHelper *"))))
      (:clone :args '((storage "AstStorage *"))))
    #>cpp
    Aggregate() = default;

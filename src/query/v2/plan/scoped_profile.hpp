@@ -28,7 +28,7 @@ namespace memgraph::query::v2::plan {
  */
 class ScopedProfile {
  public:
-  ScopedProfile(uint64_t key, const char *name, query::ExecutionContext *context) noexcept : context_(context) {
+  ScopedProfile(uint64_t key, const char *name, query::v2::ExecutionContext *context) noexcept : context_(context) {
     if (UNLIKELY(context_->is_profile_query)) {
       root_ = context_->stats_root;
 
@@ -70,7 +70,7 @@ class ScopedProfile {
   }
 
  private:
-  query::ExecutionContext *context_;
+  query::v2::ExecutionContext *context_;
   ProfilingStats *root_{nullptr};
   ProfilingStats *stats_{nullptr};
   unsigned long long start_time_{0};

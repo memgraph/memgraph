@@ -44,6 +44,7 @@
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -103,7 +104,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
 }
 
 template <typename TResult>
-std::optional<TResult> GetOptionalValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<TResult> GetOptionalValue(query::v2::Expression *expression, ExpressionEvaluator &evaluator) {
   if (expression != nullptr) {
     auto int_value = expression->Accept(evaluator);
     MG_ASSERT(int_value.IsNull() || int_value.IsInt());
@@ -114,7 +115,7 @@ std::optional<TResult> GetOptionalValue(query::Expression *expression, Expressio
   return {};
 };
 
-std::optional<std::string> GetOptionalStringValue(query::Expression *expression, ExpressionEvaluator &evaluator) {
+std::optional<std::string> GetOptionalStringValue(query::v2::Expression *expression, ExpressionEvaluator &evaluator) {
   if (expression != nullptr) {
     auto value = expression->Accept(evaluator);
     MG_ASSERT(value.IsNull() || value.IsString());
@@ -125,7 +126,7 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-class ReplQueryHandler final : public query::ReplicationQueryHandler {
+class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::v3::Storage *db) : db_(db) {}
 
@@ -141,7 +142,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         throw QueryRuntimeException("Port number invalid!");
       }
       if (!db_->SetReplicaRole(
-              io::network::Endpoint(query::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
+              io::network::Endpoint(query::v2::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -180,7 +181,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     }
 
     auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
+        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::v2::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret = db_->RegisterReplica(
@@ -638,14 +639,14 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
     std::string bootstrap = bootstrap_servers
                                 ? std::move(*bootstrap_servers)
                                 : std::string{interpreter_context->config.default_kafka_bootstrap_servers};
-    interpreter_context->streams.Create<query::stream::KafkaStream>(stream_name,
-                                                                    {.common_info = std::move(common_stream_info),
-                                                                     .topics = std::move(topic_names),
-                                                                     .consumer_group = std::move(consumer_group),
-                                                                     .bootstrap_servers = std::move(bootstrap),
-                                                                     .configs = std::move(configs),
-                                                                     .credentials = std::move(credentials)},
-                                                                    std::move(owner));
+    interpreter_context->streams.Create<query::v2::stream::KafkaStream>(stream_name,
+                                                                        {.common_info = std::move(common_stream_info),
+                                                                         .topics = std::move(topic_names),
+                                                                         .consumer_group = std::move(consumer_group),
+                                                                         .bootstrap_servers = std::move(bootstrap),
+                                                                         .configs = std::move(configs),
+                                                                         .credentials = std::move(credentials)},
+                                                                        std::move(owner));
 
     return std::vector<std::vector<TypedValue>>{};
   };
@@ -665,7 +666,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
           owner = StringPointerToOptional(username)]() mutable {
     std::string url =
         service_url ? std::move(*service_url) : std::string{interpreter_context->config.default_pulsar_service_url};
-    interpreter_context->streams.Create<query::stream::PulsarStream>(
+    interpreter_context->streams.Create<query::v2::stream::PulsarStream>(
         stream_name,
         {.common_info = std::move(common_stream_info), .topics = std::move(topic_names), .service_url = std::move(url)},
         std::move(owner));
@@ -1075,7 +1076,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::v3::storage::v3::Accessor>(
+      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
           interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
@@ -1761,7 +1762,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
-            case storage::v3::storage::v3::CreateSnapshotError::DisabledForReplica:
+            case storage::v3::Storage::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
           }
@@ -2152,7 +2153,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::v3::storage::v3::Accessor>(
+      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
           interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 

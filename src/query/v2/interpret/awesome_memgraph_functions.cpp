@@ -397,7 +397,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
         case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get properties from a deleted object.");
         case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
         case storage::v3::Error::SERIALIZATION_ERROR:
         case storage::v3::Error::VERTEX_HAS_EDGES:
         case storage::v3::Error::PROPERTIES_DISABLED:
@@ -451,7 +451,7 @@ size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
       case storage::v3::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get degree of a deleted node.");
       case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
+        throw query::v2::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
       case storage::v3::Error::SERIALIZATION_ERROR:
       case storage::v3::Error::VERTEX_HAS_EDGES:
       case storage::v3::Error::PROPERTIES_DISABLED:
@@ -602,7 +602,7 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
         case storage::v3::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get keys from a deleted object.");
         case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+          throw query::v2::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
         case storage::v3::Error::SERIALIZATION_ERROR:
         case storage::v3::Error::VERTEX_HAS_EDGES:
         case storage::v3::Error::PROPERTIES_DISABLED:
@@ -635,7 +635,7 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
       case storage::v3::Error::DELETED_OBJECT:
         throw QueryRuntimeException("Trying to get labels from a deleted node.");
       case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+        throw query::v2::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
       case storage::v3::Error::SERIALIZATION_ERROR:
       case storage::v3::Error::VERTEX_HAS_EDGES:
       case storage::v3::Error::PROPERTIES_DISABLED:

@@ -83,7 +83,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
 
 template <typename TMessage>
 void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
-                              mgp_result &result, storage::v3::storage::v3::Accessor &storage_accessor,
+                              mgp_result &result, storage::v3::Storage::Accessor &storage_accessor,
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
@@ -528,7 +528,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         interpreter->CommitTransaction();
         result.rows.clear();
         break;
-      } catch (const query::TransactionSerializationException &e) {
+      } catch (const query::v2::TransactionSerializationException &e) {
         interpreter->Abort();
         if (i == total_retries) {
           throw;
