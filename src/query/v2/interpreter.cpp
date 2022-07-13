@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 
 #include "query/v2/interpreter.hpp"
-#include <fmt/core.h>
 
+#include <fmt/core.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -21,7 +21,6 @@
 #include <limits>
 #include <optional>
 
-#include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
 #include "query/v2/constants.hpp"
 #include "query/v2/context.hpp"
