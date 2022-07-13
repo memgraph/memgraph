@@ -19,17 +19,9 @@
 
 namespace memgraph::storage {
 
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label) : status{status}, label{label} {}
-
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property)
-    : status{status}, label{label}, violated_schema_property{violated_schema_property} {}
-
-SchemaViolation::SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
-                                 PropertyValue violated_property_value)
-    : status{status},
-      label{label},
-      violated_schema_property{violated_schema_property},
-      violated_property_value{violated_property_value} {}
+bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs) {
+  return lhs.property_id == rhs.property_id && lhs.type == rhs.type;
+}
 
 Schemas::SchemasList Schemas::ListSchemas() const {
   Schemas::SchemasList ret;
@@ -55,69 +47,6 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
 }
 
 bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
-
-std::optional<SchemaViolation> Schemas::ValidateVertexCreate(const LabelId primary_label, const Vertex &vertex) {
-  // TODO Check for multiple defined primary labels
-  const auto schema = schemas_.find(primary_label);
-  if (schema == schemas_.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
-  }
-  // Should we care about this check?
-  if (!utils::Contains(vertex.labels, primary_label)) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
-  }
-
-  for (const auto &schema_type : schema->second) {
-    if (!vertex.properties.HasProperty(schema_type.property_id)) {
-      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY, primary_label, schema_type);
-    }
-    // Property type check
-    // TODO Can this be replaced with just property id check?
-    if (auto vertex_property = vertex.properties.GetProperty(schema_type.property_id);
-        PropertyTypeToSchemaType(vertex_property) != schema_type.type) {
-      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label, schema_type,
-                             vertex_property);
-    }
-  }
-  // TODO after the introduction of vertex hashing introduce check for vertex
-  // primary key uniqueness
-
-  return std::nullopt;
-}
-
-[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateVertexUpdate(const LabelId primary_label,
-                                                                           const Vertex &vertex,
-                                                                           const PropertyId property_id) {
-  const auto schema = schemas_.find(primary_label);
-  if (schema == schemas_.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
-  }
-  if (!utils::Contains(vertex.labels, primary_label)) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
-  }
-  if (const auto schema_property = std::ranges::find_if(
-          schema->second,
-          [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
-      schema_property == schema->second.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label,
-                           *schema_property);
-  }
-  return std::nullopt;
-}
-
-[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateAddLabel(const LabelId secondary_label) {
-  if (schemas_.contains(secondary_label)) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, secondary_label);
-  }
-  return std::nullopt;
-}
-
-[[nodiscard]] std::optional<SchemaViolation> Schemas::ValidateRemoveLabel(const LabelId label) {
-  if (schemas_.contains(label)) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_CANNOT_REMOVE_PRIMARY_LABEL, label);
-  }
-  return std::nullopt;
-}
 
 std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
   switch (property_value.type()) {

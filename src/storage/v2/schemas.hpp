@@ -37,29 +37,7 @@ struct SchemaProperty {
   common::SchemaType type;
 };
 
-struct SchemaViolation {
-  enum class ValidationStatus : uint8_t {
-    VERTEX_HAS_NO_PRIMARY_LABEL,
-    VERTEX_HAS_NO_PROPERTY,
-    NO_SCHEMA_DEFINED_FOR_LABEL,
-    VERTEX_PROPERTY_WRONG_TYPE,
-    VERTEX_UPDATE_PRIMARY_KEY,
-    VERTEX_ALREADY_HAS_PRIMARY_LABEL,
-    VERTEX_CANNOT_REMOVE_PRIMARY_LABEL,
-  };
-
-  SchemaViolation(ValidationStatus status, LabelId label);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
-                  PropertyValue violated_property_value);
-
-  ValidationStatus status;
-  LabelId label;
-  std::optional<SchemaProperty> violated_schema_property;
-  std::optional<PropertyValue> violated_property_value;
-};
+bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
 
 /// Structure that represents a collection of schemas
 /// Schema can be mapped under only one label => primary label
@@ -87,15 +65,6 @@ class Schemas {
   // Returns true if it was successfully dropped or false if the schema
   // does not exist
   [[nodiscard]] bool DropSchema(LabelId label);
-
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(LabelId primary_label, const Vertex &vertex);
-
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexUpdate(LabelId primary_label, const Vertex &vertex,
-                                                                    PropertyId property_id);
-
-  [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId secondary_label);
-
-  [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label);
 
  private:
   SchemasMap schemas_;
