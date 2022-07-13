@@ -371,21 +371,17 @@ class Storage final {
   IndicesInfo ListAllIndices() const;
 
   /// Creates an existence constraint. Returns void if the constraint was
-  /// successfuly added, an error otherwise.
-  /// Error can be:
-  /// -`ConstraintViolation` if it already exists.
-  /// -`DataDefinitionError::EXISTANT_CONSTRAINT' if there is an existing vertex violating the constraint.
-  /// -`ReplicationError` if a sync replica has not confirmed receiving the update.
+  /// successfuly added, a StorageExistenceConstraintDefinitionError error otherwise.
   ///
   /// @throw std::bad_alloc
   /// @throw std::length_error
   [[nodiscard]] utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  /// Removes an existence constraint. Returns true if the constraint was
-  /// removed, and false if it doesn't exist.
-  [[nodiscard]] bool DropExistenceConstraint_renamed(LabelId label, PropertyId property,
-                                                     std::optional<uint64_t> desired_commit_timestamp = {});
+  /// Removes an existence constraint. Returns void if the constraint was
+  /// removed, a StorageExistenceConstraintDroppingError error otherwise.
+  [[nodiscard]] utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Creates a unique constraint. In the case of two vertices violating the
   /// constraint, it returns `ConstraintViolation`. Otherwise returns a

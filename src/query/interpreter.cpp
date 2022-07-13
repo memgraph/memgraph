@@ -2051,10 +2051,28 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            if (!interpreter_context->db->DropExistenceConstraint_renamed(label, properties[0])) {
-              constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
+            auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0]);
+            if (maybe_constraint_error.HasError()) {
+              const auto &storage_error = maybe_constraint_error.GetError();
+              const auto &error = storage_error.error;
+              std::visit(
+                  [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                      auto data_definition_error = arg;
+                      MG_ASSERT(storage::DataDefinitionError::NONEXISTANT_CONSTRAINT == data_definition_error,
+                                "Unexpected error received. Workflow is incorrect.");
+                      constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,
+                                      properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException();
+                    } else {
+                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
             return std::vector<std::vector<TypedValue>>();
           };

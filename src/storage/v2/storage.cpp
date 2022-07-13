@@ -1271,16 +1271,23 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::Cre
   return StorageExistenceConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
-bool Storage::DropExistenceConstraint_renamed(LabelId label, PropertyId property,
-                                              const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropExistenceConstraint(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
+  if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
+    return StorageExistenceConstraintDroppingError{DataDefinitionError::NONEXISTANT_CONSTRAINT};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  [[maybe_unused]] auto NoCommit = AppendToWalDataDefinition(
-      durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDroppingError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
 }
 
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint_renamed(

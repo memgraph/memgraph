@@ -542,9 +542,10 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Drop existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->DropExistenceConstraint_renamed(
-                storage_->NameToLabel(delta.operation_label_property.label),
-                storage_->NameToProperty(delta.operation_label_property.property), timestamp))
+        if (storage_
+                ->DropExistenceConstraint(storage_->NameToLabel(delta.operation_label_property.label),
+                                          storage_->NameToProperty(delta.operation_label_property.property), timestamp)
+                .HasError())
           throw utils::BasicException("Invalid transaction!");
         break;
       }
