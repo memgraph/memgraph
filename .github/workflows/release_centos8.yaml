@@ -128,7 +128,7 @@ jobs:
 
           # Build debug binaries.
           cd build
-          cmake ..sas
+          cmake ..
           make -j$THREADS
 
       - name: Run leftover CTest tests

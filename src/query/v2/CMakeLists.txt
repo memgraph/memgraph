@@ -1,12 +1,12 @@
-define_add_lcp(add_lcp_query lcp_query_2_cpp_files generated_lcp_query_2_files)
+define_add_lcp(add_lcp_query lcp_query_v2_cpp_files generated_lcp_query_v2_files)
 
 add_lcp_query(frontend/ast/ast.lcp)
 add_lcp_query(frontend/semantic/symbol.lcp)
 add_lcp_query(plan/operator.lcp)
 
-add_custom_target(generate_lcp_query_2 DEPENDS ${generated_lcp_query_2_files})
+add_custom_target(generate_lcp_query_v2 DEPENDS ${generated_lcp_query_v2_files})
 
-set(mg_query_sources
+set(mg_query_v2_sources
     ${lcp_query_2_cpp_files}
     common.cpp
     cypher_query_interpreter.cpp
@@ -43,8 +43,8 @@ set(mg_query_sources
 
 find_package(Boost REQUIRED)
 
-add_library(mg-query-v2 STATIC ${mg_query_sources})
-add_dependencies(mg-query-v2 generate_lcp_query_2)
+add_library(mg-query-v2 STATIC ${mg_query_v2_sources})
+add_dependencies(mg-query-v2 generate_lcp_query_v2)
 target_include_directories(mg-query-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-query-v2 dl cppitertools Boost::headers)
 target_link_libraries(mg-query-v2 mg-integrations-pulsar mg-integrations-kafka mg-storage-v3 mg-license mg-utils mg-kvstore mg-memory)
@@ -94,11 +94,11 @@ add_custom_command(
     ${opencypher_frontend}/grammar/CypherLexer.g4
     ${opencypher_frontend}/grammar/Cypher.g4)
 
-add_custom_target(generate_opencypher_parser_2
+add_custom_target(generate_opencypher_parser_v2
     DEPENDS ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include})
 
-add_library(antlr_opencypher_parser_lib_2 STATIC ${antlr_opencypher_generated_src})
-add_dependencies(antlr_opencypher_parser_lib_2 generate_opencypher_parser_2)
-target_link_libraries(antlr_opencypher_parser_lib_2 antlr4)
+add_library(antlr_opencypher_parser_lib_v2 STATIC ${antlr_opencypher_generated_src})
+add_dependencies(antlr_opencypher_parser_lib_v2 generate_opencypher_parser_v2)
+target_link_libraries(antlr_opencypher_parser_lib_v2 antlr4)
 
-target_link_libraries(mg-query-v2 antlr_opencypher_parser_lib_2)
+target_link_libraries(mg-query-v2 antlr_opencypher_parser_lib_v2)
