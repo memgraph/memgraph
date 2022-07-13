@@ -14,6 +14,7 @@
 #pragma once
 
 #include <concepts>
+#include <random>
 #include <variant>
 
 #include "utils/result.hpp"
@@ -120,12 +121,20 @@ class Io {
     return implementation_.template Send<M>(address, request_id, message);
   }
 
-  /// The current system time. This time source should be preferred over
-  /// any other time source.
-  std::time_t Now() { return implementation_.Now(); }
+  /// The current system time in microseconds since the unix epoch.
+  /// This time source should be preferred over any other, because it
+  /// lets us deterministically control clocks from tests for making
+  /// things like timeouts deterministic.
+  uint64_t Now() { return implementation_.Now(); }
 
   /// Returns true of the system should shut-down.
   bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
+
+  /// Returns a random number within the specified distribution.
+  template <class D = std::poisson_distribution<>, class Return = uint64_t>
+  Return Rand(D distrib) {
+    return implementation_.template Rand<D, Return>(distrib);
+  }
 
  private:
   I implementation_;

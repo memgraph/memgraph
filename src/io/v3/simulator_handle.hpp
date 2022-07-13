@@ -227,6 +227,11 @@ class SimulatorHandle {
       return false;
     }
 
+    // clock ticks forwards by 400 microseconds on average
+    std::poisson_distribution<> time_distrib(400);
+    uint64_t clock_advance = time_distrib(rng_);
+    cluster_wide_time_microseconds_ += clock_advance;
+
     if (in_flight_.empty()) {
       return false;
     }
@@ -263,6 +268,7 @@ class SimulatorHandle {
 
   void SetConfig(SimulatorConfig config) {
     std::unique_lock<std::mutex> lock(mu_);
+    rng_ = std::mt19937{config.rng_seed};
     config_ = config;
     cv_.notify_all();
   }
@@ -340,6 +346,17 @@ class SimulatorHandle {
     in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
   }
 
+  uint64_t Now() {
+    std::unique_lock<std::mutex> lock(mu_);
+    return cluster_wide_time_microseconds_;
+  }
+
+  template <class D = std::poisson_distribution<>, class Return = uint64_t>
+  Return Rand(D distrib) {
+    std::unique_lock<std::mutex> lock(mu_);
+    return distrib(rng_);
+  }
+
  private:
   std::mutex mu_{};
   std::condition_variable cv_;
@@ -360,4 +377,5 @@ class SimulatorHandle {
   size_t servers_ = 0;
   std::set<Address> server_addresses_;
   SimulatorConfig config_;
+  std::mt19937 rng_{};
 };

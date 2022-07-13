@@ -47,9 +47,14 @@ class SimulatorTransport {
     return simulator_handle_->template Send<M>(address, address_, request_id, message);
   }
 
-  std::time_t Now() { return std::time(nullptr); }
+  uint64_t Now() { return simulator_handle_->Now(); }
 
   bool ShouldShutDown() { return simulator_handle_->ShouldShutDown(); }
+
+  template <class D = std::poisson_distribution<>, class Return = uint64_t>
+  Return Rand(D distrib) {
+    return simulator_handle_->Rand<D, Return>(distrib);
+  }
 
  private:
   std::shared_ptr<SimulatorHandle> simulator_handle_;
@@ -58,7 +63,7 @@ class SimulatorTransport {
 
 class Simulator {
  public:
-  void SetConfig(SimulatorConfig config) { simulator_handle_->SetConfig(config); }
+  Simulator(SimulatorConfig config) { simulator_handle_->SetConfig(config); }
 
   void ShutDown() { simulator_handle_->ShutDown(); }
 
