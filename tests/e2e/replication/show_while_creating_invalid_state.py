@@ -775,7 +775,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     # 2/
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value);")
 
-    QUERY_TO_CHECK = "SHOW INDEX INFO"
+    QUERY_TO_CHECK = "SHOW INDEX INFO;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 1
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
@@ -805,99 +805,99 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-# def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection):
-#     # Goal of this test is to check that main cannot create new indexes/constraints if a sync replica is down.
-#     # 0/ Start main and sync replicas.
-#     # 1/ Check status of replicas.
-#     # 2/ Add some indexes to main and check it is propagated to the sync_replicas.
-#     # 3/ Kill a sync replica.
-#     # 4/ Add some more indexes to main. It should be added to main and replica2
-#     # 5/ Check the status of replicas.
-#     # 6/ Restart the replica that was killed and check that it is up to date with main.
+def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection):
+    # Goal of this test is to check that main cannot create new indexes/constraints if a sync replica is down.
+    # 0/ Start main and sync replicas.
+    # 1/ Check status of replicas.
+    # 2/ Add some indexes to main and check it is propagated to the sync_replicas.
+    # 3/ Kill a sync replica.
+    # 4/ Add some more indexes to main. It should be added to main and replica2
+    # 5/ Check the status of replicas.
+    # 6/ Restart the replica that was killed and check that it is up to date with main.
 
-#     CONFIGURATION = {
-#         "sync_replica1": {
-#             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-#             "log_file": "sync_replica1.log",
-#             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-#         },
-#         "sync_replica2": {
-#             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-#             "log_file": "sync_replica2.log",
-#             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
-#         },
-#         "main": {
-#             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-#             "log_file": "main.log",
-#             "setup_queries": [
-#                 "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-#                 "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-#             ],
-#         },
-#     }
+    CONFIGURATION = {
+        "sync_replica1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": "sync_replica1.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "sync_replica2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": "sync_replica2.log",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "log_file": "main.log",
+            "setup_queries": [
+                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
+                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
+            ],
+        },
+    }
 
-#     # 0/
-#     interactive_mg_runner.start_all(CONFIGURATION)
+    # 0/
+    interactive_mg_runner.start_all(CONFIGURATION)
 
-#     # 1/
-#     expected_data = {
-#         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-#         ("sync_replica2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-#     }
-#     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-#     assert actual_data == expected_data
+    # 1/
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
+    }
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
 
-#     # 2/
-#     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:1});")
+    # 2/
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value);")
 
-#     QUERY_TO_CHECK = "MATCH (node) return node;"
-#     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-#     assert len(res_from_main) == 1
-#     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-#     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    QUERY_TO_CHECK = "SHOW INDEX INFO;"
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 1
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
-#     # 3/
-#     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-#     expected_data = {
-#         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-#         ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
-#     }
+    # 3/
+    interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 1, 0, "ready"),
+    }
 
-#     def retrieve_data():
-#         return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    def retrieve_data():
+        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
 
-#     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-#     assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
 
-#     # 4/
-#     with pytest.raises(mgclient.DatabaseError):
-#         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+    # 4/
+    with pytest.raises(mgclient.DatabaseError):
+        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
 
-#     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-#     assert len(res_from_main) == 2
-#     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 2
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
-#     # 5/
-#     expected_data = {
-#         ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-#         ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
-#     }
-#     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-#     actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-#     assert actual_data == expected_data
+    # 5/
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
+    }
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    assert actual_data == expected_data
 
-#     # 6/
-#     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-#     expected_data = {
-#         ("sync_replica1", "127.0.0.1:10001", "sync", 5, 0, "ready"),
-#         ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
-#     }
-#     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-#     assert actual_data == expected_data
-#     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-#     assert len(res_from_main) == 2
-#     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-#     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    # 6/
+    interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
+    expected_data = {
+        ("sync_replica1", "127.0.0.1:10001", "sync", 2, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
+    }
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
+    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    assert len(res_from_main) == 2
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
+    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
 # also tests for triggers
