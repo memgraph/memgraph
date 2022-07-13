@@ -100,7 +100,6 @@ struct PromiseKey {
   }
 };
 
-// TODO delete copy ctor & copy assignment operator if possible
 class OpaquePromise {
  public:
   OpaquePromise(OpaquePromise &&old)
@@ -239,7 +238,12 @@ class SimulatorHandle {
     auto [to_address, opaque_message] = std::move(in_flight_.back());
     in_flight_.pop_back();
 
-    // TODO drop this message for fault injection and close associated promises sometimes.
+    std::uniform_int_distribution<int> drop_distrib(0, 99);
+    int drop_threshold = drop_distrib(rng_);
+    bool should_drop = drop_threshold < config_.drop_percent;
+    std::cout << "drop threshold is " << drop_threshold << std::endl;
+    std::cout << "drop_percent is " << config_.drop_percent << std::endl;
+    std::cout << "should_drop is " << should_drop << std::endl;
 
     PromiseKey promise_key{.requester_address = to_address,
                            .request_id = opaque_message.request_id,
@@ -250,11 +254,15 @@ class SimulatorHandle {
       DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
       promises_.erase(promise_key);
 
-      if (config_.perform_timeouts && dop.deadline > cluster_wide_time_microseconds_) {
+      bool normal_timeout = config_.perform_timeouts && (dop.deadline > cluster_wide_time_microseconds_);
+
+      if (should_drop || normal_timeout) {
         dop.promise.TimeOut();
       } else {
         dop.promise.Fill(std::move(opaque_message));
       }
+    } else if (should_drop) {
+      // don't add it anywhere, let it drop
     } else {
       // add to can_receive_ if not
       const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());
@@ -319,7 +327,8 @@ class SimulatorHandle {
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
 
-          // TODO search for item in can_receive_ that returns non-nullopt
+          // TODO search for item in can_receive_ that matches the desired types, rather
+          // than asserting that the last item in can_rx matches.
           auto m_opt = message.Take<Ms...>();
           return std::move(m_opt).value();
         }

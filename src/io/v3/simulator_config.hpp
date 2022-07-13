@@ -12,7 +12,7 @@
 #pragma once
 
 struct SimulatorConfig {
-  uint8_t drop_percent = 0;
+  int drop_percent = 0;
   bool perform_timeouts = false;
   uint64_t rng_seed = 0;
 };
