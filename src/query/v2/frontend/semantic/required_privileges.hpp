@@ -15,4 +15,4 @@
 
 namespace memgraph::query::v2 {
 std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query);
-}
+}  // namespace memgraph::query::v2

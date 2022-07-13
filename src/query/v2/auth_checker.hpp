@@ -21,8 +21,8 @@ class AuthChecker {
 };
 
 class AllowEverythingAuthChecker final : public query::v2::AuthChecker {
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<query::v2::AuthQuery::Privilege> &privileges) const override {
+  bool IsUserAuthorized(const std::optional<std::string> & /*username*/,
+                        const std::vector<query::v2::AuthQuery::Privilege> & /*privileges*/) const override {
     return true;
   }
 };
