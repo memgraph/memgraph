@@ -42,29 +42,29 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {
   EXPECT_EQ(storage.ListAllConstraints().existence.size(), 0);
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    EXPECT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    EXPECT_TRUE(res.HasValue() && !res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label1, prop1)));
   {
     auto res = storage.CreateExistenceConstraint(label2, prop1);
-    EXPECT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
   EXPECT_THAT(storage.ListAllConstraints().existence,
               UnorderedElementsAre(std::make_pair(label1, prop1), std::make_pair(label2, prop1)));
-  EXPECT_TRUE(storage.DropExistenceConstraint(label1, prop1));
-  EXPECT_FALSE(storage.DropExistenceConstraint(label1, prop1));
+  EXPECT_FALSE(storage.DropExistenceConstraint(label1, prop1).HasError());
+  EXPECT_TRUE(storage.DropExistenceConstraint(label1, prop1).HasError());
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label2, prop1)));
-  EXPECT_TRUE(storage.DropExistenceConstraint(label2, prop1));
-  EXPECT_FALSE(storage.DropExistenceConstraint(label2, prop2));
+  EXPECT_FALSE(storage.DropExistenceConstraint(label2, prop1).HasError());
+  EXPECT_TRUE(storage.DropExistenceConstraint(label2, prop2).HasError());
   EXPECT_EQ(storage.ListAllConstraints().existence.size(), 0);
   {
     auto res = storage.CreateExistenceConstraint(label2, prop1);
-    EXPECT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
   EXPECT_THAT(storage.ListAllConstraints().existence, UnorderedElementsAre(std::make_pair(label2, prop1)));
 }
@@ -80,8 +80,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(),
-              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
+    EXPECT_EQ(res.GetError(), (StorageExistenceConstraintDefinitionError{ConstraintViolation{
+                                  ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}}));
   }
   {
     auto acc = storage.Access();
@@ -92,7 +92,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    EXPECT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
 }
 
@@ -107,8 +107,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(),
-              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
+    EXPECT_EQ(res.GetError(), (StorageExistenceConstraintDefinitionError{ConstraintViolation{
+                                  ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}}));
   }
   {
     auto acc = storage.Access();
@@ -119,7 +119,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   }
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    EXPECT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
 }
 
@@ -127,7 +127,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
 TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
-    ASSERT_TRUE(res.HasValue() && res.GetValue());
+    EXPECT_FALSE(res.HasError());
   }
 
   {
@@ -173,7 +173,7 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  ASSERT_TRUE(storage.DropExistenceConstraint(label1, prop1));
+  ASSERT_FALSE(storage.DropExistenceConstraint(label1, prop1).HasError());
 
   {
     auto acc = storage.Access();
@@ -208,12 +208,12 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateAndDropAndList) {
   EXPECT_THAT(storage.ListAllConstraints().unique,
               UnorderedElementsAre(std::make_pair(label1, std::set<PropertyId>{prop1}),
                                    std::make_pair(label2, std::set<PropertyId>{prop1})));
-  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}), UniqueConstraints::DeletionStatus::SUCCESS);
-  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}), UniqueConstraints::DeletionStatus::NOT_FOUND);
+  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}).GetValue(), UniqueConstraints::DeletionStatus::SUCCESS);
+  EXPECT_EQ(storage.DropUniqueConstraint(label1, {prop1}).GetValue(), UniqueConstraints::DeletionStatus::NOT_FOUND);
   EXPECT_THAT(storage.ListAllConstraints().unique,
               UnorderedElementsAre(std::make_pair(label2, std::set<PropertyId>{prop1})));
-  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop1}), UniqueConstraints::DeletionStatus::SUCCESS);
-  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop2}), UniqueConstraints::DeletionStatus::NOT_FOUND);
+  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop1}).GetValue(), UniqueConstraints::DeletionStatus::SUCCESS);
+  EXPECT_EQ(storage.DropUniqueConstraint(label2, {prop2}).GetValue(), UniqueConstraints::DeletionStatus::NOT_FOUND);
   EXPECT_EQ(storage.ListAllConstraints().unique.size(), 0);
   {
     auto res = storage.CreateUniqueConstraint(label2, {prop1});
@@ -239,8 +239,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
     auto res = storage.CreateUniqueConstraint(label1, {prop1});
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
+    EXPECT_EQ(res.GetError(), (StorageUniqueConstraintDefinitionError{ConstraintViolation{
+                                  ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}}));
   }
 
   {
@@ -273,8 +273,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   {
     auto res = storage.CreateUniqueConstraint(label1, {prop1});
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(),
-              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
+    EXPECT_EQ(res.GetError(), (StorageUniqueConstraintDefinitionError{ConstraintViolation{
+                                  ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}}));
   }
 
   {
@@ -671,7 +671,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   }
 
   // Removing a constraint with empty property set should also fail.
-  ASSERT_EQ(storage.DropUniqueConstraint(label1, {}), UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, {}).GetValue(), UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES);
 
   // Create a set of 33 properties.
   std::set<PropertyId> properties;
@@ -688,7 +688,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   }
 
   // An attempt to delete constraint with too large property set should fail.
-  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties),
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties).GetValue(),
             UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED);
 
   // Remove one property from the set.
@@ -704,7 +704,7 @@ TEST_F(ConstraintsTest, UniqueConstraintsPropertySetSize) {
   EXPECT_THAT(storage.ListAllConstraints().unique, UnorderedElementsAre(std::make_pair(label1, properties)));
 
   // Removing a constraint with 32 properties should succeed.
-  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties), UniqueConstraints::DeletionStatus::SUCCESS);
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, properties).GetValue(), UniqueConstraints::DeletionStatus::SUCCESS);
   ASSERT_TRUE(storage.ListAllConstraints().unique.empty());
 }
 
@@ -926,7 +926,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertDropInsert) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  ASSERT_EQ(storage.DropUniqueConstraint(label1, {prop2, prop1}), UniqueConstraints::DeletionStatus::SUCCESS);
+  ASSERT_EQ(storage.DropUniqueConstraint(label1, {prop2, prop1}).GetValue(),
+            UniqueConstraints::DeletionStatus::SUCCESS);
 
   {
     auto acc = storage.Access();

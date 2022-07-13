@@ -49,8 +49,8 @@ class QueryCostEstimator : public ::testing::Test {
   int symbol_count = 0;
 
   void SetUp() {
-    ASSERT_TRUE(db.CreateIndex(label));
-    ASSERT_TRUE(db.CreateIndex(label, property));
+    ASSERT_FALSE(db.CreateIndex(label).HasError());
+    ASSERT_FALSE(db.CreateIndex(label, property).HasError());
     storage_dba.emplace(db.Access());
     dba.emplace(&*storage_dba);
   }
