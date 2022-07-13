@@ -48,6 +48,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -309,11 +310,11 @@ class Storage final {
 
     void AdvanceCommand();
 
-    /// Commit returns `ConstraintViolation` if the changes made by this
-    /// transaction violate an existence or unique constraint. In that case the
-    /// transaction is automatically aborted. Otherwise, void is returned.
+    /// Commit returns `StorageError` if the changes made by this transaction violate an existence, unique constraint or
+    /// data could NOT be replicated to SYNC replica. In that case of existence/unique constraint the transaction is
+    /// automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<StorageError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -474,7 +475,7 @@ class Storage final {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
-  void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
+  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
   void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
                    uint64_t final_commit_timestamp);
 

@@ -324,7 +324,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::ConstraintViolation, void> Commit() { return accessor_->Commit(); }
+  utils::BasicResult<storage::StorageError, void> Commit() { return accessor_->Commit(); }
 
   void Abort() { accessor_->Abort(); }
 

@@ -224,4 +224,12 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
+class ReplicationException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  ReplicationException()
+      : utils::BasicException(
+            "At least one SYNC replica has not confirm reception of the last message(s). Check the status of the "
+            "replica using SHOW REPLICA command.") {}
+};
 }  // namespace memgraph::query

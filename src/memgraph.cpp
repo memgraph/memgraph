@@ -216,11 +216,6 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_restore_replicas_on_startup, true,
-            "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
-                                                                     // is implemented.
-
 // Streams flags
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(
@@ -906,6 +901,17 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
+    } catch (const memgraph::query::ReplicationException &e) {
+      throw memgraph::communication::bolt::ClientError(e.what());
+      // #NoCommit other error? kesaco
+      // maybe something else from bolt? unclear rn
+      // see https://7687.org/bolt/bolt-protocol-message-specification-4.html#summary-message---failure
+      // https://7687.org/bolt/bolt-protocol-server-state-specification-4.html#version-41
+
+      // for trigger: we just want to log an error, nothing else
+      // for data manipulation (or data definition): same for both, we return error from storage and throw error
+      // afterwards
+      //    give advice to user what to do: like check the replica machine etc...
     }
   }
 
@@ -1201,7 +1207,7 @@ int main(int argc, char **argv) {
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = FLAGS_storage_restore_replicas_on_startup},
+                     .restore_replicas_on_startup = true},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {

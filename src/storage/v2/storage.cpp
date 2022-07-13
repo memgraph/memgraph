@@ -46,6 +46,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -846,10 +847,12 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { retu
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
+utils::BasicResult<StorageError, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto could_replicate_all_sync_replicas = true;
 
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
@@ -869,7 +872,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return StorageError{*validation_result};
       }
     }
 
@@ -926,7 +929,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, *commit_timestamp_);
+          could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
@@ -954,10 +957,14 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return StorageError{*unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;
+
+  if (!could_replicate_all_sync_replicas) {
+    return StorageError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  }
 
   return {};
 }
@@ -1605,8 +1612,10 @@ void Storage::FinalizeWalFile() {
   }
 }
 
-void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
+bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) {
+    return true;
+  }
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
@@ -1775,12 +1784,19 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
 
   FinalizeWalFile();
 
+  auto finalized_on_all_replicas = true;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-      client->FinalizeTransactionReplication();
+      const auto finalized = client->FinalizeTransactionReplication();
+
+      if (client->Mode() == replication::ReplicationMode::SYNC) {
+        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+      }
     }
   });
+
+  return finalized_on_all_replicas;
 }
 
 void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
@@ -1794,7 +1810,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
           client->StartTransactionReplication(wal_file_->SequenceNumber());
           client->IfStreamingTransaction(
               [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-          client->FinalizeTransactionReplication();
+          [[maybe_unused]] auto finalized = client->FinalizeTransactionReplication();
         }
       });
     }
