@@ -20,6 +20,7 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <variant>
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
@@ -74,6 +75,9 @@ extern const Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace memgraph::query {
+
+template <typename>
+inline constexpr bool always_false_v = false;
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -2257,29 +2261,42 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       db_accessor.Abort();
       continue;
     }
+    auto maybe_commit_error = db_accessor.Commit();
+    if (maybe_commit_error.HasError()) {
+      const storage::StorageError &storage_error = maybe_commit_error.GetError();
+      const std::variant<storage::ConstraintViolation, storage::ReplicationError> error = storage_error.error;
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
-          break;
-        }
-      }
+      std::visit(
+          [&trigger, &db_accessor]<typename T>(T &&arg) {
+            using ErrorType = std::remove_cvref_t<T>;
+            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              spdlog::warn("Trigger '{}' failed to commit due to inability to replicate data to SYNC replica",
+                           trigger.Name());
+            } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+              const auto &constraint_violation = arg;
+              switch (constraint_violation.type) {
+                case storage::ConstraintViolation::Type::EXISTENCE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
+                               trigger.Name(), label_name, property_name);
+                }
+                case storage::ConstraintViolation::Type::UNIQUE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  std::stringstream property_names_stream;
+                  utils::PrintIterable(
+                      property_names_stream, constraint_violation.properties, ", ",
+                      [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+                  spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
+                               trigger.Name(), label_name, property_names_stream.str());
+                }
+              }
+            } else {
+              static_assert(always_false_v<T>, "Missing type from variant visitor");
+            }
+          },
+          error);
     }
   }
 }
@@ -2321,31 +2338,45 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
-        break;
-      }
-    }
+  auto maybe_commit_error = db_accessor_->Commit();
+  if (maybe_commit_error.HasError()) {
+    const storage::StorageError &storage_error = maybe_commit_error.GetError();
+    const std::variant<storage::ConstraintViolation, storage::ReplicationError> error = storage_error.error;
+
+    std::visit(
+        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members](auto &&arg) {
+          using ErrorType = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            reset_necessary_members();
+            throw ReplicationException();
+          } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+            const auto &constraint_violation = arg;
+            switch (constraint_violation.type) {
+              case storage::ConstraintViolation::Type::EXISTENCE: {
+                auto label_name = execution_db_accessor->LabelToName(constraint_violation.label);
+                MG_ASSERT(constraint_violation.properties.size() == 1U);
+                auto property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                reset_necessary_members();
+                throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
+                                     property_name);
+              }
+              case storage::ConstraintViolation::Type::UNIQUE: {
+                auto label_name = execution_db_accessor->LabelToName(constraint_violation.label);
+                std::stringstream property_names_stream;
+                utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                                     [&execution_db_accessor](auto &stream, const auto &prop) {
+                                       stream << execution_db_accessor->PropertyToName(prop);
+                                     });
+                reset_necessary_members();
+                throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
+                                     property_names_stream.str());
+              }
+            }
+          } else {
+            static_assert(always_false_v<ErrorType>, "Missing type from variant visitor");
+          }
+        },
+        error);
   }
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
