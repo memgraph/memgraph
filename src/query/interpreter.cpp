@@ -1356,23 +1356,35 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (properties.empty()) {
-          if (!interpreter_context->db->CreateIndex(label)) {
-            index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          }
-          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error = properties.empty() ? interpreter_context->db->CreateIndex(label)
+                                                    : interpreter_context->db->CreateIndex(label, properties[0]);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          const auto &storage_error = maybe_index_error.GetError();
+          const auto error = storage_error.error;
+          std::visit(
+              [&index_notification, &label_name, &properties_stringified, &invalidate_plan_cache]<typename T>(T &&arg) {
+                using ErrorType = std::remove_cvref_t<T>;
+                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                  invalidate_plan_cache();
+                  throw ReplicationException();
+                } else if constexpr (std::is_same_v<ErrorType, storage::DataDefinitionError>) {
+                  auto data_definition_error = arg;
+                  MG_ASSERT(storage::DataDefinitionError::EXISTANT_INDEX == data_definition_error,
+                            "Unexpected error received. Workflow is incorrect.");
+                  index_notification.code = NotificationCode::EXISTANT_INDEX;
+                  index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
+                                                         label_name, properties_stringified);
+                } else {
+                  static_assert(always_false_v<T>, "Missing type from variant visitor");
+                }
+              },
+              error);
         } else {
-          MG_ASSERT(properties.size() == 1U);
-          if (!interpreter_context->db->CreateIndex(label, properties[0])) {
-            index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          }
-          EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
+          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         }
-        invalidate_plan_cache();
       };
       break;
     }
@@ -1384,14 +1396,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         if (properties.empty()) {
-          if (!interpreter_context->db->DropIndex(label)) {
+          if (!interpreter_context->db->DropIndex_renamed(label)) {
             index_notification.code = NotificationCode::NONEXISTANT_INDEX;
             index_notification.title =
                 fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
           }
         } else {
           MG_ASSERT(properties.size() == 1U);
-          if (!interpreter_context->db->DropIndex(label, properties[0])) {
+          if (!interpreter_context->db->DropIndex_renamed(label, properties[0])) {
             index_notification.code = NotificationCode::NONEXISTANT_INDEX;
             index_notification.title =
                 fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -1925,7 +1937,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
+            auto res = interpreter_context->db->CreateExistenceConstraint_renamed(label, properties[0]);
             if (res.HasError()) {
               auto violation = res.GetError();
               auto label_name = interpreter_context->db->LabelToName(violation.label);
@@ -1957,7 +1969,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
+            auto res = interpreter_context->db->CreateUniqueConstraint_renamed(label, property_set);
             if (res.HasError()) {
               auto violation = res.GetError();
               auto label_name = interpreter_context->db->LabelToName(violation.label);
@@ -2010,7 +2022,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            if (!interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
+            if (!interpreter_context->db->DropExistenceConstraint_renamed(label, properties[0])) {
               constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
               constraint_notification.title = fmt::format(
                   "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
@@ -2032,7 +2044,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
+            auto res = interpreter_context->db->DropUniqueConstraint_renamed(label, property_set);
             switch (res) {
               case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
@@ -2263,8 +2275,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     }
     auto maybe_commit_error = db_accessor.Commit();
     if (maybe_commit_error.HasError()) {
-      const storage::StorageError &storage_error = maybe_commit_error.GetError();
-      const std::variant<storage::ConstraintViolation, storage::ReplicationError> error = storage_error.error;
+      const auto &storage_error = maybe_commit_error.GetError();
+      const auto error = storage_error.error;
 
       std::visit(
           [&trigger, &db_accessor]<typename T>(T &&arg) {
@@ -2340,12 +2352,12 @@ void Interpreter::Commit() {
 
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
-    const storage::StorageError &storage_error = maybe_commit_error.GetError();
-    const std::variant<storage::ConstraintViolation, storage::ReplicationError> error = storage_error.error;
+    const auto &storage_error = maybe_commit_error.GetError();
+    const auto error = storage_error.error;
 
     std::visit(
-        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members](auto &&arg) {
-          using ErrorType = std::decay_t<decltype(arg)>;
+        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members]<typename T>(T &&arg) {
+          using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             reset_necessary_members();
             throw ReplicationException();
@@ -2373,7 +2385,7 @@ void Interpreter::Commit() {
               }
             }
           } else {
-            static_assert(always_false_v<ErrorType>, "Missing type from variant visitor");
+            static_assert(always_false_v<T>, "Missing type from variant visitor");
           }
         },
         error);

@@ -900,6 +900,10 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
+# + test where we try to create the same index twice, regardless of the sync replica thing (I think it's still worth testing)
+# + test where trying to remove un-existing index?
+
+
 # also tests for triggers
 
 

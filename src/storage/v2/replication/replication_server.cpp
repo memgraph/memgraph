@@ -495,14 +495,14 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Create label index on :{}", delta.operation_label.label);
         // Need to send the timestamp
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->CreateIndex(storage_->NameToLabel(delta.operation_label.label), timestamp))
+        if (storage_->CreateIndex(storage_->NameToLabel(delta.operation_label.label), timestamp).HasError())
           throw utils::BasicException("Invalid transaction!");
         break;
       }
       case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
         spdlog::trace("       Drop label index on :{}", delta.operation_label.label);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->DropIndex(storage_->NameToLabel(delta.operation_label.label), timestamp))
+        if (!storage_->DropIndex_renamed(storage_->NameToLabel(delta.operation_label.label), timestamp))
           throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -510,8 +510,10 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Create label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->CreateIndex(storage_->NameToLabel(delta.operation_label_property.label),
-                                   storage_->NameToProperty(delta.operation_label_property.property), timestamp))
+        if (storage_
+                ->CreateIndex(storage_->NameToLabel(delta.operation_label_property.label),
+                              storage_->NameToProperty(delta.operation_label_property.property), timestamp)
+                .HasError())
           throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -519,8 +521,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Drop label+property index on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->DropIndex(storage_->NameToLabel(delta.operation_label_property.label),
-                                 storage_->NameToProperty(delta.operation_label_property.property), timestamp))
+        if (!storage_->DropIndex_renamed(storage_->NameToLabel(delta.operation_label_property.label),
+                                         storage_->NameToProperty(delta.operation_label_property.property), timestamp))
           throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -528,7 +530,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Create existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        auto ret = storage_->CreateExistenceConstraint(
+        auto ret = storage_->CreateExistenceConstraint_renamed(
             storage_->NameToLabel(delta.operation_label_property.label),
             storage_->NameToProperty(delta.operation_label_property.property), timestamp);
         if (!ret.HasValue() || !ret.GetValue()) throw utils::BasicException("Invalid transaction!");
@@ -538,9 +540,9 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         spdlog::trace("       Drop existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
         if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-        if (!storage_->DropExistenceConstraint(storage_->NameToLabel(delta.operation_label_property.label),
-                                               storage_->NameToProperty(delta.operation_label_property.property),
-                                               timestamp))
+        if (!storage_->DropExistenceConstraint_renamed(
+                storage_->NameToLabel(delta.operation_label_property.label),
+                storage_->NameToProperty(delta.operation_label_property.property), timestamp))
           throw utils::BasicException("Invalid transaction!");
         break;
       }
@@ -553,8 +555,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage_->NameToProperty(prop));
         }
-        auto ret = storage_->CreateUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
-                                                    properties, timestamp);
+        auto ret = storage_->CreateUniqueConstraint_renamed(
+            storage_->NameToLabel(delta.operation_label_properties.label), properties, timestamp);
         if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
           throw utils::BasicException("Invalid transaction!");
         break;
@@ -568,8 +570,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
         for (const auto &prop : delta.operation_label_properties.properties) {
           properties.emplace(storage_->NameToProperty(prop));
         }
-        auto ret = storage_->DropUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
-                                                  properties, timestamp);
+        auto ret = storage_->DropUniqueConstraint_renamed(storage_->NameToLabel(delta.operation_label_properties.label),
+                                                          properties, timestamp);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) throw utils::BasicException("Invalid transaction!");
         break;
       }

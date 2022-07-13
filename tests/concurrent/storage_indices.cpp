@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/thread.hpp"
 
 const uint64_t kNumVerifiers = 5;

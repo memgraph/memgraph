@@ -314,7 +314,8 @@ class Storage final {
     /// data could NOT be replicated to SYNC replica. In that case of existence/unique constraint the transaction is
     /// automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageError, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<StorageDataManipulationError, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -354,14 +355,17 @@ class Storage final {
   EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageDataDefinitionError, void> CreateIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageDataDefinitionError, void> CreateIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] bool DropIndex_renamed(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] bool DropIndex_renamed(LabelId label, PropertyId property,
+                                       std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 
@@ -371,13 +375,13 @@ class Storage final {
   ///
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
+  [[nodiscard]] utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint_renamed(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes an existence constraint. Returns true if the constraint was
   /// removed, and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property,
-                               std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] bool DropExistenceConstraint_renamed(LabelId label, PropertyId property,
+                                                     std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Creates a unique constraint. In the case of two vertices violating the
   /// constraint, it returns `ConstraintViolation`. Otherwise returns a
@@ -389,8 +393,9 @@ class Storage final {
   //        limit of maximum number of properties.
   ///
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus>
+  CreateUniqueConstraint_renamed(LabelId label, const std::set<PropertyId> &properties,
+                                 std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
   /// enum with the following possibilities:
@@ -399,8 +404,8 @@ class Storage final {
   ///     * `EMPTY_PROPERTIES` if the property set is empty, or
   ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
   //        limit of maximum number of properties.
-  UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                                         std::optional<uint64_t> desired_commit_timestamp = {});
+  [[nodiscard]] UniqueConstraints::DeletionStatus DropUniqueConstraint_renamed(
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
 
@@ -475,9 +480,11 @@ class Storage final {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
-  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                   uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                               const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

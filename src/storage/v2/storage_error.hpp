@@ -21,10 +21,24 @@ enum class ReplicationError {
   UNABLE_TO_SYNC_REPLICATE,
 };
 
-struct StorageError {
+struct StorageDataManipulationError {
   std::variant<ConstraintViolation, ReplicationError> error;
 
-  bool operator==(const StorageError &) const = default;
+  bool operator==(const StorageDataManipulationError &) const = default;
+};
+
+// #NoCommit from /home/jeremy/dev/memgraph/src/query/metadata.hpp, see how to avoid duplication
+enum class DataDefinitionError {
+  EXISTANT_INDEX,
+  EXISTANT_CONSTRAINT,
+  NONEXISTANT_INDEX,
+  NONEXISTANT_CONSTRAINT,
+};
+
+struct StorageDataDefinitionError {
+  std::variant<DataDefinitionError, ReplicationError> error;
+
+  bool operator==(const StorageDataDefinitionError &) const = default;
 };
 
 }  // namespace memgraph::storage
