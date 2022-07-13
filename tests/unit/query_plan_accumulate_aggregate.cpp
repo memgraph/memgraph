@@ -214,36 +214,36 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
 }
 
-TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::COUNT});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::SUM});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::AVG});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::MIN});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::MAX});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
-    EXPECT_EQ(results.size(), 0);
-  }
-  {
-    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
-    EXPECT_EQ(results.size(), 0);
-  }
-}
+// TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::COUNT});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::SUM});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::AVG});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::MIN});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::MAX});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+//   {
+//     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
+//     EXPECT_EQ(results.size(), 0);
+//   }
+// }
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   auto results = AggregationResults(false);
