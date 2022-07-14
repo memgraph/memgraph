@@ -2611,6 +2611,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
+    case Aggregation::Op::PROJECT:
+      return TypedValue(TypedValue::TVector(memory));
   }
 }
 }  // namespace
@@ -2812,6 +2814,7 @@ class AggregateCursor : public Cursor {
             *value_it = 1;
             break;
           case Aggregation::Op::COLLECT_LIST:
+          case Aggregation::Op::PROJECT:
             value_it->ValueList().push_back(input_value);
             break;
           case Aggregation::Op::COLLECT_MAP:
@@ -2860,6 +2863,7 @@ class AggregateCursor : public Cursor {
           *value_it = *value_it + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
+        case Aggregation::Op::PROJECT:
           value_it->ValueList().push_back(input_value);
           break;
         case Aggregation::Op::COLLECT_MAP:
