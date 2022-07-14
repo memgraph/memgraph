@@ -1,0 +1,4 @@
+workloads:
+  - name: "Storage"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["storage/storage_tests.py"]
