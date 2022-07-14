@@ -136,6 +136,8 @@ class Io {
     return implementation_.template Rand<D, Return>(distrib);
   }
 
+  Address GetAddress() { return address_; }
+
  private:
   I implementation_;
   Address address_;

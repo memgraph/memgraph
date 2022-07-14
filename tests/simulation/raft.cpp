@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <iostream>
+#include <map>
 #include <thread>
 #include <vector>
 
@@ -56,6 +57,7 @@ struct RequestVotesRequest {
 
 struct RequestVotesResponse {
   Term term;
+  LogIndex commit_index;
   bool vote_granted;
 };
 
@@ -77,14 +79,9 @@ struct FollowerTracker {
 
 struct Leader {
   std::vector<FollowerTracker> followers;
-  uint64_t last_received_response_timestamp = 0;
 };
 
-struct Candidate {
-  std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes;
-  size_t successful_votes;
-  uint64_t last_received_vote_timestamp = 0;
-};
+struct Candidate {};
 
 struct Follower {
   uint64_t last_received_append_entries_timestamp = 0;
@@ -146,9 +143,11 @@ class Server {
     }
   }
 
-  /// Broadcast RequestVotes to all peers and return a vector of response futures
+  /// Bump term and broadcast RequestVotes to all peers and return a vector of response futures
   std::vector<ResponseFuture<RequestVotesResponse>> BroadcastVotes() {
     std::vector<ResponseFuture<RequestVotesResponse>> ret{};
+
+    common_state_.current_term++;
 
     RequestVotesRequest request{
         .term = common_state_.current_term,
@@ -165,30 +164,59 @@ class Server {
     return ret;
   }
 
+  std::optional<Role> RunForElection() {
+    std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes = BroadcastVotes();
+
+    int successes = 0;
+    bool success = false;
+    auto peer_commit_indices = std::map<Address, int>();
+
+    for (const auto &peer : peers_) {
+      peer_commit_indices.insert({peer, 0});
+    }
+
+    for (auto &&future : std::move(outstanding_votes)) {
+      ResponseResult<RequestVotesResponse> response = future.Wait();
+      if (response.HasError()) {
+        // timed out
+        continue;
+      }
+
+      ResponseEnvelope<RequestVotesResponse> res_env = std::move(response).GetValue();
+      if (res_env.message.vote_granted) {
+        peer_commit_indices.insert_or_assign(res_env.from_address, res_env.message.commit_index);
+        successes++;
+        if (successes > (peers_.size() / 2)) {
+          success = true;
+          break;
+        }
+      }
+    }
+
+    if (success) {
+      Log("ELECTED");
+      return Leader{};
+    } else {
+      return Candidate{};
+    }
+  }
+
   /// Periodic protocol maintenance.
-  std::optional<Role> Cron() {
+  void Cron() {
     // dispatch periodic logic based on our role to a specific Cron method.
-    return std::visit([&](auto &&role) { return Cron(role); }, role_);
+    std::optional<Role> new_role = std::visit([&](auto &&role) { return Cron(role); }, role_);
+
+    if (new_role) {
+      Log("becoming new role");
+      role_ = std::move(new_role).value();
+    }
   }
 
   // Candidates keep sending RequestVotes to peers until:
   // 1. receiving AppendEntries with a higher term (become Follower)
   // 2. receiving RequestVotes with a higher term (become a Follower)
   // 3. receiving a quorum of responses to our last batch of RequestVotes (become a Leader)
-  std::optional<Role> Cron(Candidate &candidate) {
-    // TODO retry request-votes requests if we haven't made progress after some threshold
-    if (candidate.outstanding_votes.empty() && candidate.successful_votes == 0) {
-      // initial candidate state
-      std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes = BroadcastVotes();
-      return Candidate{
-          .outstanding_votes = std::move(outstanding_votes),
-          .successful_votes = 0,
-          .last_received_vote_timestamp = 0,
-      };
-    } else {
-      return std::nullopt;
-    }
-  }
+  std::optional<Role> Cron(Candidate &candidate) { return RunForElection(); }
 
   // Followers become candidates if we haven't heard from the leader
   // after a randomized timeout.
@@ -198,12 +226,7 @@ class Server {
 
     // randomized follower timeout with a range of 100-150ms.
     if (time_since_last_append_entries > RandomTimeout(100000, 150000)) {
-      std::vector<ResponseFuture<RequestVotesResponse>> outstanding_votes = BroadcastVotes();
-      return Candidate{
-          .outstanding_votes = std::move(outstanding_votes),
-          .successful_votes = 0,
-          .last_received_vote_timestamp = 0,
-      };
+      return Candidate{};
     } else {
       return std::nullopt;
     }
@@ -224,23 +247,27 @@ class Server {
   /// to its role, and as the second argument, the
   /// message that has been received.
   /// **********************************************
-  std::optional<Role> Handle(
-      std::variant<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest> &&message_variant,
-      uint64_t request_id, Address from_address) {
+  void Handle(std::variant<AppendEntriesRequest, RequestVotesRequest, ReplicationRequest> &&message_variant,
+              uint64_t request_id, Address from_address) {
     // dispatch the message to a handler based on our role,
     // which can be specified in the Handle first argument,
     // or it can be `auto` if it's a handler for several roles
     // or messages.
-    return std::visit([&](auto &&msg, auto &&role) { return Handle(role, std::move(msg), request_id, from_address); },
-                      std::move(message_variant), role_);
+    std::optional<Role> new_role =
+        std::visit([&](auto &&msg, auto &&role) { return Handle(role, std::move(msg), request_id, from_address); },
+                   std::move(message_variant), role_);
 
     // TODO(m3) maybe replace std::visit with get_if for explicit prioritized matching, [[likely]] etc...
+    if (new_role) {
+      Log("becoming new role");
+      role_ = std::move(new_role).value();
+    }
   }
 
   // all roles can receive RequestVotes and possibly become a follower
   template <typename AllRoles>
   std::optional<Role> Handle(AllRoles &, RequestVotesRequest &&req, uint64_t request_id, Address from_address) {
-    std::cout << "RECEIVED RequestVotes :)" << std::endl;
+    Log("RECEIVED RequestVotes :)");
     bool last_log_term_dominates = req.last_log_term >= LastLogTerm();
     bool term_dominates = req.term > common_state_.current_term;
     bool last_log_index_dominates = req.last_log_index >= LastLogIndex();
@@ -248,6 +275,7 @@ class Server {
 
     RequestVotesResponse res{
         .term = std::max(req.term, common_state_.current_term),
+        .commit_index = common_state_.commit_index,
         .vote_granted = new_leader,
     };
 
@@ -267,7 +295,7 @@ class Server {
 
   // only leaders actually handle replication requests from clients
   std::optional<Role> Handle(Leader &, ReplicationRequest &&req, uint64_t request_id, Address from_address) {
-    std::cout << "leader RECEIVED ReplicationRequest :)" << std::endl;
+    Log("leader RECEIVED ReplicationRequest :)");
 
     // we are the leader. add item to log and send AppendEntries to peers
     common_state_.log.emplace_back(std::pair(common_state_.current_term, std::move(req.opaque_data)));
@@ -280,13 +308,12 @@ class Server {
   // template<typename AllRoles>
   template <typename AllRoles>
   std::optional<Role> Handle(const AllRoles &, ReplicationRequest &&req, uint64_t request_id, Address from_address) {
-    std::cout << "all RECEIVED ReplicationRequest :)" << std::endl;
+    Log("all RECEIVED ReplicationRequest :)");
     auto res = ReplicationResponse{};
 
     res.success = false;
     if (common_state_.voted_for) {
-      std::cout << "redirecting client to known leader with port " << common_state_.voted_for->last_known_port
-                << std::endl;
+      Log("redirecting client to known leader with port ", common_state_.voted_for->last_known_port);
       res.retry_leader = *common_state_.voted_for;
     }
 
@@ -299,17 +326,17 @@ class Server {
   // state.
   template <typename AllRoles>
   std::optional<Role> Handle(AllRoles &, AppendEntriesRequest &&aer, uint64_t request_id, Address from_address) {
-    std::cout << "RECEIVED AppendEntries from a leader" << std::endl;
+    Log("RECEIVED AppendEntries from a leader");
     bool error = false;
 
     if (from_address != common_state_.voted_for) {
-      std::cout << "req.from_address is not who we voted for" << std::endl;
+      Log("req.from_address is not who we voted for");
       error |= true;
     } else if (aer.term != common_state_.current_term) {
-      std::cout << "req.term differs from our current leader term" << std::endl;
+      Log("req.term differs from our current leader term");
       error |= true;
     } else if (aer.prev_log_index > common_state_.log.size()) {
-      std::cout << "req.prev_log_index is above our last applied log index" << std::endl;
+      Log("req.prev_log_index is above our last applied log index");
       // TODO: buffer this and apply it later rather than having to wait for
       // the leader to double-send future segments to us.
       error |= true;
@@ -317,7 +344,7 @@ class Server {
       auto [prev_log_term, data] = common_state_.log.at(aer.prev_log_index);
 
       if (aer.prev_log_term != prev_log_term) {
-        std::cout << "req.prev_log_term differs from our leader term at that slot" << std::endl;
+        Log("req.prev_log_term differs from our leader term at that slot");
         error |= true;
       }
     }
@@ -346,6 +373,12 @@ class Server {
     io_.Send(from_address, request_id, res);
 
     return std::nullopt;
+  }
+
+  template <typename... Ts>
+  void Log(Ts &&...args) {
+    std::cout << "raft server " << (int)io_.GetAddress().last_known_port << " ";
+    (std::cout << ... << args) << std::endl;
   }
 };
 
