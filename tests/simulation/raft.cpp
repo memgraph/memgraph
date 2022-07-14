@@ -177,6 +177,7 @@ class Server {
   }
 
   void BroadcastAppendEntries(std::map<Address, FollowerTracker> &followers) {
+    Log("leader broadcasting, total log size is ", state_.log.size());
     for (auto &[address, follower] : followers) {
       LogIndex index = follower.confirmed_contiguous_index;
 
@@ -187,7 +188,7 @@ class Server {
       AppendRequest ar{
           .term = state_.term,
           .last_log_index = index,
-          .last_log_term = TermAtIndex(index),
+          .last_log_term = PreviousTermFromIndex(index),
           .entries = entries,
           .leader_commit = state_.commit_index,
       };
@@ -204,11 +205,11 @@ class Server {
     return io_.Rand(time_distrib);
   }
 
-  Term TermAtIndex(LogIndex index) {
-    if (state_.log.size() <= index) {
+  Term PreviousTermFromIndex(LogIndex index) {
+    if (state_.log.size() <= index + 1) {
       return 0;
     } else {
-      auto &[term, data] = state_.log.at(index);
+      auto &[term, data] = state_.log.at(index - 1);
       return term;
     }
   }
@@ -300,7 +301,6 @@ class Server {
   // Leaders (re)send AppendRequest to followers.
   std::optional<Role> Cron(Leader &leader) {
     // TODO time-out client requests if we haven't made progress after some threshold
-    Log("leader broadcasting");
     BroadcastAppendEntries(leader.followers);
     return std::nullopt;
   }
@@ -432,6 +432,8 @@ class Server {
 
     leader.pending_client_requests.push_back(pcr);
 
+    BroadcastAppendEntries(leader.followers);
+
     // TODO add message to pending requests buffer, reply asynchronously
     return std::nullopt;
   }
@@ -497,7 +499,8 @@ class Server {
     if (req.last_log_index != LastLogIndex()) {
       Log("req.last_log_index is above our last applied log index");
     } else if (req.last_log_term != LastLogTerm()) {
-      Log("req.last_log_term differs from our leader term at that slot");
+      Log("req.last_log_term differs from our leader term at that slot, expected: ", LastLogTerm(), " but got ",
+          req.last_log_term);
     } else {
       // happy path
       Log("Follower applying batch of entries to log of size ", req.entries.size());
