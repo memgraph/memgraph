@@ -218,30 +218,39 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
   {
     auto results = AggregationResults(true, {Aggregation::Op::COUNT});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
+    EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::SUM});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Int);
+    EXPECT_EQ(results[0][0].ValueInt(), 0);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::AVG});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::MIN});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::MAX});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::List);
   }
   {
     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
     EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0][0].type(), TypedValue::Type::Map);
   }
 }
 

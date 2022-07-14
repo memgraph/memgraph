@@ -328,3 +328,19 @@ Feature: Aggregations
         Then the result should be
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
+
+        Scenario: Combined aggregations - some evauluates to null:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (f)
+            CREATE (n {property: 1})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN count(n) < n.property, count(n.property), count(n), avg(n.property), min(n.property), max(n.property), sum(n.property)
+            """
+        Then the result should be:
+            | count(n) < n.property | count(n.property)     | count(n)              | avg(n.property)       | min(n.property)       | max(n.property)       | sum(n.property)       |
+            | false                 | 1                     | 1                     | 1.0                   | 1                     | 1                     | 1                     |
+            | null                  | 0                     | 1                     | null                  | null                  | null                  | 0                     |
