@@ -24,13 +24,15 @@
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  Vertex(Gid gid, Delta *delta, LabelId primary_label)
+      : gid(gid), primary_label{primary_label}, deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
   Gid gid;
 
+  LabelId primary_label;
   std::vector<LabelId> labels;
   PropertyStore properties;
 

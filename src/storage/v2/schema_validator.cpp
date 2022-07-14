@@ -41,7 +41,7 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateVertexCreate(
     LabelId primary_label, const std::vector<LabelId> &labels,
-    const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
+    const std::vector<std::pair<PropertyId, PropertyValue>> &properties) const {
   // Schema on primary label
   const auto schema = schemas_.GetSchema(primary_label);
   if (!schema) {
@@ -81,38 +81,30 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 }
 
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateVertexUpdate(const LabelId primary_label,
-                                                                                   const Vertex &vertex,
-                                                                                   const PropertyId property_id) {
+                                                                                   const PropertyId property_id) const {
+  // Verify existence of schema on primary label
   const auto schema = schemas_.GetSchema(primary_label);
   if (!schema) {
     return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
   }
-  if (!utils::Contains(vertex.labels, primary_label)) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label);
-  }
+
+  // Verify that updating property is not part of schema
   if (const auto schema_property = std::ranges::find_if(
           schema->second,
           [property_id](const auto &schema_property) { return property_id == schema_property.property_id; });
-      schema_property == schema->second.end()) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_LABEL, primary_label,
+      schema_property != schema->second.end()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
                            *schema_property);
   }
   return std::nullopt;
 }
 
-[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateAddLabel(const LabelId secondary_label) {
-  const auto schema = schemas_.GetSchema(secondary_label);
+[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
+  const auto schema = schemas_.GetSchema(label);
   if (schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, secondary_label);
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, label);
   }
   return std::nullopt;
 }
 
-[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateRemoveLabel(const LabelId label) {
-  const auto schema = schemas_.GetSchema(label);
-  if (schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_CANNOT_REMOVE_PRIMARY_LABEL, label);
-  }
-  return std::nullopt;
-}
 }  // namespace memgraph::storage

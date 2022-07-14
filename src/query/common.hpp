@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -24,8 +25,12 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
@@ -81,15 +86,18 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
   { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
 };
 
+template <AccessorWithSetProperty T>
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+  return PropsSetChecked(record, key, storage::PropertyValue(value));
+}
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const storage::PropertyValue &value) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
-    if (maybe_old_value.HasError()) {
-      switch (maybe_old_value.GetError()) {
+    const auto handle_error = [](const storage::Error error) {
+      switch (error) {
         case storage::Error::SERIALIZATION_ERROR:
           throw TransactionSerializationException();
         case storage::Error::DELETED_OBJECT:
@@ -100,8 +108,25 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
         case storage::Error::NONEXISTENT_OBJECT:
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
+    };
+    if constexpr (std::is_same_v<T, VertexAccessor>()) {
+      auto maybe_old_value = record->SetPropertyAndValidate(key, value);
+      if (maybe_old_value.HasError()) {
+        std::visit(utils::Overloaded{[handle_error](const storage::Error error) { handle_error(error); },
+                                     [](const storage::SchemaViolation /*schema_violation*/) {
+                                       throw QueryRuntimeException("Schema violation");
+                                     }},
+                   maybe_old_value.GetError());
+      }
+      return std::move(*maybe_old_value);
+
+    } else {
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, value);
+      if (maybe_old_value.HasError()) {
+        handle_error(maybe_old_value.GetError());
+      }
+      return std::move(*maybe_old_value);
     }
-    return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }

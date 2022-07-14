@@ -12,7 +12,9 @@
 #pragma once
 
 #include <type_traits>
+#include <variant>
 
+#include "storage/v2/schema_validator.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage {
@@ -28,6 +30,6 @@ enum class Error : uint8_t {
 };
 
 template <class TValue>
-using Result = utils::BasicResult<Error, TValue>;
+using Result = utils::BasicResult<std::variant<SchemaViolation, Error>, TValue>;
 
 }  // namespace memgraph::storage
