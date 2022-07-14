@@ -2600,11 +2600,12 @@ namespace {
  * when there are */
 TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::MemoryResource *memory) {
   switch (element.op) {
-    case Aggregation::Op::COUNT:
-    case Aggregation::Op::SUM:
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
+      return TypedValue(memory);
+    case Aggregation::Op::COUNT:
+    case Aggregation::Op::SUM:
       return TypedValue(0, memory);
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));

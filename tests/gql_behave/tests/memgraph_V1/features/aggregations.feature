@@ -183,7 +183,7 @@ Feature: Aggregations
         """
         Then the result should be:
             | avg(null) |
-            | 0         |
+            | null      |
 
     Scenario: Min test 01:
         Given an empty graph
@@ -234,7 +234,7 @@ Feature: Aggregations
         """
         Then the result should be:
             | min(null) |
-            | 0         |
+            | null      |
 
     Scenario: Max test 01:
         Given an empty graph
@@ -285,7 +285,7 @@ Feature: Aggregations
         """
         Then the result should be:
             | max(null) |
-            | 0         |
+            | null      |
 
     Scenario: Collect test 01:
         Given an empty graph
