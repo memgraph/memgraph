@@ -164,12 +164,6 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_DURATION,
 };
 
-/// All available log levels that can be use in mgp_log function
-MGP_ENUM_CLASS mgp_log_level{
-    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
-    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
-};
-
 /// Free the memory used by the given mgp_value instance.
 void mgp_value_destroy(struct mgp_value *val);
 
@@ -1298,6 +1292,12 @@ struct mgp_proc;
 /// Describes a Memgraph magic function.
 struct mgp_func;
 
+/// All available log levels that can be use in mgp_log function
+MGP_ENUM_CLASS mgp_log_level{
+    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
+    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
+};
+
 /// Entry-point for a query module read procedure, invoked through openCypher.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
@@ -1588,8 +1588,8 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
 
-// Log a message on certain level with spdlog
-void mgp_log(enum mgp_log_level log_level, const char *output);
+/// Log a message on certain level.
+void mgp_log(mgp_log_level log_level, const char *output);
 
 /// @}
 

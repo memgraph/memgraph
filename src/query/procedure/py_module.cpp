@@ -2058,79 +2058,50 @@ struct PyLogger {
 };
 // clang-format on
 
-void PyLoggerAddLog(const enum mgp_log_level level, const char *out) { mgp_log(level, out); }
-
-PyObject *PyLoggerAddInfoLog(PyLogger *self, PyObject *args) {
+PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const enum mgp_log_level level) {
   MG_ASSERT(self);
   const char *out = nullptr;
   if (!PyArg_ParseTuple(args, "s", &out)) {
     return nullptr;
   }
 
-  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_INFO, out);
+  mgp_log(level, out);
 
   Py_RETURN_NONE;
 }
 
-PyObject *PyLoggerAddWarningLog(PyLogger *self, PyObject *args) {
-  MG_ASSERT(self);
-  const char *out = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &out)) {
-    return nullptr;
-  }
-  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_WARN, out);
-
-  Py_RETURN_NONE;
+PyObject *PyLoggerLogInfo(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_INFO);
 }
 
-PyObject *PyLoggerAddErrorLog(PyLogger *self, PyObject *args) {
-  MG_ASSERT(self);
-  const char *out = nullptr;
-  if (!PyArg_ParseTuple(args, "s", &out)) {
-    return nullptr;
-  }
-  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_ERROR, out);
-
-  Py_RETURN_NONE;
+PyObject *PyLoggerLogWarning(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_WARN);
 }
 
-PyObject *PyLoggerAddCriticalLog(PyLogger *self, PyObject *args) {
-  MG_ASSERT(self);
-  const char *out = nullptr;
-
-  if (!PyArg_ParseTuple(args, "s", &out)) {
-    return nullptr;
-  }
-
-  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_CRITICAL, out);
-
-  Py_RETURN_NONE;
+PyObject *PyLoggerLogError(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_ERROR);
 }
 
-PyObject *PyLoggerAddTraceLog(PyLogger *self, PyObject *args) {
-  MG_ASSERT(self);
-  const char *out = nullptr;
+PyObject *PyLoggerLogCritical(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_CRITICAL);
+}
 
-  if (!PyArg_ParseTuple(args, "s", &out)) {
-    return nullptr;
-  }
-  PyLoggerAddLog(mgp_log_level::MGP_LOG_LEVEL_TRACE, out);
-
-  Py_RETURN_NONE;
+PyObject *PyLoggerLogTrace(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_TRACE);
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLoggerMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"info", reinterpret_cast<PyCFunction>(PyLoggerAddInfoLog), METH_VARARGS,
+    {"info", reinterpret_cast<PyCFunction>(PyLoggerLogInfo), METH_VARARGS,
      "Logs a message with level INFO on this logger."},
-    {"warning", reinterpret_cast<PyCFunction>(PyLoggerAddWarningLog), METH_VARARGS,
+    {"warning", reinterpret_cast<PyCFunction>(PyLoggerLogWarning), METH_VARARGS,
      "Logs a message with level WARNNING on this logger."},
-    {"error", reinterpret_cast<PyCFunction>(PyLoggerAddErrorLog), METH_VARARGS,
+    {"error", reinterpret_cast<PyCFunction>(PyLoggerLogError), METH_VARARGS,
      "Logs a message with level ERROR on this logger."},
-    {"critical", reinterpret_cast<PyCFunction>(PyLoggerAddCriticalLog), METH_VARARGS,
+    {"critical", reinterpret_cast<PyCFunction>(PyLoggerLogCritical), METH_VARARGS,
      "Logs a message with level CRITICAL on this logger."},
-    {"trace", reinterpret_cast<PyCFunction>(PyLoggerAddTraceLog), METH_VARARGS,
+    {"trace", reinterpret_cast<PyCFunction>(PyLoggerLogTrace), METH_VARARGS,
      "Logs a message with level TRACE on this logger."},
     {nullptr},
 };

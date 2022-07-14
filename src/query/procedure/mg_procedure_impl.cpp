@@ -2797,7 +2797,7 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
       result);
 }
 
-void mgp_log(const enum mgp_log_level log_level, const char *output) {
+void mgp_log(const mgp_log_level log_level, const char *output) {
   switch (log_level) {
     case mgp_log_level::MGP_LOG_LEVEL_TRACE:
       spdlog::trace(output);
@@ -2818,4 +2818,5 @@ void mgp_log(const enum mgp_log_level log_level, const char *output) {
       spdlog::critical(output);
       return;
   }
+  throw "Unexpected enum value";
 }
