@@ -226,14 +226,14 @@ class SimulatorHandle {
       return false;
     }
 
+    if (in_flight_.empty()) {
+      return false;
+    }
+
     // clock ticks forwards by 400 microseconds on average
     std::poisson_distribution<> time_distrib(400);
     uint64_t clock_advance = time_distrib(rng_);
     cluster_wide_time_microseconds_ += clock_advance;
-
-    if (in_flight_.empty()) {
-      return false;
-    }
 
     if (config_.scramble_messages) {
       // scramble messages
