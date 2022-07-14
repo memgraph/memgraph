@@ -208,6 +208,8 @@ class SimulatorHandle {
 
   bool MaybeTickSimulator() {
     std::unique_lock<std::mutex> lock(mu_);
+    // TODO nuke this notify
+    cv_.notify_all();
 
     size_t blocked_servers = blocked_on_receive_;
 
@@ -219,21 +221,26 @@ class SimulatorHandle {
       }
     }
 
+    // TODO this is not deterministic time advancement
+    // clock ticks forwards by this many microseconds on average
+    std::poisson_distribution<> time_distrib(100);
+    uint64_t clock_advance = time_distrib(rng_);
+    cluster_wide_time_microseconds_ += clock_advance;
+
     if (blocked_servers < servers_) {
       // we only need to advance the simulator when all
       // servers have reached a quiescent state, blocked
       // on their own futures or receive methods.
+      // std::cout << "returning from tick: blocked servers less than total servers" << std::endl;
       return false;
     }
 
     if (in_flight_.empty()) {
+      // std::cout << "returning from tick: empty in_flight_" << std::endl;
       return false;
     }
 
-    // clock ticks forwards by 400 microseconds on average
-    std::poisson_distribution<> time_distrib(400);
-    uint64_t clock_advance = time_distrib(rng_);
-    cluster_wide_time_microseconds_ += clock_advance;
+    // std::cout << "looking at message in tick" << std::endl;
 
     if (config_.scramble_messages) {
       // scramble messages
