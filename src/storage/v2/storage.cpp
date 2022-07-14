@@ -1297,7 +1297,8 @@ Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &prope
   auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError()) {
     return StorageUniqueConstraintDefinitionError{ret.GetError()};
-  } else if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+  }
+  if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret.GetValue();
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
