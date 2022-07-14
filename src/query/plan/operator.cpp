@@ -2628,8 +2628,6 @@ class AggregateCursor : public Cursor {
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
-      // in case there is no input and no group_bys we need to return true
-      // just this once
       if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame

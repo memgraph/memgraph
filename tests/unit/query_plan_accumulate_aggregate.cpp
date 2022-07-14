@@ -214,36 +214,36 @@ TEST_F(QueryPlanAggregateOps, WithData) {
   EXPECT_FALSE(std::set<int>({5, 7, 12}).insert(map.begin()->second).second);
 }
 
-// TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::COUNT});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::SUM});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::AVG});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::MIN});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::MAX});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-//   {
-//     auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
-//     EXPECT_EQ(results.size(), 0);
-//   }
-// }
+TEST_F(QueryPlanAggregateOps, WithoutDataWithGroupBy) {
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::COUNT});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::SUM});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::AVG});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::MIN});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::MAX});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_LIST});
+    EXPECT_EQ(results.size(), 1);
+  }
+  {
+    auto results = AggregationResults(true, {Aggregation::Op::COLLECT_MAP});
+    EXPECT_EQ(results.size(), 1);
+  }
+}
 
 TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   auto results = AggregationResults(false);
@@ -256,13 +256,13 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   ASSERT_EQ(results[0][1].type(), TypedValue::Type::Int);
   EXPECT_EQ(results[0][1].ValueInt(), 0);
   // min
-  EXPECT_EQ(results[0][2].ValueInt(), 0);
+  EXPECT_TRUE(results[0][2].IsNull());
   //  max
-  EXPECT_EQ(results[0][3].ValueInt(), 0);
+  EXPECT_TRUE(results[0][3].IsNull());
   //  sum
   EXPECT_EQ(results[0][4].ValueInt(), 0);
   //  avg
-  EXPECT_EQ(results[0][5].ValueInt(), 0);
+  EXPECT_TRUE(results[0][5].IsNull());
   //  collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
   EXPECT_EQ(ToIntList(results[0][6]).size(), 0);
