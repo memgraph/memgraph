@@ -314,7 +314,7 @@ class Storage final {
     /// data could NOT be replicated to SYNC replica. In that case of existence/unique constraint the transaction is
     /// automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageDataManipulationError, void> Commit(
+    [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
@@ -355,17 +355,17 @@ class Storage final {
   EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+  [[nodiscard]] utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
   /// @throw std::bad_alloc
-  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+  [[nodiscard]] utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+  [[nodiscard]] utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+  [[nodiscard]] utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
