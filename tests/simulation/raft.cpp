@@ -567,7 +567,7 @@ void RunSimulation() {
   auto config = SimulatorConfig{
       .drop_percent = 0,
       .perform_timeouts = true,
-      .scramble_messages = false,
+      .scramble_messages = true,
       .rng_seed = 0,
   };
 
