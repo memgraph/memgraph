@@ -1369,7 +1369,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                   EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
-                  throw ReplicationException();
+                  throw ReplicationException(
+                      fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
+                                  "on properties {}.",
+                                  label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &data_definition_error = arg;
                   MG_ASSERT(storage::IndexDefinitionError::EXISTANT_INDEX == data_definition_error,
@@ -1407,7 +1410,10 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                  throw ReplicationException();
+                  throw ReplicationException(
+                      fmt::format("At least one SYNC replica has not confirmed the dropping of the index on label {} "
+                                  "on properties {}.",
+                                  label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto data_definition_error = arg;
                   MG_ASSERT(storage::IndexDefinitionError::NONEXISTANT_INDEX == data_definition_error,
@@ -1975,7 +1981,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
                                       properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException();
+                      throw ReplicationException(
+                          "At least one SYNC replica has not confirmed the creation of the EXISTS constraint on label "
+                          "{} on properties {}.",
+                          label_name, properties_stringified);
                     } else {
                       static_assert(always_false_v<T>, "Missing type from variant visitor");
                     }
@@ -2003,11 +2012,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &storage_error = maybe_constraint_error.GetError();
               const auto &error = storage_error.error;
               std::visit(
-                  [&interpreter_context]<typename T>(T &&arg) {
+                  [&interpreter_context, &label_name, &properties_stringified]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
-                      auto label_name = interpreter_context->db->LabelToName(violation.label);
+                      auto violation_label_name = interpreter_context->db->LabelToName(violation.label);
                       std::stringstream property_names_stream;
                       utils::PrintIterable(property_names_stream, violation.properties, ", ",
                                            [&interpreter_context](auto &stream, const auto &prop) {
@@ -2016,9 +2025,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                       throw QueryRuntimeException(
                           "Unable to create unique constraint :{}({}), because an "
                           "existing node violates it.",
-                          label_name, property_names_stream.str());
+                          violation_label_name, property_names_stream.str());
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException();
+                      throw ReplicationException(fmt::format(
+                          "At least one SYNC replica has not confirmed the creation of the UNIQUE constraint: {}({}).",
+                          label_name, properties_stringified));
                     } else {
                       static_assert(always_false_v<T>, "Missing type from variant visitor");
                     }
@@ -2080,7 +2091,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,
                                       properties_stringified);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException();
+                      throw ReplicationException(
+                          fmt::format("At least one SYNC replica has not confirmed the dropping of the EXISTS "
+                                      "constraint  on label {} on properties {}.",
+                                      label_name, properties_stringified));
                     } else {
                       static_assert(always_false_v<T>, "Missing type from variant visitor");
                     }
@@ -2109,10 +2123,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &storage_error = maybe_constraint_error.GetError();
               const auto &error = storage_error.error;
               std::visit(
-                  []<typename T>(T &&) {
+                  [&label_name, &properties_stringified]<typename T>(T &&) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-                      throw ReplicationException();
+                      throw ReplicationException(
+                          fmt::format("At least one SYNC replica has not confirmed the dropping of the UNIQUE "
+                                      "constraint on label {} on properties {}.",
+                                      label_name, properties_stringified));
                     } else {
                       static_assert(always_false_v<T>, "Missing type from variant visitor");
                     }
@@ -2331,6 +2348,7 @@ void Interpreter::Abort() {
 namespace {
 void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
                              TriggerContext trigger_context) {
+  // #NoCommit
   // Run the triggers
   for (const auto &trigger : triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
@@ -2348,6 +2366,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       db_accessor.Abort();
       continue;
     }
+
     auto maybe_commit_error = db_accessor.Commit();
     if (maybe_commit_error.HasError()) {
       const auto &storage_error = maybe_commit_error.GetError();
@@ -2357,8 +2376,8 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           [&trigger, &db_accessor]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-              spdlog::warn("Trigger '{}' failed to commit due to inability to replicate data to SYNC replica",
-                           trigger.Name());
+              throw ReplicationException(fmt::format(
+                  "At least one SYNC replica has not confirmed execution of the trigger '{}'.", trigger.Name()));
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
@@ -2435,7 +2454,7 @@ void Interpreter::Commit() {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             reset_necessary_members();
-            throw ReplicationException();
+            throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             switch (constraint_violation.type) {

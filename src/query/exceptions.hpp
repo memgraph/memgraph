@@ -227,9 +227,8 @@ class VersionInfoInMulticommandTxException : public QueryException {
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  ReplicationException()
-      : utils::BasicException(
-            "At least one SYNC replica has not confirm reception of the last message(s). Check the status of the "
-            "replica using SHOW REPLICA command.") {}
+  ReplicationException(const std::string &message)
+      : utils::BasicException(fmt::format("{} Check the status of the replicas using 'SHOW REPLICA' query.", message)) {
+  }
 };
 }  // namespace memgraph::query
