@@ -608,7 +608,7 @@ void RunSimulation() {
     cli_req.opaque_data = std::vector<uint8_t>{1, 2, 3, 4};
 
     ResponseFuture<ReplicationResponse> response_future =
-        cli_io.RequestWithTimeout<ReplicationRequest, ReplicationResponse>(srv_addr_3, cli_req, 100);
+        cli_io.RequestWithTimeout<ReplicationRequest, ReplicationResponse>(leader, cli_req, 100);
 
     // receive response
     ResponseResult<ReplicationResponse> response_result = response_future.Wait();
@@ -622,6 +622,9 @@ void RunSimulation() {
 
     if (response.retry_leader) {
       leader = response.retry_leader.value();
+      std::cout << "client redirected to leader server " << leader.last_known_port << std::endl;
+    } else {
+      std::cout << "client NOT redirected to leader server " << std::endl;
     }
   }
 
@@ -642,7 +645,7 @@ int main() {
   int n_tests = 500;
 
   for (int i = 0; i < n_tests; i++) {
-    std::cout << "========================== NEW SIMULATION ==========================" << std::endl;
+    std::cout << "========================== NEW SIMULATION " << i << " ==========================" << std::endl;
     RunSimulation();
   }
 

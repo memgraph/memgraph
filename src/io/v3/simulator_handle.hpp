@@ -236,11 +236,16 @@ class SimulatorHandle {
         }
       }
 
-      bool all_servers_blocked = blocked_servers < server_addresses_.size();
+      bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
       if (all_servers_blocked) {
         return;
       }
+
+      std::cout << "only " << (int)blocked_servers << " servers blocked, but size is " << (int)server_addresses_.size()
+                << std::endl;
+
+      // __asm__ __volatile__("yield");
 
       cv_.wait(lock);
     }
@@ -267,18 +272,17 @@ class SimulatorHandle {
       return false;
     }
 
-    if (in_flight_.empty()) {
-      // std::cout << "returning from tick: empty in_flight_" << std::endl;
-      return false;
-    }
-
-    // TODO this is not deterministic time advancement
     // clock ticks forwards by this many microseconds on average
     std::poisson_distribution<> time_distrib(100);
     uint64_t clock_advance = time_distrib(rng_);
     cluster_wide_time_microseconds_ += clock_advance;
 
-    // std::cout << "looking at message in tick" << std::endl;
+    cv_.notify_all();
+
+    if (in_flight_.empty()) {
+      // return early here because there are no messages to schedule
+      return false;
+    }
 
     if (config_.scramble_messages) {
       // scramble messages
@@ -317,8 +321,6 @@ class SimulatorHandle {
       const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());
       om_vec->second.emplace_back(std::move(opaque_message));
     }
-
-    cv_.notify_all();
 
     return true;
   }
@@ -382,7 +384,7 @@ class SimulatorHandle {
       bool made_progress = MaybeTickSimulator();
       lock.lock();
       if (!should_shut_down_ && !made_progress) {
-        std::cout << "waiting on cv" << std::endl;
+        // std::cout << "waiting on cv" << std::endl;
         cv_.wait(lock);
       }
       blocked_on_receive_ -= 1;
