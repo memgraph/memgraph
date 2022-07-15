@@ -614,7 +614,6 @@ int main() {
     if (response.retry_leader) {
       leader = response.retry_leader.value();
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
 
   MG_ASSERT(success);
