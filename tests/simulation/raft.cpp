@@ -224,7 +224,6 @@ class Server {
     if (state_.log.empty() || state_.committed_log_size == 0) {
       return 0;
     } else {
-      Log("log len: ", state_.log.size(), " committed_log_size: ", state_.committed_log_size);
       auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
       return term;
     }
