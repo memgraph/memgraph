@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// TODO(tyler) add role and term to all log statements
 // TODO(tyler) buffer out-of-order Append buffers to reassemble more quickly
 // TODO(tyler) handle granular batch sizes based on simple flow control
 // TODO(tyler) add "application" test that asserts that all state machines apply the same items in-order
@@ -114,11 +115,11 @@ class Server {
   Server(Io<IoImpl> io, std::vector<Address> peers) : io_(io), peers_(peers) {}
 
   void Run() {
-    Time last_cron = 0;
+    Time last_cron = io_.Now();
 
     while (!io_.ShouldShutDown()) {
       auto now = io_.Now();
-      Duration random_cron_interval = RandomTimeout(10000, 30000);
+      Duration random_cron_interval = RandomTimeout(5000, 30000);
       if (now - last_cron > random_cron_interval) {
         Cron();
         last_cron = now;
@@ -557,7 +558,7 @@ void RunServer(Server<IoImpl> server) {
   server.Run();
 }
 
-int main() {
+void RunSimulation() {
   auto config = SimulatorConfig{
       .drop_percent = 0,
       .perform_timeouts = true,
@@ -589,8 +590,6 @@ int main() {
   auto srv_thread_2 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_2));
   auto srv_thread_3 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_3));
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
   bool success = false;
   Address leader = srv_addr_1;
   for (int retries = 0; retries < 30; retries++) {
@@ -619,10 +618,20 @@ int main() {
   MG_ASSERT(success);
 
   simulator.ShutDown();
+  std::cout << "========================== SUCCESS :) ==========================" << std::endl;
 
+  /*
   srv_thread_1.join();
   srv_thread_2.join();
   srv_thread_3.join();
+  */
+}
+
+int main() {
+  for (int i = 0; i < 1; i++) {
+    std::cout << "========================== NEW SIMULATION ==========================" << std::endl;
+    RunSimulation();
+  }
 
   return 0;
 }

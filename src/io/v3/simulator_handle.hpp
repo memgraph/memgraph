@@ -331,7 +331,7 @@ class SimulatorHandle {
 
     uint64_t deadline = cluster_wide_time_microseconds_ + timeout_microseconds;
 
-    while (!(should_shut_down_ && cluster_wide_time_microseconds_ < deadline)) {
+    while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
       if (can_receive_.contains(receiver)) {
         std::vector<OpaqueMessage> &can_rx = can_receive_.at(receiver);
         if (!can_rx.empty()) {
@@ -349,7 +349,7 @@ class SimulatorHandle {
       lock.unlock();
       bool made_progress = MaybeTickSimulator();
       lock.lock();
-      if (!made_progress) {
+      if (!should_shut_down_ && !made_progress) {
         cv_.wait(lock);
       }
       blocked_on_receive_ -= 1;
@@ -390,7 +390,7 @@ class SimulatorHandle {
   // messages that are sent to servers that may later receive them
   std::map<Address, std::vector<OpaqueMessage>> can_receive_;
 
-  uint64_t cluster_wide_time_microseconds_ = 100000000;
+  uint64_t cluster_wide_time_microseconds_ = 1000000;  // it's one million (microseconds) o'clock!
   bool should_shut_down_ = false;
   SimulatorStats stats_;
   size_t blocked_on_receive_ = 0;
