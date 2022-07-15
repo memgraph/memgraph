@@ -114,21 +114,21 @@ class Server {
   Server(Io<IoImpl> io, std::vector<Address> peers) : io_(io), peers_(peers) {}
 
   void Run() {
-    // 120ms between Cron calls
-    Duration cron_interval = 120000;
     Time last_cron = 0;
-
-    io_.SetDefaultTimeoutMicroseconds(RandomTimeout(100000, 150000));
 
     while (!io_.ShouldShutDown()) {
       auto now = io_.Now();
-      if (now - last_cron > cron_interval) {
+      Duration random_cron_interval = RandomTimeout(10000, 30000);
+      if (now - last_cron > random_cron_interval) {
         Cron();
         last_cron = now;
       }
 
+      Duration receive_timeout = RandomTimeout(10000, 50000);
+
       auto request_result =
-          io_.template Receive<AppendRequest, AppendResponse, ReplicationRequest, VoteRequest, VoteResponse>();
+          io_.template ReceiveWithTimeout<AppendRequest, AppendResponse, ReplicationRequest, VoteRequest, VoteResponse>(
+              receive_timeout);
       if (request_result.HasError()) {
         continue;
       }
