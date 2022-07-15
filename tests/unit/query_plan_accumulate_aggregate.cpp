@@ -266,13 +266,13 @@ TEST_F(QueryPlanAggregateOps, WithoutDataWithoutGroupBy) {
   EXPECT_EQ(results[0][1].ValueInt(), 0);
   // min
   EXPECT_TRUE(results[0][2].IsNull());
-  //  max
+  // max
   EXPECT_TRUE(results[0][3].IsNull());
-  //  sum
+  // sum
   EXPECT_EQ(results[0][4].ValueInt(), 0);
-  //  avg
+  // avg
   EXPECT_TRUE(results[0][5].IsNull());
-  //  collect list
+  // collect list
   ASSERT_EQ(results[0][6].type(), TypedValue::Type::List);
   EXPECT_EQ(ToIntList(results[0][6]).size(), 0);
   // collect map
