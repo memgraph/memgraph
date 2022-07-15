@@ -15,6 +15,7 @@
 #include <chrono>
 #include <ctime>
 #include <limits>
+#include <string>
 #include <string_view>
 
 #include "utils/exceptions.hpp"
@@ -174,6 +175,10 @@ int64_t Date::MicrosecondsSinceEpoch() const {
 }
 
 int64_t Date::DaysSinceEpoch() const { return utils::DaysSinceEpoch(year, month, day).count(); }
+
+std::string Date::ToString() const {
+  return fmt::format("{:0>4}-{:0>2}-{:0>2}", year, static_cast<int>(month), static_cast<int>(day));
+}
 
 size_t DateHash::operator()(const Date &date) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
@@ -377,6 +382,15 @@ int64_t LocalTime::NanosecondsSinceEpoch() const {
   return chrono::duration_cast<chrono::nanoseconds>(SumLocalTimeParts()).count();
 }
 
+std::string LocalTime::ToString() const {
+  using milli = std::chrono::milliseconds;
+  using micro = std::chrono::microseconds;
+  const auto subseconds = milli(millisecond) + micro(microsecond);
+
+  return fmt::format("{:0>2}:{:0>2}:{:0>2}.{:0>6}", static_cast<int>(hour), static_cast<int>(minute),
+                     static_cast<int>(second), subseconds.count());
+}
+
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hour);
@@ -485,6 +499,8 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
 
   return (milli_as_nanos + micros_as_nanos).count();
 }
+
+std::string LocalDateTime::ToString() const { return date.ToString() + 'T' + local_time.ToString(); }
 
 LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
@@ -697,6 +713,23 @@ int64_t Duration::SubSecondsAsNanoseconds() const {
   const auto micros = chrono::microseconds(SubDaysAsMicroseconds());
   const auto secs = chrono::seconds(SubDaysAsSeconds());
   return chrono::duration_cast<chrono::nanoseconds>(micros - secs).count();
+}
+
+std::string Duration::ToString() const {
+  // Format [nD]T[nH]:[nM]:[nS].
+  namespace chrono = std::chrono;
+  auto micros = chrono::microseconds(microseconds);
+  const auto dd = GetAndSubtractDuration<chrono::days>(micros);
+  const auto h = GetAndSubtractDuration<chrono::hours>(micros);
+  const auto m = GetAndSubtractDuration<chrono::minutes>(micros);
+  const auto s = GetAndSubtractDuration<chrono::seconds>(micros);
+
+  auto first_half = fmt::format("P{}DT{}H{}M", dd, h, m);
+  auto second_half = fmt::format("{}.{:0>6}S", s, std::abs(micros.count()));
+  if (s == 0 && micros.count() < 0) {
+    return first_half + '-' + second_half;
+  }
+  return first_half + second_half;
 }
 
 Duration Duration::operator-() const {

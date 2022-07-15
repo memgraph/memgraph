@@ -15,6 +15,7 @@ import pytest
 import time
 
 from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
 
 
 @pytest.mark.parametrize(
@@ -83,7 +84,6 @@ def test_show_replicas_while_inserting_data(connection):
 
     # 1/
     execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});")
-    time.sleep(1)
 
     # 2/
     expected_data = {
@@ -91,7 +91,11 @@ def test_show_replicas_while_inserting_data(connection):
         ("replica_2", "127.0.0.1:10002", "sync", 4, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 4, 0, "ready"),
     }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
 
     # 3/

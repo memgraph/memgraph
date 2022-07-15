@@ -13,6 +13,7 @@ import mgclient
 import pytest
 import time
 
+from mg_utils import mg_sleep_and_assert
 from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
@@ -427,8 +428,10 @@ def test_start_stream_with_batch_limit(connection, stream_creator, messages_send
     thread_stream_running = Process(target=start_new_stream_with_limit, daemon=True, args=(STREAM_NAME, BATCH_LIMIT))
     thread_stream_running.start()
 
-    time.sleep(2)
-    assert get_is_running(cursor, STREAM_NAME)
+    def is_running():
+        return get_is_running(cursor, STREAM_NAME)
+
+    assert mg_sleep_and_assert(True, is_running)
 
     messages_sender(BATCH_LIMIT - 1)
 
@@ -438,10 +441,8 @@ def test_start_stream_with_batch_limit(connection, stream_creator, messages_send
     # We send a last message to reach the batch_limit
     messages_sender(1)
 
-    time.sleep(2)
-
     # We check that the stream has correctly stoped.
-    assert not get_is_running(cursor, STREAM_NAME)
+    assert not mg_sleep_and_assert(False, is_running)
 
 
 def test_start_stream_with_batch_limit_timeout(connection, stream_creator):
@@ -504,8 +505,11 @@ def test_start_stream_with_batch_limit_while_check_running(
     # 1/
     thread_stream_check = Process(target=start_check_stream, daemon=True, args=(STREAM_NAME, BATCH_LIMIT, TIMEOUT))
     thread_stream_check.start()
-    time.sleep(2)
-    assert get_is_running(cursor, STREAM_NAME)
+
+    def is_running():
+        return get_is_running(cursor, STREAM_NAME)
+
+    assert mg_sleep_and_assert(True, is_running)
 
     with pytest.raises(mgclient.DatabaseError):
         start_stream_with_limit(cursor, STREAM_NAME, BATCH_LIMIT, timeout=TIMEOUT)
@@ -521,13 +525,12 @@ def test_start_stream_with_batch_limit_while_check_running(
         target=start_new_stream_with_limit, daemon=True, args=(STREAM_NAME, BATCH_LIMIT + 1, TIMEOUT)
     )  # Sending BATCH_LIMIT + 1 messages as BATCH_LIMIT messages have already been sent during the CHECK STREAM (and not consumed)
     thread_stream_running.start()
-    time.sleep(2)
-    assert get_is_running(cursor, STREAM_NAME)
+
+    assert mg_sleep_and_assert(True, is_running)
 
     message_sender(SIMPLE_MSG)
-    time.sleep(2)
 
-    assert not get_is_running(cursor, STREAM_NAME)
+    assert not mg_sleep_and_assert(False, is_running)
 
 
 def test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender):
@@ -557,8 +560,11 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     )
     start_time = time.time()
     thread_stream_running.start()
-    time.sleep(2)
-    assert get_is_running(cursor, STREAM_NAME)
+
+    def is_running():
+        return get_is_running(cursor, STREAM_NAME)
+
+    assert mg_sleep_and_assert(True, is_running)
 
     with pytest.raises(mgclient.DatabaseError):
         execute_and_fetch_all(cursor, f"CHECK STREAM {STREAM_NAME} BATCH_LIMIT {BATCH_LIMIT} TIMEOUT {TIMEOUT}")
@@ -567,23 +573,17 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     assert (end_time - start_time) < 0.8 * TIMEOUT, "The CHECK STREAM has probably thrown due to timeout!"
 
     message_sender(SIMPLE_MSG)
-    time.sleep(2)
 
-    assert not get_is_running(cursor, STREAM_NAME)
+    assert not mg_sleep_and_assert(False, is_running)
 
     # 2/
     thread_stream_check = Process(target=start_check_stream, daemon=True, args=(STREAM_NAME, BATCH_LIMIT, TIMEOUT))
     start_time = time.time()
     thread_stream_check.start()
-    time.sleep(2)
-    assert get_is_running(cursor, STREAM_NAME)
+    assert mg_sleep_and_assert(True, is_running)
 
     message_sender(SIMPLE_MSG)
-    time.sleep(2)
-    end_time = time.time()
-    assert (end_time - start_time) < 0.8 * TIMEOUT_IN_SECONDS, "The CHECK STREAM has probably thrown due to timeout!"
-
-    assert not get_is_running(cursor, STREAM_NAME)
+    assert not mg_sleep_and_assert(False, is_running)
 
 
 def test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator):
