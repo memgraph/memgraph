@@ -75,6 +75,11 @@ using RequestResult = BasicResult<TimedOut, RequestEnvelope<Ms...>>;
 
 template <typename I>
 class Io {
+  I implementation_;
+  Address address_;
+  uint64_t request_id_counter_ = 0;
+  uint64_t default_timeout_microseconds_ = 50 * 1000;
+
  public:
   Io(I io, Address address) : implementation_(io), address_(address) {}
 
@@ -137,10 +142,4 @@ class Io {
   }
 
   Address GetAddress() { return address_; }
-
- private:
-  I implementation_;
-  Address address_;
-  uint64_t request_id_counter_ = 0;
-  uint64_t default_timeout_microseconds_ = 50 * 1000;
 };

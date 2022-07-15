@@ -101,6 +101,13 @@ struct PromiseKey {
 };
 
 class OpaquePromise {
+  const std::type_info *ti_;
+  void *ptr_;
+  std::function<void(void *)> dtor_;
+  std::function<bool(void *)> is_awaited_;
+  std::function<void(void *, OpaqueMessage)> fill_;
+  std::function<void(void *)> time_out_;
+
  public:
   OpaquePromise(OpaquePromise &&old)
       : ti_(old.ti_),
@@ -183,14 +190,6 @@ class OpaquePromise {
       dtor_(ptr_);
     }
   }
-
- private:
-  const std::type_info *ti_;
-  void *ptr_;
-  std::function<void(void *)> dtor_;
-  std::function<bool(void *)> is_awaited_;
-  std::function<void(void *, OpaqueMessage)> fill_;
-  std::function<void(void *)> time_out_;
 };
 
 struct DeadlineAndOpaquePromise {
@@ -199,17 +198,56 @@ struct DeadlineAndOpaquePromise {
 };
 
 class SimulatorHandle {
+  std::mutex mu_{};
+  std::condition_variable cv_;
+
+  // messages that have not yet been scheduled or dropped
+  std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
+
+  // the responsese to requests that are being waited on
+  std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
+
+  // messages that are sent to servers that may later receive them
+  std::map<Address, std::vector<OpaqueMessage>> can_receive_;
+
+  uint64_t cluster_wide_time_microseconds_ = 1000000;  // it's one million (microseconds) o'clock!
+  bool should_shut_down_ = false;
+  SimulatorStats stats_;
+  size_t blocked_on_receive_ = 0;
+  std::set<Address> server_addresses_;
+  SimulatorConfig config_;
+  std::mt19937 rng_{};
+
  public:
-  void IncrementServerCount(Address address) {
+  SimulatorHandle(SimulatorConfig config) : config_(config) {}
+
+  void IncrementServerCountAndWaitForQuiescentState(Address address) {
     std::unique_lock<std::mutex> lock(mu_);
-    servers_++;
     server_addresses_.insert(address);
+
+    while (true) {
+      size_t blocked_servers = blocked_on_receive_;
+
+      for (auto &[promise_key, opaque_promise] : promises_) {
+        if (opaque_promise.promise.IsAwaited()) {
+          if (server_addresses_.contains(promise_key.requester_address)) {
+            blocked_servers++;
+          }
+        }
+      }
+
+      bool all_servers_blocked = blocked_servers < server_addresses_.size();
+
+      if (all_servers_blocked) {
+        return;
+      }
+
+      cv_.wait(lock);
+    }
   }
 
   bool MaybeTickSimulator() {
     std::unique_lock<std::mutex> lock(mu_);
-    // TODO nuke this notify
-    cv_.notify_all();
 
     size_t blocked_servers = blocked_on_receive_;
 
@@ -221,13 +259,7 @@ class SimulatorHandle {
       }
     }
 
-    // TODO this is not deterministic time advancement
-    // clock ticks forwards by this many microseconds on average
-    std::poisson_distribution<> time_distrib(100);
-    uint64_t clock_advance = time_distrib(rng_);
-    cluster_wide_time_microseconds_ += clock_advance;
-
-    if (blocked_servers < servers_) {
+    if (blocked_servers < server_addresses_.size()) {
       // we only need to advance the simulator when all
       // servers have reached a quiescent state, blocked
       // on their own futures or receive methods.
@@ -239,6 +271,12 @@ class SimulatorHandle {
       // std::cout << "returning from tick: empty in_flight_" << std::endl;
       return false;
     }
+
+    // TODO this is not deterministic time advancement
+    // clock ticks forwards by this many microseconds on average
+    std::poisson_distribution<> time_distrib(100);
+    uint64_t clock_advance = time_distrib(rng_);
+    cluster_wide_time_microseconds_ += clock_advance;
 
     // std::cout << "looking at message in tick" << std::endl;
 
@@ -285,15 +323,9 @@ class SimulatorHandle {
     return true;
   }
 
-  void SetConfig(SimulatorConfig config) {
-    std::unique_lock<std::mutex> lock(mu_);
-    rng_ = std::mt19937{config.rng_seed};
-    config_ = config;
-    cv_.notify_all();
-  }
-
   void ShutDown() {
     std::unique_lock<std::mutex> lock(mu_);
+    std::cout << "Shutting down" << std::endl;
     should_shut_down_ = true;
     cv_.notify_all();
   }
@@ -350,6 +382,7 @@ class SimulatorHandle {
       bool made_progress = MaybeTickSimulator();
       lock.lock();
       if (!should_shut_down_ && !made_progress) {
+        std::cout << "waiting on cv" << std::endl;
         cv_.wait(lock);
       }
       blocked_on_receive_ -= 1;
@@ -376,26 +409,4 @@ class SimulatorHandle {
     std::unique_lock<std::mutex> lock(mu_);
     return distrib(rng_);
   }
-
- private:
-  std::mutex mu_{};
-  std::condition_variable cv_;
-
-  // messages that have not yet been scheduled or dropped
-  std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
-
-  // the responsese to requests that are being waited on
-  std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
-
-  // messages that are sent to servers that may later receive them
-  std::map<Address, std::vector<OpaqueMessage>> can_receive_;
-
-  uint64_t cluster_wide_time_microseconds_ = 1000000;  // it's one million (microseconds) o'clock!
-  bool should_shut_down_ = false;
-  SimulatorStats stats_;
-  size_t blocked_on_receive_ = 0;
-  size_t servers_ = 0;
-  std::set<Address> server_addresses_;
-  SimulatorConfig config_;
-  std::mt19937 rng_{};
 };

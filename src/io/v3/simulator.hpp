@@ -21,9 +21,13 @@
 #include "transport.hpp"
 
 class SimulatorTransport {
+  std::shared_ptr<SimulatorHandle> simulator_handle_;
+  Address address_;
+  std::mt19937 rng_{};
+
  public:
-  SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address)
-      : simulator_handle_(simulator_handle), address_(address) {}
+  SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address, uint64_t seed)
+      : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request,
@@ -53,27 +57,27 @@ class SimulatorTransport {
 
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
   Return Rand(D distrib) {
-    return simulator_handle_->Rand<D, Return>(distrib);
+    return distrib(rng_);
   }
-
- private:
-  std::shared_ptr<SimulatorHandle> simulator_handle_;
-  Address address_;
 };
 
 class Simulator {
+  std::mt19937 rng_{};
+  std::shared_ptr<SimulatorHandle> simulator_handle_;
+
  public:
-  Simulator(SimulatorConfig config) { simulator_handle_->SetConfig(config); }
+  Simulator(SimulatorConfig config)
+      : rng_(std::mt19937{config.rng_seed}), simulator_handle_{std::make_shared<SimulatorHandle>(config)} {}
 
   void ShutDown() { simulator_handle_->ShutDown(); }
 
-  Io<SimulatorTransport> Register(Address address, bool is_server) {
-    if (is_server) {
-      simulator_handle_->IncrementServerCount(address);
-    }
-    return Io(SimulatorTransport(simulator_handle_, address), address);
+  Io<SimulatorTransport> Register(Address address) {
+    std::uniform_int_distribution<uint64_t> seed_distrib{};
+    uint64_t seed = seed_distrib(rng_);
+    return Io(SimulatorTransport(simulator_handle_, address, seed), address);
   }
 
- private:
-  std::shared_ptr<SimulatorHandle> simulator_handle_{std::make_shared<SimulatorHandle>()};
+  void IncrementServerCountAndWaitForQuiescentState(Address address) {
+    simulator_handle_->IncrementServerCountAndWaitForQuiescentState(address);
+  }
 };
