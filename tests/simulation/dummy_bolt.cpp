@@ -9,7 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// TODO(gitbuda): Document thoroughly all BoltSession methods.
+
 #include <map>
+#include <string>
+#include <vector>
 
 // TODO(gitbuda): This should move to the utils/logging + refactor where needed.
 #include <spdlog/sinks/daily_file_sink.h>
@@ -20,6 +24,27 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
+
+struct InterpretRequest {
+  std::string query;
+  std::map<std::string, memgraph::communication::bolt::Value> params;
+};
+
+struct InterpretResponse {
+  std::vector<std::string> header;
+  int query_id;  // qid
+};
+
+struct PullRequest {
+  int batch_size;
+  int query_id;
+};
+
+struct PullResponse {
+  // NOTE: Interpreter is streaming TypedValues into the TypedValueResultStream.
+  // std::vector<TypedValueEquivalent> batch_result;
+  std::map<std::string, memgraph::communication::bolt::Value> summary;
+};
 
 struct SessionData {};
 
