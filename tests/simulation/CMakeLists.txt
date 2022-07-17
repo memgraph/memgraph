@@ -29,3 +29,6 @@ add_simulation_test(future.cpp thread)
 add_simulation_test(basic_request.cpp address)
 
 add_simulation_test(raft.cpp address)
+
+add_simulation_test(dummy_bolt.cpp thread)
+target_link_libraries(${test_prefix}dummy_bolt mg-communication mg-utils)

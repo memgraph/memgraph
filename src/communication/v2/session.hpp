@@ -41,6 +41,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
