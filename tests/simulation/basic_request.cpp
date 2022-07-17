@@ -21,50 +21,59 @@ struct CounterResponse {
   uint64_t highest_seen_;
 };
 
-void run_server(Io<SimulatorTransport> srv_io) {
+void run_server(Io<SimulatorTransport> io) {
   uint64_t highest_seen;
 
-  while (!srv_io.ShouldShutDown()) {
-    auto request_result = srv_io.Receive<CounterRequest>();
+  while (!io.ShouldShutDown()) {
+    std::cout << "[SERVER] Is receiving..." << std::endl;
+    auto request_result = io.ReceiveWithTimeout<CounterRequest>(100000);
     if (request_result.HasError()) {
+      std::cout << "[SERVER] Error, continue" << std::endl;
       continue;
     }
     auto request_envelope = request_result.GetValue();
     auto req = std::get<CounterRequest>(request_envelope.message);
 
     highest_seen = std::max(highest_seen, req.proposal_);
-
     auto srv_res = CounterResponse{highest_seen};
 
-    request_envelope.Reply(srv_res, srv_io);
+    request_envelope.Reply(srv_res, io);
   }
 }
 
 int main() {
-  auto simulator = Simulator();
+  auto config = SimulatorConfig{
+      .drop_percent = 0,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = 0,
+  };
+  auto simulator = Simulator(config);
+
   auto cli_addr = Address::TestAddress(1);
   auto srv_addr = Address::TestAddress(2);
 
-  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr, false);
-  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr, true);
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
+  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr);
 
   auto srv_thread = std::jthread(run_server, std::move(srv_io));
+  simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr);
 
-  // send request
-  CounterRequest cli_req;
-  cli_req.proposal_ = 1;
-
-  auto response_future = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
-
-  // receive response
-  auto response_result = response_future.Wait();
-  auto response_envelope = response_result.GetValue();
-
-  MG_ASSERT(response_envelope.message.highest_seen_ == 1);
+  for (int i = 1; i < 3; ++i) {
+    // send request
+    CounterRequest cli_req;
+    cli_req.proposal_ = i;
+    auto res_f = cli_io.RequestWithTimeout<CounterRequest, CounterResponse>(srv_addr, cli_req, 1000);
+    auto res_rez = res_f.Wait();
+    if (!res_rez.HasError()) {
+      std::cout << "[CLIENT] Got a valid response" << std::endl;
+      auto env = res_rez.GetValue();
+      MG_ASSERT(env.message.highest_seen_ == i);
+    } else {
+      std::cout << "[CLIENT] Got an error" << std::endl;
+    }
+  }
 
   simulator.ShutDown();
-
-  srv_thread.join();
-
   return 0;
 }
