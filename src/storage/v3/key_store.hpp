@@ -25,7 +25,7 @@ class KeyStore {
   KeyStore &operator=(const KeyStore &) = delete;
   KeyStore &operator=(KeyStore &&other) noexcept = default;
 
-  ~KeyStore();
+  ~KeyStore() = default;
 
   PropertyValue GetKey(size_t index) const;
 
