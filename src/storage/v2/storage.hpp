@@ -220,12 +220,12 @@ class Storage final {
 
     ~Accessor();
 
-    /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
-                                std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties);
+    VertexAccessor CreateVertex();
+
+    VertexAccessor CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex();
+    VertexAccessor CreateVertex(storage::LabelId primary_label);
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
@@ -321,6 +321,8 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
+    const SchemaValidator &GetSchemaValidator() const;
+
     void AdvanceCommand();
 
     /// Commit returns `ConstraintViolation` if the changes made by this
@@ -336,7 +338,7 @@ class Storage final {
 
    private:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertex(storage::Gid gid, storage::LabelId primary_label);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
@@ -344,7 +346,7 @@ class Storage final {
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
-    SchemaValidator schema_validator;
+    SchemaValidator schema_validator_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;
