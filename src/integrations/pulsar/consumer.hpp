@@ -58,25 +58,27 @@ class Consumer final {
 
   bool IsRunning() const;
   void Start();
+  void StartWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
   void Stop();
   void StopIfRunning();
 
-  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<int64_t> limit_batches,
+  void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> limit_batches,
              const ConsumerFunction &check_consumer_function) const;
 
   const ConsumerInfo &Info() const;
 
  private:
   void StartConsuming();
+  void StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
   void StopConsuming();
 
   ConsumerInfo info_;
   mutable pulsar_client::Client client_;
-  pulsar_client::Consumer consumer_;
+  mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
 
   mutable std::atomic<bool> is_running_{false};
-  pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};
+  mutable pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};  // Protected by is_running_
   std::thread thread_;
 };
 }  // namespace memgraph::integrations::pulsar

@@ -30,7 +30,7 @@ void Encoder::WriteDouble(double value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteString(const std::string_view &value) {
+void Encoder::WriteString(const std::string_view value) {
   WriteMarker(durability::Marker::TYPE_STRING);
   slk::Save(value, builder_);
 }

@@ -161,7 +161,8 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout) override {
+                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -183,8 +184,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret =
-          db_->RegisterReplica(name, {std::move(ip), port}, repl_mode, {.timeout = timeout, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(
+          name, {std::move(ip), port}, repl_mode,
+          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -229,6 +231,25 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
       }
       if (repl_info.timeout) {
         replica.timeout = *repl_info.timeout;
+      }
+
+      replica.current_timestamp_of_replica = repl_info.timestamp_info.current_timestamp_of_replica;
+      replica.current_number_of_timestamp_behind_master =
+          repl_info.timestamp_info.current_number_of_timestamp_behind_master;
+
+      switch (repl_info.state) {
+        case storage::replication::ReplicaState::READY:
+          replica.state = ReplicationQuery::ReplicaState::READY;
+          break;
+        case storage::replication::ReplicaState::REPLICATING:
+          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
+          break;
+        case storage::replication::ReplicaState::RECOVERY:
+          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
+          break;
+        case storage::replication::ReplicaState::INVALID:
+          replica.state = ReplicationQuery::ReplicaState::INVALID;
+          break;
       }
 
       return replica;
@@ -449,7 +470,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication mode"};
+      callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}] {
         auto mode = handler.ShowReplicationRole();
         switch (mode) {
@@ -468,6 +489,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
       auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
+      const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
       std::optional<double> maybe_timeout;
       if (timeout.IsDouble()) {
         maybe_timeout = timeout.ValueDouble();
@@ -475,14 +497,16 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
         maybe_timeout = static_cast<double>(timeout.ValueInt());
       }
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout);
+                     maybe_timeout, replica_check_frequency]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
+                                replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
@@ -493,8 +517,15 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name", "socket_address", "sync_mode", "timeout"};
+      callback.header = {"name",
+                         "socket_address",
+                         "sync_mode",
+                         "timeout",
+                         "current_timestamp_of_replica",
+                         "number_of_timestamp_behind_master",
+                         "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -505,6 +536,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
           typed_replica.emplace_back(TypedValue(replica.name));
           typed_replica.emplace_back(TypedValue(replica.socket_address));
+
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
               typed_replica.emplace_back(TypedValue("sync"));
@@ -513,11 +545,30 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
-          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.sync_mode)));
+
           if (replica.timeout) {
             typed_replica.emplace_back(TypedValue(*replica.timeout));
           } else {
             typed_replica.emplace_back(TypedValue());
+          }
+
+          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
+
+          switch (replica.state) {
+            case ReplicationQuery::ReplicaState::READY:
+              typed_replica.emplace_back(TypedValue("ready"));
+              break;
+            case ReplicationQuery::ReplicaState::REPLICATING:
+              typed_replica.emplace_back(TypedValue("replicating"));
+              break;
+            case ReplicationQuery::ReplicaState::RECOVERY:
+              typed_replica.emplace_back(TypedValue("recovery"));
+              break;
+            case ReplicationQuery::ReplicaState::INVALID:
+              typed_replica.emplace_back(TypedValue("invalid"));
+              break;
           }
 
           typed_replicas.emplace_back(std::move(typed_replica));
@@ -653,12 +704,26 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Start(stream_name);
-        return std::vector<std::vector<TypedValue>>{};
-      };
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
-                                  fmt::format("Started stream {}.", stream_query->stream_name_));
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
+
+      if (batch_limit.has_value()) {
+        if (batch_limit.value() < 0) {
+          throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+        }
+
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
+          interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+      } else {
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+          interpreter_context->streams.Start(stream_name);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+        notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                    fmt::format("Started stream {}.", stream_query->stream_name_));
+      }
       return callback;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
@@ -727,10 +792,16 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::CHECK_STREAM: {
-      callback.header = {"query", "parameters"};
+      callback.header = {"queries", "raw messages"};
+
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      if (batch_limit.has_value() && batch_limit.value() < 0) {
+        throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+      }
+
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+                     batch_limit]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,

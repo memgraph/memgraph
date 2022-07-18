@@ -361,7 +361,7 @@ pulsarCreateStream : CREATE PULSAR STREAM streamName ( pulsarCreateStreamConfig 
 
 dropStream : DROP STREAM streamName ;
 
-startStream : START STREAM streamName ;
+startStream : START STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
 
 startAllStreams : START ALL STREAMS ;
 

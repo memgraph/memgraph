@@ -382,11 +382,11 @@ class DbAccessor final {
     return {std::make_optional<VertexAccessor>(*value)};
   }
 
-  storage::PropertyId NameToProperty(const std::string_view &name) { return accessor_->NameToProperty(name); }
+  storage::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
-  storage::LabelId NameToLabel(const std::string_view &name) { return accessor_->NameToLabel(name); }
+  storage::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
-  storage::EdgeTypeId NameToEdgeType(const std::string_view &name) { return accessor_->NameToEdgeType(name); }
+  storage::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
 
   const std::string &PropertyToName(storage::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 
@@ -430,6 +430,8 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const storage::SchemaValidator &GetSchemaValidator() const { return accessor_->GetSchemaValidator(); }
+
+  storage::SchemasInfo ListAllSchemas() const { return accessor_->ListAllSchemas(); }
 };
 
 }  // namespace memgraph::query

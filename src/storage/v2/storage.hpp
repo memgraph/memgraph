@@ -298,13 +298,13 @@ class Storage final {
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(const std::string_view &name);
+    LabelId NameToLabel(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(const std::string_view &name);
+    PropertyId NameToProperty(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(const std::string_view &name);
+    EdgeTypeId NameToEdgeType(std::string_view name);
 
     bool LabelIndexExists(LabelId label) const { return storage_->indices_.label_index.IndexExists(label); }
 
@@ -322,6 +322,8 @@ class Storage final {
     }
 
     const SchemaValidator &GetSchemaValidator() const;
+
+    SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
 
     void AdvanceCommand();
 
@@ -361,13 +363,13 @@ class Storage final {
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(const std::string_view &name);
+  LabelId NameToLabel(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(const std::string_view &name);
+  PropertyId NameToProperty(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(const std::string_view &name);
+  EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
@@ -437,7 +439,7 @@ class Storage final {
 
   bool SetMainReplicationRole();
 
-  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, CONNECTION_FAILED };
+  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED };
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
@@ -451,12 +453,18 @@ class Storage final {
 
   ReplicationRole GetReplicationRole() const;
 
+  struct TimestampInfo {
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+  };
+
   struct ReplicaInfo {
     std::string name;
     replication::ReplicationMode mode;
     std::optional<double> timeout;
     io::network::Endpoint endpoint;
     replication::ReplicaState state;
+    TimestampInfo timestamp_info;
   };
 
   std::vector<ReplicaInfo> ReplicasInfo();

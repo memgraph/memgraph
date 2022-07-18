@@ -22,44 +22,43 @@ function(_add_unit_test test_cpp custom_main)
   set(target_name ${test_prefix}${exec_name})
 
   set(source_files
-      ${test_cpp}
-      ${ARGN})
+    ${test_cpp}
+    ${ARGN})
 
   if(NOT ${custom_main})
     set(source_files
-        ${source_files}
-        ${memgraph_unit_main})
+      ${source_files}
+      ${memgraph_unit_main})
   endif()
 
   add_executable(${target_name} ${source_files})
+
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
   target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl)
+
   # register test
   if(TEST_COVERAGE)
     add_test(${target_name} env LLVM_PROFILE_FILE=${exec_name}.profraw ./${exec_name})
   else()
     add_test(${target_name} ${exec_name})
   endif()
+
   # add to memgraph__unit target
   add_dependencies(memgraph__unit ${target_name})
 endfunction(_add_unit_test)
 
-
 # Test utilities
-
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg-storage-v2)
 
-
 # Test integrations-kafka
-
 add_library(kafka-mock STATIC kafka_mock.cpp)
 target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
-# Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 
+# Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer.cpp kafka_mock.cpp)
 target_link_libraries(${test_prefix}integrations_kafka_consumer kafka-mock mg-integrations-kafka)
 
@@ -70,7 +69,6 @@ add_unit_test(mgp_trans_c_api.cpp)
 target_link_libraries(${test_prefix}mgp_trans_c_api mg-query)
 
 # Test mg-query
-
 add_unit_test(bfs_single_node.cpp)
 target_link_libraries(${test_prefix}bfs_single_node mg-query)
 
@@ -134,7 +132,6 @@ add_unit_test(query_function_mgp_module.cpp)
 target_link_libraries(${test_prefix}query_function_mgp_module mg-query)
 target_include_directories(${test_prefix}query_function_mgp_module PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
-
 # Test query/procedure
 add_unit_test(query_procedure_mgp_type.cpp)
 target_link_libraries(${test_prefix}query_procedure_mgp_type mg-query)
@@ -151,8 +148,8 @@ target_include_directories(${test_prefix}query_procedure_py_module PRIVATE ${CMA
 add_unit_test(query_procedures_mgp_graph.cpp)
 target_link_libraries(${test_prefix}query_procedures_mgp_graph mg-query storage_test_utils)
 target_include_directories(${test_prefix}query_procedures_mgp_graph PRIVATE ${CMAKE_SOURCE_DIR}/include)
-# END query/procedure
 
+# END query/procedure
 add_unit_test(query_profile.cpp)
 target_link_libraries(${test_prefix}query_profile mg-query)
 
@@ -171,9 +168,7 @@ target_link_libraries(${test_prefix}stripped mg-query)
 add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value mg-query)
 
-
 # Test mg-communication
-
 add_unit_test(bolt_chunked_decoder_buffer.cpp)
 target_link_libraries(${test_prefix}bolt_chunked_decoder_buffer mg-communication)
 
@@ -195,21 +190,15 @@ target_link_libraries(${test_prefix}communication_buffer mg-communication mg-uti
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
 
-
 # Test mg-kvstore
-
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore mg-kvstore mg-utils)
 
-
 # Test data structures
-
 add_unit_test(ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-utils)
 
-
 # Test mg-io
-
 add_unit_test(network_endpoint.cpp)
 target_link_libraries(${test_prefix}network_endpoint mg-io)
 
@@ -219,9 +208,7 @@ target_link_libraries(${test_prefix}network_utils mg-io)
 add_unit_test(socket.cpp)
 target_link_libraries(${test_prefix}socket mg-io)
 
-
 # Test mg-utils
-
 add_unit_test(utils_algorithm.cpp)
 target_link_libraries(${test_prefix}utils_algorithm mg-utils)
 
@@ -289,7 +276,6 @@ add_unit_test(utils_temporal utils_temporal.cpp)
 target_link_libraries(${test_prefix}utils_temporal mg-utils)
 
 # Test mg-storage-v2
-
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
 
@@ -338,39 +324,32 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 # target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
 
 # Test mg-auth
-
-if (MG_ENTERPRISE)
-add_unit_test(auth.cpp)
-target_link_libraries(${test_prefix}auth mg-auth mg-license)
+if(MG_ENTERPRISE)
+  add_unit_test(auth.cpp)
+  target_link_libraries(${test_prefix}auth mg-auth mg-license)
 endif()
-
 
 # Test mg-slk
-
-if (MG_ENTERPRISE)
-add_unit_test(slk_advanced.cpp)
-target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+if(MG_ENTERPRISE)
+  add_unit_test(slk_advanced.cpp)
+  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
 endif()
 
-if (MG_ENTERPRISE)
-add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+if(MG_ENTERPRISE)
+  add_unit_test(slk_core.cpp)
+  target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
-add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
+  add_unit_test(slk_streams.cpp)
+  target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 endif()
-
 
 # Test mg-rpc
-
-if (MG_ENTERPRISE)
-add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-rpc)
+if(MG_ENTERPRISE)
+  add_unit_test(rpc.cpp)
+  target_link_libraries(${test_prefix}rpc mg-rpc)
 endif()
 
-
 # Test LCP
-
 add_custom_command(
   OUTPUT test_lcp
   DEPENDS ${lcp_src_files} lcp test_lcp.lisp
@@ -384,3 +363,7 @@ find_package(Boost REQUIRED)
 
 add_unit_test(websocket.cpp)
 target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
+
+# Test storage-v3
+add_unit_test(storage_v3.cpp)
+target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
