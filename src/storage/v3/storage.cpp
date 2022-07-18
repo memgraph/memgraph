@@ -397,9 +397,6 @@ Storage::Storage(Config config)
       }
     });
   }
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->CollectGarbage<false>(); });
-  }
 
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
@@ -409,9 +406,6 @@ Storage::Storage(Config config)
 }
 
 Storage::~Storage() {
-  if (config_.gc.type == Config::Gc::Type::PERIODIC) {
-    gc_runner_.Stop();
-  }
   {
     // Clear replication data
     replication_server_.reset();
@@ -1331,10 +1325,6 @@ void Storage::CollectGarbage() {
   // chain traversal. They are instead marked for deletion and will be deleted
   // in the second GC phase in this GC iteration or some of the following
   // ones.
-  std::unique_lock<std::mutex> gc_guard(gc_lock_, std::try_to_lock);
-  if (!gc_guard.owns_lock()) {
-    return;
-  }
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers

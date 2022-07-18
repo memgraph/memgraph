@@ -512,8 +512,6 @@ class Storage final {
   IsolationLevel isolation_level_;
 
   Config config_;
-  utils::Scheduler gc_runner_;
-  std::mutex gc_lock_;
 
   // Undo buffers that were unlinked and now are waiting to be freed.
   utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
