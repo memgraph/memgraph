@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
+#include <boost/heap/fibonacci_heap.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -2017,16 +2018,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
           visited_cost_.emplace(vertex, next_weight);
           // spdlog::warn("Adding similar weight: (({})) -> {}", vertex.CypherId(),
-                      //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
+          //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
         } else {
           // spdlog::warn("Skipping weight: (({})) -> {}", vertex.CypherId(),
-                      //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
+          //  next_weight.IsNull() ? -1 : next_weight.ValueInt());
           // Continue and do not expand if current weight is larger
           return;
         }
       } else {
         visited_cost_.emplace(vertex, next_weight);
-        // spdlog::warn("Adding new weight: (({})) -> {}", vertex.CypherId(), next_weight.IsNull() ? -1 : next_weight.ValueInt());
+        // spdlog::warn("Adding new weight: (({})) -> {}", vertex.CypherId(), next_weight.IsNull() ? -1 :
+        // next_weight.ValueInt());
       }
 
       // Append the expansion to the priority queue
@@ -2040,7 +2042,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       previous_.at(src_vertex).emplace_back(std::move(edge));
       // spdlog::warn("Inserting ({} -> {}) edge to vertex list: {}", edge.From().CypherId(), edge.To().CypherId(),
-                  //  src_vertex.CypherId());
+      //  src_vertex.CypherId());
       // spdlog::warn("Size after insertion to previous: {}", previous_.at(src_vertex).size());
       // spdlog::warn("Weight before: {}, after {}", cost, next_weight.IsNull() ? -1 : next_weight.ValueInt());
       pq_.push({next_weight, depth + 1, vertex});
@@ -2244,9 +2246,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     }
   };
 
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor>>, PriorityQueueComparator>
+  boost::heap::fibonacci_heap<
+      std::tuple<TypedValue, int64_t, VertexAccessor>, boost::heap::compare<PriorityQueueComparator>,
+      boost::heap::allocator<utils::Allocator<std::tuple<TypedValue, int64_t, VertexAccessor>>()>>
       pq_;
+
+  // std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor>,
+  //                     utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor>>, PriorityQueueComparator>
+  //     pq_;
 
   void ClearQueue() {
     while (!pq_.empty()) pq_.pop();
@@ -2673,8 +2680,7 @@ namespace {
 template <typename T>
 concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
                                           storage::PropertyValue property_value) {
-  { value.ClearProperties() }
-  ->std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
 
