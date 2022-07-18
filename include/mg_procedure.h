@@ -1292,7 +1292,7 @@ struct mgp_proc;
 /// Describes a Memgraph magic function.
 struct mgp_func;
 
-/// All available log levels that can be use in mgp_log function
+/// All available log levels that can be used in mgp_log function
 MGP_ENUM_CLASS mgp_log_level{
     MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
     MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
@@ -1392,6 +1392,9 @@ enum mgp_error mgp_proc_add_result(struct mgp_proc *proc, const char *name, stru
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid result name.
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a result field with the same name was already added.
 enum mgp_error mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name, struct mgp_type *type);
+
+/// Log a message on a certain level.
+void mgp_log(enum mgp_log_level log_level, const char *output);
 ///@}
 
 /// @name Execution
@@ -1587,10 +1590,6 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 /// mgp_func_result.
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
-
-/// Log a message on certain level.
-void mgp_log(mgp_log_level log_level, const char *output);
-
 /// @}
 
 #ifdef __cplusplus

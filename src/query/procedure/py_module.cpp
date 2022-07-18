@@ -2058,7 +2058,7 @@ struct PyLogger {
 };
 // clang-format on
 
-PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const enum mgp_log_level level) {
+PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const mgp_log_level level) {
   MG_ASSERT(self);
   const char *out = nullptr;
   if (!PyArg_ParseTuple(args, "s", &out)) {
