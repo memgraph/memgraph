@@ -26,14 +26,17 @@
 #include "io/v3/simulator.hpp"
 #include "utils/logging.hpp"
 
+// TODO: BoltValue  --A--> TransportLayerValue(FBThriftValue) --B--> TypedValue
+// TODO: TypedValue --C--> TransportLayerValue(FBThriftValue) --D--> BoltValue
+
 struct InterpretRequest {
   std::string query;
-  // std::map<std::string, memgraph::communication::bolt::Value> params;
+  std::map<std::string, memgraph::communication::bolt::Value> params;
 };
 
 struct InterpretResponse {
-  // std::vector<std::string> header;
-  int query_id;  // qid
+  std::vector<std::string> header;
+  int query_id;
 };
 
 struct PullRequest {
@@ -42,9 +45,8 @@ struct PullRequest {
 };
 
 struct PullResponse {
-  // NOTE: Interpreter is streaming TypedValues into the TypedValueResultStream.
-  // std::vector<TypedValueEquivalent> batch_result;
-  // std::map<std::string, memgraph::communication::bolt::Value> summary;
+  std::vector<memgraph::communication::bolt::Value> batch_result;
+  std::optional<std::map<std::string, memgraph::communication::bolt::Value>> summary;
 };
 
 template <typename TTransport>
@@ -79,13 +81,15 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     std::cout << "INTERPRET QUERY HANDLER: " << query << std::endl;
     InterpretRequest cli_req;
     cli_req.query = query;
+    cli_req.params = {};
     auto res_f = session_data_->io.template RequestWithTimeout<InterpretRequest, InterpretResponse>(
         session_data_->cypher_srv_addr, cli_req, 1000);
     auto res_rez = res_f.Wait();
     if (!res_rez.HasError()) {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();
-      std::cout << "Query id: " << env.message.query_id << " interpreted" << std::endl;
+      std::cout << "Query id: " << env.message.query_id << " interpreted with" << env.message.header.size()
+                << " headers" << std::endl;
     } else {
       std::cout << "[CLIENT] Got an error" << std::endl;
     }
@@ -143,9 +147,10 @@ void run_cypher_server(Io<TTransport> io) {
 
     auto request_envelope = request_result.GetValue();
     auto req = std::get<InterpretRequest>(request_envelope.message);
-    std::cout << "Interpreter got the following query: " << req.query;
+    std::cout << "Interpreter got the following query: " << req.query << " with " << req.params.size() << " params"
+              << std::endl;
     highest_query_id += 1;
-    auto srv_res = InterpretResponse{highest_query_id};
+    auto srv_res = InterpretResponse{{}, highest_query_id};
     request_envelope.Reply(srv_res, io);
   }
 }
