@@ -1344,6 +1344,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
+  if (ctx->SHOW_CONFIG()) return AuthQuery::Privilege::SHOW_CONFIG;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -2340,6 +2341,12 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
   }
 
   return for_each;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) {
+  auto *show_config_query = storage_->Create<ShowConfigQuery>();
+  query_ = show_config_query;
+  return show_config_query;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

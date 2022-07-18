@@ -79,6 +79,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SESSION
                       | SETTING
                       | SETTINGS
+                      | SHOW_CONFIG
                       | SNAPSHOT
                       | START
                       | STATS
@@ -122,6 +123,7 @@ query : cypherQuery
       | streamQuery
       | settingQuery
       | versionQuery
+      | showConfigQuery
       ;
 
 authQuery : createRole
@@ -254,6 +256,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | SHOW_CONFIG
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -371,5 +374,7 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;

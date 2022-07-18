@@ -93,6 +93,7 @@ SERVICE_URL         : S E R V I C E UNDERSCORE U R L ;
 SESSION             : S E S S I O N ;
 SETTING             : S E T T I N G ;
 SETTINGS            : S E T T I N G S ;
+SHOW_CONFIG         : S H O W UNDERSCORE C O N F I G ;
 SNAPSHOT            : S N A P S H O T ;
 START               : S T A R T ;
 STATS               : S T A T S ;
