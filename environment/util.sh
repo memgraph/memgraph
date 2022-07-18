@@ -5,8 +5,26 @@ operating_system() {
     sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
 }
 
+check_operating_system() {
+    if [ "$(operating_system)" != "$1" ]; then
+        echo "Not the right operating system!"
+        exit 1
+    else
+        echo "The right operating system."
+    fi
+}
+
 architecture() {
     uname -m
+}
+
+check_architecture() {
+    if [ "$(architecture)" != "$1" ]; then
+        echo "Not the right architecture!"
+        exit 1
+    else
+        echo "The right architecture."
+    fi
 }
 
 check_all_yum() {

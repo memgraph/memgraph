@@ -22,6 +22,7 @@ static const std::string kSnapshotDirectory{"snapshots"};
 static const std::string kWalDirectory{"wal"};
 static const std::string kBackupDirectory{".backup"};
 static const std::string kLockFile{".lock"};
+static const std::string kReplicationDirectory{"replication"};
 
 // This is the prefix used for Snapshot and WAL filenames. It is a timestamp
 // format that equals to: YYYYmmddHHMMSSffffff
