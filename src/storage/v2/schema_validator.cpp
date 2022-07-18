@@ -50,9 +50,6 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 
   // Is there another primary label among secondary labels
   for (const auto &secondary_label : labels) {
-    if (secondary_label == primary_label) {
-      continue;
-    }
     if (schemas_.GetSchema(secondary_label) != std::nullopt) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, secondary_label);
     }

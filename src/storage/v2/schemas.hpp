@@ -25,10 +25,6 @@
 
 namespace memgraph::storage {
 
-class SchemaViolationException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
 struct SchemaProperty {
   PropertyId property_id;
   common::SchemaType type;
