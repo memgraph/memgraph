@@ -7,7 +7,7 @@ add_lcp_query(plan/operator.lcp)
 add_custom_target(generate_lcp_query_v2 DEPENDS ${generated_lcp_query_v2_files})
 
 set(mg_query_v2_sources
-    ${lcp_query_2_cpp_files}
+    ${lcp_query_v2_cpp_files}
     common.cpp
     cypher_query_interpreter.cpp
     dump.cpp
