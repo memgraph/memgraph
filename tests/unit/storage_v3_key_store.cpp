@@ -20,9 +20,9 @@
 #include <rapidcheck.h>
 #include <rapidcheck/gtest.h>
 
-#include "storage/v2/property_value.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/property_value.hpp"
 
 namespace memgraph::storage::v3::test {
 
