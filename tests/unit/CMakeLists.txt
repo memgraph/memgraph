@@ -367,3 +367,6 @@ target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
 # Test storage-v3
 add_unit_test(storage_v3.cpp)
 target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
+
+add_unit_test(storage_v3_schema.cpp)
+target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
