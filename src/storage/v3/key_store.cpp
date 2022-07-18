@@ -19,6 +19,7 @@ namespace memgraph::storage::v3 {
 
 KeyStore::KeyStore(const std::vector<PropertyValue> &key_values) {
   for (auto i = 0; i < key_values.size(); ++i) {
+    MG_ASSERT(!key_values[i].IsNull());
     store_.SetProperty(PropertyId::FromInt(i), key_values[i]);
   }
 }
