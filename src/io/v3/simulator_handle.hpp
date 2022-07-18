@@ -165,8 +165,10 @@ class OpaquePromise {
           unique_promise->Fill(std::move(response_envelope));
         }),
         time_out_([](void *ptr) {
+          ResponsePromise<T> *promise = static_cast<ResponsePromise<T> *>(ptr);
+          auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
           ResponseResult<T> result = TimedOut{};
-          static_cast<ResponsePromise<T> *>(ptr)->Fill(result);
+          unique_promise->Fill(std::move(result));
         }) {}
 
   bool IsAwaited() {
@@ -177,6 +179,7 @@ class OpaquePromise {
   void TimeOut() {
     MG_ASSERT(ptr_ != nullptr);
     time_out_(ptr_);
+    ptr_ = nullptr;
   }
 
   void Fill(OpaqueMessage &&opaque_message) {
@@ -307,7 +310,7 @@ class SimulatorHandle {
       DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
       promises_.erase(promise_key);
 
-      bool normal_timeout = config_.perform_timeouts && (dop.deadline > cluster_wide_time_microseconds_);
+      bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
 
       if (should_drop || normal_timeout) {
         dop.promise.TimeOut();
