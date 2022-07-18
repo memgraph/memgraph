@@ -13,6 +13,8 @@
 
 #include <optional>
 
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
@@ -33,16 +35,18 @@ class VertexAccessor final {
 
  public:
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, bool for_deleted = false)
+                 Config::Items config, SchemaValidator *schema_validator, bool for_deleted = false)
       : vertex_(vertex),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
+        schema_validator_{schema_validator},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                              Constraints *constraints, Config::Items config, View view);
+                                              Constraints *constraints, Config::Items config,
+                                              SchemaValidator *schema_validator, View view);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
@@ -63,6 +67,8 @@ class VertexAccessor final {
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
+
+  Result<LabelId> PrimaryLabel(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
@@ -96,6 +102,8 @@ class VertexAccessor final {
 
   Gid Gid() const noexcept { return vertex_->gid; }
 
+  const SchemaValidator &GetSchemaValidator() const;
+
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
@@ -107,6 +115,7 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  SchemaValidator *schema_validator_;
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this

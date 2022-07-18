@@ -109,7 +109,7 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
           throw QueryRuntimeException("Unexpected error when setting a property.");
       }
     };
-    if constexpr (std::is_same_v<T, VertexAccessor>()) {
+    if constexpr (std::is_same_v<T, VertexAccessor>) {
       auto maybe_old_value = record->SetPropertyAndValidate(key, value);
       if (maybe_old_value.HasError()) {
         std::visit(utils::Overloaded{[handle_error](const storage::Error error) { handle_error(error); },
@@ -121,7 +121,8 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
       return std::move(*maybe_old_value);
 
     } else {
-      const auto maybe_old_value = record->SetPropertyAndValidate(key, value);
+      // No validation on edge properties
+      const auto maybe_old_value = record->SetProperty(key, value);
       if (maybe_old_value.HasError()) {
         handle_error(maybe_old_value.GetError());
       }

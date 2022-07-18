@@ -18,6 +18,7 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -61,12 +62,13 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config, View view) {
+                                                     Constraints *constraints, Config::Items config,
+                                                     SchemaValidator *schema_validator, View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, transaction, indices, constraints, config};
+  return VertexAccessor{vertex, transaction, indices, constraints, config, schema_validator};
 }
 
 bool VertexAccessor::IsVisible(View view) const {
@@ -156,6 +158,51 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return has_label;
+}
+
+Result<LabelId> VertexAccessor::PrimaryLabel(View view) const {
+  bool exists = true;
+  bool deleted = false;
+  LabelId primary_label = vertex_->primary_label;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &primary_label](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::REMOVE_LABEL: {
+        MG_ASSERT(primary_label != delta.label, "Invalid database state!");
+        break;
+      }
+      case Delta::Action::ADD_LABEL: {
+        MG_ASSERT(primary_label != delta.label, "Invalid database state!");
+        break;
+      }
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) {
+    return Error::NONEXISTENT_OBJECT;
+  }
+  if (!for_deleted_ && deleted) {
+    return Error::DELETED_OBJECT;
+  }
+  return primary_label;
 }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -414,7 +461,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_,
+                     schema_validator_);
   }
   return std::move(ret);
 }
@@ -494,7 +542,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_,
+                     schema_validator_);
   }
   return std::move(ret);
 }
@@ -574,5 +623,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
 }
+
+const SchemaValidator &VertexAccessor::GetSchemaValidator() const { return *schema_validator_; }
 
 }  // namespace memgraph::storage

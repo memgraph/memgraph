@@ -12,9 +12,11 @@
 #pragma once
 
 #include <optional>
+#include <variant>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/schemas.hpp"
 
 namespace memgraph::storage {
@@ -61,5 +63,8 @@ class SchemaValidator {
  private:
   storage::Schemas &schemas_;
 };
+
+template <typename TValue>
+using ResultSchema = utils::BasicResult<std::variant<SchemaViolation, Error>, TValue>;
 
 }  // namespace memgraph::storage
