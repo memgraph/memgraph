@@ -16,4 +16,4 @@
 
 namespace memgraph::storage::v3 {
 using VerticesSkipList = utils::SkipList<LexicographicallyOrderedVertex>;
-}
+}  // namespace memgraph::storage::v3
