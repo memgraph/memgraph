@@ -394,8 +394,8 @@ class ScanAllCursor : public Cursor {
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      // We need a getter function, because in case of exhausting a lazy
-      // iterable, we cannot simply reset it by calling begin().
+      // We need a getter function, because in case of exhausting a lazy iterable,
+      //     we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
       if (!next_vertices) continue;
       // Since vertices iterator isn't nothrow_move_assignable, we have to use
@@ -405,17 +405,22 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
+#ifdef MG_ENTERPRISE
     while (vertices_it_.value() != vertices_.value().end()) {
       VertexAccessor vertex = *vertices_it_.value();
       auto vertex_labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
       if (!context.label_checker || context.label_checker->IsUserAuthorized(vertex_labels)) {
-        frame[output_symbol_] = *vertices_it_.value();
-        ++vertices_it_.value();
-        return true;
+        break;
       }
       ++vertices_it_.value();
     }
-    return false;
+    if (vertices_it_.value() == vertices_.value().end()) return false;
+#endif
+
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
