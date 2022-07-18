@@ -23,15 +23,16 @@
 #include "communication/context.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
+#include "io/v3/simulator.hpp"
 #include "utils/logging.hpp"
 
 struct InterpretRequest {
   std::string query;
-  std::map<std::string, memgraph::communication::bolt::Value> params;
+  // std::map<std::string, memgraph::communication::bolt::Value> params;
 };
 
 struct InterpretResponse {
-  std::vector<std::string> header;
+  // std::vector<std::string> header;
   int query_id;  // qid
 };
 
@@ -43,19 +44,25 @@ struct PullRequest {
 struct PullResponse {
   // NOTE: Interpreter is streaming TypedValues into the TypedValueResultStream.
   // std::vector<TypedValueEquivalent> batch_result;
-  std::map<std::string, memgraph::communication::bolt::Value> summary;
+  // std::map<std::string, memgraph::communication::bolt::Value> summary;
 };
 
-struct SessionData {};
+template <typename TTransport>
+struct SessionData {
+  Io<TTransport> io;
+  Address cypher_srv_addr;
+};
 
+template <typename TTransport>
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+  BoltSession(SessionData<TTransport> *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
               memgraph::communication::v2::InputStream *input_stream,
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
+        session_data_(data),
         endpoint_(endpoint) {}
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -70,6 +77,18 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
     std::cout << "INTERPRET QUERY HANDLER: " << query << std::endl;
+    InterpretRequest cli_req;
+    cli_req.query = query;
+    auto res_f = session_data_->io.template RequestWithTimeout<InterpretRequest, InterpretResponse>(
+        session_data_->cypher_srv_addr, cli_req, 1000);
+    auto res_rez = res_f.Wait();
+    if (!res_rez.HasError()) {
+      std::cout << "[CLIENT] Got a valid response" << std::endl;
+      auto env = res_rez.GetValue();
+      std::cout << "Query id: " << env.message.query_id << " interpreted" << std::endl;
+    } else {
+      std::cout << "[CLIENT] Got an error" << std::endl;
+    }
     return {{}, 0};
   }
 
@@ -92,21 +111,65 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
+  SessionData<TTransport> *session_data_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };
 
-using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+template <typename TTransport>
+using ServerT = memgraph::communication::v2::Server<BoltSession<TTransport>, SessionData<TTransport>>;
 using memgraph::communication::ServerContext;
 
-int main() {
+template <typename TTransport>
+void run_bolt_server(Io<TTransport> io, Address srv_addr) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::address::from_string("0.0.0.0"),
                                                                      static_cast<uint16_t>(7687)};
-  SessionData session_data;
+  SessionData<TTransport> session_data{.io = std::move(io), .cypher_srv_addr = srv_addr};
   ServerContext context;
-  ServerT server(server_endpoint, &session_data, &context, 1800, "Bolt", 4);
+  ServerT<TTransport> server(server_endpoint, &session_data, &context, 1800, "Bolt", 4);
 
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   server.AwaitShutdown();
+}
+
+template <typename TTransport>
+void run_cypher_server(Io<TTransport> io) {
+  int highest_query_id = 0;
+  while (!io.ShouldShutDown()) {
+    auto request_result = io.template ReceiveWithTimeout<InterpretRequest>(10000);
+    if (request_result.HasError()) {
+      std::cout << "[SERVER] Is receiving..." << std::endl;
+      continue;
+    }
+
+    auto request_envelope = request_result.GetValue();
+    auto req = std::get<InterpretRequest>(request_envelope.message);
+    std::cout << "Interpreter got the following query: " << req.query;
+    highest_query_id += 1;
+    auto srv_res = InterpretResponse{highest_query_id};
+    request_envelope.Reply(srv_res, io);
+  }
+}
+
+int main() {
+  auto config = SimulatorConfig{
+      .drop_percent = 0,
+      .perform_timeouts = true,
+      .scramble_messages = true,
+      .rng_seed = 0,
+  };
+  auto simulator = Simulator(config);
+
+  auto cli_addr = Address::TestAddress(1);
+  auto srv_addr = Address::TestAddress(2);
+
+  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
+  Io<SimulatorTransport> srv_io = simulator.Register(srv_addr);
+
+  auto cli_thread = std::jthread(run_bolt_server<SimulatorTransport>, std::move(cli_io), srv_addr);
+  simulator.IncrementServerCountAndWaitForQuiescentState(cli_addr);
+
+  auto srv_thread = std::jthread(run_cypher_server<SimulatorTransport>, std::move(srv_io));
+  simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr);
 
   return 0;
 }
