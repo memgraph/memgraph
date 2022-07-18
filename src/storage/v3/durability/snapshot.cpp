@@ -20,6 +20,7 @@
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -157,7 +158,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   return info;
 }
 
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipList *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items) {
@@ -305,7 +306,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       }
       last_vertex_gid = *gid;
       spdlog::debug("Recovering vertex {}.", *gid);
-      auto [it, inserted] = vertex_acc.insert(Vertex{Gid::FromUint(*gid), nullptr});
+      auto [it, inserted] = vertex_acc.insert({Vertex{Gid::FromUint(*gid), nullptr}});
       if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
 
       // Recover labels.
@@ -313,7 +314,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       {
         auto labels_size = snapshot.ReadUint();
         if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
-        auto &labels = it->labels;
+        auto &labels = GetVertex(*it).labels;
         labels.reserve(*labels_size);
         for (uint64_t j = 0; j < *labels_size; ++j) {
           auto label = snapshot.ReadUint();
@@ -329,7 +330,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       {
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
-        auto &props = it->properties;
+        auto &props = GetVertex(*it).properties;
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Invalid snapshot data!");
@@ -378,11 +379,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
       }
 
-      spdlog::trace("Recovering connectivity for vertex {}.", vertex.gid.AsUint());
+      spdlog::trace("Recovering connectivity for vertex {}.", GetVertex(vertex).Gid().AsUint());
       // Check vertex.
       auto gid = snapshot.ReadUint();
       if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (gid != vertex.gid.AsUint()) throw RecoveryFailure("Invalid snapshot data!");
+      if (gid != GetVertex(vertex).Gid().AsUint()) throw RecoveryFailure("Invalid snapshot data!");
 
       // Skip labels.
       {
@@ -408,10 +409,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
       // Recover in edges.
       {
-        spdlog::trace("Recovering inbound edges for vertex {}.", vertex.gid.AsUint());
+        spdlog::trace("Recovering inbound edges for vertex {}.", GetVertex(vertex).Gid().AsUint());
         auto in_size = snapshot.ReadUint();
         if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
-        vertex.in_edges.reserve(*in_size);
+        GetVertex(vertex).in_edges.reserve(*in_size);
         for (uint64_t j = 0; j < *in_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
           if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
@@ -422,7 +423,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           auto edge_type = snapshot.ReadUint();
           if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
 
-          auto from_vertex = vertex_acc.find(Gid::FromUint(*from_gid));
+          auto from_vertex = vertex_acc.find(std::vector{PropertyValue{Gid::FromUint(*from_gid).AsInt()}});
           if (from_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid from vertex!");
 
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
@@ -437,17 +438,19 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
             }
           }
           SPDLOG_TRACE("Recovered inbound edge {} with label \"{}\" from vertex {}.", *edge_gid,
-                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), from_vertex->gid.AsUint());
-          vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
+                       GetVertex(*from_vertex).Gid().AsUint());
+          GetVertex(vertex).in_edges.emplace_back(get_edge_type_from_id(*edge_type), &GetVertex(*from_vertex),
+                                                  edge_ref);
         }
       }
 
       // Recover out edges.
       {
-        spdlog::trace("Recovering outbound edges for vertex {}.", vertex.gid.AsUint());
+        spdlog::trace("Recovering outbound edges for vertex {}.", GetVertex(vertex).Gid().AsUint());
         auto out_size = snapshot.ReadUint();
         if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
-        vertex.out_edges.reserve(*out_size);
+        GetVertex(vertex).out_edges.reserve(*out_size);
         for (uint64_t j = 0; j < *out_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
           if (!edge_gid) throw RecoveryFailure("Invalid snapshot data!");
@@ -458,7 +461,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           auto edge_type = snapshot.ReadUint();
           if (!edge_type) throw RecoveryFailure("Invalid snapshot data!");
 
-          auto to_vertex = vertex_acc.find(Gid::FromUint(*to_gid));
+          auto to_vertex = vertex_acc.find(std::vector{PropertyValue{Gid::FromUint(*to_gid).AsInt()}});
           if (to_vertex == vertex_acc.end()) throw RecoveryFailure("Invalid to vertex!");
 
           EdgeRef edge_ref(Gid::FromUint(*edge_gid));
@@ -473,8 +476,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
             }
           }
           SPDLOG_TRACE("Recovered outbound edge {} with label \"{}\" to vertex {}.", *edge_gid,
-                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), to_vertex->gid.AsUint());
-          vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), GetVertex(*to_vertex).Gid().AsUint());
+          GetVertex(vertex).out_edges.emplace_back(get_edge_type_from_id(*edge_type), &GetVertex(*to_vertex), edge_ref);
         }
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.
@@ -627,7 +630,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
-                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+                    VerticesSkipList *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints, Config::Items items, const std::string &uuid,
                     const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
@@ -742,7 +745,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, View::OLD);
+      auto va = VertexAccessor::Create(&GetVertex(vertex), transaction, indices, constraints, items, View::OLD);
       if (!va) continue;
 
       // Get vertex data.
@@ -760,7 +763,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // Store the vertex.
       {
         snapshot.WriteMarker(Marker::SECTION_VERTEX);
-        snapshot.WriteUint(vertex.gid.AsUint());
+        snapshot.WriteUint(GetVertex(vertex).Gid().AsUint());
         const auto &labels = maybe_labels.GetValue();
         snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {

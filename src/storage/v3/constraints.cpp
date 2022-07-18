@@ -279,7 +279,7 @@ void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transacti
 }
 
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> UniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) {
+    LabelId label, const std::set<PropertyId> &properties, VerticesSkipList::Accessor vertices) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -300,11 +300,11 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
   {
     auto acc = constraint->second.access();
 
-    for (const Vertex &vertex : vertices) {
-      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
+    for (const auto &vertex : vertices) {
+      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
         continue;
       }
-      auto values = ExtractPropertyValues(vertex, properties);
+      auto values = ExtractPropertyValues(GetVertex(vertex), properties);
       if (!values) {
         continue;
       }
@@ -317,7 +317,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
         break;
       }
 
-      acc.insert(Entry{std::move(*values), &vertex, 0});
+      acc.insert(Entry{std::move(*values), &GetVertex(vertex), 0});
     }
   }
 

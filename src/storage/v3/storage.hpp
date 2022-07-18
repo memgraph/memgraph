@@ -27,12 +27,14 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
@@ -60,7 +62,7 @@ namespace memgraph::storage::v3 {
 /// An instance of this will be usually be wrapped inside VerticesIterable for
 /// generic, public use.
 class AllVerticesIterable final {
-  utils::SkipList<Vertex>::Accessor vertices_accessor_;
+  VerticesSkipList::Accessor vertices_accessor_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -71,10 +73,10 @@ class AllVerticesIterable final {
  public:
   class Iterator final {
     AllVerticesIterable *self_;
-    utils::SkipList<Vertex>::Iterator it_;
+    VerticesSkipList::Iterator it_;
 
    public:
-    Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+    Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it);
 
     VertexAccessor operator*() const;
 
@@ -85,7 +87,7 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
+  AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
                       Indices *indices, Constraints *constraints, Config::Items config)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
@@ -482,7 +484,7 @@ class Storage final {
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
-  utils::SkipList<Vertex> vertices_;
+  VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};

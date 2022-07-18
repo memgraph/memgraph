@@ -113,7 +113,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // to ensure that the indices and constraints are consistent at the end of the
 // recovery process.
 void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_constraints, Indices *indices,
-                                  Constraints *constraints, utils::SkipList<Vertex> *vertices) {
+                                  Constraints *constraints, VerticesSkipList *vertices) {
   spdlog::info("Recreating indices from metadata.");
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_constraints.indices.label.size());
@@ -157,14 +157,11 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Constraints are recreated from metadata.");
 }
 
-std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
-                                        const std::filesystem::path &wal_directory, std::string *uuid,
-                                        std::string *epoch_id,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                        std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                        Indices *indices, Constraints *constraints, Config::Items items,
-                                        uint64_t *wal_seq_num) {
+std::optional<RecoveryInfo> RecoverData(
+    const std::filesystem::path &snapshot_directory, const std::filesystem::path &wal_directory, std::string *uuid,
+    std::string *epoch_id, std::deque<std::pair<std::string, uint64_t>> *epoch_history, VerticesSkipList *vertices,
+    utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper, Indices *indices,
+    Constraints *constraints, Config::Items items, uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);

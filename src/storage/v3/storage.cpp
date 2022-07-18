@@ -29,6 +29,7 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/mvcc.hpp"
+#include "storage/v3/property_value.hpp"
 #include "storage/v3/replication/config.hpp"
 #include "storage/v3/replication/replication_client.hpp"
 #include "storage/v3/replication/replication_server.hpp"
@@ -52,11 +53,11 @@ namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 }  // namespace
 
-auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
+auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&*it, tx, indices, constraints, config, view);
+    *vertex = VertexAccessor::Create(&GetVertex(*it), tx, indices, constraints, config, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -66,7 +67,7 @@ auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipLis
   return it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it)
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
                                  self->indices_, self_->constraints_, self->config_)) {}
@@ -342,9 +343,11 @@ Storage::Storage(Config config)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_,
-                                        &vertices_, &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_,
-                                        config_.items, &wal_seq_num_);
+    auto info = std::optional<durability::RecoveryInfo>{};
+
+    durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
+                            &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
+                            &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -467,11 +470,12 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{Gid::FromUint(gid), delta});
+  // TODO(antaljanosbenjamin): handle keys and schema
+  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  delta->prev.Set(&GetVertex(*it));
+  return {&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
@@ -486,18 +490,20 @@ VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
                              std::memory_order_release);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
+  auto [it, inserted] = acc.insert({Vertex{gid, delta}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  delta->prev.Set(&GetVertex(*it));
+  return {&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
-  auto it = acc.find(gid);
+  auto it = acc.find(std::vector{PropertyValue{gid.AsInt()}});
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
+  return VertexAccessor::Create(&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                view);
+  return {};
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -609,10 +615,10 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
   std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
+  if (from_vertex < to_vertex) {
     guard_from.lock();
     guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
+  } else if (from_vertex > to_vertex) {
     guard_to.lock();
     guard_from.lock();
   } else {
@@ -669,10 +675,10 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
   std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
+  if (&from_vertex < &to_vertex) {
     guard_from.lock();
     guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
+  } else if (&from_vertex > &to_vertex) {
     guard_to.lock();
     guard_from.lock();
   } else {
@@ -744,10 +750,10 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   // Obtain the locks by `gid` order to avoid lock cycles.
   std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
   std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex->gid < to_vertex->gid) {
+  if (&from_vertex < &to_vertex) {
     guard_from.lock();
     guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
+  } else if (&from_vertex > &to_vertex) {
     guard_to.lock();
     guard_from.lock();
   } else {
@@ -1021,7 +1027,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              my_deleted_vertices.push_back(vertex->gid);
+              my_deleted_vertices.push_back(vertex->Gid());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1412,7 +1418,7 @@ void Storage::CollectGarbage() {
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              current_deleted_vertices.push_back(vertex->gid);
+              current_deleted_vertices.push_back(vertex->Gid());
             }
             break;
           }
@@ -1530,13 +1536,17 @@ void Storage::CollectGarbage() {
     if constexpr (force) {
       // if force is set to true, then we have unique_lock and no transactions are active
       // so we can clean all of the deleted vertices
+      std::vector<PropertyValue> key(1);
       while (!garbage_vertices_.empty()) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
+        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
         garbage_vertices_.pop_front();
       }
     } else {
+      std::vector<PropertyValue> key(1);
       while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
+        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
         garbage_vertices_.pop_front();
       }
     }

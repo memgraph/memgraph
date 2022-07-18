@@ -94,7 +94,10 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const noexcept { return vertex_->gid; }
+  Gid Gid() const noexcept {
+    // TODO(antaljanosbenjamin): remove this whole function.
+    return vertex_->Gid();
+  }
 
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <compare>
+
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
 
@@ -30,6 +32,28 @@ class KeyStore {
   PropertyValue GetKey(size_t index) const;
 
   std::vector<PropertyValue> Keys() const;
+
+  friend bool operator<(const KeyStore &lhs, const KeyStore &rhs) {
+    // TODO(antaljanosbenjamin): also compare the schema
+    return std::ranges::lexicographical_compare(
+        lhs.Keys(), rhs.Keys(),
+        [](const PropertyValue &lhs_value, const PropertyValue &rhs_value) { return lhs_value < rhs_value; });
+  }
+
+  friend bool operator==(const KeyStore &lhs, const KeyStore &rhs) {
+    return std::ranges::equal(lhs.Keys(), rhs.Keys());
+  }
+
+  friend bool operator<(const KeyStore &lhs, const std::vector<PropertyValue> &rhs) {
+    // TODO(antaljanosbenjamin): also compare the schema
+    return std::ranges::lexicographical_compare(
+        lhs.Keys(), rhs,
+        [](const PropertyValue &lhs_value, const PropertyValue &rhs_value) { return lhs_value < rhs_value; });
+  }
+
+  friend bool operator==(const KeyStore &lhs, const std::vector<PropertyValue> &rhs) {
+    return std::ranges::equal(lhs.Keys(), rhs);
+  }
 
  private:
   PropertyStore store_;
