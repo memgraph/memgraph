@@ -2818,5 +2818,5 @@ void mgp_log(const mgp_log_level log_level, const char *output) {
       spdlog::critical(output);
       return;
   }
-  throw "Unexpected enum value";
+  throw std::invalid_argument{fmt::format("Invalid log level: {}", log_level)};
 }

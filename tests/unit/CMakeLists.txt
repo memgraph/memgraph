@@ -151,6 +151,10 @@ target_include_directories(${test_prefix}query_procedure_py_module PRIVATE ${CMA
 add_unit_test(query_procedures_mgp_graph.cpp)
 target_link_libraries(${test_prefix}query_procedures_mgp_graph mg-query storage_test_utils)
 target_include_directories(${test_prefix}query_procedures_mgp_graph PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_unit_test(mgp_log.cpp)
+target_link_libraries(${test_prefix}mgp_log mg-query)
+#target_include_directories(${test_prefix}mgp_log PRIVATE ${CMAKE_SOURCE_DIR}/include)
 # END query/procedure
 
 add_unit_test(query_profile.cpp)
