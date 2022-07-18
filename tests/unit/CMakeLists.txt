@@ -296,8 +296,8 @@ target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
 add_unit_test(property_value_v2.cpp)
 target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
-add_unit_test(storage_v2.cpp)
-target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+# add_unit_test(storage_v2.cpp)
+# target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
@@ -305,17 +305,17 @@ target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
 add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
+# add_unit_test(storage_v2_durability.cpp)
+# target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
 
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
+# add_unit_test(storage_v2_edge.cpp)
+# target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
 
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
 
-add_unit_test(storage_v2_indices.cpp)
-target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
+# add_unit_test(storage_v2_indices.cpp)
+# target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
@@ -323,14 +323,19 @@ target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
 add_unit_test(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
-add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
+# add_unit_test(storage_v2_wal_file.cpp)
+# target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
 
-add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+# add_unit_test(storage_v2_replication.cpp)
+# target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
+
+# Test mg-storage-v3
+
+# add_unit_test(storage_v3_schema.cpp)
+# target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
 
 # Test mg-auth
 

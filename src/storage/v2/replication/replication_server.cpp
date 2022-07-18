@@ -450,7 +450,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
                                &transaction->transaction_,
                                &storage_->indices_,
                                &storage_->constraints_,
-                               storage_->config_.items};
+                               storage_->config_.items,
+                               nullptr};
 
         auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                   delta.vertex_edge_set_property.value);

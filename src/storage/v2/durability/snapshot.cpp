@@ -713,8 +713,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea =
-          EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items};
+      auto ea = EdgeAccessor{
+          edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items, nullptr};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -742,7 +742,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, View::OLD);
+      auto va = VertexAccessor::Create(&vertex, transaction, indices, constraints, items, nullptr, View::OLD);
       if (!va) continue;
 
       // Get vertex data.
