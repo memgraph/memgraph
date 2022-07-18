@@ -265,3 +265,46 @@ TEST_F(SchemaValidatorTest, TestSchemaValidateVertexCreate) {
                                              {prop3, PropertyValue(TemporalData(TemporalType::Duration, 12344321))}}),
       std::nullopt);
 }
+
+TEST_F(SchemaValidatorTest, TestSchemaValidateVertexUpdate) {
+  // Validate against secondary label
+  {
+    const auto schema_violation = schema_validator.ValidateVertexUpdate(storage.NameToLabel("test"), prop1);
+    EXPECT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL,
+                                                 storage.NameToLabel("test")));
+  }
+  // Validate updating of primary key
+  {
+    const auto schema_violation = schema_validator.ValidateVertexUpdate(label1, prop1);
+    EXPECT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation,
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, label1, schema_prop1));
+  }
+  {
+    const auto schema_violation = schema_validator.ValidateVertexUpdate(label2, prop3);
+    EXPECT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation,
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, label2, schema_prop3));
+  }
+  EXPECT_EQ(schema_validator.ValidateVertexUpdate(label1, prop2), std::nullopt);
+  EXPECT_EQ(schema_validator.ValidateVertexUpdate(label1, prop3), std::nullopt);
+  EXPECT_EQ(schema_validator.ValidateVertexUpdate(label2, storage.NameToProperty("test")), std::nullopt);
+}
+
+TEST_F(SchemaValidatorTest, TestSchemaValidateVertexUpdateLabel) {
+  // Validate adding primary label
+  {
+    const auto schema_violation = schema_validator.ValidateLabelUpdate(label1);
+    EXPECT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation,
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, label1));
+  }
+  {
+    const auto schema_violation = schema_validator.ValidateLabelUpdate(label2);
+    EXPECT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation,
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, label2));
+  }
+  EXPECT_EQ(schema_validator.ValidateLabelUpdate(storage.NameToLabel("test")), std::nullopt);
+}
