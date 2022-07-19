@@ -72,6 +72,7 @@ class AllVerticesIterable final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  SchemaValidator *schema_validator_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -92,13 +93,15 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
+                      Indices *indices, Constraints *constraints, Config::Items config,
+                      SchemaValidator *schema_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
-        config_(config) {}
+        config_(config),
+        schema_validator_(schema_validator) {}
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
   Iterator end() { return Iterator(this, vertices_accessor_.end()); }
@@ -231,8 +234,8 @@ class Storage final {
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_.items,
+                                                  &storage_->schema_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -348,7 +351,6 @@ class Storage final {
     Storage *storage_;
     std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
-    SchemaValidator schema_validator_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     Config::Items config_;
@@ -526,6 +528,7 @@ class Storage final {
   Constraints constraints_;
   Indices indices_;
   Schemas schemas_;
+  SchemaValidator schema_validator_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;
