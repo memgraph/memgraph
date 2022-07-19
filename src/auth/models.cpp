@@ -190,11 +190,11 @@ LabelPermissions::LabelPermissions(const std::unordered_set<std::string> &grants
     : grants_(grants), denies_(denies) {}
 
 PermissionLevel LabelPermissions::Has(const std::string &permission) const {
-  if (denies_.find(permission) != denies_.end()) {
+  if ((denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) || denies_.find(permission) != denies_.end()) {
     return PermissionLevel::DENY;
   }
 
-  if (grants_.find(permission) != denies_.end()) {
+  if ((grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) || grants_.find(permission) != denies_.end()) {
     return PermissionLevel::GRANT;
   }
 
