@@ -506,8 +506,6 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
   if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_ptr->deleted) {
@@ -536,8 +534,6 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
     if (vertex_ptr->deleted) return std::optional<ReturnType>{};
@@ -576,8 +572,6 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
     }
   }
 
-  std::lock_guard<utils::SpinLock> guard(vertex_ptr->lock);
-
   // We need to check again for serialization errors because we unlocked the
   // vertex. Some other transaction could have modified the vertex in the
   // meantime if we didn't have any edges to delete.
@@ -605,20 +599,6 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (from_vertex < to_vertex) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex > to_vertex) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -665,20 +645,6 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
 
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (&from_vertex < &to_vertex) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (&from_vertex > &to_vertex) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -740,20 +706,6 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 
   auto *from_vertex = edge->from_vertex_;
   auto *to_vertex = edge->to_vertex_;
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  std::unique_lock<utils::SpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::SpinLock> guard_to(to_vertex->lock, std::defer_lock);
-  if (&from_vertex < &to_vertex) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (&from_vertex > &to_vertex) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
@@ -953,7 +905,6 @@ void Storage::Accessor::Abort() {
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
-        std::lock_guard<utils::SpinLock> guard(vertex->lock);
         Delta *current = vertex->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -1294,6 +1245,8 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
   return {transaction_id, start_timestamp, isolation_level};
 }
 
+// `force` means there are no active transactions, so everything can be deleted without worrying about removing some
+// data that is used by an active transaction
 template <bool force>
 void Storage::CollectGarbage() {
   if constexpr (force) {
@@ -1400,7 +1353,6 @@ void Storage::CollectGarbage() {
         switch (prev.type) {
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
-            std::lock_guard<utils::SpinLock> vertex_guard(vertex->lock);
             if (vertex->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.
@@ -1433,7 +1385,6 @@ void Storage::CollectGarbage() {
               // part of the suffix later.
               break;
             }
-            std::unique_lock<utils::SpinLock> guard;
             {
               // We need to find the parent object in order to be able to use
               // its lock.
@@ -1443,20 +1394,12 @@ void Storage::CollectGarbage() {
               }
               switch (parent.type) {
                 case PreviousPtr::Type::VERTEX:
-                  guard = std::unique_lock<utils::SpinLock>(parent.vertex->lock);
-                  break;
                 case PreviousPtr::Type::EDGE:
-                  guard = std::unique_lock<utils::SpinLock>(parent.edge->lock);
                   break;
                 case PreviousPtr::Type::DELTA:
                 case PreviousPtr::Type::NULLPTR:
                   LOG_FATAL("Invalid database state!");
               }
-            }
-            if (delta.prev.Get() != prev) {
-              // Something changed, we could now be the first delta in the
-              // chain.
-              continue;
             }
             Delta *prev_delta = prev.delta;
             prev_delta->next.store(nullptr, std::memory_order_release);

@@ -56,7 +56,6 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   bool deleted{false};
   bool has_label{false};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     delta = vertex.delta;
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
@@ -141,7 +140,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   bool deleted{false};
   Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
