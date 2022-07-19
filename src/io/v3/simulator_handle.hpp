@@ -275,7 +275,8 @@ class SimulatorHandle {
       return false;
     }
 
-    // clock ticks forwards by this many microseconds on average
+    // We tick the clock forward when all servers are blocked but
+    // there are no in-flight messages to schedule delivery of.
     std::poisson_distribution<> time_distrib(100);
     uint64_t clock_advance = time_distrib(rng_);
     cluster_wide_time_microseconds_ += clock_advance;
