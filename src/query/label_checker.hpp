@@ -18,6 +18,7 @@
 namespace memgraph::query {
 class LabelChecker {
  public:
-  virtual bool IsUserAuthorized(const std::vector<memgraph::storage::LabelId> &label) const = 0;
+  virtual bool IsUserAuthorized(const std::vector<memgraph::storage::LabelId> &label,
+                                memgraph::query::DbAccessor *dba) const = 0;
 };
 }  // namespace memgraph::query
