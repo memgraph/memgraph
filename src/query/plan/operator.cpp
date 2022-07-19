@@ -32,6 +32,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
+#include "query/label_checker.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -406,14 +407,7 @@ class ScanAllCursor : public Cursor {
     }
 
 #ifdef MG_ENTERPRISE
-    while (vertices_it_.value() != vertices_.value().end()) {
-      VertexAccessor vertex = *vertices_it_.value();
-      auto vertex_labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
-      if (!context.label_checker || context.label_checker->IsUserAuthorized(vertex_labels)) {
-        break;
-      }
-      ++vertices_it_.value();
-    }
+    FilterNodes(context.label_checker, context.db_accessor);
     if (vertices_it_.value() == vertices_.value().end()) return false;
 #endif
 
@@ -421,6 +415,18 @@ class ScanAllCursor : public Cursor {
     ++vertices_it_.value();
 
     return true;
+  }
+
+  void FilterNodes(const LabelChecker *label_checker, DbAccessor *dba) {
+    if (!label_checker) return;
+    while (vertices_it_.value() != vertices_.value().end()) {
+      VertexAccessor vertex = *vertices_it_.value();
+      auto vertex_labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
+      if (label_checker->IsUserAuthorized(vertex_labels, dba)) {
+        break;
+      }
+      ++vertices_it_.value();
+    }
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }

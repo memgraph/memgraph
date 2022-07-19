@@ -261,11 +261,11 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 class LabelChecker final : public memgraph::query::LabelChecker {
  public:
-  explicit LabelChecker(memgraph::auth::User *user, memgraph::query::DbAccessor *dba) : user_{user}, dba_(dba) {}
+  explicit LabelChecker(memgraph::auth::User *user) : user_{user} {}
 
-  bool IsUserAuthorized(const std::vector<memgraph::storage::LabelId> &labels) const final {
+  bool IsUserAuthorized(const std::vector<memgraph::storage::LabelId> &labels,
+                        memgraph::query::DbAccessor *dba) const final {
     const auto user_label_permissions = user_->GetLabelPermissions();
-    auto *dba = dba_;
 
     if (user_label_permissions.Has("*") == memgraph::auth::PermissionLevel::GRANT) return true;
 
@@ -276,7 +276,6 @@ class LabelChecker final : public memgraph::query::LabelChecker {
 
  private:
   memgraph::auth::User *user_;
-  memgraph::query::DbAccessor *dba_;
 };
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
@@ -962,7 +961,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-    ctx_.label_checker = new LabelChecker{user, dba};
+    ctx_.label_checker = new LabelChecker{user};
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
