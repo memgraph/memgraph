@@ -57,8 +57,6 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MODULE_WRITE;
     case query::AuthQuery::Privilege::WEBSOCKET:
       return auth::Permission::WEBSOCKET;
-    case query::AuthQuery::Privilege::SHOW_CONFIG:
-      return auth::Permission::SHOW_CONFIG;
   }
 }
 }  // namespace memgraph::glue

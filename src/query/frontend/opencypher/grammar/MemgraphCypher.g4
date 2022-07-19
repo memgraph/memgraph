@@ -256,7 +256,6 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | SHOW_CONFIG
           ;
 
 privilegeList : privilege ( ',' privilege )* ;

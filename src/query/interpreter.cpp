@@ -800,15 +800,13 @@ Callback HandleConfigQuery() {
     std::vector<GFLAGS_NAMESPACE::CommandLineFlagInfo> flags;
     GetAllFlags(&flags);
 
-    const auto flag_count = flags.size();
-
     std::vector<std::vector<TypedValue>> results;
 
-    for (auto i = 0; i < flag_count; ++i) {
+    for (const auto &flag : flags) {
       std::vector<TypedValue> current_fields;
-      current_fields.emplace_back(flags[i].name);
-      current_fields.emplace_back(flags[i].default_value);
-      current_fields.emplace_back(flags[i].current_value);
+      current_fields.emplace_back(flag.name);
+      current_fields.emplace_back(flag.default_value);
+      current_fields.emplace_back(flag.current_value);
 
       results.emplace_back(std::move(current_fields));
     }

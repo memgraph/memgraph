@@ -38,8 +38,7 @@ enum class Permission : uint64_t {
   STREAM       = 1U << 17U,
   MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
-  WEBSOCKET    = 1U << 20U,
-  SHOW_CONFIG  = 1U << 21U
+  WEBSOCKET    = 1U << 20U
 };
 // clang-format on
 
