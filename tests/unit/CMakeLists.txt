@@ -370,3 +370,6 @@ target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
 
 add_unit_test(storage_v3_schema.cpp)
 target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
+
+add_unit_test(interpreter_v3.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}interpreter_v3 mg-storage-v2 mg-query mg-communication)

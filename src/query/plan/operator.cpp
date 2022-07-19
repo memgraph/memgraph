@@ -236,6 +236,8 @@ VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, F
       properties.emplace_back(property_id, value);
     }
   }
+  // TODO Remove later on since that will be enforced from grammar side
+  MG_ASSERT(!node_info.labels.empty(), "There must be at least one label!");
   const auto primary_label = node_info.labels[0];
   std::vector<storage::LabelId> secondary_labels(node_info.labels.begin() + 1, node_info.labels.end());
   auto maybe_new_node = dba.InsertVertexAndValidate(primary_label, secondary_labels, properties);
@@ -2370,6 +2372,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
                  maybe_value.GetError());
     }
 
+    context.execution_stats[ExecutionStats::Key::CREATED_LABELS]++;
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
