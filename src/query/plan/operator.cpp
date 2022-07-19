@@ -40,6 +40,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_validator.hpp"
+#include "storage/v2/schemas.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -172,7 +173,39 @@ void Once::OnceCursor::Shutdown() {}
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-void HandleSchemaViolation(storage::SchemaViolation schema_violation) { throw utils::BasicException("Schema broken"); }
+void HandleSchemaViolation(const storage::SchemaViolation &schema_violation, auto dba) {
+  switch (schema_violation.status) {
+    case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
+      throw SchemaViolationException(
+          fmt::format("Primary key {} not defined on label :{}",
+                      storage::SchemaTypeToString(schema_violation.violated_schema_property->type),
+                      dba.LabelToName(schema_violation.label)));
+    }
+    case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+      throw SchemaViolationException(
+          fmt::format("Label :{} is not a primary label", dba.LabelToName(schema_violation.label)));
+    }
+    case storage::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
+      throw SchemaViolationException(
+          fmt::format("Wrong type of property {} in schema :{}, should be of type {}",
+                      *schema_violation.violated_property_value, dba.LabelToName(schema_violation.label),
+                      storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+    }
+    case storage::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
+      throw SchemaViolationException(fmt::format("Updating of primary key {} on schema :{} not supported",
+                                                 *schema_violation.violated_property_value,
+                                                 dba.LabelToName(schema_violation.label)));
+    }
+    case storage::SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL: {
+      throw SchemaViolationException(fmt::format("Cannot add or remove label :{} since it is a primary label",
+                                                 dba.LabelToName(schema_violation.label)));
+    }
+    case storage::SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY: {
+      throw SchemaViolationException(
+          fmt::format("Cannot create vertex with secondary label :{}", dba.LabelToName(schema_violation.label)));
+    }
+  }
+}
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const NodeCreationInfo &node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(node_info) {}
@@ -204,20 +237,21 @@ VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, F
   }
   auto maybe_new_node = dba.InsertVertexAndValidate(node_info.labels[0], node_info.labels, properties);
   if (maybe_new_node.HasError()) {
-    std::visit(utils::Overloaded{
-                   [](const storage::SchemaViolation &schema_violation) { HandleSchemaViolation(schema_violation); },
-                   [](const storage::Error error) {
-                     switch (error) {
-                       case storage::Error::SERIALIZATION_ERROR:
-                         throw TransactionSerializationException();
-                       case storage::Error::DELETED_OBJECT:
-                         throw QueryRuntimeException("Trying to set a label on a deleted node.");
-                       case storage::Error::VERTEX_HAS_EDGES:
-                       case storage::Error::PROPERTIES_DISABLED:
-                       case storage::Error::NONEXISTENT_OBJECT:
-                         throw QueryRuntimeException("Unexpected error when setting a label.");
-                     }
-                   }},
+    std::visit(utils::Overloaded{[&dba](const storage::SchemaViolation &schema_violation) {
+                                   HandleSchemaViolation(schema_violation, dba);
+                                 },
+                                 [](const storage::Error error) {
+                                   switch (error) {
+                                     case storage::Error::SERIALIZATION_ERROR:
+                                       throw TransactionSerializationException();
+                                     case storage::Error::DELETED_OBJECT:
+                                       throw QueryRuntimeException("Trying to set a label on a deleted node.");
+                                     case storage::Error::VERTEX_HAS_EDGES:
+                                     case storage::Error::PROPERTIES_DISABLED:
+                                     case storage::Error::NONEXISTENT_OBJECT:
+                                       throw QueryRuntimeException("Unexpected error when setting a label.");
+                                   }
+                                 }},
                maybe_new_node.GetError());
   }
 
@@ -2315,20 +2349,21 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
     auto maybe_value = vertex.AddLabelAndValidate(label);
     if (maybe_value.HasError()) {
-      std::visit(utils::Overloaded{
-                     [](const storage::Error error) {
-                       switch (error) {
-                         case storage::Error::SERIALIZATION_ERROR:
-                           throw TransactionSerializationException();
-                         case storage::Error::DELETED_OBJECT:
-                           throw QueryRuntimeException("Trying to set a label on a deleted node.");
-                         case storage::Error::VERTEX_HAS_EDGES:
-                         case storage::Error::PROPERTIES_DISABLED:
-                         case storage::Error::NONEXISTENT_OBJECT:
-                           throw QueryRuntimeException("Unexpected error when setting a label.");
-                       }
-                     },
-                     [](const storage::SchemaViolation schema_violation) { HandleSchemaViolation(schema_violation); }},
+      std::visit(utils::Overloaded{[](const storage::Error error) {
+                                     switch (error) {
+                                       case storage::Error::SERIALIZATION_ERROR:
+                                         throw TransactionSerializationException();
+                                       case storage::Error::DELETED_OBJECT:
+                                         throw QueryRuntimeException("Trying to set a label on a deleted node.");
+                                       case storage::Error::VERTEX_HAS_EDGES:
+                                       case storage::Error::PROPERTIES_DISABLED:
+                                       case storage::Error::NONEXISTENT_OBJECT:
+                                         throw QueryRuntimeException("Unexpected error when setting a label.");
+                                     }
+                                   },
+                                   [&dba](const storage::SchemaViolation schema_violation) {
+                                     HandleSchemaViolation(schema_violation, dba);
+                                   }},
                  maybe_value.GetError());
     }
 
@@ -2434,21 +2469,24 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   for (auto label : self_.labels_) {
     auto maybe_value = vertex.RemoveLabelAndValidate(label);
     if (maybe_value.HasError()) {
-      std::visit(utils::Overloaded{
-                     [](const storage::Error error) {
-                       switch (error) {
-                         case storage::Error::SERIALIZATION_ERROR:
-                           throw TransactionSerializationException();
-                         case storage::Error::DELETED_OBJECT:
-                           throw QueryRuntimeException("Trying to remove labels from a deleted node.");
-                         case storage::Error::VERTEX_HAS_EDGES:
-                         case storage::Error::PROPERTIES_DISABLED:
-                         case storage::Error::NONEXISTENT_OBJECT:
-                           throw QueryRuntimeException("Unexpected error when removing labels from a node.");
-                       }
-                     },
-                     [](const storage::SchemaViolation &schema_violation) { HandleSchemaViolation(schema_violation); }},
-                 maybe_value.GetError());
+      std::visit(
+          utils::Overloaded{[](const storage::Error error) {
+                              switch (error) {
+                                case storage::Error::SERIALIZATION_ERROR:
+                                  throw TransactionSerializationException();
+                                case storage::Error::DELETED_OBJECT:
+                                  throw QueryRuntimeException("Trying to remove labels from a deleted node.");
+                                case storage::Error::VERTEX_HAS_EDGES:
+                                case storage::Error::PROPERTIES_DISABLED:
+                                case storage::Error::NONEXISTENT_OBJECT:
+                                  throw QueryRuntimeException("Unexpected error when removing labels from a node.");
+                              }
+                            },
+                            [&context](const storage::SchemaViolation &schema_violation) {
+                              auto &dba = *context.db_accessor;
+                              HandleSchemaViolation(schema_violation, dba);
+                            }},
+          maybe_value.GetError());
     }
 
     context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
