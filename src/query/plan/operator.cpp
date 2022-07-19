@@ -37,6 +37,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_validator.hpp"
@@ -235,7 +236,9 @@ VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, F
       properties.emplace_back(property_id, value);
     }
   }
-  auto maybe_new_node = dba.InsertVertexAndValidate(node_info.labels[0], node_info.labels, properties);
+  const auto primary_label = node_info.labels[0];
+  std::vector<storage::LabelId> secondary_labels(node_info.labels.begin() + 1, node_info.labels.end());
+  auto maybe_new_node = dba.InsertVertexAndValidate(primary_label, secondary_labels, properties);
   if (maybe_new_node.HasError()) {
     std::visit(utils::Overloaded{[&dba](const storage::SchemaViolation &schema_violation) {
                                    HandleSchemaViolation(schema_violation, dba);
