@@ -625,6 +625,6 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-const SchemaValidator &VertexAccessor::GetSchemaValidator() const { return *schema_validator_; }
+const SchemaValidator *VertexAccessor::GetSchemaValidator() const { return schema_validator_; }
 
 }  // namespace memgraph::storage

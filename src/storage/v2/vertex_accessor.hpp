@@ -102,7 +102,7 @@ class VertexAccessor final {
 
   Gid Gid() const noexcept { return vertex_->gid; }
 
-  const SchemaValidator &GetSchemaValidator() const;
+  const SchemaValidator *GetSchemaValidator() const;
 
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;

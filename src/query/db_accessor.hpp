@@ -110,7 +110,7 @@ class VertexAccessor final {
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
 
   storage::ResultSchema<bool> AddLabelAndValidate(storage::LabelId label) {
-    if (const auto maybe_violation_error = impl_.GetSchemaValidator().ValidateLabelUpdate(label);
+    if (const auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateLabelUpdate(label);
         maybe_violation_error) {
       return {*maybe_violation_error};
     }
@@ -124,7 +124,7 @@ class VertexAccessor final {
   storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
 
   storage::ResultSchema<bool> RemoveLabelAndValidate(storage::LabelId label) {
-    if (const auto maybe_violation_error = impl_.GetSchemaValidator().ValidateLabelUpdate(label);
+    if (const auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateLabelUpdate(label);
         maybe_violation_error) {
       return {*maybe_violation_error};
     }
@@ -153,7 +153,7 @@ class VertexAccessor final {
                                                                        const storage::PropertyValue &value) {
     auto primary_label = impl_.PrimaryLabel(storage::View::OLD);
     MG_ASSERT(primary_label.HasValue(), "Primary label not found");
-    if (auto maybe_violation_error = impl_.GetSchemaValidator().ValidateVertexUpdate(primary_label.GetValue(), key);
+    if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label.GetValue(), key);
         maybe_violation_error) {
       return {*maybe_violation_error};
     }
@@ -299,7 +299,8 @@ class DbAccessor final {
   utils::BasicResult<std::variant<storage::SchemaViolation, storage::Error>, VertexAccessor> InsertVertexAndValidate(
       const storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
       std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
-    auto validator = GetSchemaValidator();
+    // auto validator = GetSchemaValidator();
+    auto validator = accessor_->GetSchemaValidator();
     auto maybe_schema_violation = validator.ValidateVertexCreate(primary_label, labels, properties);
     if (maybe_schema_violation) {
       return {std::move(*maybe_schema_violation)};

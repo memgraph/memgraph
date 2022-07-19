@@ -19,6 +19,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::storage {
@@ -64,5 +65,9 @@ inline bool operator==(const Vertex &first, const Vertex &second) { return first
 inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
 inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
 inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
+
+inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) {
+  return vertex.primary_label == label || utils::Contains(vertex.labels, label);
+}
 
 }  // namespace memgraph::storage
