@@ -533,9 +533,6 @@ class Storage final {
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
 
-  utils::Scheduler snapshot_runner_;
-  utils::SpinLock snapshot_lock_;
-
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;
   // Sequence number used to keep track of the chain of WALs.
