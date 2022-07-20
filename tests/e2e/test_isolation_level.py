@@ -98,9 +98,7 @@ def select(cursor, key, expected):
 def select_all(cursor, expected):
     cursor.execute("MATCH (kv: Kv {}) RETURN kv")
     actual = [ r[0].properties['value'] for r in cursor.fetchall() ]
-    if actual != expected:
-        print("expected values", expected, "but instead it had values", actual)
-        assert(False)
+    assert actual == expected, "expected values {expected}, but instead it had values {actual}"
 
 
 """
