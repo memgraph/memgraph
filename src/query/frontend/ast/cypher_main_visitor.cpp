@@ -322,7 +322,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
   if (ctx->csvFile()->literal()->StringLiteral()) {
-    load_csv->file_ = std::any_cast<memgraph::query::Expression *>(ctx->csvFile()->accept(this));
+    load_csv->file_ = std::any_cast<Expression *>(ctx->csvFile()->accept(this));
   } else {
     throw SemanticException("CSV file path should be a string literal");
   }
@@ -339,7 +339,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle delimiter
   if (ctx->DELIMITER()) {
     if (ctx->delimiter()->literal()->StringLiteral()) {
-      load_csv->delimiter_ = std::any_cast<memgraph::query::Expression *>(ctx->delimiter()->accept(this));
+      load_csv->delimiter_ = std::any_cast<Expression *>(ctx->delimiter()->accept(this));
     } else {
       throw SemanticException("Delimiter should be a string literal");
     }
@@ -348,7 +348,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle quote
   if (ctx->QUOTE()) {
     if (ctx->quote()->literal()->StringLiteral()) {
-      load_csv->quote_ = std::any_cast<memgraph::query::Expression *>(ctx->quote()->accept(this));
+      load_csv->quote_ = std::any_cast<Expression *>(ctx->quote()->accept(this));
     } else {
       throw SemanticException("Quote should be a string literal");
     }
@@ -1448,7 +1448,7 @@ antlrcpp::Any CypherMainVisitor::visitSortItem(MemgraphCypher::SortItemContext *
 antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternContext *ctx) {
   auto *node = storage_->Create<NodeAtom>();
   if (ctx->variable()) {
-    std::string variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     node->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -1488,8 +1488,8 @@ antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesConte
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) {
   std::unordered_map<PropertyIx, Expression *> map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
-    PropertyIx key = std::any_cast<PropertyIx>(ctx->propertyKeyName()[i]->accept(this));
-    Expression *value = std::any_cast<Expression *>(ctx->expression()[i]->accept(this));
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()[i]->accept(this));
+    auto value = std::any_cast<Expression *>(ctx->expression()[i]->accept(this));
     if (!map.insert({key, value}).second) {
       throw SemanticException("Same key can't appear twice in a map literal.");
     }
@@ -1549,9 +1549,9 @@ antlrcpp::Any CypherMainVisitor::visitPattern(MemgraphCypher::PatternContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternPart(MemgraphCypher::PatternPartContext *ctx) {
-  Pattern *pattern = std::any_cast<Pattern *>(ctx->anonymousPatternPart()->accept(this));
+  auto pattern = std::any_cast<Pattern *>(ctx->anonymousPatternPart()->accept(this));
   if (ctx->variable()) {
-    std::string variable = std::any_cast<std::string>(ctx->variable()->accept(this));
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     pattern->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -1605,7 +1605,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   }
 
   if (relationshipDetail->name) {
-    std::string variable = std::any_cast<std::string>(relationshipDetail->name->accept(this));
+    auto variable = std::any_cast<std::string>(relationshipDetail->name->accept(this));
     edge->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -1731,7 +1731,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     // Case -[*]-
   } else if (ctx->expression().size() == 1U) {
     auto dots_tokens = ctx->getTokens(MemgraphCypher::DOTS);
-    Expression *bound = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
+    auto bound = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
     if (!dots_tokens.size()) {
       // Case -[*bound]-
       if (edge_type != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) lower = bound;
@@ -1867,7 +1867,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Con
 
 // IS NULL, IS NOT NULL, STARTS WITH, ..
 antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aContext *ctx) {
-  Expression *expression = std::any_cast<Expression *>(ctx->expression3b()->accept(this));
+  auto expression = std::any_cast<Expression *>(ctx->expression3b()->accept(this));
 
   for (auto *op : ctx->stringAndNullOperators()) {
     if (op->IS() && op->NOT() && op->CYPHERNULL()) {
@@ -1907,7 +1907,7 @@ antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::Str
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression3b(MemgraphCypher::Expression3bContext *ctx) {
-  Expression *expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
+  auto expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
   for (auto *list_op : ctx->listIndexingOrSlicing()) {
     if (list_op->getTokens(MemgraphCypher::DOTS).size() == 0U) {
       // If there is no '..' then we need to create list indexing operator.
@@ -1936,7 +1936,7 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
-  Expression *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
+  auto expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabels()) {
     auto labels = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
     expression = storage_->Create<LabelsTest>(expression, labels);
@@ -1945,9 +1945,9 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aC
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bContext *ctx) {
-  Expression *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
+  auto expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
   for (auto *lookup : ctx->propertyLookup()) {
-    PropertyIx key = std::any_cast<PropertyIx>(lookup->accept(this));
+    auto key = std::any_cast<PropertyIx>(lookup->accept(this));
     auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
@@ -1979,20 +1979,19 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     // functionInvocation and atom producions in opencypher grammar.
     return static_cast<Expression *>(storage_->Create<Aggregation>(nullptr, nullptr, Aggregation::Op::COUNT));
   } else if (ctx->ALL()) {
+    // TODO(gitbuda): auto or auto* (just to be consistent, I think auto is also fine here).
     auto *ident = storage_->Create<Identifier>(
         std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
-    Expression *list_expr =
-        std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
+    auto list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("ALL(...) requires a WHERE predicate.");
     }
-    Where *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
+    auto where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<All>(ident, list_expr, where));
   } else if (ctx->SINGLE()) {
     auto *ident = storage_->Create<Identifier>(
         std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
-    Expression *list_expr =
-        std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
+    auto list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("SINGLE(...) requires a WHERE predicate.");
     }
