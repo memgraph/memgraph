@@ -517,7 +517,7 @@ class Storage final {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+  std::list<Gid> deleted_vertices_;
 
   // Vertices that are logically deleted and removed from indices and now wait
   // to be removed from the main storage.
@@ -525,7 +525,7 @@ class Storage final {
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+  std::list<Gid> deleted_edges_;
 
   // Durability
   std::filesystem::path snapshot_directory_;

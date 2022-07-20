@@ -885,12 +885,6 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 void Storage::Accessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
-  // We collect vertices and edges we've created here and then splice them into
-  // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
-  // by one and acquiring lock every time.
-  std::list<Gid> my_deleted_vertices;
-  std::list<Gid> my_deleted_edges;
-
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -963,7 +957,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              my_deleted_vertices.push_back(vertex->Gid());
+              storage_->deleted_vertices_.push_back(vertex->Gid());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -993,7 +987,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               edge->deleted = true;
-              my_deleted_edges.push_back(edge->gid);
+              storage_->deleted_edges_.push_back(edge->gid);
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1032,11 +1026,6 @@ void Storage::Accessor::Abort() {
     // Release engine lock because we don't have to hold it anymore and
     // emplace back could take a long time.
     storage_->garbage_undo_buffers_.emplace_back(mark_timestamp, std::move(transaction_.deltas));
-
-    storage_->deleted_vertices_.WithLock(
-        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
-    storage_->deleted_edges_.WithLock(
-        [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
 
   storage_->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -1273,10 +1262,6 @@ void Storage::CollectGarbage() {
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
-  deleted_vertices_->swap(current_deleted_vertices);
-  deleted_edges_->swap(current_deleted_edges);
 
   // Flag that will be used to determine whether the Index GC should be run. It
   // should be run when there were any items that were cleaned up (there were
@@ -1344,7 +1329,7 @@ void Storage::CollectGarbage() {
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              current_deleted_vertices.push_back(vertex->Gid());
+              deleted_edges_.push_back(vertex->Gid());
             }
             break;
           }
@@ -1358,7 +1343,7 @@ void Storage::CollectGarbage() {
             }
             edge->delta = nullptr;
             if (edge->deleted) {
-              current_deleted_edges.push_back(edge->gid);
+              deleted_edges_.push_back(edge->gid);
             }
             break;
           }
@@ -1419,7 +1404,7 @@ void Storage::CollectGarbage() {
     }
     garbage_undo_buffers_.splice(garbage_undo_buffers_.end(), unlinked_undo_buffers);
 
-    for (auto vertex : current_deleted_vertices) {
+    for (auto vertex : deleted_vertices_) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
     }
   }
@@ -1456,7 +1441,7 @@ void Storage::CollectGarbage() {
   }
   {
     auto edge_acc = edges_.access();
-    for (auto edge : current_deleted_edges) {
+    for (auto edge : deleted_edges_) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
