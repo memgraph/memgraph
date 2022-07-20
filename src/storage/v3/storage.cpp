@@ -858,24 +858,21 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
           storage_->AppendToWal(transaction_, *commit_timestamp_);
         }
 
-        // Take committed_transactions lock while holding the engine lock to
-        // make sure that committed transactions are sorted by the commit
-        // timestamp in the list.
-        storage_->committed_transactions_.WithLock([&](auto & /*committed_transactions*/) {
-          // TODO: release lock, and update all deltas to have a local copy
-          // of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
-          // the commits received from main.
-          if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-            // Update the last commit timestamp
-            storage_->last_commit_timestamp_.store(*commit_timestamp_);
-          }
-          // Release engine lock because we don't have to hold it anymore
-          // and emplace back could take a long time.
-          engine_guard.unlock();
-        });
+        // TODO(antaljanosbenjamin): Figure out:
+        //   1. How the committed transactions are sorted in `committed_transactions_`
+        //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
+        // TODO: Update all deltas to have a local copy of the commit timestamp
+        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+        // Replica can only update the last commit timestamp with
+        // the commits received from main.
+        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+          // Update the last commit timestamp
+          storage_->last_commit_timestamp_.store(*commit_timestamp_);
+        }
+        // Release engine lock because we don't have to hold it anymore
+        // and emplace back could take a long time.
+        engine_guard.unlock();
 
         storage_->commit_log_->MarkFinished(start_timestamp);
       }
@@ -1059,8 +1056,7 @@ void Storage::Accessor::Abort() {
 void Storage::Accessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     storage_->commit_log_->MarkFinished(*commit_timestamp_);
-    storage_->committed_transactions_.WithLock(
-        [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(transaction_)); });
+    storage_->committed_transactions_.emplace_back(std::move(transaction_));
     commit_timestamp_.reset();
   }
 }
@@ -1297,18 +1293,17 @@ void Storage::CollectGarbage() {
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_->empty() || !garbage_undo_buffers_->empty();
+  bool run_index_cleanup = !committed_transactions_.empty() || !garbage_undo_buffers_->empty();
 
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
     // because that prevents other transactions from committing.
     Transaction *transaction{nullptr};
     {
-      auto committed_transactions_ptr = committed_transactions_.Lock();
-      if (committed_transactions_ptr->empty()) {
+      if (committed_transactions_.empty()) {
         break;
       }
-      transaction = &committed_transactions_ptr->front();
+      transaction = &committed_transactions_.front();
     }
 
     auto commit_timestamp = transaction->commit_timestamp->load(std::memory_order_acquire);
@@ -1413,10 +1408,8 @@ void Storage::CollectGarbage() {
       }
     }
 
-    committed_transactions_.WithLock([&](auto &committed_transactions) {
-      unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
-      committed_transactions.pop_front();
-    });
+    unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
+    committed_transactions_.pop_front();
   }
 
   // After unlinking deltas from vertices, we refresh the indices. That way

@@ -508,7 +508,7 @@ class Storage final {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
+  std::list<Transaction> committed_transactions_;
   IsolationLevel isolation_level_;
 
   Config config_;
