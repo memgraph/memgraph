@@ -333,7 +333,6 @@ class Storage final {
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
 
     Storage *storage_;
-    std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
@@ -474,14 +473,6 @@ class Storage final {
                    uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  // Main storage lock.
-  //
-  // Accessors take a shared lock when starting, so it is possible to block
-  // creation of new accessors by taking a unique lock. This is used when doing
-  // operations on storage that affect the global state, for example index
-  // creation.
-  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
   VerticesSkipList vertices_;

@@ -156,7 +156,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
   storage_->vertices_.clear();
   storage_->edges_.clear();
@@ -186,7 +185,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }
-  storage_guard.unlock();
 
   replication::SnapshotRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);

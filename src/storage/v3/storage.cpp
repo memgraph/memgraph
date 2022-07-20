@@ -432,17 +432,12 @@ Storage::~Storage() {
 
 Storage::Accessor::Accessor(Storage *storage, IsolationLevel isolation_level)
     : storage_(storage),
-      // The lock must be acquired before creating the transaction object to
-      // prevent freshly created transactions from dangling in an active state
-      // during exclusive operations.
-      storage_guard_(storage_->main_lock_),
       transaction_(storage->CreateTransaction(isolation_level)),
       is_transaction_active_(true),
       config_(storage->config_.items) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
-      storage_guard_(std::move(other.storage_guard_)),
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
@@ -1060,7 +1055,6 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
 }
 
 bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
@@ -1070,7 +1064,6 @@ bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_c
 }
 
 bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
@@ -1080,7 +1073,6 @@ bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optiona
 }
 
 bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_index.DropIndex(label)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
@@ -1090,7 +1082,6 @@ bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_com
 }
 
 bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!indices_.label_property_index.DropIndex(label, property)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
@@ -1102,13 +1093,11 @@ bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<
 }
 
 IndicesInfo Storage::ListAllIndices() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
   if (ret.HasError() || !ret.GetValue()) return ret;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -1120,7 +1109,6 @@ utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint
 
 bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
                                       const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!::memgraph::storage::v3::DropExistenceConstraint(&constraints_, label, property)) return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
@@ -1131,7 +1119,6 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
 
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
   if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
     return ret;
@@ -1145,7 +1132,6 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Stora
 
 UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
@@ -1158,7 +1144,6 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
-  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
 
@@ -1222,26 +1207,11 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
 template <bool force>
 void Storage::CollectGarbage() {
   if constexpr (force) {
-    // We take the unique lock on the main storage lock so we can forcefully clean
-    // everything we can
-    if (!main_lock_.try_lock()) {
-      CollectGarbage<false>();
-      return;
-    }
-  } else {
-    // Because the garbage collector iterates through the indices and constraints
-    // to clean them up, it must take the main lock for reading to make sure that
-    // the indices and constraints aren't concurrently being modified.
-    main_lock_.lock_shared();
+    // TODO(antaljanosbenjamin): figure out whether is there any active transaction or not (probably accessors should
+    // increment/decrement a counter). If there are no transactions, then garbage collection can be forced
+    CollectGarbage<false>();
+    return;
   }
-
-  utils::OnScopeExit lock_releaser{[&] {
-    if constexpr (force) {
-      main_lock_.unlock();
-    } else {
-      main_lock_.unlock_shared();
-    }
-  }};
 
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
@@ -1680,9 +1650,6 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
     return CreateSnapshotError::DisabledForReplica;
   }
 
-  // Take master RW lock (for reading).
-  std::shared_lock<utils::RWLock> storage_guard(main_lock_);
-
   // Create the transaction used to create the snapshot.
   auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
@@ -1853,9 +1820,6 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   });
 }
 
-void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
-  std::unique_lock main_guard{main_lock_};
-  isolation_level_ = isolation_level;
-}
+void Storage::SetIsolationLevel(IsolationLevel isolation_level) { isolation_level_ = isolation_level; }
 
 }  // namespace memgraph::storage::v3
