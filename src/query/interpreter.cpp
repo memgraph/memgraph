@@ -23,6 +23,7 @@
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
+#include "query/access_checker.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -43,6 +44,7 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
@@ -259,6 +261,24 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   storage::Storage *db_;
 };
+
+class AccessChecker final : public memgraph::query::AccessChecker {
+ public:
+  explicit AccessChecker(memgraph::auth::User *user) : user_{user} {}
+
+  bool IsUserAuthorizedEdgeTypes(const std::vector<memgraph::storage::EdgeTypeId> &edgeTypes,
+                                 memgraph::query::DbAccessor *dba) const final {
+    auto edgeTypePermissions = user_->GetEdgeTypePermissions();
+
+    return std::any_of(edgeTypes.begin(), edgeTypes.end(), [edgeTypePermissions, dba](const auto edgeType) {
+      return edgeTypePermissions.Has(dba->EdgeTypeToName(edgeType)) == memgraph::auth::PermissionLevel::GRANT;
+    });
+  }
+
+ private:
+  memgraph::auth::User *user_;
+};
+
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
@@ -280,6 +300,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
+  std::vector<std::string> edgeTypes = auth_query->edgetypes_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -309,7 +330,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll);
+          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -384,20 +405,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->GrantPrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
+        auth->GrantPrivilege(user_or_role, privileges, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->DenyPrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
+        auth->DenyPrivilege(user_or_role, privileges, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->RevokePrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
+        auth->RevokePrivilege(user_or_role, privileges, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;

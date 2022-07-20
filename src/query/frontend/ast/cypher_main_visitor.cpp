@@ -1274,7 +1274,11 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      if (privilege->EDGE_TYPES()) {
+        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+      } else {
+        auth->privileges_.push_back(privilege->accept(this));
+      }
     }
   } else {
     /* grant all privileges */
@@ -1320,6 +1324,22 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 }
 
 /**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitEdgeTypeList(MemgraphCypher::EdgeTypeListContext *ctx) {
+  std::vector<std::string> edgeTypes;
+  if (ctx->listOfEdgeTypes()) {
+    for (auto *edgeType : ctx->listOfEdgeTypes()->edgeType()) {
+      edgeTypes.push_back(edgeType->symbolicName()->accept(this).as<std::string>());
+    }
+  } else {
+    edgeTypes.emplace_back("*");
+  }
+
+  return edgeTypes;
+}
+
+/**
  * @return AuthQuery::Privilege
  */
 antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext *ctx) {
@@ -1344,6 +1364,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
+  if (ctx->EDGE_TYPES()) return AuthQuery::Privilege::EDGE_TYPES;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

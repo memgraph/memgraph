@@ -254,9 +254,17 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | EDGE_TYPES edgeTypes = edgeTypeList
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
+
+
+edgeTypeList : '*' | listOfEdgeTypes ;
+
+listOfEdgeTypes : edgeType ( ',' edgeType )* ;
+
+edgeType : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 

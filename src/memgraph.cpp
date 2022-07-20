@@ -506,7 +506,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll);
+        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {"*"});
       }
 
       return user_added;
@@ -752,8 +752,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                      const std::vector<std::string> &edgeTypes) override {
+    EditPermissions(user_or_role, privileges, edgeTypes, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
       // unconditionally granting/denying/revoking it?
@@ -762,8 +763,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                     const std::vector<std::string> &edgeTypes) override {
+    EditPermissions(user_or_role, privileges, edgeTypes, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
       // unconditionally granting/denying/revoking it?
@@ -772,8 +774,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void RevokePrivilege(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
-    EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
+                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                       const std::vector<std::string> &edgeTypes) override {
+    EditPermissions(user_or_role, privileges, edgeTypes, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
       // unconditionally granting/denying/revoking it?
@@ -784,7 +787,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
  private:
   template <class TEditFun>
   void EditPermissions(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, const TEditFun &edit_fun) {
+                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                       const std::vector<std::string> &edgeTypes, const TEditFun &edit_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -804,10 +808,17 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
+
+        for (const auto &edgeType : edgeTypes) {
+          edit_fun(&user->edgeTypePermissions(), edgeType);
+        }
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
+        }
+        for (const auto &edgeType : edgeTypes) {
+          edit_fun(&role->edgeTypePermissions(), edgeType);
         }
         locked_auth->SaveRole(*role);
       }
