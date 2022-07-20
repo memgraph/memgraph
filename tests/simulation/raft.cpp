@@ -318,7 +318,7 @@ class Server {
   // Leaders (re)send AppendRequest to followers.
   std::optional<Role> Cron(Leader &leader) {
     Time now = io_.Now();
-    Duration broadcast_timeout = RandomTimeout(20000, 30000);
+    Duration broadcast_timeout = RandomTimeout(40000, 60000);
 
     if (now - leader.last_broadcast > broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
@@ -383,6 +383,10 @@ class Server {
           .last_received_append_entries_timestamp = io_.Now(),
           .leader_address = from_address,
       };
+    } else if (term_dominates) {
+      Log("received a vote from an inferior candidate. Becoming Candidate");
+      state_.term = std::max(state_.term, req.term) + 1;
+      return Candidate{};
     } else {
       return std::nullopt;
     }
@@ -624,7 +628,7 @@ void RunSimulation() {
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = 200000,
-      .abort_time = 1 * 1024 * 1024,
+      .abort_time = 8 * 1024 * 1024,
   };
 
   auto simulator = Simulator(config);
@@ -663,7 +667,7 @@ void RunSimulation() {
   bool success = false;
   Address leader = server_addrs[0];
 
-  for (int retries = 0; retries < 100; retries++) {
+  while (true) {
     // send request
     ReplicationRequest cli_req;
     cli_req.opaque_data = std::vector<uint8_t>{1, 2, 3, 4};
@@ -704,6 +708,15 @@ void RunSimulation() {
   MG_ASSERT(success);
 
   simulator.ShutDown();
+
+  SimulatorStats stats = simulator.Stats();
+
+  std::cout << "total messages: " << (int)stats.total_messages << std::endl;
+  std::cout << "dropped messages: " << (int)stats.dropped_messages << std::endl;
+  std::cout << "total requests: " << (int)stats.total_requests << std::endl;
+  std::cout << "total responses: " << (int)stats.total_responses << std::endl;
+  std::cout << "simulator ticks: " << (int)stats.simulator_ticks << std::endl;
+
   std::cout << "========================== SUCCESS :) ==========================" << std::endl;
 
   /*

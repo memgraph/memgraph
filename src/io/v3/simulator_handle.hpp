@@ -218,11 +218,12 @@ class SimulatorHandle {
   SimulatorStats stats_;
   size_t blocked_on_receive_ = 0;
   std::set<Address> server_addresses_;
+  std::mt19937 rng_;
   SimulatorConfig config_;
-  std::mt19937 rng_{};
 
  public:
-  SimulatorHandle(SimulatorConfig config) : cluster_wide_time_microseconds_(config.start_time), config_(config) {}
+  SimulatorHandle(SimulatorConfig config)
+      : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {
     std::unique_lock<std::mutex> lock(mu_);
@@ -245,11 +246,6 @@ class SimulatorHandle {
         return;
       }
 
-      std::cout << "only " << (int)blocked_servers << " servers blocked, but size is " << (int)server_addresses_.size()
-                << std::endl;
-
-      // __asm__ __volatile__("yield");
-
       cv_.wait(lock);
     }
   }
@@ -271,9 +267,10 @@ class SimulatorHandle {
       // we only need to advance the simulator when all
       // servers have reached a quiescent state, blocked
       // on their own futures or receive methods.
-      // std::cout << "returning from tick: blocked servers less than total servers" << std::endl;
       return false;
     }
+
+    stats_.simulator_ticks++;
 
     cv_.notify_all();
 
@@ -306,6 +303,10 @@ class SimulatorHandle {
     int drop_threshold = drop_distrib(rng_);
     bool should_drop = drop_threshold < config_.drop_percent;
 
+    if (should_drop) {
+      stats_.dropped_messages++;
+    }
+
     PromiseKey promise_key{.requester_address = to_address,
                            .request_id = opaque_message.request_id,
                            .replier_address = opaque_message.from_address};
@@ -320,10 +321,20 @@ class SimulatorHandle {
       if (should_drop || normal_timeout) {
         dop.promise.TimeOut();
       } else {
+        stats_.total_responses++;
         dop.promise.Fill(std::move(opaque_message));
       }
     } else if (should_drop) {
-      // don't add it anywhere, let it drop
+      // don't add it anywhere, let it drop, if it's a request then time it out
+      // TODO queue this up and drop it after its deadline
+      PromiseKey drop_promise_key{.requester_address = opaque_message.from_address,
+                                  .request_id = opaque_message.request_id,
+                                  .replier_address = to_address};
+      if (promises_.contains(drop_promise_key)) {
+        DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
+        promises_.erase(promise_key);
+        dop.promise.TimeOut();
+      }
     } else {
       // add to can_receive_ if not
       const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());
@@ -335,7 +346,6 @@ class SimulatorHandle {
 
   void ShutDown() {
     std::unique_lock<std::mutex> lock(mu_);
-    std::cout << "Shutting down" << std::endl;
     should_shut_down_ = true;
     cv_.notify_all();
   }
@@ -361,8 +371,8 @@ class SimulatorHandle {
     DeadlineAndOpaquePromise dop{.deadline = deadline, .promise = std::move(opaque_promise)};
     promises_.emplace(std::move(promise_key), std::move(dop));
 
-    stats_.total_messages_++;
-    stats_.total_requests_++;
+    stats_.total_messages++;
+    stats_.total_requests++;
 
     cv_.notify_all();
 
@@ -394,7 +404,6 @@ class SimulatorHandle {
       bool made_progress = MaybeTickSimulator();
       lock.lock();
       if (!should_shut_down_ && !made_progress) {
-        // std::cout << "waiting on cv" << std::endl;
         cv_.wait(lock);
       }
       blocked_on_receive_ -= 1;
@@ -410,7 +419,7 @@ class SimulatorHandle {
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
     in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
 
-    stats_.total_messages_++;
+    stats_.total_messages++;
 
     cv_.notify_all();
   }
@@ -424,5 +433,10 @@ class SimulatorHandle {
   Return Rand(D distrib) {
     std::unique_lock<std::mutex> lock(mu_);
     return distrib(rng_);
+  }
+
+  SimulatorStats Stats() {
+    std::unique_lock<std::mutex> lock(mu_);
+    return stats_;
   }
 };

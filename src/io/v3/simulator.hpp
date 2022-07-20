@@ -80,4 +80,6 @@ class Simulator {
   void IncrementServerCountAndWaitForQuiescentState(Address address) {
     simulator_handle_->IncrementServerCountAndWaitForQuiescentState(address);
   }
+
+  SimulatorStats Stats() { return simulator_handle_->Stats(); }
 };
