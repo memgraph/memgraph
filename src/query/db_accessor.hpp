@@ -135,6 +135,8 @@ class VertexAccessor final {
     return {maybe_error.GetError()};
   }
 
+  storage::Result<storage::LabelId> PrimaryLabel(storage::View view) const { return impl_.PrimaryLabel(view); }
+
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
   }
@@ -150,8 +152,9 @@ class VertexAccessor final {
   }
 
   storage::ResultSchema<storage::PropertyValue> SetPropertyAndValidate(storage::PropertyId key,
-                                                                       const storage::PropertyValue &value) {
-    auto primary_label = impl_.PrimaryLabel(storage::View::OLD);
+                                                                       const storage::PropertyValue &value,
+                                                                       storage::View view) {
+    auto primary_label = impl_.PrimaryLabel(view);
     MG_ASSERT(primary_label.HasValue(), "Primary label not found");
     if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label.GetValue(), key);
         maybe_violation_error) {
@@ -165,7 +168,7 @@ class VertexAccessor final {
   }
 
   storage::ResultSchema<storage::PropertyValue> RemovePropertyAndValidate(storage::PropertyId key) {
-    return SetPropertyAndValidate(key, storage::PropertyValue{});
+    return SetPropertyAndValidate(key, storage::PropertyValue{}, storage::View::NEW);
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
@@ -294,11 +297,11 @@ class DbAccessor final {
   }
 
   // TODO Remove when query modules have been fixed
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   utils::BasicResult<std::variant<storage::SchemaViolation, storage::Error>, VertexAccessor> InsertVertexAndValidate(
       const storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
-      std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
+      const std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
     // auto validator = GetSchemaValidator();
     auto validator = accessor_->GetSchemaValidator();
     auto maybe_schema_violation = validator.ValidateVertexCreate(primary_label, labels, properties);

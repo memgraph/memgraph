@@ -2455,8 +2455,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
                               }
                             },
                             [&context](const storage::SchemaViolation &schema_violation) {
-                              auto &dba = *context.db_accessor;
-                              HandleSchemaViolation(schema_violation, dba);
+                              HandleSchemaViolation(schema_violation, *context.db_accessor);
                             }},
           maybe_value.GetError());
     }

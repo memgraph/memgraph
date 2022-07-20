@@ -121,7 +121,7 @@ inline void HandleSchemaViolation(const storage::SchemaViolation &schema_violati
 }
 
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, DbAccessor &dba, const storage::PropertyId &key,
+storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key,
                                        const TypedValue &value) {
   return PropsSetChecked(record, dba, key, storage::PropertyValue(value));
 }
@@ -129,7 +129,7 @@ storage::PropertyValue PropsSetChecked(T *record, DbAccessor &dba, const storage
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, DbAccessor &dba, const storage::PropertyId &key,
+storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key,
                                        const storage::PropertyValue &value) {
   try {
     const auto handle_error = [](const storage::Error error) {
@@ -146,7 +146,7 @@ storage::PropertyValue PropsSetChecked(T *record, DbAccessor &dba, const storage
       }
     };
     if constexpr (std::is_same_v<T, VertexAccessor>) {
-      auto maybe_old_value = record->SetPropertyAndValidate(key, value);
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, value, storage::View::NEW);
       if (maybe_old_value.HasError()) {
         std::visit(utils::Overloaded{[handle_error](const storage::Error error) { handle_error(error); },
                                      [&dba](const storage::SchemaViolation &schema_violation) {
