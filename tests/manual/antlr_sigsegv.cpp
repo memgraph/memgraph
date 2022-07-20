@@ -27,7 +27,7 @@
 //   v4.8            -> Does NOT crash but sometimes this tests does NOT finish.
 //                      Looks like a deadlock. -> The lock is still REQUIRED.
 //   v4.9            -> Seems to be working.
-//   v4.10           -> Seems to be working as well.
+//   v4.10           -> Seems to be working as well. -> antlr_lock removed
 
 using namespace std::chrono_literals;
 
