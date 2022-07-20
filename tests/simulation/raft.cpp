@@ -627,7 +627,7 @@ void RunSimulation() {
       .perform_timeouts = true,
       .scramble_messages = true,
       .rng_seed = 0,
-      .start_time = 200000,
+      .start_time = 256 * 1024,
       .abort_time = 8 * 1024 * 1024,
   };
 
