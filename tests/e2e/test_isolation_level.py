@@ -78,9 +78,7 @@ def assert_commit_fails(conn, failure = "conflicting transactions"):
         print("expected transaction to fail with", failure, "but it incorrectly committed successfully")
         assert(False)
     except mgclient.DatabaseError as e:
-        if not failure in str(e):
-            print("expected exception containing text", failure, "but instead it was", str(e))
-            assert(False)
+        assert failure in str(e), "expected exception containing text {failure} but instead it was {e}"
 
 
 def conflicting_update(cursor, key, value):
