@@ -2607,11 +2607,12 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
       return TypedValue(memory);
-    case Aggregation::Op::COLLECT_LIST:
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
-    case Aggregation::Op::PROJECT:  // add here graph as aggregation value
+    case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
+    case Aggregation::Op::PROJECT:  // add here graph as aggregation value
+      return TypedValue(TypedValue::TMap(memory));
   }
 }
 }  // namespace
@@ -2742,9 +2743,11 @@ class AggregateCursor : public Cursor {
     auto *mem = aggregation_.get_allocator().GetMemoryResource();
     utils::pmr::vector<TypedValue> group_by(mem);
     group_by.reserve(self_.group_by_.size());
+    // todo fico remove: every group by has one AggregationValue in the end
     for (Expression *expression : self_.group_by_) {
       group_by.emplace_back(expression->Accept(*evaluator));
     }
+    // todo fico remove:this get's probably current grouped by value
     auto &agg_value = aggregation_.try_emplace(std::move(group_by), mem).first->second;
     EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
@@ -2777,6 +2780,9 @@ class AggregateCursor : public Cursor {
                "aggregations.");
 
     // we iterate over counts, values and aggregation info at the same time
+    // todo fico remove: now when we have aggregation value, we can get how many values we aggregated till now
+    // which is stored in counts_ varaible. agg_value->values_.begin() always returns list pointer so we can emplace
+    // back new element
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
@@ -2813,9 +2819,13 @@ class AggregateCursor : public Cursor {
             *value_it = 1;
             break;
           case Aggregation::Op::COLLECT_LIST:
-          case Aggregation::Op::PROJECT:
             value_it->ValueList().push_back(input_value);
             break;
+          case Aggregation::Op::PROJECT: {
+            EnsureOkForProject(input_value);
+            value_it->ValueMap().emplace("path", input_value);
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem_it->key->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -2862,9 +2872,13 @@ class AggregateCursor : public Cursor {
           *value_it = *value_it + input_value;
           break;
         case Aggregation::Op::COLLECT_LIST:
-        case Aggregation::Op::PROJECT:
           value_it->ValueList().push_back(input_value);
           break;
+        case Aggregation::Op::PROJECT: {
+          EnsureOkForProject(input_value);
+          value_it->ValueMap().emplace("path", input_value);
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem_it->key->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -2899,6 +2913,17 @@ class AggregateCursor : public Cursor {
         return;
       default:
         throw QueryRuntimeException("Only numeric values allowed in SUM and AVG aggregations.");
+    }
+  }
+
+  /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
+   * an appropriate exception is thrown. */
+  void EnsureOkForProject(const TypedValue &value) const {
+    switch (value.type()) {
+      case TypedValue::Type::Path:
+        return;
+      default:
+        throw QueryRuntimeException("Only path values allowed in PROJECT and PROJECT_TRANSITIVE aggregations.");
     }
   }
 };
