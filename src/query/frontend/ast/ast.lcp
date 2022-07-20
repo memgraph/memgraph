@@ -2295,7 +2295,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET},  AuthQuery::Privilege::SHOW_CONFIG;
+    AuthQuery::Privilege::WEBSOCKET};
 cpp<#
 
 (lcp:define-class info-query (query)

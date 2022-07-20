@@ -4124,6 +4124,19 @@ TEST_P(CypherMainVisitorTest, VersionQuery) {
   ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
 }
 
+TEST_P(CypherMainVisitorTest, ConfigQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW CF", ast_generator);
+  TestInvalidQuery("SHOW CFG", ast_generator);
+  TestInvalidQuery("SHOW CFGS", ast_generator);
+  TestInvalidQuery("SHOW CONF", ast_generator);
+  TestInvalidQuery("SHOW CONFIGS", ast_generator);
+  TestInvalidQuery("SHOW CONFIGURATION", ast_generator);
+  TestInvalidQuery("SHOW CONFIGURATIONS", ast_generator);
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW CONFIG"));
+}
+
 TEST_P(CypherMainVisitorTest, ForeachThrow) {
   auto &ast_generator = *GetParam();
   EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND [1,2,3] AS j CREATE (n))"), SyntaxException);
