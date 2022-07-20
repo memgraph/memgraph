@@ -157,11 +157,13 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
   spdlog::info("Constraints are recreated from metadata.");
 }
 
-std::optional<RecoveryInfo> RecoverData(
-    const std::filesystem::path &snapshot_directory, const std::filesystem::path &wal_directory, std::string *uuid,
-    std::string *epoch_id, std::deque<std::pair<std::string, uint64_t>> *epoch_history, VerticesSkipList *vertices,
-    utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper, Indices *indices,
-    Constraints *constraints, Config::Items items, uint64_t *wal_seq_num) {
+std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
+                                        const std::filesystem::path &wal_directory, std::string *uuid,
+                                        std::string *epoch_id,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        VerticesSkipList *vertices, utils::SkipList<Edge> *edges, uint64_t *edge_count,
+                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+                                        Config::Items items, uint64_t *wal_seq_num) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory,
                wal_directory);

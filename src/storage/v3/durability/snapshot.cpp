@@ -161,7 +161,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipList *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items) {
+                               NameIdMapper *name_id_mapper, uint64_t *edge_count, Config::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -225,7 +225,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
   };
 
   // Reset current edge count.
-  edge_count->store(0, std::memory_order_release);
+  *edge_count = 0;
 
   {
     // Recover edges.
@@ -481,7 +481,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
         }
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.
-        edge_count->fetch_add(*out_size, std::memory_order_acq_rel);
+        *edge_count += *out_size;
       }
     }
     spdlog::info("Connectivity is recovered.");

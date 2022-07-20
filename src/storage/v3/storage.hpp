@@ -486,12 +486,12 @@ class Storage final {
   // Main object storage
   VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
+  uint64_t vertex_id_{0};
+  uint64_t edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
-  std::atomic<uint64_t> edge_count_{0};
+  uint64_t edge_count_{0};
 
   NameIdMapper name_id_mapper_;
 
@@ -567,7 +567,7 @@ class Storage final {
   utils::FileRetainer::FileLocker global_locker_;
 
   // Last commited timestamp
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+  uint64_t last_commit_timestamp_{kTimestampInitialId};
 
   class ReplicationServer;
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
@@ -586,7 +586,7 @@ class Storage final {
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  ReplicationRole replication_role_{ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage::v3

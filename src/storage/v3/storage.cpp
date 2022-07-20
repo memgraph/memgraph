@@ -462,7 +462,7 @@ Storage::Accessor::~Accessor() {
 
 VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto gid = storage_->vertex_id_++;
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   // TODO(antaljanosbenjamin): handle keys and schema
@@ -481,8 +481,7 @@ VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
+  storage_->vertex_id_ = std::max(storage_->vertex_id_, gid.AsUint() + 1);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert({Vertex{gid, delta}});
@@ -609,7 +608,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
-  auto gid = Gid::FromUint(storage_->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  auto gid = Gid::FromUint(storage_->edge_id_++);
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
@@ -628,7 +627,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
   // Increment edge count.
-  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+  ++storage_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
@@ -661,8 +660,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   // that runs single-threadedly and while this instance is set-up to apply
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
-  storage_->edge_id_.store(std::max(storage_->edge_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                           std::memory_order_release);
+  storage_->edge_id_ = std::max(storage_->edge_id_, gid.AsUint() + 1);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -682,7 +680,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
   // Increment edge count.
-  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+  ++storage_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
                       &storage_->constraints_, config_);
@@ -752,7 +750,7 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
 
   // Decrement edge count.
-  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+  --storage_->edge_count_;
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
                                           &storage_->indices_, &storage_->constraints_, config_, true);
@@ -867,7 +865,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       // the commits received from main.
       if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
         // Update the last commit timestamp
-        storage_->last_commit_timestamp_.store(*commit_timestamp_);
+        storage_->last_commit_timestamp_ = *commit_timestamp_;
       }
 
       storage_->commit_log_->MarkFinished(start_timestamp);
@@ -930,7 +928,7 @@ void Storage::Accessor::Abort() {
               // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
               // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
               // edge properties are disabled.
-              storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+              ++storage_->edge_count_;
               break;
             }
             case Delta::Action::REMOVE_IN_EDGE: {
@@ -953,7 +951,7 @@ void Storage::Accessor::Abort() {
               // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
               // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
               // properties are disabled.
-              storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+              --storage_->edge_count_;
               break;
             }
             case Delta::Action::DELETE_OBJECT: {
@@ -1166,12 +1164,11 @@ ConstraintsInfo Storage::ListAllConstraints() const {
 
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
-  auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
-    average_degree = 2.0 * static_cast<double>(edge_count) / static_cast<double>(vertex_count);
+    average_degree = 2.0 * static_cast<double>(edge_count_) / static_cast<double>(vertex_count);
   }
-  return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
+  return {vertex_count, edge_count_, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
 }
 
@@ -1487,7 +1484,7 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  if (replication_role_.load() == ReplicationRole::MAIN) {
+  if (replication_role_ == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &client : clients) {
         client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1664,7 +1661,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
   if (!InitializeWalFile()) return;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
-    if (replication_role_.load() == ReplicationRole::MAIN) {
+    if (replication_role_ == ReplicationRole::MAIN) {
       replication_clients_.WithLock([&](auto &clients) {
         for (auto &client : clients) {
           client->StartTransactionReplication(wal_file_->SequenceNumber());
@@ -1679,7 +1676,7 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
 }
 
 utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
-  if (replication_role_.load() != ReplicationRole::MAIN) {
+  if (replication_role_ != ReplicationRole::MAIN) {
     return CreateSnapshotError::DisabledForReplica;
   }
 
@@ -1745,7 +1742,7 @@ bool Storage::SetReplicaRole(io::network::Endpoint endpoint, const replication::
 
   replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
 
-  replication_role_.store(ReplicationRole::REPLICA);
+  replication_role_ = ReplicationRole::REPLICA;
   return true;
 }
 
@@ -1772,14 +1769,14 @@ bool Storage::SetMainReplicationRole() {
   epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
   epoch_id_ = utils::GenerateUUID();
 
-  replication_role_.store(ReplicationRole::MAIN);
+  replication_role_ = ReplicationRole::MAIN;
   return true;
 }
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
     const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
+  MG_ASSERT(replication_role_ == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
     return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
@@ -1825,7 +1822,7 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
 }
 
 bool Storage::UnregisterReplica(const std::string_view name) {
-  MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
+  MG_ASSERT(replication_role_ == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
   });

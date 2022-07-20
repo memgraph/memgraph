@@ -191,7 +191,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      std::optional<uint64_t> last_loaded_timestamp, VerticesSkipList *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, uint64_t *edge_count,
                      Config::Items items);
 
 /// WalFile class used to append deltas and operations to the WAL file.

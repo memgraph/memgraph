@@ -62,7 +62,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipList *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items);
+                               NameIdMapper *name_id_mapper, uint64_t *edge_count, Config::Items items);
 
 /// Function used to create a snapshot using the given transaction.
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,

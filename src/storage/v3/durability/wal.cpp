@@ -618,7 +618,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, VerticesSkipList *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, uint64_t *edge_count,
                      Config::Items items) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
@@ -733,7 +733,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
 
           // Increment edge count.
-          edge_count->fetch_add(1, std::memory_order_acq_rel);
+          *edge_count += 1;
 
           break;
         }
@@ -772,7 +772,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
 
           // Decrement edge count.
-          edge_count->fetch_add(-1, std::memory_order_acq_rel);
+          *edge_count += -1;
 
           break;
         }

@@ -86,7 +86,7 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
 void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
+  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_, storage_->epoch_id_};
   slk::Save(res, res_builder);
 }
 
@@ -124,7 +124,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
     storage_->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_.load()) {
+  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -133,14 +133,14 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
-    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_};
     slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(&decoder);
 
-  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -188,7 +188,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   }
   storage_guard.unlock();
 
-  replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::SnapshotRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 
   // Delete other durability files
@@ -224,7 +224,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
     LoadWal(&decoder);
   }
 
-  replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::WalFilesRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -238,7 +238,7 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   LoadWal(&decoder);
 
-  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -306,7 +306,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   };
 
   uint64_t applied_deltas = 0;
-  auto max_commit_timestamp = storage_->last_commit_timestamp_.load();
+  auto max_commit_timestamp = storage_->last_commit_timestamp_;
 
   for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
     const auto [timestamp, delta] = ReadDelta(decoder);
