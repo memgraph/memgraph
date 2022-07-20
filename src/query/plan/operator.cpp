@@ -174,7 +174,7 @@ void Once::OnceCursor::Shutdown() {}
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-void HandleSchemaViolation(const storage::SchemaViolation &schema_violation, auto dba) {
+void HandleSchemaViolation(const storage::SchemaViolation &schema_violation, const auto &dba) {
   switch (schema_violation.status) {
     case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
       throw SchemaViolationException(

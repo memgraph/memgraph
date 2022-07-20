@@ -9,9 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <ranges>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include "storage/v2/property_value.hpp"

@@ -119,7 +119,6 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
                    maybe_old_value.GetError());
       }
       return std::move(*maybe_old_value);
-
     } else {
       // No validation on edge properties
       const auto maybe_old_value = record->SetProperty(key, value);

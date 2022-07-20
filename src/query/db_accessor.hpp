@@ -24,7 +24,7 @@
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
-// very well on Centos because OpenSSL version avaialable
+// very well on Centos because OpenSSL version available
 // on Centos 7 include  libkrb5 which has brilliant macros
 // called TRUE and FALSE. For more detailed explanation go
 // to memgraph.cpp.
@@ -56,7 +56,7 @@ class EdgeAccessor final {
   storage::EdgeAccessor impl_;
 
  public:
-  explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(impl) {}
+  explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
