@@ -513,7 +513,7 @@ class Storage final {
   Config config_;
 
   // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+  std::list<std::pair<uint64_t, std::list<Delta>>> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.

@@ -1028,13 +1028,11 @@ void Storage::Accessor::Abort() {
 
   {
     uint64_t mark_timestamp = storage_->timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
-    storage_->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // emplace back could take a long time.
-      garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
-    });
+
+    // Release engine lock because we don't have to hold it anymore and
+    // emplace back could take a long time.
+    storage_->garbage_undo_buffers_.emplace_back(mark_timestamp, std::move(transaction_.deltas));
+
     storage_->deleted_vertices_.WithLock(
         [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
     storage_->deleted_edges_.WithLock(
@@ -1284,7 +1282,7 @@ void Storage::CollectGarbage() {
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_.empty() || !garbage_undo_buffers_->empty();
+  bool run_index_cleanup = !committed_transactions_.empty() || !garbage_undo_buffers_.empty();
 
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
@@ -1416,35 +1414,25 @@ void Storage::CollectGarbage() {
 
   {
     uint64_t mark_timestamp = timestamp_;
-    // TODO(antaljanosbenjamin): Figure out:
-    //   1. How the garbaged deltas are sorted in `garbage_undo_buffers`
-    //   2. Why it was necessary to lock `garbage_undo_buffers` while locking `engine_lock_`? Wouldn't have been enough
-    //      to lock `garbage_undo_buffers_` before acquiring the mark timestamp?
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
-      // transactions from aborting until we're done marking, maybe we should
-      // add them one-by-one or something
-      for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
-        timestamp = mark_timestamp;
-      }
-      garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
-    });
+    for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
+      timestamp = mark_timestamp;
+    }
+    garbage_undo_buffers_.splice(garbage_undo_buffers_.end(), unlinked_undo_buffers);
+
     for (auto vertex : current_deleted_vertices) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
     }
   }
 
-  garbage_undo_buffers_.WithLock([&](auto &undo_buffers) {
-    // if force is set to true we can simply delete all the leftover undos because
-    // no transaction is active
-    if constexpr (force) {
-      undo_buffers.clear();
-    } else {
-      while (!undo_buffers.empty() && undo_buffers.front().first <= oldest_active_start_timestamp) {
-        undo_buffers.pop_front();
-      }
+  // if force is set to true we can simply delete all the leftover undos because
+  // no transaction is active
+  if constexpr (force) {
+    garbage_undo_buffers_.clear();
+  } else {
+    while (!garbage_undo_buffers_.empty() && garbage_undo_buffers_.front().first <= oldest_active_start_timestamp) {
+      garbage_undo_buffers_.pop_front();
     }
-  });
+  }
 
   {
     auto vertex_acc = vertices_.access();
