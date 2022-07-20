@@ -810,72 +810,66 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
     // Save these so we can mark them used in the commit log.
     uint64_t start_timestamp = transaction_.start_timestamp;
 
-    {
-      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-      commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
+    commit_timestamp_.emplace(storage_->CommitTimestamp(desired_commit_timestamp));
 
-      // Before committing and validating vertices against unique constraints,
-      // we have to update unique constraints with the vertices that are going
-      // to be validated/committed.
-      for (const auto &delta : transaction_.deltas) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
-        storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+    // Before committing and validating vertices against unique constraints,
+    // we have to update unique constraints with the vertices that are going
+    // to be validated/committed.
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        continue;
+      }
+      storage_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
+    }
+
+    // Validate that unique constraints are satisfied for all modified
+    // vertices.
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) {
+        continue;
       }
 
-      // Validate that unique constraints are satisfied for all modified
-      // vertices.
-      for (const auto &delta : transaction_.deltas) {
-        auto prev = delta.prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type != PreviousPtr::Type::VERTEX) {
-          continue;
-        }
+      // No need to take any locks here because we modified this vertex and no
+      // one else can touch it until we commit.
+      unique_constraint_violation =
+          storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
+      if (unique_constraint_violation) {
+        break;
+      }
+    }
 
-        // No need to take any locks here because we modified this vertex and no
-        // one else can touch it until we commit.
-        unique_constraint_violation =
-            storage_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
-        if (unique_constraint_violation) {
-          break;
-        }
+    if (!unique_constraint_violation) {
+      // Write transaction to WAL while holding the engine lock to make sure
+      // that committed transactions are sorted by the commit timestamp in the
+      // WAL files. We supply the new commit timestamp to the function so that
+      // it knows what will be the final commit timestamp. The WAL must be
+      // written before actually committing the transaction (before setting
+      // the commit timestamp) so that no other transaction can see the
+      // modifications before they are written to disk.
+      // Replica can log only the write transaction received from Main
+      // so the Wal files are consistent
+      if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        storage_->AppendToWal(transaction_, *commit_timestamp_);
       }
 
-      if (!unique_constraint_violation) {
-        // Write transaction to WAL while holding the engine lock to make sure
-        // that committed transactions are sorted by the commit timestamp in the
-        // WAL files. We supply the new commit timestamp to the function so that
-        // it knows what will be the final commit timestamp. The WAL must be
-        // written before actually committing the transaction (before setting
-        // the commit timestamp) so that no other transaction can see the
-        // modifications before they are written to disk.
-        // Replica can log only the write transaction received from Main
-        // so the Wal files are consistent
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, *commit_timestamp_);
-        }
-
-        // TODO(antaljanosbenjamin): Figure out:
-        //   1. How the committed transactions are sorted in `committed_transactions_`
-        //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
-        // TODO: Update all deltas to have a local copy of the commit timestamp
-        MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-        transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-        // Replica can only update the last commit timestamp with
-        // the commits received from main.
-        if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          // Update the last commit timestamp
-          storage_->last_commit_timestamp_.store(*commit_timestamp_);
-        }
-        // Release engine lock because we don't have to hold it anymore
-        // and emplace back could take a long time.
-        engine_guard.unlock();
-
-        storage_->commit_log_->MarkFinished(start_timestamp);
+      // TODO(antaljanosbenjamin): Figure out:
+      //   1. How the committed transactions are sorted in `committed_transactions_`
+      //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
+      // TODO: Update all deltas to have a local copy of the commit timestamp
+      MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+      // Replica can only update the last commit timestamp with
+      // the commits received from main.
+      if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
+        // Update the last commit timestamp
+        storage_->last_commit_timestamp_.store(*commit_timestamp_);
       }
+
+      storage_->commit_log_->MarkFinished(start_timestamp);
     }
 
     if (unique_constraint_violation) {
@@ -1033,14 +1027,12 @@ void Storage::Accessor::Abort() {
   }
 
   {
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
     uint64_t mark_timestamp = storage_->timestamp_;
     // Take garbage_undo_buffers lock while holding the engine lock to make
     // sure that entries are sorted by mark timestamp in the list.
     storage_->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       // Release engine lock because we don't have to hold it anymore and
       // emplace back could take a long time.
-      engine_guard.unlock();
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
     storage_->deleted_vertices_.WithLock(
@@ -1223,21 +1215,20 @@ Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
   // `timestamp`) below.
   uint64_t transaction_id{0};
   uint64_t start_timestamp{0};
-  {
-    std::lock_guard<utils::SpinLock> guard(engine_lock_);
-    transaction_id = transaction_id_++;
-    // Replica should have only read queries and the write queries
-    // can come from main instance with any past timestamp.
-    // To preserve snapshot isolation we set the start timestamp
-    // of any query on replica to the last commited transaction
-    // which is timestamp_ as only commit of transaction with writes
-    // can change the value of it.
-    if (replication_role_ == ReplicationRole::REPLICA) {
-      start_timestamp = timestamp_;
-    } else {
-      start_timestamp = timestamp_++;
-    }
+
+  transaction_id = transaction_id_++;
+  // Replica should have only read queries and the write queries
+  // can come from main instance with any past timestamp.
+  // To preserve snapshot isolation we set the start timestamp
+  // of any query on replica to the last commited transaction
+  // which is timestamp_ as only commit of transaction with writes
+  // can change the value of it.
+  if (replication_role_ == ReplicationRole::REPLICA) {
+    start_timestamp = timestamp_;
+  } else {
+    start_timestamp = timestamp_++;
   }
+
   return {transaction_id, start_timestamp, isolation_level};
 }
 
@@ -1424,14 +1415,12 @@ void Storage::CollectGarbage() {
   }
 
   {
-    std::unique_lock<utils::SpinLock> guard(engine_lock_);
     uint64_t mark_timestamp = timestamp_;
-    // Take garbage_undo_buffers lock while holding the engine lock to make
-    // sure that entries are sorted by mark timestamp in the list.
+    // TODO(antaljanosbenjamin): Figure out:
+    //   1. How the garbaged deltas are sorted in `garbage_undo_buffers`
+    //   2. Why it was necessary to lock `garbage_undo_buffers` while locking `engine_lock_`? Wouldn't have been enough
+    //      to lock `garbage_undo_buffers_` before acquiring the mark timestamp?
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      // Release engine lock because we don't have to hold it anymore and
-      // this could take a long time.
-      guard.unlock();
       // TODO(mtomic): holding garbage_undo_buffers_ lock here prevents
       // transactions from aborting until we're done marking, maybe we should
       // add them one-by-one or something
@@ -1799,20 +1788,17 @@ bool Storage::SetMainReplicationRole() {
   // This should be always called first so we finalize everything
   replication_server_.reset(nullptr);
 
-  {
-    std::unique_lock engine_guard{engine_lock_};
-    if (wal_file_) {
-      wal_file_->FinalizeWal();
-      wal_file_.reset();
-    }
-
-    // Generate new epoch id and save the last one to the history.
-    if (epoch_history_.size() == kEpochHistoryRetention) {
-      epoch_history_.pop_front();
-    }
-    epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-    epoch_id_ = utils::GenerateUUID();
+  if (wal_file_) {
+    wal_file_->FinalizeWal();
+    wal_file_.reset();
   }
+
+  // Generate new epoch id and save the last one to the history.
+  if (epoch_history_.size() == kEpochHistoryRetention) {
+    epoch_history_.pop_front();
+  }
+  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
+  epoch_id_ = utils::GenerateUUID();
 
   replication_role_.store(ReplicationRole::MAIN);
   return true;

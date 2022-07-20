@@ -90,14 +90,7 @@ void Storage::ReplicationClient::FrequentCheck() {
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  std::optional<std::string> epoch_id;
-  {
-    // epoch_id_ can be changed if we don't take this lock
-    std::unique_lock engine_guard(storage_->engine_lock_);
-    epoch_id.emplace(storage_->epoch_id_);
-  }
-
-  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
+  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, storage_->epoch_id_)};
 
   const auto response = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -319,10 +312,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                 auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
               } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
-                std::unique_lock transaction_guard(storage_->engine_lock_);
                 if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == arg.current_wal_seq_num) {
                   storage_->wal_file_->DisableFlushing();
-                  transaction_guard.unlock();
                   spdlog::debug("Sending current wal file");
                   replica_commit = ReplicateCurrentWal();
                   storage_->wal_file_->EnableFlushing();
@@ -403,7 +394,7 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
-  if (std::unique_lock transtacion_guard(storage_->engine_lock_); storage_->wal_file_) {
+  if (storage_->wal_file_) {
     current_wal_seq_num.emplace(storage_->wal_file_->SequenceNumber());
     current_wal_from_timestamp.emplace(storage_->wal_file_->FromTimestamp());
   }

@@ -499,7 +499,6 @@ class Storage final {
   Indices indices_;
 
   // Transaction engine
-  utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
   // TODO: This isn't really a commit log, it doesn't even care if a
