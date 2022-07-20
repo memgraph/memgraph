@@ -365,6 +365,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
       }
+      case TypedValue::Type::Graph: {
+        throw QueryRuntimeException("Invalid operation for Graph");
+      }
       default:
         throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");
     }

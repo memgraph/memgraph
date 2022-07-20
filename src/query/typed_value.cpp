@@ -214,6 +214,8 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       return;
+    case Type::Graph:
+      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -263,6 +265,8 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       break;
+    case Type::Graph:
+      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
   }
   other.DestroyValue();
 }
@@ -297,6 +301,8 @@ TypedValue::operator storage::PropertyValue() const {
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
+    case Type::Graph:
+      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
     default:
       break;
   }
@@ -331,6 +337,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, graph_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
@@ -387,6 +394,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "local_date_time";
     case TypedValue::Type::Duration:
       return os << "duration";
+    case TypedValue::Type::Graph:
+      return os << "graph";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -522,6 +531,8 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case TypedValue::Type::Path:
         new (&path_v) Path(other.path_v, memory_);
         return *this;
+      case TypedValue::Type::Graph:
+        throw TypedValueException("Exception");
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
         return *this;
@@ -593,6 +604,8 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
+      case TypedValue::Graph:
+        throw TypedValueException("A");
     }
     other.DestroyValue();
   }
@@ -792,6 +805,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.GetMemoryResource());
     case TypedValue::Type::Duration:
       return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
+    case TypedValue::Type::Graph:
+      throw TypedValueException("Graph");
     default:
       LOG_FATAL("Unhandled comparison for types");
   }
@@ -1100,6 +1115,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;
+    case TypedValue::Type::Duration:
+      throw TypedValueException("a";)
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }

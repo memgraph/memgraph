@@ -127,6 +127,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
+    case query::TypedValue::Type::Graph:
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue to Value for Graph");
   }
 }
 

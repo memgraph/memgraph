@@ -290,6 +290,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Graph:
+      throw std::logic_error{"No graph type"};
   }
 }
 }  // namespace
@@ -2568,6 +2570,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
+    case TypedValue::Type::Graph:
       LOG_FATAL("value must not be a graph element");
   }
 }

@@ -31,6 +31,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/graph.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
@@ -2612,7 +2613,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::PROJECT:  // add here graph as aggregation value
-      return TypedValue(TypedValue::TMap(memory));
+      return TypedValue(query::Graph(memory));
   }
 }
 }  // namespace
@@ -2781,8 +2782,8 @@ class AggregateCursor : public Cursor {
 
     // we iterate over counts, values and aggregation info at the same time
     // todo fico remove: now when we have aggregation value, we can get how many values we aggregated till now
-    // which is stored in counts_ varaible. agg_value->values_.begin() always returns list pointer so we can emplace
-    // back new element
+    // which is stored in counts_ varaible. agg_value->values_.begin() always returns pointer to our aggregation method
+    // so we can emplace back new element
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
@@ -2876,7 +2877,7 @@ class AggregateCursor : public Cursor {
           break;
         case Aggregation::Op::PROJECT: {
           EnsureOkForProject(input_value);
-          value_it->ValueMap().emplace("path", input_value);
+          value_it->ValueGraph().add("path", input_value);
           break;
         }
         case Aggregation::Op::COLLECT_MAP:

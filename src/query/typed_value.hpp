@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "query/db_accessor.hpp"
+#include "query/graph.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -82,7 +83,8 @@ class TypedValue {
     Date,
     LocalTime,
     LocalDateTime,
-    Duration
+    Duration,
+    Graph
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -528,6 +530,7 @@ class TypedValue {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
+    Graph graph_v;
   };
 
   /**

@@ -61,6 +61,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
+    case TypedValue::Type::Graph:
       throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     case TypedValue::Type::Null:
       LOG_FATAL("Invalid type");
