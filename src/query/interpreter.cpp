@@ -803,6 +803,8 @@ Callback HandleConfigQuery() {
     std::vector<std::vector<TypedValue>> results;
 
     for (const auto &flag : flags) {
+      if (flag.hidden) continue;
+
       std::vector<TypedValue> current_fields;
       current_fields.emplace_back(flag.name);
       current_fields.emplace_back(flag.default_value);
