@@ -174,40 +174,6 @@ void Once::OnceCursor::Shutdown() {}
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-void HandleSchemaViolation(const storage::SchemaViolation &schema_violation, const auto &dba) {
-  switch (schema_violation.status) {
-    case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
-      throw SchemaViolationException(
-          fmt::format("Primary key {} not defined on label :{}",
-                      storage::SchemaTypeToString(schema_violation.violated_schema_property->type),
-                      dba.LabelToName(schema_violation.label)));
-    }
-    case storage::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
-      throw SchemaViolationException(
-          fmt::format("Label :{} is not a primary label", dba.LabelToName(schema_violation.label)));
-    }
-    case storage::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
-      throw SchemaViolationException(
-          fmt::format("Wrong type of property {} in schema :{}, should be of type {}",
-                      *schema_violation.violated_property_value, dba.LabelToName(schema_violation.label),
-                      storage::SchemaTypeToString(schema_violation.violated_schema_property->type)));
-    }
-    case storage::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
-      throw SchemaViolationException(fmt::format("Updating of primary key {} on schema :{} not supported",
-                                                 *schema_violation.violated_property_value,
-                                                 dba.LabelToName(schema_violation.label)));
-    }
-    case storage::SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL: {
-      throw SchemaViolationException(fmt::format("Cannot add or remove label :{} since it is a primary label",
-                                                 dba.LabelToName(schema_violation.label)));
-    }
-    case storage::SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY: {
-      throw SchemaViolationException(
-          fmt::format("Cannot create vertex with secondary label :{}", dba.LabelToName(schema_violation.label)));
-    }
-  }
-}
-
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const NodeCreationInfo &node_info)
     : input_(input ? input : std::make_shared<Once>()), node_info_(node_info) {}
 
@@ -336,13 +302,13 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
     auto &edge = *maybe_edge;
     if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
       for (const auto &[key, value_expression] : *properties) {
-        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+        PropsSetChecked(&edge, *dba, key, value_expression->Accept(*evaluator));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
         auto property_id = dba->NameToProperty(key);
-        PropsSetChecked(&edge, property_id, value);
+        PropsSetChecked(&edge, *dba, property_id, value);
       }
     }
 
@@ -2096,7 +2062,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), *context.db_accessor, self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2106,7 +2072,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       break;
     }
     case TypedValue::Type::Edge: {
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), *context.db_accessor, self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2260,7 +2226,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, key, kv.second);
+        auto old_value = PropsSetChecked(record, *context->db_accessor, key, kv.second);
         if (should_register_change) {
           register_set_property(std::move(old_value), key, kv.second);
         }
@@ -2415,7 +2381,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
-    auto old_value = PropsSetChecked(record, property, storage::PropertyValue{});
+    auto old_value = PropsSetChecked(record, *context.db_accessor, property, storage::PropertyValue{});
 
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
