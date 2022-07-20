@@ -52,7 +52,7 @@ def update(cursor, key, value, comment = ""):
     ret = cursor.fetchall()
     if len(ret) != 1:
         print(f"expected ret to be len 1, but it's {ret}")
-        assert(len(ret) == 1)
+        assert len(ret) == 1
     return ret[0][0].properties['value']
 
 
