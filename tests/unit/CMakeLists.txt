@@ -84,8 +84,9 @@ target_link_libraries(${test_prefix}plan_pretty_print mg-query)
 add_unit_test(query_cost_estimator.cpp)
 target_link_libraries(${test_prefix}query_cost_estimator mg-query)
 
-add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
+# TODO Fix later on
+# add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+# target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
 
 add_unit_test(query_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
@@ -371,5 +372,8 @@ target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
 add_unit_test(storage_v3_schema.cpp)
 target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
 
-add_unit_test(interpreter_v3.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter_v3 mg-storage-v2 mg-query mg-communication)
+add_unit_test(interpreter_v2.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}interpreter_v2 mg-storage-v2 mg-query mg-communication)
+
+add_unit_test(storage_v3_query_plan_accumulate_aggregate.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_accumulate_aggregate mg-query)
