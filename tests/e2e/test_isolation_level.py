@@ -544,13 +544,13 @@ if __name__ == '__main__':
     setup(c1)
     g2_two_edges = g2_two_edges(c1, c2, c3)
 
-    g1 = g1a and g1b and g1c
-    repeatable_read = g1 and g2_item
-    snapshot_isolation = g0 and g1 and otv and pmp and \
-        pmp_write and p4 and g_single and g_single_dependencies \
-        and g_single_write_1 and g_single_write_2
-    full_serializability =  snapshot_isolation and g2_item \
-        and g2 and g2_two_edges
+    g1 = all([g1a, g1b, g1c])
+    repeatable_read = all([g1 , g2_item])
+    snapshot_isolation = all([g0,  g1, otv,  pmp,
+        pmp_write, p4, g_single, g_single_dependencies,
+        g_single_write_1, g_single_write_2])
+    full_serializability =  all([snapshot_isolation, g2_item,
+        g2, g2_two_edges])
 
     print("")
 
