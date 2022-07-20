@@ -213,7 +213,7 @@ class SimulatorHandle {
   // messages that are sent to servers that may later receive them
   std::map<Address, std::vector<OpaqueMessage>> can_receive_;
 
-  uint64_t cluster_wide_time_microseconds_ = 1000000;  // it's one million (microseconds) o'clock!
+  uint64_t cluster_wide_time_microseconds_;
   bool should_shut_down_ = false;
   SimulatorStats stats_;
   size_t blocked_on_receive_ = 0;
@@ -222,7 +222,7 @@ class SimulatorHandle {
   std::mt19937 rng_{};
 
  public:
-  SimulatorHandle(SimulatorConfig config) : config_(config) {}
+  SimulatorHandle(SimulatorConfig config) : cluster_wide_time_microseconds_(config.start_time), config_(config) {}
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {
     std::unique_lock<std::mutex> lock(mu_);
@@ -275,17 +275,21 @@ class SimulatorHandle {
       return false;
     }
 
-    // We tick the clock forward when all servers are blocked but
-    // there are no in-flight messages to schedule delivery of.
-    std::poisson_distribution<> time_distrib(100);
-    uint64_t clock_advance = time_distrib(rng_);
-    cluster_wide_time_microseconds_ += clock_advance;
-
     cv_.notify_all();
 
     if (in_flight_.empty()) {
       // return early here because there are no messages to schedule
-      return false;
+
+      // We tick the clock forward when all servers are blocked but
+      // there are no in-flight messages to schedule delivery of.
+      std::poisson_distribution<> time_distrib(50);
+      uint64_t clock_advance = time_distrib(rng_);
+      cluster_wide_time_microseconds_ += clock_advance;
+
+      MG_ASSERT(cluster_wide_time_microseconds_ < config_.abort_time,
+                "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
+                "in an expected amount of time.");
+      return true;
     }
 
     if (config_.scramble_messages) {
@@ -360,6 +364,8 @@ class SimulatorHandle {
     stats_.total_messages_++;
     stats_.total_requests_++;
 
+    cv_.notify_all();
+
     return;
   }
 
@@ -403,6 +409,10 @@ class SimulatorHandle {
     std::any message_any(std::move(message));
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
     in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
+
+    stats_.total_messages_++;
+
+    cv_.notify_all();
   }
 
   uint64_t Now() {

@@ -16,4 +16,6 @@ struct SimulatorConfig {
   bool perform_timeouts = false;
   bool scramble_messages = true;
   uint64_t rng_seed = 0;
+  uint64_t start_time = 0;
+  uint64_t abort_time = ULLONG_MAX;
 };
