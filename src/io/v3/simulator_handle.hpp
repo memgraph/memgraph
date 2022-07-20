@@ -250,6 +250,19 @@ class SimulatorHandle {
     }
   }
 
+  void TimeoutPromisesPastDeadline() {
+    uint64_t now = cluster_wide_time_microseconds_;
+
+    for (auto &[promise_key, dop] : promises_) {
+      // TODO queue this up and drop it after its deadline
+      if (dop.deadline < now) {
+        DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
+        promises_.erase(promise_key);
+        dop.promise.TimeOut();
+      }
+    }
+  }
+
   bool MaybeTickSimulator() {
     std::unique_lock<std::mutex> lock(mu_);
 
@@ -273,6 +286,8 @@ class SimulatorHandle {
     stats_.simulator_ticks++;
 
     cv_.notify_all();
+
+    TimeoutPromisesPastDeadline();
 
     if (in_flight_.empty()) {
       // return early here because there are no messages to schedule
@@ -325,16 +340,7 @@ class SimulatorHandle {
         dop.promise.Fill(std::move(opaque_message));
       }
     } else if (should_drop) {
-      // don't add it anywhere, let it drop, if it's a request then time it out
-      // TODO queue this up and drop it after its deadline
-      PromiseKey drop_promise_key{.requester_address = opaque_message.from_address,
-                                  .request_id = opaque_message.request_id,
-                                  .replier_address = to_address};
-      if (promises_.contains(drop_promise_key)) {
-        DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
-        promises_.erase(promise_key);
-        dop.promise.TimeOut();
-      }
+      // don't add it anywhere, let it drop
     } else {
       // add to can_receive_ if not
       const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());

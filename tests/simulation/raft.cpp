@@ -623,7 +623,7 @@ void RunServer(Server<IoImpl> server) {
 
 void RunSimulation() {
   auto config = SimulatorConfig{
-      .drop_percent = 0,
+      .drop_percent = 5,
       .perform_timeouts = true,
       .scramble_messages = true,
       .rng_seed = 0,
