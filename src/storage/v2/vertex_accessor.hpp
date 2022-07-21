@@ -68,7 +68,7 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
-  Result<LabelId> PrimaryLabel(View view) const;
+  LabelId PrimaryLabel() const noexcept;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc

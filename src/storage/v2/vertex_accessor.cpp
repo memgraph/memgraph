@@ -161,50 +161,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
-Result<LabelId> VertexAccessor::PrimaryLabel(View view) const {
-  bool exists = true;
-  bool deleted = false;
-  LabelId primary_label = vertex_->primary_label;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-    deleted = vertex_->deleted;
-    delta = vertex_->delta;
-  }
-  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &primary_label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::REMOVE_LABEL: {
-        MG_ASSERT(primary_label != delta.label, "Invalid database state!");
-        break;
-      }
-      case Delta::Action::ADD_LABEL: {
-        MG_ASSERT(primary_label != delta.label, "Invalid database state!");
-        break;
-      }
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-  });
-  if (!exists) {
-    return Error::NONEXISTENT_OBJECT;
-  }
-  if (!for_deleted_ && deleted) {
-    return Error::DELETED_OBJECT;
-  }
-  return primary_label;
-}
+LabelId VertexAccessor::PrimaryLabel() const noexcept { return vertex_->primary_label; }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool exists = true;

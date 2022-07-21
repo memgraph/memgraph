@@ -135,7 +135,7 @@ class VertexAccessor final {
     return {maybe_error.GetError()};
   }
 
-  storage::Result<storage::LabelId> PrimaryLabel(storage::View view) const { return impl_.PrimaryLabel(view); }
+  storage::LabelId PrimaryLabel() const noexcept { return impl_.PrimaryLabel(); }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
@@ -154,9 +154,8 @@ class VertexAccessor final {
   storage::ResultSchema<storage::PropertyValue> SetPropertyAndValidate(storage::PropertyId key,
                                                                        const storage::PropertyValue &value,
                                                                        storage::View view) {
-    auto primary_label = impl_.PrimaryLabel(view);
-    MG_ASSERT(primary_label.HasValue(), "Primary label not found");
-    if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label.GetValue(), key);
+    const auto primary_label = impl_.PrimaryLabel();
+    if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label, key);
         maybe_violation_error) {
       return {*maybe_violation_error};
     }
