@@ -173,11 +173,6 @@ class TypedValue {
     duration_v = value;
   }
 
-  explicit TypedValue(const query::Graph &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Graph) {
-    graph_v = value;
-  }
-
   // conversion function to storage::PropertyValue
   explicit operator storage::PropertyValue() const;
 
@@ -406,6 +401,22 @@ class TypedValue {
    */
   TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
     new (&path_v) Path(std::move(path), memory_);
+  }
+
+  /**
+   * Construct with the value of graph.
+   * utils::MemoryResource is obtained from graph. After the move, graph will be
+   * left empty.
+   */
+  explicit TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of graph and use the given MemoryResource.
+   * If `*graph.GetMemoryResource() != *memory`, this call will perform an
+   * element-wise move and graph is not guaranteed to be empty.
+   */
+  TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
+    new (&graph_v) Graph(std::move(graph), memory_);
   }
 
   /**

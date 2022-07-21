@@ -35,14 +35,27 @@ class Graph {
    * Create the graph with no elements
    * Allocations are done using the given MemoryResource.
    */
-  explicit Graph(utils::MemoryResource *memory = utils::NewDeleteResource()) : vertices_(memory), edges_(memory) {}
+  explicit Graph(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
+
+  /** Construct a copy using the given utils::MemoryResource */
+  Graph(const Graph &other, utils::MemoryResource *memory)
+      : vertices_(other.vertices_, memory), edges_(other.edges_, memory) {}
 
   /**
-   * Create the graph starting with the given vertex.
-   * Allocations are done using the given MemoryResource.
+   * Construct with the value of other.
+   * utils::MemoryResource is obtained from other. After the move, other will be
+   * empty.
    */
-  explicit Graph(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : vertices_(memory), edges_(memory) {}
+  Graph(Graph &&other) noexcept : Graph(std::move(other), other.GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of other, but use the given utils::MemoryResource.
+   * After the move, other may not be empty if `*memory !=
+   * *other.GetMemoryResource()`, because an element-wise move will be
+   * performed.
+   */
+  Graph(Graph &&other, utils::MemoryResource *memory)
+      : vertices_(std::move(other.vertices_), memory), edges_(std::move(other.edges_), memory) {}
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path) {
@@ -50,6 +63,11 @@ class Graph {
     std::for_each(path_vertices_.begin(), path_vertices_.end(),
                   [this](const VertexAccessor v) { vertices_.push_back(v); });
   }
+
+  /** Move assign other, utils::MemoryResource of `this` is used. */
+  Graph &operator=(Graph &&) = default;
+
+  ~Graph() = default;
 
   /** Returns the number of expansions (edges) in this path. */
   auto size() const { return edges_.size(); }

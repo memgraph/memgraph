@@ -2612,7 +2612,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TMap(memory));
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
-    case Aggregation::Op::PROJECT:  // add here graph as aggregation value
+    case Aggregation::Op::PROJECT:
       return TypedValue(query::Graph(memory));
   }
 }
