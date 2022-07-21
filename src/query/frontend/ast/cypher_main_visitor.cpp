@@ -2342,7 +2342,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
   return for_each;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext * /*ctx*/) {
   auto *show_config_query = storage_->Create<ShowConfigQuery>();
   query_ = show_config_query;
   return show_config_query;
