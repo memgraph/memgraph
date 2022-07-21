@@ -2449,17 +2449,23 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
+  auto commit_confirmed_by_all_sync_repplicas =
+      true;  // #NoCommit see how to do this differently. We still want to execute
+             // triggers even if one synbc replica can't receive the commit
+
+  // maybe have reset_necessary_members in a scopeguard, we always execute it before returning
+
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
     const auto &storage_error = maybe_commit_error.GetError();
     const auto &error = storage_error.error;
 
     std::visit(
-        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members]<typename T>(T &&arg) {
+        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members,
+         &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-            reset_necessary_members();
-            throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+            commit_confirmed_by_all_sync_repplicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             switch (constraint_violation.type) {
@@ -2495,13 +2501,13 @@ void Interpreter::Commit() {
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
   // waiting for commiting or one of them just started commiting its changes.
   // This means the ordered execution of after commit triggers are not guaranteed.
-  auto all_triggers_replicated_on_sync_replicas = true;
+  auto all_triggers_confirmed_by_all_sync_replicas = true;
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
     interpreter_context_->after_commit_trigger_pool.AddTask(
         [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
          user_transaction = std::shared_ptr(std::move(db_accessor_)),
-         &all_triggers_replicated_on_sync_replicas]() mutable {
-          all_triggers_replicated_on_sync_replicas =
+         &all_triggers_confirmed_by_all_sync_replicas]() mutable {
+          all_triggers_confirmed_by_all_sync_replicas =
               RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
                                       std::move(trigger_context));
           user_transaction->FinalizeTransaction();
@@ -2512,7 +2518,10 @@ void Interpreter::Commit() {
   reset_necessary_members();
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!all_triggers_replicated_on_sync_replicas) {
+  if (!commit_confirmed_by_all_sync_repplicas) {
+    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+  }
+  if (!all_triggers_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed execution of the trigger AFTER COMMIT");
   }
 }
