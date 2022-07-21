@@ -92,8 +92,8 @@ target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-query)
 
-add_unit_test(query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
+# add_unit_test(query_plan_accumulate_aggregate.cpp)
+# target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
 
 # add_unit_test(query_plan_bag_semantics.cpp)
 # target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query)
@@ -102,7 +102,6 @@ target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
 # target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
 # add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 # target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
-
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
@@ -110,9 +109,8 @@ add_unit_test(query_plan_read_write_typecheck.cpp
   ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
 target_link_libraries(${test_prefix}query_plan_read_write_typecheck mg-query)
 
-add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
-
+# add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
+# target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-query)
 
@@ -379,3 +377,6 @@ target_link_libraries(${test_prefix}storage_v3_query_plan_bag_semantics mg-query
 
 add_unit_test(storage_v3_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}storage_v3_query_plan_edge_cases mg-communication mg-query)
+
+add_unit_test(storage_v3_query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_delete mg-query)
