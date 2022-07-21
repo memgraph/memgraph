@@ -754,41 +754,66 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void GrantPrivilege(const std::string &user_or_role,
                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                       const std::vector<std::string> &labels) override {
-    EditPermissions(user_or_role, privileges, labels, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Grant(permission);
-    });
+    EditPermissions(
+        user_or_role, privileges, labels,
+        [](auto *permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions->Grant(permission);
+        },
+        [](auto *labels, const auto &label) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          labels->Grant(label);
+        });
   }
 
   void DenyPrivilege(const std::string &user_or_role,
                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                      const std::vector<std::string> &labels) override {
-    EditPermissions(user_or_role, privileges, labels, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Deny(permission);
-    });
+    EditPermissions(
+        user_or_role, privileges, labels,
+        [](auto *permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions->Deny(permission);
+        },
+        [](auto *labels, const auto &label) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          labels->Deny(label);
+        });
   }
 
   void RevokePrivilege(const std::string &user_or_role,
                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                        const std::vector<std::string> &labels) override {
-    EditPermissions(user_or_role, privileges, labels, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Revoke(permission);
-    });
+    EditPermissions(
+        user_or_role, privileges, labels,
+        [](auto *permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions->Revoke(permission);
+        },
+        [](auto *labels, const auto &label) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          labels->Revoke(label);
+        });
   }
 
  private:
-  template <class TEditFun>
+  template <class TEditFun, class TEditFunLabels>
   void EditPermissions(const std::string &user_or_role,
                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels, const TEditFun &edit_fun) {
+                       const std::vector<std::string> &labels, const TEditFun &edit_fun,
+                       const TEditFunLabels &edit_fun_labels) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -808,11 +833,16 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-
+        for (const auto &label : labels) {
+          edit_fun_labels(&user->fine_grained_access_permissions(), label);
+        }
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
+        }
+        for (const auto &label : labels) {
+          edit_fun_labels(&user->fine_grained_access_permissions(), label);
         }
 
         locked_auth->SaveRole(*role);

@@ -84,8 +84,6 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_WRITE";
     case Permission::WEBSOCKET:
       return "WEBSOCKET";
-    case Permission::LABELS:
-      return "LABELS";
   }
 }
 
