@@ -369,7 +369,7 @@ def test_conflict_at_startup(connection):
     assert execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0] == "main"
 
 
-def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
+def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -438,7 +438,7 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down(connection):
     assert actual_data == expected_data
 
 
-def test_async_replication_when_main_is_killed(connection):
+def test_async_replication_when_main_is_killed():
     # Goal of the test is to check that when main is randomly killed:
     # -the ASYNC replica always contains a valid subset of data of main.
     # -the SYNC replica always contains the exact data that was in main.
@@ -505,7 +505,7 @@ def test_async_replication_when_main_is_killed(connection):
         data_directory_replica.cleanup()
 
 
-def test_sync_replication_when_main_is_killed(connection):
+def test_sync_replication_when_main_is_killed():
     # Goal of the test is to check that when main is randomly killed:
     # -the SYNC replica always contains the exact data that was in main.
     # We run the test 20 times, it should never fail.
@@ -560,7 +560,7 @@ def test_sync_replication_when_main_is_killed(connection):
         data_directory_replica.cleanup()
 
 
-def test_attempt_to_write_data_on_main_when_async_replica_is_down(connection):
+def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     # Goal of this test is to check that main can write new data if an async replica is down.
     # 0/ Start main and async replicas.
     # 1/ Check status of replicas.
@@ -639,7 +639,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
+def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
     # Goal of this test is to check that main cannot write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -738,7 +738,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection):
+def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     # Goal of this test is to check that main can create new indexes/constraints if an async replica is down.
     # 0/ Start main and async replicas.
     # 1/ Check status of replicas.
@@ -817,7 +817,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection):
+def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     # Goal of this test is to check that main cannot create new indexes/constraints if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -916,7 +916,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_after_commit_with_offline_sync_replica(connection):
+def test_trigger_on_create_after_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -1015,7 +1015,7 @@ def test_trigger_on_create_after_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_create_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -1114,7 +1114,7 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_after_commit_with_offline_sync_replica(connection):
+def test_trigger_on_update_after_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1219,7 +1219,7 @@ def test_trigger_on_update_after_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_update_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1324,7 +1324,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_after_commit_with_offline_sync_replica(connection):
+def test_trigger_on_delete_after_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1434,7 +1434,7 @@ def test_trigger_on_delete_after_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
