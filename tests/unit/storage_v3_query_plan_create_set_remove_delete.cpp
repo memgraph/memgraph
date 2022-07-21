@@ -37,14 +37,14 @@ using namespace memgraph::query::plan;
 
 class QueryPlanCRUDTest : public testing::Test {
  protected:
-  QueryPlanCRUDTest() : label(db.NameToLabel("label")), property(db.NameToProperty("label2")) {
+  QueryPlanCRUDTest() {
     EXPECT_TRUE(
         db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
   }
 
   memgraph::storage::Storage db;
-  memgraph::storage::LabelId label;
-  memgraph::storage::PropertyId property;
+  memgraph::storage::LabelId label = db.NameToLabel("label");
+  memgraph::storage::PropertyId property = db.NameToProperty("property");
 };
 
 TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
