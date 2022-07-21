@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 #include <json/json.hpp>
 
@@ -38,7 +39,8 @@ enum class Permission : uint64_t {
   STREAM       = 1U << 17U,
   MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
-  WEBSOCKET    = 1U << 20U
+  WEBSOCKET    = 1U << 20U,
+  LABELS       = 1U << 21U
 };
 // clang-format on
 
@@ -87,6 +89,36 @@ class Permissions final {
 bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
+
+class FineGrainedAccessPermissions final {
+ public:
+  FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
+                               const std::unordered_set<std::string> &denies = {});
+
+  PermissionLevel Has(const std::string &permission) const;
+
+  void Grant(const std::string &permission);
+
+  void Revoke(const std::string &permission);
+
+  void Deny(const std::string &permission);
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
+
+  const std::unordered_set<std::string> &grants() const;
+  const std::unordered_set<std::string> &denies() const;
+
+ private:
+  std::unordered_set<std::string> grants_{};
+  std::unordered_set<std::string> denies_{};
+};
+
+bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
+
+bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
 
 class Role final {
  public:

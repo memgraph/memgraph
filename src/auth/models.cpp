@@ -183,6 +183,116 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
+const std::string ASTERISK = "*";
+
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants,
+                                                           const std::unordered_set<std::string> &denies)
+    : grants_(grants), denies_(denies) {}
+
+PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission) const {
+  if ((denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) || denies_.find(permission) != denies_.end()) {
+    return PermissionLevel::DENY;
+  }
+
+  if ((grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) || grants_.find(permission) != denies_.end()) {
+    return PermissionLevel::GRANT;
+  }
+
+  return PermissionLevel::NEUTRAL;
+}
+
+void FineGrainedAccessPermissions::Grant(const std::string &permission) {
+  if (permission == ASTERISK) {
+    grants_.clear();
+    grants_.insert(permission);
+
+    return;
+  }
+
+  auto deniedPermissionIter = denies_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) {
+    grants_.erase(ASTERISK);
+  }
+
+  if (grants_.find(permission) == grants_.end()) {
+    grants_.insert(permission);
+  }
+}
+
+void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
+  if (permission == ASTERISK) {
+    grants_.clear();
+    denies_.clear();
+
+    return;
+  }
+
+  auto deniedPermissionIter = denies_.find(permission);
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (deniedPermissionIter != denies_.end()) {
+    denies_.erase(deniedPermissionIter);
+  }
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+}
+
+void FineGrainedAccessPermissions::Deny(const std::string &permission) {
+  if (permission == ASTERISK) {
+    denies_.clear();
+    denies_.insert(permission);
+
+    return;
+  }
+
+  auto grantedPermissionIter = grants_.find(permission);
+
+  if (grantedPermissionIter != grants_.end()) {
+    grants_.erase(grantedPermissionIter);
+  }
+
+  if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
+    denies_.erase(ASTERISK);
+  }
+
+  if (denies_.find(permission) == denies_.end()) {
+    denies_.insert(permission);
+  }
+}
+
+nlohmann::json FineGrainedAccessPermissions::Serialize() const {
+  nlohmann::json data = nlohmann::json::object();
+  data["grants"] = grants_;
+  data["denies"] = denies_;
+  return data;
+}
+
+FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlohmann::json &data) {
+  if (!data.is_object()) {
+    throw AuthException("Couldn't load permissions data!");
+  }
+
+  return {data["grants"], data["denies"]};
+}
+
+const std::unordered_set<std::string> &FineGrainedAccessPermissions::grants() const { return grants_; }
+const std::unordered_set<std::string> &FineGrainedAccessPermissions::denies() const { return denies_; }
+
+bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
+  return first.grants() == second.grants() && first.denies() == second.denies();
+}
+
+bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
+  return !(first == second);
+}
+
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
 Role::Role(const std::string &rolename, const Permissions &permissions)
