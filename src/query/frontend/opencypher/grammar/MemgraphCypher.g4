@@ -255,7 +255,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | LABELS = labelList
+          | LABELS labels=labelList
           ;
 
 labelList : '*' | listOfLabels ;
