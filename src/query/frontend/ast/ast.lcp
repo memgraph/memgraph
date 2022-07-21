@@ -2255,7 +2255,7 @@ cpp<#
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
          dump replication durability read_file free_memory trigger config stream module_read module_write
-         websocket labels)
+         websocket)
       (:serialize))
     #>cpp
     AuthQuery() = default;
