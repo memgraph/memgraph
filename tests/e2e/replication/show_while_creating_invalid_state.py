@@ -61,6 +61,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
 }
 
+BEFORE_OR_AFTER = ["BEFORE", "AFTER"]
+
 
 def test_show_replicas(connection):
     # Goal of this test is to check the SHOW REPLICAS command.
@@ -916,7 +918,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", ["BEFORE", "AFTER"])
+@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
 def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(before_or_after):
     # 0/ Start all.
     # 1/ Create the trigger
@@ -1016,7 +1018,7 @@ def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(befo
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", ["BEFORE", "AFTER"])
+@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
 def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(before_or_after):
     # 0/ Start all.
     # 1/ Create the trigger
@@ -1122,7 +1124,7 @@ def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(befo
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", ["BEFORE", "AFTER"])
+@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
 def test_trigger_on_delete_before_or_after_commit_with_offline_sync_replica(before_or_after):
     # 0/ Start all.
     # 1/ Create the trigger
