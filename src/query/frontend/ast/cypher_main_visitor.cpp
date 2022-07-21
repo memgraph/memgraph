@@ -1274,7 +1274,11 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      if (privilege->LABELS()) {
+        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+      } else {
+        auth->privileges_.push_back(privilege->accept(this));
+      }
     }
   } else {
     /* grant all privileges */
@@ -1292,7 +1296,11 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      if (privilege->LABELS()) {
+        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+      } else {
+        auth->privileges_.push_back(privilege->accept(this));
+      }
     }
   } else {
     /* deny all privileges */
@@ -1310,13 +1318,30 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      if (privilege->LABELS()) {
+        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+      } else {
+        auth->privileges_.push_back(privilege->accept(this));
+      }
     }
   } else {
     /* revoke all privileges */
     auth->privileges_ = kPrivilegesAll;
   }
   return auth;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLabelList(MemgraphCypher::LabelListContext *ctx) {
+  std::vector<std::string> labels;
+  if (ctx->listOfLabels()) {
+    for (auto *label : ctx->listOfLabels()->label()) {
+      labels.push_back(label->symbolicName()->accept(this).as<std::string>());
+    }
+  } else {
+    labels.emplace_back("*");
+  }
+
+  return labels;
 }
 
 /**

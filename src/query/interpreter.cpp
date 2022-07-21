@@ -280,6 +280,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
+  std::vector<std::string> labels = auth_query->labels_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -309,7 +310,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll);
+          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -384,20 +385,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->GrantPrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->GrantPrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->DenyPrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->DenyPrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges] {
-        auth->RevokePrivilege(user_or_role, privileges);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->RevokePrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;

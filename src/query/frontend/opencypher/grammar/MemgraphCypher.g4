@@ -258,13 +258,13 @@ privilege : CREATE
           | LABELS labels=labelList
           ;
 
+privilegeList : privilege ( ',' privilege )* ;
+
 labelList : '*' | listOfLabels ;
 
 listOfLabels : label ( ',' label )* ;
 
 label : COLON symbolicName ;
-
-privilegeList : privilege ( ',' privilege )* ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
