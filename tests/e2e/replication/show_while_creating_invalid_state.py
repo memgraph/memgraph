@@ -618,13 +618,17 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down(connection):
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
 
     # 5/
-    expected_data = {
-        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "invalid"),
-        ("async_replica2", "127.0.0.1:10002", "async", 5, 0, "ready"),
-    }
+    expected_data = [
+        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica2", "async", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -688,13 +692,17 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
 
     # 3/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -718,10 +726,10 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 5, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -788,13 +796,17 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
 
     # 5/
-    expected_data = {
-        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "invalid"),
-        ("async_replica2", "127.0.0.1:10002", "async", 2, 0, "ready"),
-    }
+    expected_data = [
+        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica2", "async", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -858,13 +870,17 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
 
     # 3/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 1, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -888,10 +904,10 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 2, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 2, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -961,13 +977,17 @@ def test_trigger_on_create_after_commit_with_offline_sync_replica(connection):
 
     # 5/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 10, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -983,10 +1003,10 @@ def test_trigger_on_create_after_commit_with_offline_sync_replica(connection):
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 15, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 15, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1056,13 +1076,17 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
 
     # 5/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 7, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -1078,10 +1102,10 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 9, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 9, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1157,13 +1181,17 @@ def test_trigger_on_update_after_commit_with_offline_sync_replica(connection):
 
     # 6/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 16, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -1179,10 +1207,10 @@ def test_trigger_on_update_after_commit_with_offline_sync_replica(connection):
 
     # 9/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 21, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 21, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1258,13 +1286,17 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
 
     # 6/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 11, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -1280,10 +1312,10 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
 
     # 9/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 13, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 13, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1362,13 +1394,17 @@ def test_trigger_on_delete_after_commit_with_offline_sync_replica(connection):
 
     # 6/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 17, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -1385,10 +1421,10 @@ def test_trigger_on_delete_after_commit_with_offline_sync_replica(connection):
 
     # 9/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 22, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 22, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1468,13 +1504,17 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
 
     # 6/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 13, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "invalid"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
 
     def retrieve_data():
-        return set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+        return [
+            (replica_name, mode, timestamp_behind_main, status)
+            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+        ]
 
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
@@ -1491,10 +1531,10 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
 
     # 9/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 15, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 15, 0, "ready"),
-    }
+    expected_data = [
+        ("sync_replica1", "sync", 0, "ready"),
+        ("sync_replica2", "sync", 0, "ready"),
+    ]
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
