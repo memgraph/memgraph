@@ -984,8 +984,8 @@ def test_trigger_on_create_after_commit_with_offline_sync_replica(connection):
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
     expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 20, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 20, 0, "ready"),
+        ("sync_replica1", "127.0.0.1:10001", "sync", 15, 0, "ready"),
+        ("sync_replica2", "127.0.0.1:10002", "sync", 15, 0, "ready"),
     }
     actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
     assert actual_data == expected_data
