@@ -12,9 +12,13 @@
 #pragma once
 
 // Signifies that a retriable operation was unable to
-// (fully) complete after a configured number of retries.
+// complete after a configured number of retries.
 struct RetriesExhausted {};
 
-// Signifies that an operation was unable
-// to (fully) complete after a configured duration.
+// Signifies that a request was unable to receive a response
+// within some configured timeout duration. It is important
+// to remember that in distributed systems, a timeout does
+// not signify that a request was not received or processed.
+// It may be the case that the request was fully processed
+// but that the response was not received.
 struct TimedOut {};

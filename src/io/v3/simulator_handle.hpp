@@ -261,6 +261,9 @@ class SimulatorHandle {
         std::cout << "timing out request" << std::endl;
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
         promises_.erase(promise_key);
+
+        stats_.timed_out_requests++;
+
         dop.promise.TimeOut();
       }
     }
@@ -337,6 +340,7 @@ class SimulatorHandle {
       bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
 
       if (should_drop || normal_timeout) {
+        stats_.timed_out_requests++;
         dop.promise.TimeOut();
       } else {
         stats_.total_responses++;

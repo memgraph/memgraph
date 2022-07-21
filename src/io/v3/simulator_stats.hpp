@@ -14,6 +14,7 @@
 struct SimulatorStats {
   uint64_t total_messages = 0;
   uint64_t dropped_messages = 0;
+  uint64_t timed_out_requests = 0;
   uint64_t total_requests = 0;
   uint64_t total_responses = 0;
   uint64_t simulator_ticks = 0;
