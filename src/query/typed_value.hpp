@@ -173,6 +173,11 @@ class TypedValue {
     duration_v = value;
   }
 
+  explicit TypedValue(const query::Graph &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Graph) {
+    graph_v = value;
+  }
+
   // conversion function to storage::PropertyValue
   explicit operator storage::PropertyValue() const;
 
@@ -488,6 +493,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 

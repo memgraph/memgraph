@@ -604,7 +604,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
-      case TypedValue::Graph:
+      case Type::Graph:
         throw TypedValueException("A");
     }
     other.DestroyValue();
@@ -646,6 +646,8 @@ void TypedValue::DestroyValue() {
     case Type::LocalDateTime:
     case Type::Duration:
       break;
+    case Type::Graph:
+      throw TypedValueException("A");
   }
 
   type_ = TypedValue::Type::Null;
@@ -1115,8 +1117,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;
-    case TypedValue::Type::Duration:
-      throw TypedValueException("a";)
+    case TypedValue::Type::Graph:
+      throw TypedValueException("a");
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }

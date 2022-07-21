@@ -2824,7 +2824,7 @@ class AggregateCursor : public Cursor {
             break;
           case Aggregation::Op::PROJECT: {
             EnsureOkForProject(input_value);
-            value_it->ValueMap().emplace("path", input_value);
+            value_it->ValueGraph().Expand(input_value.ValuePath());
             break;
           }
           case Aggregation::Op::COLLECT_MAP:
@@ -2877,7 +2877,7 @@ class AggregateCursor : public Cursor {
           break;
         case Aggregation::Op::PROJECT: {
           EnsureOkForProject(input_value);
-          value_it->ValueGraph().add("path", input_value);
+          value_it->ValueGraph().Expand(input_value.ValuePath());
           break;
         }
         case Aggregation::Op::COLLECT_MAP:

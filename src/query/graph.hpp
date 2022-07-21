@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "query/db_accessor.hpp"
+#include "query/path.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
@@ -42,6 +43,13 @@ class Graph {
    */
   explicit Graph(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
       : vertices_(memory), edges_(memory) {}
+
+  /** Expands the graph with the given path. */
+  void Expand(const Path &path) {
+    const auto path_vertices_ = path.vertices();
+    std::for_each(path_vertices_.begin(), path_vertices_.end(),
+                  [this](const VertexAccessor v) { vertices_.push_back(v); });
+  }
 
   /** Returns the number of expansions (edges) in this path. */
   auto size() const { return edges_.size(); }
