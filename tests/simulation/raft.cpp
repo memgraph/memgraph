@@ -170,19 +170,18 @@ class Server {
     auto indices = std::vector<LogIndex>{state_.log.size()};
     for (const auto &[addr, f] : leader.followers) {
       indices.push_back(f.confirmed_contiguous_index);
-      Log("Follower at port ", addr.last_known_port,
-          " has confirmed contiguous index of: ", f.confirmed_contiguous_index);
+      Log("at port ", addr.last_known_port, " has confirmed contiguous index of: ", f.confirmed_contiguous_index);
     }
     std::ranges::sort(indices, std::ranges::greater());
     // assuming reverse sort (using std::ranges::greater)
     state_.committed_log_size = indices[(indices.size() / 2)];
 
-    Log("Leader committed_log_size is now ", state_.committed_log_size);
+    Log("committed_log_size is now ", state_.committed_log_size);
 
     while (!leader.pending_client_requests.empty()) {
       auto &front = leader.pending_client_requests.front();
       if (front.log_index <= state_.committed_log_size) {
-        Log("Leader responding SUCCESS to client");
+        Log("responding SUCCESS to client");
         ReplicationResponse rr{
             .success = true,
             .retry_leader = std::nullopt,
@@ -207,7 +206,7 @@ class Server {
 
       Term previous_term_from_index = PreviousTermFromIndex(index);
 
-      Log("Leader sending ", entries.size(), " entries to Follower ", address.last_known_port,
+      Log("sending ", entries.size(), " entries to Follower ", address.last_known_port,
           " which are above its known index of ", index);
 
       AppendRequest ar{
@@ -403,7 +402,7 @@ class Server {
   }
 
   std::optional<Role> Handle(Candidate &candidate, VoteResponse &&res, RequestId, Address from_address) {
-    Log("Candidate received VoteResponse");
+    Log("received VoteResponse");
 
     if (!res.vote_granted || res.term != state_.term) {
       Log("received unsuccessful VoteResponse from term ", res.term, " when our candidacy term is ", state_.term);
@@ -459,7 +458,7 @@ class Server {
 
   // only leaders actually handle replication requests from clients
   std::optional<Role> Handle(Leader &leader, ReplicationRequest &&req, RequestId request_id, Address from_address) {
-    Log("Leader received ReplicationRequest");
+    Log("received ReplicationRequest");
 
     // we are the leader. add item to log and send Append to peers
     state_.log.emplace_back(std::pair(state_.term, std::move(req.opaque_data)));
@@ -491,7 +490,7 @@ class Server {
   }
 
   std::optional<Role> Handle(Candidate &, ReplicationRequest &&req, RequestId request_id, Address from_address) {
-    Log("Candidate received ReplicationRequest - not redirecting because no Leader is known");
+    Log("received ReplicationRequest - not redirecting because no Leader is known");
     auto res = ReplicationResponse{};
 
     res.success = false;
@@ -563,7 +562,7 @@ class Server {
           req.last_log_term);
     } else {
       // happy path - apply log
-      Log("Follower applying batch of entries to log of size ", req.entries.size());
+      Log("applying batch of entries to log of size ", req.entries.size());
 
       MG_ASSERT(req.last_log_index >= state_.committed_log_size,
                 "Applied history from Leader which goes back in time from our commit_index");
@@ -592,10 +591,10 @@ class Server {
       MG_ASSERT(false, "received AppendResponse from unknown Follower");
     } else {
       if (res.success) {
-        Log("Leader got successful AppendResponse from ", from_address.last_known_port, " with last_log_index of ",
+        Log("got successful AppendResponse from ", from_address.last_known_port, " with last_log_index of ",
             res.last_log_index);
       } else {
-        Log("Leader got unsuccessful AppendResponse from ", from_address.last_known_port, " with last_log_index of ",
+        Log("got unsuccessful AppendResponse from ", from_address.last_known_port, " with last_log_index of ",
             res.last_log_index);
       }
       FollowerTracker &follower = leader.followers.at(from_address);
