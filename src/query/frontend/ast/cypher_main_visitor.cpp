@@ -1498,8 +1498,9 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
 
 antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) {
   std::vector<Expression *> expressions;
-  for (auto expr_ctx_ptr : ctx->expression())
-    expressions.push_back(std::any_cast<Expression *>(expr_ctx_ptr->accept(this)));
+  for (auto *expr_ctx : ctx->expression()) {
+    expressions.push_back(std::any_cast<Expression *>(expr_ctx->accept(this)));
+  }
   return expressions;
 }
 
@@ -1563,7 +1564,7 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(MemgraphCypher::PatternElem
   if (ctx->patternElement()) {
     return ctx->patternElement()->accept(this);
   }
-  auto pattern = storage_->Create<Pattern>();
+  auto *pattern = storage_->Create<Pattern>();
   pattern->atoms_.push_back(std::any_cast<NodeAtom *>(ctx->nodePattern()->accept(this)));
   for (auto *pattern_element_chain : ctx->patternElementChain()) {
     auto element = std::any_cast<std::pair<PatternAtom *, PatternAtom *>>(pattern_element_chain->accept(this));
