@@ -75,8 +75,8 @@ target_link_libraries(${test_prefix}bfs_single_node mg-query)
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
 
-add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter mg-communication mg-query)
+# add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+# target_link_libraries(${test_prefix}interpreter mg-communication mg-query)
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-query)
@@ -100,8 +100,8 @@ target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
 add_unit_test(query_plan_bag_semantics.cpp)
 target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query)
 
-add_unit_test(query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
+# add_unit_test(query_plan_create_set_remove_delete.cpp)
+# target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
 
 add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
@@ -377,3 +377,6 @@ target_link_libraries(${test_prefix}interpreter_v2 mg-storage-v2 mg-query mg-com
 
 add_unit_test(storage_v3_query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}storage_v3_query_plan_accumulate_aggregate mg-query)
+
+add_unit_test(storage_v3_query_plan_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_create_set_remove_delete mg-query)
