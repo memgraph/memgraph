@@ -11,7 +11,15 @@
 
 #include <thread>
 
-#include "io/v3/simulator.hpp"
+#include "io/simulator/simulator.hpp"
+
+using memgraph::io::Address;
+using memgraph::io::Io;
+using memgraph::io::ResponseFuture;
+using memgraph::io::ResponseResult;
+using memgraph::io::simulator::Simulator;
+using memgraph::io::simulator::SimulatorConfig;
+using memgraph::io::simulator::SimulatorTransport;
 
 struct CounterRequest {
   uint64_t proposal;

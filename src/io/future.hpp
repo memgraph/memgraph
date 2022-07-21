@@ -20,7 +20,7 @@
 
 #include "utils/logging.hpp"
 
-#include "io/v3/errors.hpp"
+#include "io/errors.hpp"
 
 namespace memgraph::io {
 

@@ -23,7 +23,17 @@
 #include <thread>
 #include <vector>
 
-#include "io/v3/simulator.hpp"
+#include "io/simulator/simulator.hpp"
+
+using memgraph::io::Address;
+using memgraph::io::Io;
+using memgraph::io::ResponseEnvelope;
+using memgraph::io::ResponseFuture;
+using memgraph::io::ResponseResult;
+using memgraph::io::simulator::Simulator;
+using memgraph::io::simulator::SimulatorConfig;
+using memgraph::io::simulator::SimulatorStats;
+using memgraph::io::simulator::SimulatorTransport;
 
 using Op = std::vector<uint8_t>;
 using Term = uint64_t;

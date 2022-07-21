@@ -13,11 +13,12 @@
 
 #include <memory>
 
-#include "io/v3/address.hpp"
-#include "io/v3/simulator_config.hpp"
-#include "io/v3/simulator_handle.hpp"
-#include "io/v3/simulator_transport.hpp"
+#include "io/address.hpp"
+#include "io/simulator/simulator_config.hpp"
+#include "io/simulator/simulator_handle.hpp"
+#include "io/simulator/simulator_transport.hpp"
 
+namespace memgraph::io::simulator {
 class Simulator {
   std::mt19937 rng_{};
   std::shared_ptr<SimulatorHandle> simulator_handle_;
@@ -40,3 +41,4 @@ class Simulator {
 
   SimulatorStats Stats() { return simulator_handle_->Stats(); }
 };
+};  // namespace memgraph::io::simulator

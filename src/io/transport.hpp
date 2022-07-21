@@ -17,15 +17,13 @@
 
 #include "utils/result.hpp"
 
+#include "io/address.hpp"
+#include "io/errors.hpp"
 #include "io/future.hpp"
-#include "io/v3/address.hpp"
-#include "io/v3/errors.hpp"
 
 using memgraph::utils::BasicResult;
 
-template <typename I>
-class Io;
-
+namespace memgraph::io {
 // TODO(tyler) ensure that Message continues to represent
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.
@@ -129,3 +127,4 @@ class Io {
 
   Address GetAddress() { return address_; }
 };
+};  // namespace memgraph::io

@@ -11,14 +11,13 @@
 
 #pragma once
 
-// Signifies that a retriable operation was unable to
-// complete after a configured number of retries.
-struct RetriesExhausted {};
-
-// Signifies that a request was unable to receive a response
-// within some configured timeout duration. It is important
-// to remember that in distributed systems, a timeout does
-// not signify that a request was not received or processed.
-// It may be the case that the request was fully processed
-// but that the response was not received.
-struct TimedOut {};
+namespace memgraph::io::simulator {
+struct SimulatorConfig {
+  int drop_percent = 0;
+  bool perform_timeouts = false;
+  bool scramble_messages = true;
+  uint64_t rng_seed = 0;
+  uint64_t start_time = 0;
+  uint64_t abort_time = ULLONG_MAX;
+};
+};  // namespace memgraph::io::simulator

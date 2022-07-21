@@ -14,9 +14,10 @@
 #include <memory>
 #include <utility>
 
-#include "io/v3/address.hpp"
-#include "io/v3/simulator_handle.hpp"
+#include "io/address.hpp"
+#include "io/simulator/simulator_handle.hpp"
 
+namespace memgraph::io::simulator {
 class SimulatorTransport {
   std::shared_ptr<SimulatorHandle> simulator_handle_;
   Address address_;
@@ -58,3 +59,4 @@ class SimulatorTransport {
     return distrib(rng_);
   }
 };
+};  // namespace memgraph::io::simulator

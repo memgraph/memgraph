@@ -16,6 +16,7 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/uuid/uuid.hpp>
 
+namespace memgraph::io {
 struct Address {
   // It's important for all participants to have a
   // unique identifier - IP and port alone are not
@@ -46,3 +47,4 @@ struct Address {
     }
   }
 };
+};  // namespace memgraph::io

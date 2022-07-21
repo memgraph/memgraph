@@ -11,11 +11,13 @@
 
 #pragma once
 
-struct SimulatorConfig {
-  int drop_percent = 0;
-  bool perform_timeouts = false;
-  bool scramble_messages = true;
-  uint64_t rng_seed = 0;
-  uint64_t start_time = 0;
-  uint64_t abort_time = ULLONG_MAX;
+namespace memgraph::io::simulator {
+struct SimulatorStats {
+  uint64_t total_messages = 0;
+  uint64_t dropped_messages = 0;
+  uint64_t timed_out_requests = 0;
+  uint64_t total_requests = 0;
+  uint64_t total_responses = 0;
+  uint64_t simulator_ticks = 0;
 };
+};  // namespace memgraph::io::simulator

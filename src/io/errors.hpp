@@ -11,11 +11,16 @@
 
 #pragma once
 
-struct SimulatorStats {
-  uint64_t total_messages = 0;
-  uint64_t dropped_messages = 0;
-  uint64_t timed_out_requests = 0;
-  uint64_t total_requests = 0;
-  uint64_t total_responses = 0;
-  uint64_t simulator_ticks = 0;
-};
+namespace memgraph::io {
+// Signifies that a retriable operation was unable to
+// complete after a configured number of retries.
+struct RetriesExhausted {};
+
+// Signifies that a request was unable to receive a response
+// within some configured timeout duration. It is important
+// to remember that in distributed systems, a timeout does
+// not signify that a request was not received or processed.
+// It may be the case that the request was fully processed
+// but that the response was not received.
+struct TimedOut {};
+};  // namespace memgraph::io

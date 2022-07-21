@@ -3,7 +3,10 @@ set(io_src_files
     network/endpoint.cpp
     network/socket.cpp
     network/utils.cpp
-    future.hpp)
+    future.hpp
+    address.hpp
+    errors.hpp
+    transport.hpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)

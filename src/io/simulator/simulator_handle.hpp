@@ -23,12 +23,13 @@
 #include <variant>
 #include <vector>
 
-#include "io/v3/address.hpp"
-#include "io/v3/errors.hpp"
-#include "io/v3/simulator_config.hpp"
-#include "io/v3/simulator_stats.hpp"
-#include "io/v3/transport.hpp"
+#include "io/address.hpp"
+#include "io/errors.hpp"
+#include "io/simulator/simulator_config.hpp"
+#include "io/simulator/simulator_stats.hpp"
+#include "io/transport.hpp"
 
+namespace memgraph::io::simulator {
 struct OpaqueMessage {
   Address from_address;
   uint64_t request_id;
@@ -449,3 +450,4 @@ class SimulatorHandle {
     return stats_;
   }
 };
+};  // namespace memgraph::io::simulator
