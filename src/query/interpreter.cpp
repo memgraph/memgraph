@@ -45,6 +45,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -185,6 +186,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                       {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -276,6 +278,9 @@ class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccess
   memgraph::auth::User *user_;
 };
 
+/// returns false if the replication role can't be set
+/// @throw QueryRuntimeException if an error ocurred.
+
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
                          DbAccessor *db_accessor) {
   // Empty frame for evaluation of password expression. This is OK since
@@ -287,7 +292,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
-
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
@@ -310,8 +314,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
-        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-        features"));
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
   }
 
   switch (auth_query->action_) {
@@ -326,7 +329,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll, {});
+          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -956,7 +959,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (username.has_value() && memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
     ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
   }
@@ -1143,7 +1146,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
-
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
@@ -1292,8 +1294,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
-  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
   auto optional_username = StringPointerToOptional(username);
+
+  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
                        std::move(parsed_query.required_privileges),
