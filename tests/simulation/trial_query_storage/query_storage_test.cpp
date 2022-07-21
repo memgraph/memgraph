@@ -48,10 +48,17 @@ void run_server(Io<SimulatorTransport> io) {
   }
 }
 
+}  // namespace memgraph::tests::simulation
+
 int main() {
   using memgraph::io::Address;
+  using memgraph::io::Io;
   using memgraph::io::simulator::Simulator;
   using memgraph::io::simulator::SimulatorConfig;
+  using memgraph::io::simulator::SimulatorTransport;
+  using memgraph::tests::simulation::run_server;
+  using memgraph::tests::simulation::ScanVerticesRequest;
+  using memgraph::tests::simulation::VerticesResponse;
   auto config = SimulatorConfig{
       .drop_percent = 0,
       .perform_timeouts = true,
@@ -67,7 +74,13 @@ int main() {
   Io<SimulatorTransport> srv_io = simulator.Register(srv_addr);
 
   auto srv_thread = std::jthread(run_server, std::move(srv_io));
+  simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr);
 
+  auto req = ScanVerticesRequest{2, std::nullopt};
+
+  auto res_f = cli_io.RequestWithTimeout<ScanVerticesRequest, VerticesResponse>(srv_addr, req, 1000);
+  auto res_rez = res_f.Wait();
+  // MG_ASSERT(res_rez.HasError());
+  simulator.ShutDown();
   return 0;
 }
-}  // namespace memgraph::tests::simulation
