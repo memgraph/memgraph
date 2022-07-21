@@ -1016,7 +1016,8 @@ def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(befo
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_after_commit_with_offline_sync_replica():
+@pytest.mark.parametrize("before_or_after", ["BEFORE", "AFTER"])
+def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(before_or_after):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1053,115 +1054,10 @@ def test_trigger_on_update_after_commit_with_offline_sync_replica():
     interactive_mg_runner.start_all(CONFIGURATION)
 
     # 1/
-    QUERY_CREATE_TRIGGER = """
+    QUERY_CREATE_TRIGGER = f"""
         CREATE TRIGGER exampleTrigger
-        ON UPDATE AFTER COMMIT EXECUTE
-        CREATE (p:Number {name:'Node_created_by_trigger'});
-    """
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
-    assert len(res_from_main) == 1, f"Incorect result: {res_from_main}"
-
-    # 2/
-    QUERY_CREATE_NODE = "CREATE (p:Number {name:'Not_Magic', value:0})"
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
-
-    # 3/
-    QUERY_TO_UPDATE = "MATCH (node:Number {name:'Not_Magic'}) SET node.value=1 return node;"
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
-
-    # 4/
-    QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 2, f"Incorect result: {res_from_main}"
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-
-    # 5/
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("MATCH (n) DETACH DELETE n;")
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
-
-    # 6/
-    interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
-    expected_data = [
-        ("sync_replica1", "sync", 0, "invalid"),
-        ("sync_replica2", "sync", 0, "ready"),
-    ]
-
-    def retrieve_data():
-        replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
-        return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
-        ]
-
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
-
-    # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
-
-    # 8/
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 2
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-
-    # 9/
-    interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
-    expected_data = [
-        ("sync_replica1", "sync", 0, "ready"),
-        ("sync_replica2", "sync", 0, "ready"),
-    ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 2
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-
-
-def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
-    # 0/ Start all.
-    # 1/ Create the trigger
-    # 2/ Create a node.
-    # 3/ Update the node: we expect another node to be created
-    # 4/ Check the nodes
-    # 5/ We remove all nodes and create new node again.
-    # 6/ Kill a replica and check that it's offline.
-    # 7/ Update the node.
-    # 8/ Check that we have two nodes.
-    # 9/ Re-start the replica and check it's online and that it has two nodes.
-
-    CONFIGURATION = {
-        "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-        },
-        "sync_replica2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
-        },
-        "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
-        },
-    }
-
-    # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
-
-    # 1/
-    QUERY_CREATE_TRIGGER = """
-        CREATE TRIGGER exampleTrigger
-        ON UPDATE BEFORE COMMIT EXECUTE
-        CREATE (p:Number {name:'Node_created_by_trigger'});
+        ON UPDATE {before_or_after} COMMIT EXECUTE
+        CREATE (p:Number {{name:'Node_created_by_trigger'}});
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
