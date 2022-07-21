@@ -295,17 +295,25 @@ bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
-Role::Role(const std::string &rolename, const Permissions &permissions)
-    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
+Role::Role(const std::string &rolename, const Permissions &permissions,
+           const FineGrainedAccessPermissions &fine_grained_access_permissions)
+    : rolename_(utils::ToLowerCase(rolename)),
+      permissions_(permissions),
+      fine_grained_access_permissions_(fine_grained_access_permissions) {}
 
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
+const FineGrainedAccessPermissions &Role::fine_grained_access_permissions() const {
+  return fine_grained_access_permissions_;
+}
+FineGrainedAccessPermissions &Role::fine_grained_access_permissions() { return fine_grained_access_permissions_; }
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
+  data["fine_grained_access_permissions"] = fine_grained_access_permissions_.Serialize();
   return data;
 }
 
@@ -313,11 +321,14 @@ Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  if (!data["rolename"].is_string() || !data["permissions"].is_object()) {
+  if (!data["rolename"].is_string() || !data["permissions"].is_object() ||
+      !data["fine_grained_access_permissions"].is_object()) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["rolename"], permissions};
+  auto fine_grained_access_permissions =
+      FineGrainedAccessPermissions::Deserialize(data["fine_grained_access_permissions"]);
+  return {data["rolename"], permissions, fine_grained_access_permissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -326,8 +337,12 @@ bool operator==(const Role &first, const Role &second) {
 
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
-User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions)
-    : username_(utils::ToLowerCase(username)), password_hash_(password_hash), permissions_(permissions) {}
+User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+           const FineGrainedAccessPermissions &fine_grained_access_permissions)
+    : username_(utils::ToLowerCase(username)),
+      password_hash_(password_hash),
+      permissions_(permissions),
+      fine_grained_access_permissions_(fine_grained_access_permissions) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_.empty()) return true;
@@ -376,10 +391,35 @@ Permissions User::GetPermissions() const {
   return permissions_;
 }
 
+FineGrainedAccessPermissions User::GetFineGrainedAccessPermissions() const {
+  if (role_) {
+    std::unordered_set<std::string> resultGrants;
+
+    std::set_union(fine_grained_access_permissions_.grants().begin(), fine_grained_access_permissions_.grants().end(),
+                   role_->fine_grained_access_permissions().grants().begin(),
+                   role_->fine_grained_access_permissions().grants().end(),
+                   std::inserter(resultGrants, resultGrants.begin()));
+
+    std::unordered_set<std::string> resultDenies;
+
+    std::set_union(fine_grained_access_permissions_.denies().begin(), fine_grained_access_permissions_.denies().end(),
+                   role_->fine_grained_access_permissions().denies().begin(),
+                   role_->fine_grained_access_permissions().denies().end(),
+                   std::inserter(resultDenies, resultDenies.begin()));
+
+    return {resultGrants, resultDenies};
+  }
+  return fine_grained_access_permissions_;
+}
+
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
+const FineGrainedAccessPermissions &User::fine_grained_access_permissions() const {
+  return fine_grained_access_permissions_;
+}
+FineGrainedAccessPermissions &User::fine_grained_access_permissions() { return fine_grained_access_permissions_; }
 
 const Role *User::role() const {
   if (role_.has_value()) {
@@ -393,6 +433,7 @@ nlohmann::json User::Serialize() const {
   data["username"] = username_;
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
+  data["fine_grained_access_permissions"] = fine_grained_access_permissions_.Serialize();
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
 }
@@ -405,7 +446,9 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  return {data["username"], data["password_hash"], permissions};
+  auto fine_grained_access_permissions =
+      FineGrainedAccessPermissions::Deserialize(data["fine_grained_access_permissions"]);
+  return {data["username"], data["password_hash"], permissions, fine_grained_access_permissions};
 }
 
 bool operator==(const User &first, const User &second) {
