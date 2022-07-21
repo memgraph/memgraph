@@ -255,16 +255,16 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | LABELS = labelList
+          | LABELS labels=labelList
           ;
+
+privilegeList : privilege ( ',' privilege )* ;
 
 labelList : '*' | listOfLabels ;
 
 listOfLabels : label ( ',' label )* ;
 
 label : COLON symbolicName ;
-
-privilegeList : privilege ( ',' privilege )* ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
