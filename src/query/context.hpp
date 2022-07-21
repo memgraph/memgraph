@@ -13,6 +13,7 @@
 
 #include <type_traits>
 
+#include "query/access_checker.hpp"
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
@@ -72,6 +73,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
+  AccessChecker *access_checker{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

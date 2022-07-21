@@ -40,7 +40,7 @@ enum class Permission : uint64_t {
   MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
   WEBSOCKET    = 1U << 20U,
-  EDGE_TYPES   = 1U << 22U
+  EDGE_TYPES   = 1U << 21U
 };
 // clang-format on
 
