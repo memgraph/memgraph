@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 #include <json/json.hpp>
 
@@ -89,15 +90,48 @@ bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
 
+class FineGrainedAccessPermissions final {
+ public:
+  FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
+                               const std::unordered_set<std::string> &denies = {});
+
+  PermissionLevel Has(const std::string &permission) const;
+
+  void Grant(const std::string &permission);
+
+  void Revoke(const std::string &permission);
+
+  void Deny(const std::string &permission);
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
+
+  const std::unordered_set<std::string> &grants() const;
+  const std::unordered_set<std::string> &denies() const;
+
+ private:
+  std::unordered_set<std::string> grants_{};
+  std::unordered_set<std::string> denies_{};
+};
+
+bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
+
+bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
+
 class Role final {
  public:
   Role(const std::string &rolename);
 
-  Role(const std::string &rolename, const Permissions &permissions);
+  Role(const std::string &rolename, const Permissions &permissions,
+       const FineGrainedAccessPermissions &fine_grained_access_permissions);
 
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
+  FineGrainedAccessPermissions &fine_grained_access_permissions();
 
   nlohmann::json Serialize() const;
 
@@ -109,6 +143,7 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
+  FineGrainedAccessPermissions fine_grained_access_permissions_;
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -118,7 +153,8 @@ class User final {
  public:
   User(const std::string &username);
 
-  User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
+  User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
+       const FineGrainedAccessPermissions &fine_grained_access_permissions);
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
@@ -131,11 +167,14 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessPermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
+  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
+  FineGrainedAccessPermissions &fine_grained_access_permissions();
 
   const Role *role() const;
 
@@ -150,6 +189,7 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
+  FineGrainedAccessPermissions fine_grained_access_permissions_;
   std::optional<Role> role_;
 };
 
