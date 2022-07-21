@@ -22,18 +22,7 @@
 
 #include "io/v3/errors.hpp"
 
-template <typename T>
-class MgPromise;
-
-template <typename T>
-class MgFuture;
-
-template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair();
-
-template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier(std::function<bool()>);
-
+namespace {
 template <typename T>
 class Shared {
   std::condition_variable cv_;
@@ -43,10 +32,14 @@ class Shared {
   bool waiting_ = false;
   std::optional<std::function<bool()>> simulator_notifier_;
 
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<bool()>);
-  friend MgPromise<T>;
-  friend MgFuture<T>;
+ public:
+  explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
+  Shared() = default;
+  Shared(Shared &&) = delete;
+  Shared &operator=(Shared &&) = delete;
+  Shared(const Shared &) = delete;
+  Shared &operator=(const Shared &) = delete;
+  ~Shared() = default;
 
   T Wait() {
     std::unique_lock<std::mutex> lock(mu_);
@@ -128,27 +121,18 @@ class Shared {
     std::unique_lock<std::mutex> lock(mu_);
     return waiting_;
   }
-
- public:
-  explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
-  Shared() = default;
-  Shared(Shared &&) = delete;
-  Shared &operator=(Shared &&) = delete;
-  Shared(const Shared &) = delete;
-  Shared &operator=(const Shared &) = delete;
-  ~Shared() = default;
 };
+}  // namespace
 
 template <typename T>
 class MgFuture {
-  explicit MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
-
   bool consumed_or_moved_ = false;
   std::shared_ptr<Shared<T>> shared_;
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<bool()>);
 
  public:
+  explicit MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+
+  MgFuture() = delete;
   MgFuture(MgFuture &&old) {
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
@@ -206,12 +190,10 @@ class MgPromise {
   std::shared_ptr<Shared<T>> shared_;
   bool filled_or_moved_ = false;
 
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair<T>();
-  friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<bool()>);
-
  public:
   explicit MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
+  MgPromise() = delete;
   MgPromise(MgPromise &&old) {
     shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");

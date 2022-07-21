@@ -14,11 +14,11 @@
 #include "io/v3/simulator.hpp"
 
 struct CounterRequest {
-  uint64_t proposal_;
+  uint64_t proposal;
 };
 
 struct CounterResponse {
-  uint64_t highest_seen_;
+  uint64_t highest_seen;
 };
 
 void run_server(Io<SimulatorTransport> io) {
@@ -34,7 +34,7 @@ void run_server(Io<SimulatorTransport> io) {
     auto request_envelope = request_result.GetValue();
     auto req = std::get<CounterRequest>(request_envelope.message);
 
-    highest_seen = std::max(highest_seen, req.proposal_);
+    highest_seen = std::max(highest_seen, req.proposal);
     auto srv_res = CounterResponse{highest_seen};
 
     request_envelope.Reply(srv_res, io);
@@ -62,13 +62,13 @@ int main() {
   for (int i = 1; i < 3; ++i) {
     // send request
     CounterRequest cli_req;
-    cli_req.proposal_ = i;
+    cli_req.proposal = i;
     auto res_f = cli_io.RequestWithTimeout<CounterRequest, CounterResponse>(srv_addr, cli_req, 1000);
     auto res_rez = res_f.Wait();
     if (!res_rez.HasError()) {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();
-      MG_ASSERT(env.message.highest_seen_ == i);
+      MG_ASSERT(env.message.highest_seen == i);
     } else {
       std::cout << "[CLIENT] Got an error" << std::endl;
     }
