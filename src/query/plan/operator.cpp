@@ -2312,12 +2312,8 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
 
   auto &dba = *context.db_accessor;
-  const auto &validator = dba.GetSchemaValidator();
   auto &vertex = vertex_value.ValueVertex();
   for (const auto label : self_.labels_) {
-    if (const auto schema_violation = validator.ValidateLabelUpdate(label); schema_violation) {
-      throw utils::BasicException("Violation on label update!");
-    }
     auto maybe_value = vertex.AddLabelAndValidate(label);
     if (maybe_value.HasError()) {
       std::visit(utils::Overloaded{[](const storage::Error error) {

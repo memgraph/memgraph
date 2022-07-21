@@ -55,7 +55,6 @@ class EdgeAccessor final {
  public:
   storage::EdgeAccessor impl_;
 
- public:
   explicit EdgeAccessor(storage::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
@@ -221,8 +220,6 @@ class VertexAccessor final {
   }
 
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
-
- private:
 };
 
 inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

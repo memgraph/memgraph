@@ -30,14 +30,21 @@ struct Vertex {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
+
+  // TODO remove this when import replication is solved
+  Vertex(Gid gid, LabelId primary_label) : gid(gid), primary_label{primary_label}, deleted(false) {
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Vertex must be created with an initial DELETE_OBJECT delta!");
+  }
+
   // TODO remove this when import csv is solved
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  [[deprecated]] Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
   // TODO remove this when import replication is solved
-  Vertex(Gid gid) : gid(gid), deleted(false) {
+  [[deprecated]] Vertex(Gid gid) : gid(gid), deleted(false) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
