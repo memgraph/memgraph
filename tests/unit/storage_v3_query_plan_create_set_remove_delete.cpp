@@ -19,27 +19,37 @@
 #include "gtest/gtest.h"
 
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
 
 #include "query_plan_common.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schemas.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-TEST(QueryPlan, CreateNodeWithAttributes) {
+class QueryPlanCRUDTest : public testing::Test {
+ protected:
+  QueryPlanCRUDTest() : label(db.NameToLabel("label")), property(db.NameToProperty("label2")) {
+    EXPECT_TRUE(
+        db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
+  }
+
   memgraph::storage::Storage db;
+  memgraph::storage::LabelId label;
+  memgraph::storage::PropertyId property;
+};
+
+TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-
-  memgraph::storage::LabelId label = dba.NameToLabel("Person");
-  auto property = PROPERTY_PAIR("prop");
-  db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}});
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -48,7 +58,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
   std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
-      .emplace_back(property.second, LITERAL(42));
+      .emplace_back(property, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -68,7 +78,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
     ASSERT_TRUE(maybe_properties.HasValue());
     const auto &properties = *maybe_properties;
     EXPECT_EQ(properties.size(), 1);
-    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property.second);
+    auto maybe_prop = vertex.GetProperty(memgraph::storage::View::OLD, property);
     ASSERT_TRUE(maybe_prop.HasValue());
     auto prop_eq = TypedValue(*maybe_prop) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
@@ -199,21 +209,13 @@ TEST(QueryPlan, CreateExpand) {
   }
 }
 
-TEST(QueryPlan, MatchCreateNode) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, MatchCreateNode) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  auto label = dba.NameToLabel("label");
-  auto property = PROPERTY_PAIR("property");
-  db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}});
-  // add three nodes we'll match and expand-create from
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}}).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}}).HasValue());
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
@@ -226,7 +228,7 @@ TEST(QueryPlan, MatchCreateNode) {
   m.symbol = symbol_table.CreateSymbol("m", true);
   m.labels = {label};
   std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(m.properties)
-      .emplace_back(property.second, LITERAL(1));
+      .emplace_back(property, LITERAL(1));
 
   // creation op
   auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
@@ -238,21 +240,13 @@ TEST(QueryPlan, MatchCreateNode) {
   EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 6);
 }
 
-TEST(QueryPlan, MatchCreateExpand) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, MatchCreateExpand) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  const auto label = dba.NameToLabel("label");
-  const auto property = PROPERTY_PAIR("property");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}}).HasValue());
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}}).HasValue());
   dba.AdvanceCommand();
 
   //  memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
@@ -275,7 +269,7 @@ TEST(QueryPlan, MatchCreateExpand) {
     m.symbol = cycle ? n_scan_all.sym_ : symbol_table.CreateSymbol("m", true);
     m.labels = {label};
     std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(m.properties)
-        .emplace_back(property.second, LITERAL(1));
+        .emplace_back(property, LITERAL(1));
 
     EdgeCreationInfo r;
     r.symbol = symbol_table.CreateSymbol("r", true);
@@ -295,21 +289,14 @@ TEST(QueryPlan, MatchCreateExpand) {
   test_create_path(true, 0, 6);
 }
 
-TEST(QueryPlan, Delete) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, Delete) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-
-  const auto label = dba.NameToLabel("label");
-  const auto property = PROPERTY_PAIR("property");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   std::vector<memgraph::query::VertexAccessor> vertices;
   for (int i = 0; i < 4; ++i) {
-    vertices.push_back(
-        *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(i)}}));
+    vertices.push_back(*dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}}));
   }
   auto type = dba.NameToEdgeType("type");
   for (int j = 0; j < 4; ++j)
@@ -374,7 +361,7 @@ TEST(QueryPlan, Delete) {
   }
 }
 
-TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
+TEST_F(QueryPlanCRUDTest, DeleteTwiceDeleteBlockingEdge) {
   // test deleting the same vertex and edge multiple times
   //
   // also test vertex deletion succeeds if the prohibiting
@@ -386,18 +373,12 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // CREATE (:label{property: 1})-[:T]->(:label{property: 2})
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
-  auto test_delete = [](bool detach) {
-    memgraph::storage::Storage db;
+  auto test_delete = [this](bool detach) {
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
 
-    const auto label = dba.NameToLabel("label");
-    const auto property = PROPERTY_PAIR("property");
-    ASSERT_TRUE(db.CreateSchema(
-        label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
-
-    auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-    auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
+    auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
     ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("T")).HasValue());
     dba.AdvanceCommand();
     EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
@@ -427,21 +408,15 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   test_delete(false);
 }
 
-TEST(QueryPlan, DeleteReturn) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteReturn) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-
-  const auto label = dba.NameToLabel("label");
-  const auto property = PROPERTY_PAIR("property");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   for (int i = 0; i < 4; ++i) {
     const auto property_value = memgraph::storage::PropertyValue(i);
-    auto va = *dba.InsertVertexAndValidate(label, {}, {{property.second, property_value}});
-    EXPECT_EQ(*va.GetProperty(memgraph::storage::View::NEW, property.second), property_value);
+    auto va = *dba.InsertVertexAndValidate(label, {}, {{property, property_value}});
+    EXPECT_EQ(*va.GetProperty(memgraph::storage::View::NEW, property), property_value);
   }
 
   dba.AdvanceCommand();
@@ -515,23 +490,18 @@ TEST(QueryPlan, DeleteAdvance) {
   }
 }
 
-TEST(QueryPlan, SetProperty) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, SetProperty) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
   // have a property set
 
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}});
-  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(4)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
+  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(4)}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v2, &v4, edge_type).HasValue());
@@ -577,23 +547,17 @@ TEST(QueryPlan, SetProperty) {
   }
 }
 
-TEST(QueryPlan, SetProperties) {
-  auto test_set_properties = [](bool update) {
-    memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, SetProperties) {
+  auto test_set_properties = [this](bool update) {
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
-
-    const auto property = PROPERTY_PAIR("property");
-    const auto label = dba.NameToLabel("label");
-    ASSERT_TRUE(db.CreateSchema(
-        label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
     auto prop_a = dba.NameToProperty("a");
     auto prop_b = dba.NameToProperty("b");
     auto prop_c = dba.NameToProperty("c");
-    auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-    auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
+    auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
     dba.AdvanceCommand();
 
     auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("R"));
@@ -662,18 +626,12 @@ TEST(QueryPlan, SetProperties) {
   test_set_properties(false);
 }
 
-TEST(QueryPlan, SetSecondaryLabels) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, SetSecondaryLabels) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
-
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
@@ -698,24 +656,18 @@ TEST(QueryPlan, SetSecondaryLabels) {
   }
 }
 
-TEST(QueryPlan, RemoveProperty) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, RemoveProperty) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
   // have a property set
   auto prop1 = dba.NameToProperty("prop1");
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}});
-  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(4)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
+  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(4)}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   {
     auto e = dba.InsertEdge(&v1, &v3, edge_type);
@@ -767,24 +719,18 @@ TEST(QueryPlan, RemoveProperty) {
   }
 }
 
-TEST(QueryPlan, RemoveLabels) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, RemoveLabels) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
   auto label3 = dba.NameToLabel("label3");
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
   ASSERT_TRUE(v1.AddLabel(label1).HasValue());
   ASSERT_TRUE(v1.AddLabel(label2).HasValue());
   ASSERT_TRUE(v1.AddLabel(label3).HasValue());
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
   ASSERT_TRUE(v2.AddLabel(label1).HasValue());
   ASSERT_TRUE(v2.AddLabel(label3).HasValue());
   dba.AdvanceCommand();
@@ -805,21 +751,16 @@ TEST(QueryPlan, RemoveLabels) {
   }
 }
 
-TEST(QueryPlan, NodeFilterSet) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, NodeFilterSet) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
   auto prop = PROPERTY_PAIR("prop");
   ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
   auto edge_type = dba.NameToEdgeType("Edge");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
@@ -849,21 +790,16 @@ TEST(QueryPlan, NodeFilterSet) {
   EXPECT_TRUE(prop_eq.ValueBool());
 }
 
-TEST(QueryPlan, FilterRemove) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, FilterRemove) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
   auto prop = PROPERTY_PAIR("prop");
   ASSERT_TRUE(v1.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
   auto edge_type = dba.NameToEdgeType("Edge");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
@@ -889,16 +825,11 @@ TEST(QueryPlan, FilterRemove) {
             memgraph::storage::PropertyValue::Type::Null);
 }
 
-TEST(QueryPlan, SetRemove) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, SetRemove) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
-  auto v = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
+  auto v = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
   auto label1 = dba.NameToLabel("label1");
   auto label2 = dba.NameToLabel("label2");
   dba.AdvanceCommand();
@@ -919,26 +850,21 @@ TEST(QueryPlan, SetRemove) {
   EXPECT_FALSE(*v.HasLabel(memgraph::storage::View::OLD, label2));
 }
 
-TEST(QueryPlan, Merge) {
+TEST_F(QueryPlanCRUDTest, Merge) {
   // test setup:
   //  - three nodes, two of them connected with T
   //  - merge input branch matches all nodes
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
 
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("Type")).HasValue());
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(3)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -973,16 +899,11 @@ TEST(QueryPlan, Merge) {
   ASSERT_EQ(v3.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueInt(), 2);
 }
 
-TEST(QueryPlan, MergeNoInput) {
+TEST_F(QueryPlanCRUDTest, MergeNoInput) {
   // merge with no input, creates a single node
 
-  memgraph::storage::Storage db;
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -990,7 +911,7 @@ TEST(QueryPlan, MergeNoInput) {
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels = {label};
   std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
-      .emplace_back(property.second, LITERAL(1));
+      .emplace_back(property, LITERAL(1));
   auto create = std::make_shared<CreateNode>(nullptr, node);
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
@@ -1083,18 +1004,12 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
-TEST(QueryPlan, DeleteSetProperty) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteSetProperty) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Add a single vertex.
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   AstStorage storage;
@@ -1111,18 +1026,12 @@ TEST(QueryPlan, DeleteSetProperty) {
   EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, DeleteSetPropertiesFromMap) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteSetPropertiesFromMap) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Add a single vertex.
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   AstStorage storage;
@@ -1142,18 +1051,13 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
   }
 }
 
-TEST(QueryPlan, DeleteSetPropertiesFrom) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteSetPropertiesFrom) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Add a single vertex.
   {
-    auto v = *dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}});
+    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
     ASSERT_TRUE(v.SetProperty(dba.NameToProperty("prop"), memgraph::storage::PropertyValue(1)).HasValue());
   }
   dba.AdvanceCommand();
@@ -1172,18 +1076,12 @@ TEST(QueryPlan, DeleteSetPropertiesFrom) {
   }
 }
 
-TEST(QueryPlan, DeleteRemoveLabels) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteRemoveLabels) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Add a single vertex.
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   AstStorage storage;
@@ -1198,18 +1096,12 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
-TEST(QueryPlan, DeleteRemoveProperty) {
-  memgraph::storage::Storage db;
+TEST_F(QueryPlanCRUDTest, DeleteRemoveProperty) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
-  const auto property = PROPERTY_PAIR("property");
-  const auto label = dba.NameToLabel("label");
-  ASSERT_TRUE(
-      db.CreateSchema(label, {memgraph::storage::SchemaProperty{property.second, memgraph::common::SchemaType::INT}}));
 
   // Add a single vertex.
-  ASSERT_TRUE(
-      dba.InsertVertexAndValidate(label, {}, {{property.second, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   AstStorage storage;
