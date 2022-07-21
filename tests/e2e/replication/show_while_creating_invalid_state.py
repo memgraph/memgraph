@@ -1219,7 +1219,7 @@ def test_trigger_on_update_after_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_before_commit_with_offline_sync_replica():
+def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1324,7 +1324,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_after_commit_with_offline_sync_replica():
+def test_trigger_on_delete_after_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1434,7 +1434,7 @@ def test_trigger_on_delete_after_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_before_commit_with_offline_sync_replica():
+def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
