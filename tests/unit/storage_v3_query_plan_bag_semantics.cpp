@@ -9,11 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 14.03.17.
-//
-
 #include <algorithm>
 #include <iterator>
 #include <memory>

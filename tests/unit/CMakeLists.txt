@@ -380,3 +380,6 @@ target_link_libraries(${test_prefix}storage_v3_query_plan_edge_cases mg-communic
 
 add_unit_test(storage_v3_query_plan_v2_create_set_remove_delete.cpp)
 target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_delete mg-query)
+
+add_unit_test(storage_v3_query_plan_match_filter_return.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_match_filter_return mg-query)
