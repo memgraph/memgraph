@@ -808,17 +808,13 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-        // for (const auto &label : labels) {
-        //   edit_fun(&user->labelPermissions(), label);
-        // }
+
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
-        // for (const auto &label : labels) {
-        //   edit_fun(&role->labelPermissions(), label);
-        // }
+
         locked_auth->SaveRole(*role);
       }
     } catch (const memgraph::auth::AuthException &e) {
