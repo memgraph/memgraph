@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// TODO chrono::microseconds instead of std::time_t
-
 #pragma once
 
 #include <concepts>
@@ -19,9 +17,9 @@
 
 #include "utils/result.hpp"
 
-#include "address.hpp"
-#include "errors.hpp"
-#include "future.hpp"
+#include "io/v3/address.hpp"
+#include "io/v3/errors.hpp"
+#include "io/v3/future.hpp"
 
 using memgraph::utils::BasicResult;
 

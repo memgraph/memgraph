@@ -20,7 +20,7 @@
 
 #include "utils/logging.hpp"
 
-#include "errors.hpp"
+#include "io/v3/errors.hpp"
 
 template <typename T>
 class MgPromise;
@@ -130,7 +130,7 @@ class Shared {
   }
 
  public:
-  Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
+  explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
   Shared() = default;
   Shared(Shared &&) = delete;
   Shared &operator=(Shared &&) = delete;
@@ -141,7 +141,7 @@ class Shared {
 
 template <typename T>
 class MgFuture {
-  MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
   bool consumed_or_moved_ = false;
   std::shared_ptr<Shared<T>> shared_;
@@ -210,7 +210,7 @@ class MgPromise {
   friend std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier<T>(std::function<bool()>);
 
  public:
-  MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
   MgPromise(MgPromise &&old) {
     shared_ = std::move(old.shared_);

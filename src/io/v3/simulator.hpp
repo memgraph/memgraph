@@ -11,14 +11,16 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
 #include <variant>
 
-#include "address.hpp"
-#include "errors.hpp"
-#include "future.hpp"
-#include "simulator_config.hpp"
-#include "simulator_handle.hpp"
-#include "transport.hpp"
+#include "io/v3/address.hpp"
+#include "io/v3/errors.hpp"
+#include "io/v3/future.hpp"
+#include "io/v3/simulator_config.hpp"
+#include "io/v3/simulator_handle.hpp"
+#include "io/v3/transport.hpp"
 
 class SimulatorTransport {
   std::shared_ptr<SimulatorHandle> simulator_handle_;
@@ -66,7 +68,7 @@ class Simulator {
   std::shared_ptr<SimulatorHandle> simulator_handle_;
 
  public:
-  Simulator(SimulatorConfig config)
+  explicit Simulator(SimulatorConfig config)
       : rng_(std::mt19937{config.rng_seed}), simulator_handle_{std::make_shared<SimulatorHandle>(config)} {}
 
   void ShutDown() { simulator_handle_->ShutDown(); }

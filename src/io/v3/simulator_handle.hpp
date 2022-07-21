@@ -11,23 +11,25 @@
 
 #pragma once
 
-#include <any>
 #include <compare>
+
+#include <any>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
+#include <utility>
 #include <variant>
 #include <vector>
 
-#include "address.hpp"
-#include "errors.hpp"
-#include "simulator_config.hpp"
-#include "simulator_stats.hpp"
-#include "transport.hpp"
+#include "io/v3/address.hpp"
+#include "io/v3/errors.hpp"
+#include "io/v3/simulator_config.hpp"
+#include "io/v3/simulator_stats.hpp"
+#include "io/v3/transport.hpp"
 
-// TODO enforce this around std::any usage
+// TODO(tyler) enforce this around std::any usage
 template <typename T>
 concept SameAsDecayed = std::same_as<T, std::decay_t<T>>;
 
@@ -150,9 +152,9 @@ class OpaquePromise {
   }
 
   template <typename T>
-  OpaquePromise(std::unique_ptr<ResponsePromise<T>> promise)
+  explicit OpaquePromise(std::unique_ptr<ResponsePromise<T>> promise)
       : ti_(&typeid(T)),
-        ptr_((void *)promise.release()),
+        ptr_(static_cast<void *>(promise.release())),
         dtor_([](void *ptr) { static_cast<ResponsePromise<T> *>(ptr)->~ResponsePromise<T>(); }),
         is_awaited_([](void *ptr) { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); }),
         fill_([](void *this_ptr, OpaqueMessage opaque_message) {
@@ -222,7 +224,7 @@ class SimulatorHandle {
   SimulatorConfig config_;
 
  public:
-  SimulatorHandle(SimulatorConfig config)
+  explicit SimulatorHandle(SimulatorConfig config)
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {
@@ -254,7 +256,7 @@ class SimulatorHandle {
     uint64_t now = cluster_wide_time_microseconds_;
 
     for (auto &[promise_key, dop] : promises_) {
-      // TODO queue this up and drop it after its deadline
+      // TODO(tyler) queue this up and drop it after its deadline
       if (dop.deadline < now) {
         std::cout << "timing out request" << std::endl;
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
@@ -387,7 +389,7 @@ class SimulatorHandle {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address &receiver, uint64_t timeout_microseconds) {
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, uint64_t timeout_microseconds) {
     std::unique_lock<std::mutex> lock(mu_);
 
     uint64_t deadline = cluster_wide_time_microseconds_ + timeout_microseconds;
@@ -399,7 +401,7 @@ class SimulatorHandle {
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
 
-          // TODO search for item in can_receive_ that matches the desired types, rather
+          // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
           auto m_opt = message.Take<Ms...>();
           return std::move(m_opt).value();

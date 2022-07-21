@@ -118,15 +118,26 @@ struct Follower {
 
 using Role = std::variant<Candidate, Leader, Follower>;
 
-template <typename IoImpl>
+/*
+template <typename T>
+concept ReplicatedStateMachine = true;
+requires(T a, uint8_t *ptr, size_t len) {
+  { a.Serialize() } -> std::same_as<std::vector<uint8_t>>;
+  { T::Deserialize(ptr, len) } -> std::same_as<T>;
+};
+*/
+
+template <typename IoImpl /*, typename ReplicatedState, ReplicatedStateMachine<ReplicatedState> Rsm*/>
 class Server {
   CommonState state_;
   Role role_ = Candidate{};
   Io<IoImpl> io_;
   std::vector<Address> peers_;
+  // Rsm rsm_;
 
  public:
-  Server(Io<IoImpl> io, std::vector<Address> peers) : io_(io), peers_(peers) {}
+  Server(Io<IoImpl> &&io, std::vector<Address> peers /*, Rsm &&rsm */)
+      : io_(std::move(io)), peers_(peers) /*, rsm_(std::move(rsm)*/ {}
 
   void Run() {
     Time last_cron = io_.Now();
@@ -622,7 +633,7 @@ void RunServer(Server<IoImpl> server) {
 }
 
 void RunSimulation() {
-  auto config = SimulatorConfig{
+  SimulatorConfig config{
       .drop_percent = 5,
       .perform_timeouts = true,
       .scramble_messages = true,
@@ -647,9 +658,9 @@ void RunSimulation() {
   std::vector<Address> srv_2_peers = {srv_addr_1, srv_addr_3};
   std::vector<Address> srv_3_peers = {srv_addr_1, srv_addr_2};
 
-  Server srv_1{srv_io_1, srv_1_peers};
-  Server srv_2{srv_io_2, srv_2_peers};
-  Server srv_3{srv_io_3, srv_3_peers};
+  Server srv_1{std::move(srv_io_1), srv_1_peers};
+  Server srv_2{std::move(srv_io_2), srv_2_peers};
+  Server srv_3{std::move(srv_io_3), srv_3_peers};
 
   auto srv_thread_1 = std::jthread(RunServer<SimulatorTransport>, std::move(srv_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_1);
@@ -662,7 +673,7 @@ void RunSimulation() {
 
   std::cout << "beginning test after servers have become quiescent" << std::endl;
 
-  std::mt19937 cli_rng_{};
+  std::mt19937 cli_rng_{0};
   Address server_addrs[]{srv_addr_1, srv_addr_2, srv_addr_3};
   bool success = false;
   Address leader = server_addrs[0];
