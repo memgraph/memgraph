@@ -215,7 +215,8 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&duration_v) utils::Duration(other.duration_v);
       return;
     case Type::Graph:
-      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
+      new (&graph_v) Graph(other.graph_v, memory_);
+      return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -266,7 +267,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       new (&duration_v) utils::Duration(other.duration_v);
       break;
     case Type::Graph:
-      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
+      new (&graph_v) Graph(std::move(other.graph_v), memory_);
   }
   other.DestroyValue();
 }
@@ -302,7 +303,7 @@ TypedValue::operator storage::PropertyValue() const {
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     case Type::Graph:
-      throw TypedValueException("Unsupported copy from TypedValue to TypedValue");
+      throw TypedValueException("Unsupported copy from StorageValue to TypedValue");
     default:
       break;
   }
@@ -532,7 +533,8 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&path_v) Path(other.path_v, memory_);
         return *this;
       case TypedValue::Type::Graph:
-        throw TypedValueException("Exception");
+        new (&graph_v) Graph(other.graph_v, memory_);
+        return *this;
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
         return *this;
@@ -605,7 +607,8 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&duration_v) utils::Duration(other.duration_v);
         break;
       case Type::Graph:
-        throw TypedValueException("A");
+        new (&graph_v) Graph(std::move(other.graph_v), memory_);
+        break;
     }
     other.DestroyValue();
   }
@@ -647,7 +650,8 @@ void TypedValue::DestroyValue() {
     case Type::Duration:
       break;
     case Type::Graph:
-      throw TypedValueException("A");
+      graph_v.~Graph();
+      break;
   }
 
   type_ = TypedValue::Type::Null;
@@ -808,7 +812,7 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Duration:
       return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
     case TypedValue::Type::Graph:
-      throw TypedValueException("Graph");
+      throw TypedValueException("Unsupported comparison operator");
     default:
       LOG_FATAL("Unhandled comparison for types");
   }
@@ -1118,7 +1122,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::DurationHash{}(value.ValueDuration());
       break;
     case TypedValue::Type::Graph:
-      throw TypedValueException("a");
+      throw TypedValueException("Unsupported hash function for Graph");
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
