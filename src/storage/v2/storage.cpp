@@ -466,7 +466,7 @@ Storage::Accessor::~Accessor() {
 }
 
 // TODO Remove when import csv is fixed
-VertexAccessor Storage::Accessor::CreateVertex() {
+[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
@@ -480,7 +480,7 @@ VertexAccessor Storage::Accessor::CreateVertex() {
 }
 
 // TODO Remove when replication is fixed
-VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
+[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
