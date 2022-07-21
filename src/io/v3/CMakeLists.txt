@@ -1,7 +1,6 @@
 set(io_v3_sources
     address.hpp
     errors.hpp
-    future.hpp
     transport.hpp
     simulator.hpp
     simulator_handle.hpp

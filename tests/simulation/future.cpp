@@ -12,7 +12,7 @@
 #include <string>
 #include <thread>
 
-#include "io/v3/future.hpp"
+#include "io/future.hpp"
 #include "utils/logging.hpp"
 
 using namespace memgraph::io;

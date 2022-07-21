@@ -2,7 +2,8 @@ set(io_src_files
     network/addrinfo.cpp
     network/endpoint.cpp
     network/socket.cpp
-    network/utils.cpp)
+    network/utils.cpp
+    future.hpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)

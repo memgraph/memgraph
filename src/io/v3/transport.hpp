@@ -17,9 +17,9 @@
 
 #include "utils/result.hpp"
 
+#include "io/future.hpp"
 #include "io/v3/address.hpp"
 #include "io/v3/errors.hpp"
-#include "io/v3/future.hpp"
 
 using memgraph::utils::BasicResult;
 
