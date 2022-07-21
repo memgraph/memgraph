@@ -751,6 +751,24 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
+  memgraph::auth::User *GetUser(const std::string &username) override {
+    if (!std::regex_match(username, name_regex_)) {
+      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+    }
+    try {
+      auto locked_auth = auth_->Lock();
+      auto user = locked_auth->GetUser(username);
+      if (!user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      }
+
+      return new memgraph::auth::User(*user);
+
+    } catch (const memgraph::auth::AuthException &e) {
+      throw memgraph::query::QueryRuntimeException(e.what());
+    }
+  }
+
   void GrantPrivilege(const std::string &user_or_role,
                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                       const std::vector<std::string> &labels) override {
