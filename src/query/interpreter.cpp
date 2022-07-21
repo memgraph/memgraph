@@ -44,6 +44,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -160,7 +161,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
@@ -183,9 +184,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          name, {std::move(ip), port}, repl_mode,
-          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                      {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -227,9 +228,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         case storage::replication::ReplicationMode::ASYNC:
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
-      }
-      if (repl_info.timeout) {
-        replica.timeout = *repl_info.timeout;
       }
 
       replica.current_timestamp_of_replica = repl_info.timestamp_info.current_timestamp_of_replica;
@@ -487,18 +485,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &name = repl_query->replica_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
-      auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
       const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
-      std::optional<double> maybe_timeout;
-      if (timeout.IsDouble()) {
-        maybe_timeout = timeout.ValueDouble();
-      } else if (timeout.IsInt()) {
-        maybe_timeout = static_cast<double>(timeout.ValueInt());
-      }
+
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout, replica_check_frequency]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
-                                replica_check_frequency);
+                     replica_check_frequency]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
@@ -518,13 +509,9 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
 
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name",
-                         "socket_address",
-                         "sync_mode",
-                         "timeout",
-                         "current_timestamp_of_replica",
-                         "number_of_timestamp_behind_master",
-                         "state"};
+      callback.header = {
+          "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
+          "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -543,12 +530,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             case ReplicationQuery::SyncMode::ASYNC:
               typed_replica.emplace_back(TypedValue("async"));
               break;
-          }
-
-          if (replica.timeout) {
-            typed_replica.emplace_back(TypedValue(*replica.timeout));
-          } else {
-            typed_replica.emplace_back(TypedValue());
           }
 
           typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));

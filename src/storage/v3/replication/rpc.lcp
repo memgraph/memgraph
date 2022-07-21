@@ -1,0 +1,74 @@
+;; Copyright 2022 Memgraph Ltd.
+;;
+;; Use of this software is governed by the Business Source License
+;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+;; License, and you may not use this file except in compliance with the Business Source License.
+;;
+;; As of the Change Date specified in that file, in accordance with
+;; the Business Source License, use of this software will be governed
+;; by the Apache License, Version 2.0, included in the file
+;; licenses/APL.txt.
+
+#>cpp
+#pragma once
+
+#include <cstdint>
+#include <cstring>
+#include <string>
+
+#include "rpc/messages.hpp"
+#include "slk/serialization.hpp"
+#include "slk/streams.hpp"
+cpp<#
+(lcp:namespace memgraph)
+(lcp:namespace storage)
+(lcp:namespace v3)
+(lcp:namespace replication)
+
+(lcp:define-rpc append-deltas
+  ;; The actual deltas are sent as additional data using the RPC client's
+  ;; streaming API for additional data.
+  (:request
+    ((previous-commit-timestamp :uint64_t)
+     (seq-num :uint64_t)))
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
+(lcp:define-rpc heartbeat
+  (:request
+    ((main-commit-timestamp :uint64_t)
+     (epoch-id "std::string")))
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t)
+     (epoch-id "std::string"))))
+
+;; FrequentHearthbeat is required because calling Heartbeat takes the storage lock.
+;; Configured by `replication_replica_check_delay`.
+(lcp:define-rpc frequent-heartbeat
+  (:request ())
+  (:response ((success :bool))))
+
+(lcp:define-rpc snapshot
+  (:request ())
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
+(lcp:define-rpc wal-files
+  (:request ((file-number :uint64_t)))
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
+(lcp:define-rpc current-wal
+  (:request ())
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
+(lcp:pop-namespace) ;; replication
+(lcp:pop-namespace) ;; v3
+(lcp:pop-namespace) ;; storage
+(lcp:pop-namespace) ;; memgraph
