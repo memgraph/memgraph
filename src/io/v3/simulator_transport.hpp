@@ -30,7 +30,8 @@ class SimulatorTransport {
   ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request,
                                    uint64_t timeout_microseconds) {
     std::function<bool()> maybe_tick_simulator = [=] { return simulator_handle_->MaybeTickSimulator(); };
-    auto [future, promise] = FuturePromisePairWithNotifier<ResponseResult<Response>>(maybe_tick_simulator);
+    auto [future, promise] =
+        memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>(maybe_tick_simulator);
 
     simulator_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout_microseconds,
                                      std::move(promise));

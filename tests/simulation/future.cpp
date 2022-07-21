@@ -15,9 +15,11 @@
 #include "io/v3/future.hpp"
 #include "utils/logging.hpp"
 
-void Fill(MgPromise<std::string> promise_1) { promise_1.Fill("success"); }
+using namespace memgraph::io;
 
-void Wait(MgFuture<std::string> future_1, MgPromise<std::string> promise_2) {
+void Fill(Promise<std::string> promise_1) { promise_1.Fill("success"); }
+
+void Wait(Future<std::string> future_1, Promise<std::string> promise_2) {
   std::string result_1 = future_1.Wait();
   MG_ASSERT(result_1 == "success");
   promise_2.Fill("it worked");

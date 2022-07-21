@@ -28,17 +28,11 @@ class SimulatorHandle;
 template <typename I>
 class Io;
 
+// TODO(tyler) ensure that Message continues to represent
+// reasonable constraints around message types over time,
+// as we adapt things to use Thrift-generated message types.
 template <typename T>
-concept Message = true;
-
-/*requires(T a, uint8_t *ptr, size_t len) {
-  // These are placeholders and will be replaced
-  // by some concept that identifies Thrift-generated
-  // messages.
-  { a.Serialize() } -> std::same_as<std::vector<uint8_t>>;
-  { T::Deserialize(ptr, len) } -> std::same_as<T>;
-};
-*/
+concept Message = std::same_as<T, std::decay_t<T>>;
 
 template <Message M>
 struct ResponseEnvelope {
@@ -51,10 +45,10 @@ template <Message M>
 using ResponseResult = BasicResult<TimedOut, ResponseEnvelope<M>>;
 
 template <Message M>
-using ResponseFuture = MgFuture<ResponseResult<M>>;
+using ResponseFuture = memgraph::io::Future<ResponseResult<M>>;
 
 template <Message M>
-using ResponsePromise = MgPromise<ResponseResult<M>>;
+using ResponsePromise = memgraph::io::Promise<ResponseResult<M>>;
 
 template <Message... Ms>
 struct RequestEnvelope {

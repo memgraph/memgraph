@@ -22,6 +22,12 @@
 
 #include "io/v3/errors.hpp"
 
+namespace memgraph::io {
+
+// Shared is in an anonymous namespace, and the only way to
+// construct a Promise or Future is to pass a Shared in. This
+// ensures that Promises and Futures can only be constructed
+// in this translation unit.
 namespace {
 template <typename T>
 class Shared {
@@ -71,7 +77,7 @@ class Shared {
       if (!simulator_progressed) {
         cv_.wait(lock);
       }
-      MG_ASSERT(!consumed_, "MgFuture consumed twice!");
+      MG_ASSERT(!consumed_, "Future consumed twice!");
     }
 
     T ret = std::move(item_).value();
@@ -108,8 +114,8 @@ class Shared {
     {
       std::unique_lock<std::mutex> lock(mu_);
 
-      MG_ASSERT(!consumed_, "MgPromise filled after it was already consumed!");
-      MG_ASSERT(!item_, "MgPromise filled twice!");
+      MG_ASSERT(!consumed_, "Promise filled after it was already consumed!");
+      MG_ASSERT(!item_, "Promise filled twice!");
 
       item_ = item;
     }  // lock released before condition variable notification
@@ -125,35 +131,35 @@ class Shared {
 }  // namespace
 
 template <typename T>
-class MgFuture {
+class Future {
   bool consumed_or_moved_ = false;
   std::shared_ptr<Shared<T>> shared_;
 
  public:
-  explicit MgFuture(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Future(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
-  MgFuture() = delete;
-  MgFuture(MgFuture &&old) {
+  Future() = delete;
+  Future(Future &&old) {
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
-    MG_ASSERT(!old.consumed_or_moved_, "MgFuture moved from after already being moved from or consumed.");
+    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
-  MgFuture &operator=(MgFuture &&old) {
+  Future &operator=(Future &&old) {
     shared_ = std::move(old.shared_);
-    MG_ASSERT(!old.consumed_or_moved_, "MgFuture moved from after already being moved from or consumed.");
+    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
-  MgFuture(const MgFuture &) = delete;
-  MgFuture &operator=(const MgFuture &) = delete;
-  ~MgFuture() = default;
+  Future(const Future &) = delete;
+  Future &operator=(const Future &) = delete;
+  ~Future() = default;
 
-  /// Returns true if the MgFuture is ready to
+  /// Returns true if the Future is ready to
   /// be consumed using TryGet or Wait (prefer Wait
   /// if you know it's ready, because it doesn't
   /// return an optional.
   bool IsReady() {
-    MG_ASSERT(!consumed_or_moved_, "Called IsReady after MgFuture already consumed!");
+    MG_ASSERT(!consumed_or_moved_, "Called IsReady after Future already consumed!");
     return shared_->IsReady();
   }
 
@@ -161,7 +167,7 @@ class MgFuture {
   /// item if it's already ready, or std::nullopt
   /// if it is not ready yet.
   std::optional<T> TryGet() {
-    MG_ASSERT(!consumed_or_moved_, "Called TryGet after MgFuture already consumed!");
+    MG_ASSERT(!consumed_or_moved_, "Called TryGet after Future already consumed!");
     std::optional<T> ret = shared_->TryGet();
     if (ret) {
       consumed_or_moved_ = true;
@@ -172,55 +178,55 @@ class MgFuture {
   /// Block on the corresponding promise to be filled,
   /// returning the inner item when ready.
   T Wait() {
-    MG_ASSERT(!consumed_or_moved_, "MgFuture should only be consumed with Wait once!");
+    MG_ASSERT(!consumed_or_moved_, "Future should only be consumed with Wait once!");
     T ret = shared_->Wait();
     consumed_or_moved_ = true;
     return ret;
   }
 
-  /// Marks this MgFuture as canceled.
+  /// Marks this Future as canceled.
   void Cancel() {
-    MG_ASSERT(!consumed_or_moved_, "MgFuture::Cancel called on a future that was already moved or consumed!");
+    MG_ASSERT(!consumed_or_moved_, "Future::Cancel called on a future that was already moved or consumed!");
     consumed_or_moved_ = true;
   }
 };
 
 template <typename T>
-class MgPromise {
+class Promise {
   std::shared_ptr<Shared<T>> shared_;
   bool filled_or_moved_ = false;
 
  public:
-  explicit MgPromise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Promise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
 
-  MgPromise() = delete;
-  MgPromise(MgPromise &&old) {
+  Promise() = delete;
+  Promise(Promise &&old) {
     shared_ = std::move(old.shared_);
-    MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");
+    MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     old.filled_or_moved_ = true;
   }
-  MgPromise &operator=(MgPromise &&old) {
+  Promise &operator=(Promise &&old) {
     shared_ = std::move(old.shared_);
-    MG_ASSERT(!old.filled_or_moved_, "MgPromise moved from after already being moved from or filled.");
+    MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     old.filled_or_moved_ = true;
   }
-  MgPromise(const MgPromise &) = delete;
-  MgPromise &operator=(const MgPromise &) = delete;
+  Promise(const Promise &) = delete;
+  Promise &operator=(const Promise &) = delete;
 
-  ~MgPromise() { MG_ASSERT(filled_or_moved_, "MgPromise destroyed before its associated MgFuture was filled!"); }
+  ~Promise() { MG_ASSERT(filled_or_moved_, "Promise destroyed before its associated Future was filled!"); }
 
   // Fill the expected item into the Future.
   void Fill(T item) {
-    MG_ASSERT(!filled_or_moved_, "MgPromise::Fill called on a promise that is already filled or moved!");
+    MG_ASSERT(!filled_or_moved_, "Promise::Fill called on a promise that is already filled or moved!");
     shared_->Fill(item);
     filled_or_moved_ = true;
   }
 
   bool IsAwaited() { return shared_->IsAwaited(); }
 
-  /// Moves this MgPromise into a unique_ptr.
-  std::unique_ptr<MgPromise<T>> ToUnique() && {
-    std::unique_ptr<MgPromise<T>> up = std::make_unique<MgPromise<T>>(std::move(shared_));
+  /// Moves this Promise into a unique_ptr.
+  std::unique_ptr<Promise<T>> ToUnique() && {
+    std::unique_ptr<Promise<T>> up = std::make_unique<Promise<T>>(std::move(shared_));
 
     filled_or_moved_ = true;
 
@@ -229,21 +235,23 @@ class MgPromise {
 };
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePair() {
+std::pair<Future<T>, Promise<T>> FuturePromisePair() {
   std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>();
 
-  MgFuture<T> future = MgFuture<T>(shared);
-  MgPromise<T> promise = MgPromise<T>(shared);
+  Future<T> future = Future<T>(shared);
+  Promise<T> promise = Promise<T>(shared);
 
   return std::make_pair(std::move(future), std::move(promise));
 }
 
 template <typename T>
-std::pair<MgFuture<T>, MgPromise<T>> FuturePromisePairWithNotifier(std::function<bool()> simulator_notifier) {
+std::pair<Future<T>, Promise<T>> FuturePromisePairWithNotifier(std::function<bool()> simulator_notifier) {
   std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>(simulator_notifier);
 
-  MgFuture<T> future = MgFuture<T>(shared);
-  MgPromise<T> promise = MgPromise<T>(shared);
+  Future<T> future = Future<T>(shared);
+  Promise<T> promise = Promise<T>(shared);
 
   return std::make_pair(std::move(future), std::move(promise));
 }
+
+};  // namespace memgraph::io

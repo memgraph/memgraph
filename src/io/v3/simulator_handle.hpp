@@ -29,10 +29,6 @@
 #include "io/v3/simulator_stats.hpp"
 #include "io/v3/transport.hpp"
 
-// TODO(tyler) enforce this around std::any usage
-template <typename T>
-concept SameAsDecayed = std::same_as<T, std::decay_t<T>>;
-
 struct OpaqueMessage {
   Address from_address;
   uint64_t request_id;
