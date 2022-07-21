@@ -273,6 +273,14 @@ class AccessChecker final : public memgraph::query::AccessChecker {
     });
   }
 
+  std::vector<memgraph::storage::EdgeTypeId> GetGrantedEdgeTypesId(memgraph::query::DbAccessor *dba) const final {
+    auto edgeTypePermissions = user_->GetEdgeTypePermissions().GetGrants();
+    std::vector<memgraph::storage::EdgeTypeId> edgeTypeIds{};
+    for (auto edgeTypePermission : edgeTypePermissions) edgeTypeIds.push_back(dba->NameToEdgeType(edgeTypePermission));
+
+    return edgeTypeIds;
+  }
+
  private:
   memgraph::auth::User *user_;
 };

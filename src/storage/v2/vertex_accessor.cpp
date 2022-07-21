@@ -339,7 +339,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, AccessChecker *access_checker,
                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;

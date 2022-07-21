@@ -732,6 +732,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     auto &vertex = vertex_value.ValueVertex();
 
     auto direction = self_.common_.direction;
+
     if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
       if (self_.common_.existing_node) {
         TypedValue &existing_node = frame[self_.common_.node_symbol];

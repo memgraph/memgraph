@@ -20,5 +20,7 @@ class AccessChecker {
  public:
   virtual bool IsUserAuthorizedEdgeTypes(const std::vector<memgraph::storage::EdgeTypeId> &edgeTypes,
                                          memgraph::query::DbAccessor *dba) const = 0;
+
+  virtual std::vector<memgraph::storage::EdgeTypeId> GetGrantedEdgeTypesId(memgraph::query::DbAccessor *dba) const = 0;
 };
 }  // namespace memgraph::query
