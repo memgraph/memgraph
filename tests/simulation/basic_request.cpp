@@ -37,7 +37,7 @@ void run_server(Io<SimulatorTransport> io) {
     highest_seen = std::max(highest_seen, req.proposal);
     auto srv_res = CounterResponse{highest_seen};
 
-    request_envelope.Reply(srv_res, io);
+    io.Send(request_envelope.from_address, request_envelope.request_id, srv_res);
   }
 }
 

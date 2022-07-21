@@ -23,8 +23,6 @@
 
 using memgraph::utils::BasicResult;
 
-class SimulatorHandle;
-
 template <typename I>
 class Io;
 
@@ -55,11 +53,6 @@ struct RequestEnvelope {
   std::variant<Ms...> message;
   uint64_t request_id;
   Address from_address;
-
-  template <Message T, typename I>
-  void Reply(T response, Io<I> &io) {
-    io.Send(from_address, request_id, response);
-  }
 };
 
 template <Message... Ms>
@@ -93,7 +86,8 @@ class Io {
   ResponseFuture<Response> Request(Address address, Request request) {
     uint64_t request_id = ++request_id_counter_;
     uint64_t timeout_microseconds = default_timeout_microseconds_;
-    return implementation_.template Request<Request, Response>(address, request_id, request, timeout_microseconds);
+    return implementation_.template Request<Request, Response>(address, request_id, std::move(request),
+                                                               timeout_microseconds);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
@@ -115,7 +109,7 @@ class Io {
   /// this must be built on-top. TCP is not enough for most use cases.
   template <Message M>
   void Send(Address address, uint64_t request_id, M message) {
-    return implementation_.template Send<M>(address, request_id, message);
+    return implementation_.template Send<M>(address, request_id, std::move(message));
   }
 
   /// The current system time in microseconds since the unix epoch.
