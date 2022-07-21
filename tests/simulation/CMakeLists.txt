@@ -9,6 +9,7 @@ function(add_simulation_test test_cpp san)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
   add_executable(${target_name} ${test_cpp})
+
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
@@ -29,3 +30,5 @@ add_simulation_test(future.cpp thread)
 add_simulation_test(basic_request.cpp address)
 
 add_simulation_test(raft.cpp address)
+
+add_simulation_test(trial_query_storage/query_storage_test.cpp address)
