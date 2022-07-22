@@ -2344,9 +2344,7 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext * /*ctx*/) {
   query_ = storage_->Create<ShowConfigQuery>();
-  return query_
-  query_ = show_config_query;
-  return show_config_query;
+  return query_;
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

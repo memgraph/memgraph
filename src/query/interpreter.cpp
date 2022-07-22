@@ -1557,7 +1557,7 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, const bool in_exp
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-                         if (UNLIKELY(!pull_plan)) {
+                         if (!pull_plan) [[unlikely]] {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
