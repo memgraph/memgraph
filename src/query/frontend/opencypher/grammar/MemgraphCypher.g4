@@ -45,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE_TYPES
                       | EXECUTE
                       | FOR
                       | FOREACH
@@ -56,6 +57,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | ISOLATION
                       | KAFKA
+                      | LABELS
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -255,6 +257,7 @@ privilege : CREATE
           | MODULE_WRITE
           | WEBSOCKET
           | EDGE_TYPES edgeTypes = edgeTypeList
+          | LABELS labels=labelList
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -265,6 +268,11 @@ edgeTypeList : '*' | listOfEdgeTypes ;
 listOfEdgeTypes : edgeType ( ',' edgeType )* ;
 
 edgeType : COLON symbolicName ;
+labelList : '*' | listOfLabels ;
+
+listOfLabels : label ( ',' label )* ;
+
+label : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 

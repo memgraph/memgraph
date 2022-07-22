@@ -30,6 +30,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -260,30 +261,25 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   storage::Storage *db_;
 };
 
-class AccessChecker final : public memgraph::query::AccessChecker {
+class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
  public:
-  explicit AccessChecker(memgraph::auth::User *user) : user_{user} {}
+  explicit FineGrainedAccessChecker(memgraph::auth::User *user) : user_{user} {}
 
-  bool IsUserAuthorizedEdgeTypes(const std::vector<memgraph::storage::EdgeTypeId> &edgeTypes,
-                                 memgraph::query::DbAccessor *dba) const final {
-    auto edgeTypePermissions = user_->GetEdgeTypePermissions();
+  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels,
+                              memgraph::query::DbAccessor *dba) const final {
+    auto labelPermissions = user_->GetFineGrainedAccessPermissions();
 
-    return std::any_of(edgeTypes.begin(), edgeTypes.end(), [edgeTypePermissions, dba](const auto edgeType) {
-      return edgeTypePermissions.Has(dba->EdgeTypeToName(edgeType)) == memgraph::auth::PermissionLevel::GRANT;
+    return std::any_of(labels.begin(), labels.end(), [&labelPermissions, &dba](const auto label) {
+      return labelPermissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
     });
-  }
-
-  std::vector<memgraph::storage::EdgeTypeId> GetGrantedEdgeTypesId(memgraph::query::DbAccessor *dba) const final {
-    auto edgeTypePermissions = user_->GetEdgeTypePermissions().GetGrants();
-    std::vector<memgraph::storage::EdgeTypeId> edgeTypeIds{};
-    for (auto edgeTypePermission : edgeTypePermissions) edgeTypeIds.push_back(dba->NameToEdgeType(edgeTypePermission));
-
-    return edgeTypeIds;
   }
 
  private:
   memgraph::auth::User *user_;
 };
+
+/// returns false if the replication role can't be set
+/// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
                          DbAccessor *db_accessor) {
@@ -305,7 +301,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
   std::vector<std::string> edgeTypes = auth_query->edgetypes_;
-  // std::vector<storage::LabelId> labels = NamesToLabels(labels, db_accessor);
+  std::vector<std::string> labels = auth_query->labels_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -318,11 +314,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
       AuthQuery::Action::SHOW_ROLE_FOR_USER};
 
-  // if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
-  //   throw utils::BasicException(
-  //       utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-  //       features"));
-  // }
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
+        features"));
+  }
 
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
@@ -336,7 +332,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll, {});
+          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -411,20 +407,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
-        auth->GrantPrivilege(user_or_role, privileges, edgeTypes);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->GrantPrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
-        auth->DenyPrivilege(user_or_role, privileges, edgeTypes);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->DenyPrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges, edgeTypes] {
-        auth->RevokePrivilege(user_or_role, privileges, edgeTypes);
+      callback.fn = [auth, user_or_role, privileges, labels] {
+        auth->RevokePrivilege(user_or_role, privileges, labels);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -968,7 +964,11 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
+<<<<<<< HEAD
     ctx_.access_checker = new AccessChecker{user};
+=======
+    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
+>>>>>>> E129-MG-implement-label-based-authorization
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
@@ -1302,6 +1302,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
+  auto optional_username = StringPointerToOptional(username);
+
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
   auto optional_username = StringPointerToOptional(username);
 

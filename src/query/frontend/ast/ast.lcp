@@ -2234,6 +2234,7 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+
 (lcp:define-class auth-query (query)
   ((action "Action" :scope :public)
    (user "std::string" :scope :public)
@@ -2242,8 +2243,9 @@ cpp<#
    (password "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (edgeTypes "std::vector<std::string>" :scope :public)
-   (privileges "std::vector<Privilege>" :scope :public))
+   (privileges "std::vector<Privilege>" :scope :public)
+   (labels "std::vector<std::string>" :scope :public)
+   (edgeTypes "std::vector<std::string>" :scope :public))
   (:public
     (lcp:define-enum action
         (create-role drop-role show-roles create-user set-password drop-user
@@ -2254,7 +2256,7 @@ cpp<#
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
          dump replication durability read_file free_memory trigger config stream module_read module_write
-         websocket edge_types)
+         websocket)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2265,15 +2267,16 @@ cpp<#
     #>cpp
     AuthQuery(Action action, std::string user, std::string role,
               std::string user_or_role, Expression *password,
-              std::vector<std::string> edgeTypes,
-              std::vector<Privilege> privileges)
+              std::vector<Privilege> privileges,
+              std::vector<std::string> labels, std::vector<std::string> edgeTypes)
         : action_(action),
           user_(user),
           role_(role),
           user_or_role_(user_or_role),
           password_(password),
-          edgetypes_(edgeTypes),
-          privileges_(privileges) {}
+          privileges_(privileges),
+          labels_(labels),
+          edgetypes_(edgeTypes) {}
     cpp<#)
   (:private
     #>cpp
@@ -2298,7 +2301,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
     AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
     AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
-    AuthQuery::Privilege::WEBSOCKET,  };
+    AuthQuery::Privilege::WEBSOCKET};
 cpp<#
 
 (lcp:define-class info-query (query)

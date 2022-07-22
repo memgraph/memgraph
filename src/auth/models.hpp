@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <unordered_set>
 
 #include <json/json.hpp>
 #include <unordered_set>
@@ -39,8 +40,7 @@ enum class Permission : uint64_t {
   STREAM       = 1U << 17U,
   MODULE_READ  = 1U << 18U,
   MODULE_WRITE = 1U << 19U,
-  WEBSOCKET    = 1U << 20U,
-  EDGE_TYPES   = 1U << 21U
+  WEBSOCKET    = 1U << 20U
 };
 // clang-format on
 
@@ -90,10 +90,10 @@ bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
 
-class AccessPermissions final {
+class FineGrainedAccessPermissions final {
  public:
-  AccessPermissions(const std::unordered_set<std::string> &grants = {},
-                    const std::unordered_set<std::string> &denies = {});
+  FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
+                               const std::unordered_set<std::string> &denies = {});
 
   PermissionLevel Has(const std::string &permission) const;
 
@@ -103,35 +103,35 @@ class AccessPermissions final {
 
   void Deny(const std::string &permission);
 
-  std::unordered_set<std::string> GetGrants() const;
-  std::unordered_set<std::string> GetDenies() const;
-
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
-  static AccessPermissions Deserialize(const nlohmann::json &data);
+  static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  std::unordered_set<std::string> grants() const;
-  std::unordered_set<std::string> denies() const;
+  const std::unordered_set<std::string> &grants() const;
+  const std::unordered_set<std::string> &denies() const;
 
  private:
   std::unordered_set<std::string> grants_{};
   std::unordered_set<std::string> denies_{};
 };
 
-bool operator==(const AccessPermissions &first, const AccessPermissions &second);
+bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
 
-bool operator!=(const AccessPermissions &first, const AccessPermissions &second);
+bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
 
 class Role final {
  public:
   Role(const std::string &rolename);
 
-  Role(const std::string &rolename, const Permissions &permissions, const AccessPermissions &edgeTypePermissions_);
+  Role(const std::string &rolename, const Permissions &permissions,
+       const FineGrainedAccessPermissions &fine_grained_access_permissions);
 
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
+  FineGrainedAccessPermissions &fine_grained_access_permissions();
 
   const AccessPermissions &edgeTypePermissions() const;
   AccessPermissions &edgeTypePermissions();
@@ -146,7 +146,7 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
-  AccessPermissions edgeTypePermissions_;
+  FineGrainedAccessPermissions fine_grained_access_permissions_;
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -157,7 +157,7 @@ class User final {
   User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-       const AccessPermissions &edgeTypePermissions_);
+       const FineGrainedAccessPermissions &fine_grained_access_permissions);
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
@@ -170,12 +170,14 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
-  AccessPermissions GetEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessPermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
+  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
+  FineGrainedAccessPermissions &fine_grained_access_permissions();
 
   const AccessPermissions &edgeTypePermissions() const;
   AccessPermissions &edgeTypePermissions();
@@ -193,7 +195,7 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
-  AccessPermissions edgeTypePermissions_;
+  FineGrainedAccessPermissions fine_grained_access_permissions_;
   std::optional<Role> role_;
 };
 

@@ -87,8 +87,6 @@ std::string PermissionToString(Permission permission) {
       return "MODULE_WRITE";
     case Permission::WEBSOCKET:
       return "WEBSOCKET";
-    case Permission::EDGE_TYPES:
-      return "EDGE_TYPES";
   }
 }
 
@@ -185,11 +183,13 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
-AccessPermissions::AccessPermissions(const std::unordered_set<std::string> &grants,
-                                     const std::unordered_set<std::string> &denies)
+const std::string ASTERISK = "*";
+
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants,
+                                                           const std::unordered_set<std::string> &denies)
     : grants_(grants), denies_(denies) {}
 
-PermissionLevel AccessPermissions::Has(const std::string &permission) const {
+PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission) const {
   if ((denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) || denies_.find(permission) != denies_.end()) {
     return PermissionLevel::DENY;
   }
@@ -201,7 +201,7 @@ PermissionLevel AccessPermissions::Has(const std::string &permission) const {
   return PermissionLevel::NEUTRAL;
 }
 
-void AccessPermissions::Grant(const std::string &permission) {
+void FineGrainedAccessPermissions::Grant(const std::string &permission) {
   if (permission == ASTERISK) {
     grants_.clear();
     grants_.insert(permission);
@@ -224,7 +224,7 @@ void AccessPermissions::Grant(const std::string &permission) {
   }
 }
 
-void AccessPermissions::Revoke(const std::string &permission) {
+void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   if (permission == ASTERISK) {
     grants_.clear();
     denies_.clear();
@@ -244,7 +244,7 @@ void AccessPermissions::Revoke(const std::string &permission) {
   }
 }
 
-void AccessPermissions::Deny(const std::string &permission) {
+void FineGrainedAccessPermissions::Deny(const std::string &permission) {
   if (permission == ASTERISK) {
     denies_.clear();
     denies_.insert(permission);
@@ -267,18 +267,14 @@ void AccessPermissions::Deny(const std::string &permission) {
   }
 }
 
-std::unordered_set<std::string> AccessPermissions::GetGrants() const { return grants_; }
-
-std::unordered_set<std::string> AccessPermissions::GetDenies() const { return denies_; }
-
-nlohmann::json AccessPermissions::Serialize() const {
+nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["grants"] = grants_;
   data["denies"] = denies_;
   return data;
 }
 
-AccessPermissions AccessPermissions::Deserialize(const nlohmann::json &data) {
+FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
@@ -286,23 +282,32 @@ AccessPermissions AccessPermissions::Deserialize(const nlohmann::json &data) {
   return {data["grants"], data["denies"]};
 }
 
-std::unordered_set<std::string> AccessPermissions::grants() const { return grants_; }
-std::unordered_set<std::string> AccessPermissions::denies() const { return denies_; }
+const std::unordered_set<std::string> &FineGrainedAccessPermissions::grants() const { return grants_; }
+const std::unordered_set<std::string> &FineGrainedAccessPermissions::denies() const { return denies_; }
 
-bool operator==(const AccessPermissions &first, const AccessPermissions &second) {
+bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.grants() == second.grants() && first.denies() == second.denies();
 }
 
-bool operator!=(const AccessPermissions &first, const AccessPermissions &second) { return !(first == second); }
+bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
+  return !(first == second);
+}
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
-Role::Role(const std::string &rolename, const Permissions &permissions, const AccessPermissions &edgeTypePermissions)
-    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions), edgeTypePermissions_(edgeTypePermissions) {}
+Role::Role(const std::string &rolename, const Permissions &permissions,
+           const FineGrainedAccessPermissions &fine_grained_access_permissions)
+    : rolename_(utils::ToLowerCase(rolename)),
+      permissions_(permissions),
+      fine_grained_access_permissions_(fine_grained_access_permissions) {}
 
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
+const FineGrainedAccessPermissions &Role::fine_grained_access_permissions() const {
+  return fine_grained_access_permissions_;
+}
+FineGrainedAccessPermissions &Role::fine_grained_access_permissions() { return fine_grained_access_permissions_; }
 
 const AccessPermissions &Role::edgeTypePermissions() const { return edgeTypePermissions_; }
 AccessPermissions &Role::edgeTypePermissions() { return edgeTypePermissions_; }
@@ -311,7 +316,7 @@ nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
-  data["edgeTypePermissions"] = edgeTypePermissions_.Serialize();
+  data["fine_grained_access_permissions"] = fine_grained_access_permissions_.Serialize();
   return data;
 }
 
@@ -319,12 +324,14 @@ Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  if (!data["rolename"].is_string() || !data["permissions"].is_object()) {
+  if (!data["rolename"].is_string() || !data["permissions"].is_object() ||
+      !data["fine_grained_access_permissions"].is_object()) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  auto edgeTypePermissions = AccessPermissions::Deserialize(data["edgeTypePermissions"]);
-  return {data["rolename"], permissions, edgeTypePermissions};
+  auto fine_grained_access_permissions =
+      FineGrainedAccessPermissions::Deserialize(data["fine_grained_access_permissions"]);
+  return {data["rolename"], permissions, fine_grained_access_permissions};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -335,11 +342,11 @@ bool operator==(const Role &first, const Role &second) {
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
 User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-           const AccessPermissions &edgeTypePermissions)
+           const FineGrainedAccessPermissions &fine_grained_access_permissions)
     : username_(utils::ToLowerCase(username)),
       password_hash_(password_hash),
       permissions_(permissions),
-      edgeTypePermissions_(edgeTypePermissions) {}
+      fine_grained_access_permissions_(fine_grained_access_permissions) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_.empty()) return true;
@@ -388,29 +395,35 @@ Permissions User::GetPermissions() const {
   return permissions_;
 }
 
-AccessPermissions User::GetEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetFineGrainedAccessPermissions() const {
   if (role_) {
     std::unordered_set<std::string> resultGrants;
 
-    std::set_union(edgeTypePermissions_.grants().begin(), edgeTypePermissions_.grants().end(),
-                   role_->edgeTypePermissions().grants().begin(), role_->edgeTypePermissions().grants().end(),
+    std::set_union(fine_grained_access_permissions_.grants().begin(), fine_grained_access_permissions_.grants().end(),
+                   role_->fine_grained_access_permissions().grants().begin(),
+                   role_->fine_grained_access_permissions().grants().end(),
                    std::inserter(resultGrants, resultGrants.begin()));
 
     std::unordered_set<std::string> resultDenies;
 
-    std::set_union(edgeTypePermissions_.denies().begin(), edgeTypePermissions_.denies().end(),
-                   role_->edgeTypePermissions().denies().begin(), role_->edgeTypePermissions().denies().end(),
+    std::set_union(fine_grained_access_permissions_.denies().begin(), fine_grained_access_permissions_.denies().end(),
+                   role_->fine_grained_access_permissions().denies().begin(),
+                   role_->fine_grained_access_permissions().denies().end(),
                    std::inserter(resultDenies, resultDenies.begin()));
 
     return {resultGrants, resultDenies};
   }
-  return edgeTypePermissions_;
+  return fine_grained_access_permissions_;
 }
 
 const std::string &User::username() const { return username_; }
 
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
+const FineGrainedAccessPermissions &User::fine_grained_access_permissions() const {
+  return fine_grained_access_permissions_;
+}
+FineGrainedAccessPermissions &User::fine_grained_access_permissions() { return fine_grained_access_permissions_; }
 
 const AccessPermissions &User::edgeTypePermissions() const { return edgeTypePermissions_; }
 AccessPermissions &User::edgeTypePermissions() { return edgeTypePermissions_; }
@@ -427,7 +440,7 @@ nlohmann::json User::Serialize() const {
   data["username"] = username_;
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
-  data["edgeTypePermissions"] = edgeTypePermissions_.Serialize();
+  data["fine_grained_access_permissions"] = fine_grained_access_permissions_.Serialize();
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
 }
@@ -440,8 +453,9 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  auto edgeTypePermissions = AccessPermissions::Deserialize(data["edgeTypePermissions"]);
-  return {data["username"], data["password_hash"], permissions, edgeTypePermissions};
+  auto fine_grained_access_permissions =
+      FineGrainedAccessPermissions::Deserialize(data["fine_grained_access_permissions"]);
+  return {data["username"], data["password_hash"], permissions, fine_grained_access_permissions};
 }
 
 bool operator==(const User &first, const User &second) {
