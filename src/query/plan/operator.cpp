@@ -1022,8 +1022,6 @@ class ExpandVariableCursor : public Cursor {
         edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
       }
 
-      // if we are here, we have a valid stack,
-      // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
 
       // Check edge-uniqueness.
@@ -1031,10 +1029,14 @@ class ExpandVariableCursor : public Cursor {
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
-
-      AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
+
+      if (!context.fine_grained_access_checker->IsUserAuthorizedEdgeType(current_edge.first.EdgeType()) ||
+          !context.fine_grained_access_checker->IsUserAuthorizedLabels(
+              current_vertex.Labels(memgraph::storage::View::NEW).GetValue()))
+        continue;
+      AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
