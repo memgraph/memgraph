@@ -796,7 +796,6 @@ Callback HandleConfigQuery() {
   callback.header = {"name", "default_configuration", "current_configuration"};
 
   callback.fn = [] {
-    // Query the flags that the currently running instance was started up with.
     std::vector<GFLAGS_NAMESPACE::CommandLineFlagInfo> flags;
     GetAllFlags(&flags);
 
