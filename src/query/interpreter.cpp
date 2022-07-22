@@ -263,19 +263,18 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
  public:
-  explicit FineGrainedAccessChecker(memgraph::auth::User *user) : user_{user} {}
+  explicit FineGrainedAccessChecker(memgraph::auth::User *user, DbAccessor *dba) : user_{user}, dba_{dba} {}
 
-  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels,
-                              memgraph::query::DbAccessor *dba) const final {
-    auto labelPermissions = user_->GetFineGrainedAccessPermissions();
-
-    return std::any_of(labels.begin(), labels.end(), [&labelPermissions, &dba](const auto label) {
-      return labelPermissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
+  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const final {
+    return std::any_of(labels.begin(), labels.end(), [this](const auto label) {
+      return user_->GetFineGrainedAccessPermissions().Has(dba_->LabelToName(label)) ==
+             memgraph::auth::PermissionLevel::GRANT;
     });
   }
 
  private:
   memgraph::auth::User *user_;
+  DbAccessor *dba_;
 };
 
 /// returns false if the replication role can't be set
@@ -961,7 +960,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
+    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user, dba};
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
