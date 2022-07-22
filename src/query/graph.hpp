@@ -60,8 +60,10 @@ class Graph {
   /** Expands the graph with the given path. */
   void Expand(const Path &path) {
     const auto path_vertices_ = path.vertices();
+    const auto path_edges_ = path.edges();
     std::for_each(path_vertices_.begin(), path_vertices_.end(),
                   [this](const VertexAccessor v) { vertices_.push_back(v); });
+    std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.push_back(e); });
   }
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
