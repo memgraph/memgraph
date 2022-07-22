@@ -2343,7 +2343,8 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowConfigQuery(MemgraphCypher::ShowConfigQueryContext * /*ctx*/) {
-  auto *show_config_query = storage_->Create<ShowConfigQuery>();
+  query_ = storage_->Create<ShowConfigQuery>();
+  return query_
   query_ = show_config_query;
   return show_config_query;
 }
