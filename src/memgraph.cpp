@@ -352,7 +352,8 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                         });
 
 // Logging flags
-DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
@@ -432,9 +433,9 @@ void AddLoggerSink(spdlog::sink_ptr new_sink) {
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(organization_name, "", "Organization name.");
+DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.

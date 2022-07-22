@@ -793,7 +793,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
 Callback HandleConfigQuery() {
   Callback callback;
-  callback.header = {"name", "default_configuration", "current_configuration"};
+  callback.header = {"name", "default_value", "current_value", "description"};
 
   callback.fn = [] {
     std::vector<GFLAGS_NAMESPACE::CommandLineFlagInfo> flags;
@@ -802,12 +802,17 @@ Callback HandleConfigQuery() {
     std::vector<std::vector<TypedValue>> results;
 
     for (const auto &flag : flags) {
-      if (flag.hidden) continue;
+      if (flag.hidden ||
+          // These flags are not defined with gflags macros but are specified in config/flags.yaml
+          flag.name == "flag_file" || flag.name == "help" || flag.name == "help_xml" || flag.name == "version") {
+        continue;
+      }
 
       std::vector<TypedValue> current_fields;
       current_fields.emplace_back(flag.name);
       current_fields.emplace_back(flag.default_value);
       current_fields.emplace_back(flag.current_value);
+      current_fields.emplace_back(flag.description);
 
       results.emplace_back(std::move(current_fields));
     }
