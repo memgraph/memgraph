@@ -113,7 +113,7 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_, schema_validator_);
+    return {it->second.access(), label, view, transaction, indices_, constraints_, config_, schema_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {

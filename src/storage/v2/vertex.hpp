@@ -44,7 +44,7 @@ struct Vertex {
   }
 
   // TODO remove this when import replication is solved
-  [[deprecated]] Vertex(Gid gid) : gid(gid), deleted(false) {
+  [[deprecated]] explicit Vertex(Gid gid) : gid(gid), deleted(false) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }

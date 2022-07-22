@@ -151,8 +151,7 @@ class VertexAccessor final {
   }
 
   storage::ResultSchema<storage::PropertyValue> SetPropertyAndValidate(storage::PropertyId key,
-                                                                       const storage::PropertyValue &value,
-                                                                       storage::View view) {
+                                                                       const storage::PropertyValue &value) {
     const auto primary_label = impl_.PrimaryLabel();
     if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label, key);
         maybe_violation_error) {
@@ -166,7 +165,7 @@ class VertexAccessor final {
   }
 
   storage::ResultSchema<storage::PropertyValue> RemovePropertyAndValidate(storage::PropertyId key) {
-    return SetPropertyAndValidate(key, storage::PropertyValue{}, storage::View::NEW);
+    return SetPropertyAndValidate(key, storage::PropertyValue{});
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {

@@ -561,11 +561,9 @@ TEST_F(QueryPlanCRUDTest, SetProperties) {
     dba.AdvanceCommand();
 
     auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("R"));
-    ASSERT_TRUE(v1.SetPropertyAndValidate(prop_a, memgraph::storage::PropertyValue(0), memgraph::storage::View::NEW)
-                    .HasValue());
+    ASSERT_TRUE(v1.SetPropertyAndValidate(prop_a, memgraph::storage::PropertyValue(0)).HasValue());
     ASSERT_TRUE(e->SetProperty(prop_b, memgraph::storage::PropertyValue(1)).HasValue());
-    ASSERT_TRUE(v2.SetPropertyAndValidate(prop_c, memgraph::storage::PropertyValue(2), memgraph::storage::View::NEW)
-                    .HasValue());
+    ASSERT_TRUE(v2.SetPropertyAndValidate(prop_c, memgraph::storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     AstStorage storage;

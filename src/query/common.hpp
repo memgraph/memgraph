@@ -146,7 +146,7 @@ storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const s
       }
     };
     if constexpr (std::is_same_v<T, VertexAccessor>) {
-      const auto maybe_old_value = record->SetPropertyAndValidate(key, value, storage::View::NEW);
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, value);
       if (maybe_old_value.HasError()) {
         std::visit(utils::Overloaded{[handle_error](const storage::Error error) { handle_error(error); },
                                      [&dba](const storage::SchemaViolation &schema_violation) {
