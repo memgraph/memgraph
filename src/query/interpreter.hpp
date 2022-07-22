@@ -104,15 +104,15 @@ class AuthQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                              const std::vector<std::string> &labels) = 0;
+                              const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                             const std::vector<std::string> &labels) = 0;
+                             const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokePrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                               const std::vector<std::string> &labels) = 0;
+                               const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
 };
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };

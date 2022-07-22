@@ -45,6 +45,8 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -263,19 +265,23 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
 class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
  public:
-  explicit FineGrainedAccessChecker(memgraph::auth::User *user) : user_{user} {}
+  explicit FineGrainedAccessChecker(memgraph::auth::User *user, DbAccessor *dba) : user_{user}, dba_{dba} {}
 
-  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels,
-                              memgraph::query::DbAccessor *dba) const final {
-    auto labelPermissions = user_->GetFineGrainedAccessPermissions();
-
-    return std::any_of(labels.begin(), labels.end(), [&labelPermissions, &dba](const auto label) {
-      return labelPermissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
+  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const final {
+    return std::any_of(labels.begin(), labels.end(), [this](const auto label) {
+      return user_->GetFineGrainedAccessLabelPermissions().Has(dba_->LabelToName(label)) ==
+             memgraph::auth::PermissionLevel::GRANT;
     });
+  }
+
+  bool IsUserAuthorizedEdgeType(const memgraph::storage::EdgeTypeId &edgeType) const final {
+    return user_->GetFineGrainedAccessEdgeTypePermissions().Has(dba_->EdgeTypeToName(edgeType)) ==
+           memgraph::auth::PermissionLevel::GRANT;
   }
 
  private:
   memgraph::auth::User *user_;
+  DbAccessor *dba_;
 };
 
 /// returns false if the replication role can't be set
@@ -316,8 +322,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
-        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-        features"));
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
   }
 
   switch (auth_query->action_) {
@@ -407,20 +412,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->GrantPrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, labels, edgeTypes] {
+        auth->GrantPrivilege(user_or_role, privileges, labels, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->DenyPrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, labels, edgeTypes] {
+        auth->DenyPrivilege(user_or_role, privileges, labels, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->RevokePrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, labels, edgeTypes] {
+        auth->RevokePrivilege(user_or_role, privileges, labels, edgeTypes);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -964,11 +969,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-<<<<<<< HEAD
-    ctx_.access_checker = new AccessChecker{user};
-=======
     ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
->>>>>>> E129-MG-implement-label-based-authorization
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
@@ -1305,7 +1306,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto optional_username = StringPointerToOptional(username);
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
-  auto optional_username = StringPointerToOptional(username);
 
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
                        std::move(parsed_query.required_privileges),

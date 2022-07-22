@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "query/fine_grained_access_checker.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
@@ -81,14 +82,16 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(View view, AccessChecker *access_checker = nullptr,
-                                            const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> InEdges(
+      View view, const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
+      const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                             const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> OutEdges(
+      View view, const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
+      const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

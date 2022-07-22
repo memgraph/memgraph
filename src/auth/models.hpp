@@ -120,21 +120,43 @@ bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
 
+class FineGrainedAccessHandler final {
+ public:
+  FineGrainedAccessHandler(const FineGrainedAccessPermissions &labelPermissions = {},
+                           const FineGrainedAccessPermissions &edgeTypePermissions = {});
+
+  const FineGrainedAccessPermissions &label_permissions() const;
+  FineGrainedAccessPermissions &label_permissions();
+
+  const FineGrainedAccessPermissions &edge_type_permissions() const;
+  FineGrainedAccessPermissions &edge_type_permissions();
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static FineGrainedAccessHandler Deserialize(const nlohmann::json &data);
+
+  friend bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+
+ private:
+  FineGrainedAccessPermissions label_permissions_;
+  FineGrainedAccessPermissions edge_type_permissions_;
+};
+
+bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+
 class Role final {
  public:
   Role(const std::string &rolename);
 
   Role(const std::string &rolename, const Permissions &permissions,
-       const FineGrainedAccessPermissions &fine_grained_access_permissions);
+       const FineGrainedAccessHandler &fine_grained_access_handler);
 
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
-  FineGrainedAccessPermissions &fine_grained_access_permissions();
-
-  const AccessPermissions &edgeTypePermissions() const;
-  AccessPermissions &edgeTypePermissions();
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
 
   nlohmann::json Serialize() const;
 
@@ -146,7 +168,7 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
-  FineGrainedAccessPermissions fine_grained_access_permissions_;
+  FineGrainedAccessHandler fine_grained_access_handler_;
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -157,7 +179,7 @@ class User final {
   User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-       const FineGrainedAccessPermissions &fine_grained_access_permissions);
+       const FineGrainedAccessHandler &fine_grained_access_handler);
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
@@ -170,17 +192,15 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
-  FineGrainedAccessPermissions GetFineGrainedAccessPermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
-  FineGrainedAccessPermissions &fine_grained_access_permissions();
-
-  const AccessPermissions &edgeTypePermissions() const;
-  AccessPermissions &edgeTypePermissions();
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
 
   const Role *role() const;
 
@@ -195,7 +215,7 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
-  FineGrainedAccessPermissions fine_grained_access_permissions_;
+  FineGrainedAccessHandler fine_grained_access_handler_;
   std::optional<Role> role_;
 };
 
