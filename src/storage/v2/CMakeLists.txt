@@ -14,7 +14,6 @@ set(storage_v2_src_files
     storage.cpp)
 
 ##### Replication #####
-
 define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
 
 add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
@@ -27,10 +26,10 @@ set(storage_v2_src_files
     replication/replication_server.cpp
     replication/serialization.cpp
     replication/slk.cpp
+    replication/replication_persistence_helper.cpp
     ${lcp_storage_cpp_files})
 
 #######################
-
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 

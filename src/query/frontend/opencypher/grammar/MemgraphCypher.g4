@@ -286,7 +286,6 @@ replicaName : symbolicName ;
 socketAddress : literal ;
 
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
-                ( WITH TIMEOUT timeout=literal ) ?
                 TO socketAddress ;
 
 dropReplica : DROP REPLICA replicaName ;

@@ -17,6 +17,7 @@
 #include <variant>
 
 #include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -28,6 +29,8 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -51,6 +54,19 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
+  switch (error) {
+    case Storage::RegisterReplicaError::NAME_EXISTS:
+      return "NAME_EXISTS";
+    case Storage::RegisterReplicaError::END_POINT_EXISTS:
+      return "END_POINT_EXISTS";
+    case Storage::RegisterReplicaError::CONNECTION_FAILED:
+      return "CONNECTION_FAILED";
+    case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      return "COULD_NOT_BE_PERSISTED";
+  }
+}
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -400,6 +416,16 @@ Storage::Storage(Config config)
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  if (config_.durability.restore_replicas_on_startup) {
+    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
+    utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
+    storage_ =
+        std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
+    RestoreReplicas();
+  } else {
+    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
   }
 }
 
@@ -1900,7 +1926,7 @@ bool Storage::SetMainReplicationRole() {
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::ReplicationClientConfig &config) {
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
@@ -1920,12 +1946,28 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     return RegisterReplicaError::END_POINT_EXISTS;
   }
 
-  MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
-            "Only SYNC mode can have a timeout set");
+  if (ShouldStoreAndRestoreReplicas()) {
+    auto data = replication::ReplicaStatusToJSON(
+        replication::ReplicaStatus{.name = name,
+                                   .ip_address = endpoint.address,
+                                   .port = endpoint.port,
+                                   .sync_mode = replication_mode,
+                                   .replica_check_frequency = config.replica_check_frequency,
+                                   .ssl = config.ssl});
+    if (!storage_->Put(name, data.dump())) {
+      spdlog::error("Error when saving replica {} in settings.", name);
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    }
+  }
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
+
   if (client->State() == replication::ReplicaState::INVALID) {
-    return RegisterReplicaError::CONNECTION_FAILED;
+    if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
+      return RegisterReplicaError::CONNECTION_FAILED;
+    }
+
+    spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
   return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
@@ -1946,8 +1988,15 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   });
 }
 
-bool Storage::UnregisterReplica(const std::string_view name) {
+bool Storage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicas()) {
+    if (!storage_->Delete(name)) {
+      spdlog::error("Error when removing replica {} from settings.", name);
+      return false;
+    }
+  }
+
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
   });
@@ -1970,11 +2019,10 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<Storage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
-                   [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(),     client->Mode(),  client->Timeout(),
-                             client->Endpoint(), client->State(), client->GetTimestampInfo()};
-                   });
+    std::transform(
+        clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
+          return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
+        });
     return replica_info;
   });
 }
@@ -1983,5 +2031,42 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
 }
+
+void Storage::RestoreReplicas() {
+  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  if (!ShouldStoreAndRestoreReplicas()) {
+    return;
+  }
+  spdlog::info("Restoring replicas.");
+
+  for (const auto &[replica_name, replica_data] : *storage_) {
+    spdlog::info("Restoring replica {}.", replica_name);
+
+    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
+    }
+
+    auto replica_status = *maybe_replica_status;
+    MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
+              replica_name);
+
+    auto ret =
+        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
+                        replica_status.sync_mode, replication::RegistrationMode::CAN_BE_INVALID,
+                        {
+                            .replica_check_frequency = replica_status.replica_check_frequency,
+                            .ssl = replica_status.ssl,
+                        });
+
+    if (ret.HasError()) {
+      MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
+      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, RegisterReplicaErrorToString(ret.GetError()));
+    }
+    spdlog::info("Replica {} restored.", replica_name);
+  }
+}
+
+bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
 
 }  // namespace memgraph::storage

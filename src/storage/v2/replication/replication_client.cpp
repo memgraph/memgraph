@@ -43,11 +43,6 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   rpc_client_.emplace(endpoint, &*rpc_context_);
   TryInitializeClientSync();
 
-  if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
-    timeout_.emplace(*config.timeout);
-    timeout_dispatcher_.emplace();
-  }
-
   // Help the user to get the most accurate replica state possible.
   if (config.replica_check_frequency > std::chrono::seconds(0)) {
     replica_checker_.Run("Replica Checker", config.replica_check_frequency, [&] { FrequentCheck(); });
@@ -238,41 +233,6 @@ void Storage::ReplicationClient::FinalizeTransactionReplication() {
 
   if (mode_ == replication::ReplicationMode::ASYNC) {
     thread_pool_.AddTask([this] { this->FinalizeTransactionReplicationInternal(); });
-  } else if (timeout_) {
-    MG_ASSERT(mode_ == replication::ReplicationMode::SYNC, "Only SYNC replica can have a timeout.");
-    MG_ASSERT(timeout_dispatcher_, "Timeout thread is missing");
-    timeout_dispatcher_->WaitForTaskToFinish();
-
-    timeout_dispatcher_->active = true;
-    thread_pool_.AddTask([&, this] {
-      this->FinalizeTransactionReplicationInternal();
-      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      // TimerThread can finish waiting for timeout
-      timeout_dispatcher_->active = false;
-      // Notify the main thread
-      timeout_dispatcher_->main_cv.notify_one();
-    });
-
-    timeout_dispatcher_->StartTimeoutTask(*timeout_);
-
-    // Wait until one of the threads notifies us that they finished executing
-    // Both threads should first set the active flag to false
-    {
-      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      timeout_dispatcher_->main_cv.wait(main_guard, [&] { return !timeout_dispatcher_->active.load(); });
-    }
-
-    // TODO (antonio2368): Document and/or polish SEMI-SYNC to ASYNC fallback.
-    if (replica_state_ == replication::ReplicaState::REPLICATING) {
-      mode_ = replication::ReplicationMode::ASYNC;
-      timeout_.reset();
-      // This can only happen if we timeouted so we are sure that
-      // Timeout task finished
-      // We need to delete timeout dispatcher AFTER the replication
-      // finished because it tries to acquire the timeout lock
-      // and acces the `active` variable`
-      thread_pool_.AddTask([this] { timeout_dispatcher_.reset(); });
-    }
   } else {
     FinalizeTransactionReplicationInternal();
   }
@@ -558,36 +518,13 @@ Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
       std::unique_lock client_guard(client_lock_);
       replica_state_.store(replication::ReplicaState::INVALID);
     }
-    HandleRpcFailure(); // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't block
+    HandleRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't
+                         // block
   }
 
   return info;
 }
 
-////// TimeoutDispatcher //////
-void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
-  // Wait for the previous timeout task to finish
-  std::unique_lock main_guard(main_lock);
-  main_cv.wait(main_guard, [&] { return finished; });
-}
-
-void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(const double timeout) {
-  timeout_pool.AddTask([timeout, this] {
-    finished = false;
-    using std::chrono::steady_clock;
-    const auto timeout_duration =
-        std::chrono::duration_cast<steady_clock::duration>(std::chrono::duration<double>(timeout));
-    const auto end_time = steady_clock::now() + timeout_duration;
-    while (active && (steady_clock::now() < end_time)) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-
-    std::unique_lock main_guard(main_lock);
-    finished = true;
-    active = false;
-    main_cv.notify_one();
-  });
-}
 ////// ReplicaStream //////
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
                                                          const uint64_t previous_commit_timestamp,

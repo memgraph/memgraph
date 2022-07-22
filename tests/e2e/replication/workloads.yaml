@@ -29,8 +29,8 @@ template_cluster: &template_cluster
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "replication-e2e-main.log"
       setup_queries: [
-        "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 0 TO '127.0.0.1:10001'",
-        "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+        "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
         "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
       ]
       <<: *template_validation_queries
@@ -69,8 +69,8 @@ workloads:
         args: ["--bolt-port", "7687", "--log-level=TRACE"]
         log_file: "replication-e2e-main.log"
         setup_queries: [
-          "REGISTER REPLICA replica_1 SYNC WITH TIMEOUT 2 TO '127.0.0.1:10001'",
-          "REGISTER REPLICA replica_2 SYNC WITH TIMEOUT 1 TO '127.0.0.1:10002'",
+          "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+          "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
           "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
         ]
         validation_queries: []

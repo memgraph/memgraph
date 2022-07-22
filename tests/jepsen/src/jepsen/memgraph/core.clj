@@ -129,13 +129,7 @@
         :replication-mode
         (str "Invalid node configuration. "
              "Every replication node requires "
-             ":replication-mode to be defined."))
-      (throw-if-key-missing-in-any
-        (filter #(= (:replication-mode %) :sync) replica-nodes-configs)
-        :timeout
-        (str "Invalid node confiruation. "
-             "Every SYNC replication node requires "
-             ":timeout to be defined."))))
+             ":replication-mode to be defined."))))
 
   (map (fn [node-config] (resolve-all-node-hostnames
           (merge
