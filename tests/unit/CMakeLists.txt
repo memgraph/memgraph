@@ -102,8 +102,8 @@ target_link_libraries(${test_prefix}query_plan mg-query)
 # target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
 # add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 # target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
-add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
+# add_unit_test(query_plan_match_filter_return.cpp)
+# target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
 
 add_unit_test(query_plan_read_write_typecheck.cpp
   ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
