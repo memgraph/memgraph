@@ -57,3 +57,43 @@ Feature: Case
         Then the result should be:
             |           z                 |
             | ['nottwo', 'two', 'nottwo'] |
+
+    Scenario: Simple CASE nullcheck does not have match:
+        Given an empty graph
+        When executing query:
+            """
+            WITH 2 AS name RETURN CASE name WHEN 3 THEN 'something went wrong' WHEN null THEN "doesn't work" ELSE 'works' END
+            """
+        Then the result should be:
+            |  CASE name WHEN 3 THEN 'something went wrong' WHEN null THEN "doesn't work" ELSE 'works' END |
+            |  'works'                                                                                     |
+
+    Scenario: Simple CASE nullcheck does have match:
+        Given an empty graph
+        When executing query:
+            """
+            WITH 2 AS name RETURN CASE name WHEN 2 THEN 'works' WHEN null THEN "doesn't work" ELSE 'something went wrong' END
+            """
+        Then the result should be:
+            |  CASE name WHEN 2 THEN 'works' WHEN null THEN "doesn't work" ELSE 'something went wrong' END |
+            |  'works'                                                                                     |
+
+    Scenario: Generic CASE nullcheck does have match:
+        Given an empty graph
+        When executing query:
+            """
+            WITH 2 AS name RETURN CASE WHEN name is NULL THEN "doesn't work" WHEN name = 2 THEN "works" ELSE "something went wrong" END
+            """
+        Then the result should be:
+            |  CASE WHEN name is NULL THEN "doesn't work" WHEN name = 2 THEN "works" ELSE "something went wrong" END |
+            |  'works'                                                                                               |
+
+    Scenario: Generic CASE expression is null:
+        Given an empty graph
+        When executing query:
+            """
+            WITH null AS name RETURN CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END
+            """
+        Then the result should be:
+            |  CASE name WHEN null THEN "doesn't work" WHEN 2 THEN "doesn't work" ELSE 'works' END |
+            |  'works'                                                                             |

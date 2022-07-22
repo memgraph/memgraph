@@ -339,6 +339,9 @@ target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_d
 add_unit_test(storage_v3_query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}storage_v3_query_plan_match_filter_return mg-query)
 
+add_unit_test(replication_persistence_helper.cpp)
+target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
