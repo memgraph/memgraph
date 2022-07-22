@@ -1,6 +1,6 @@
 (ns jepsen.memgraph.basic
   "Basic Memgraph test"
-  (:require [neo4j-clj.core :as dbclient] 
+  (:require [neo4j-clj.core :as dbclient]
             [jepsen [client :as client]
                     [checker :as checker]
                     [generator :as gen]]
@@ -53,6 +53,11 @@
               (assoc op :type :fail, :error :not-found)))))
   (teardown! [this test]
     (c/with-session conn session
+      (try
+        (c/detach-delete-all session)
+        (catch Exception e
+          ; Deletion can give exception if a sync replica is down, that's expected
+          (assoc op :type :fail :info (str e))))
       (detach-delete-all session)))
   (close! [_ est]
     (dbclient/disconnect conn)))
@@ -73,4 +78,3 @@
                :timeline (timeline/html)})
    :generator (gen/mix [r w cas])
    :final-generator (gen/once r)})
-

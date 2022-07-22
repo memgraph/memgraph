@@ -86,7 +86,11 @@
   (teardown! [this test]
     (when (= replication-role :main)
       (c/with-session conn session
-        (c/detach-delete-all session))))
+        (try
+          (c/detach-delete-all session)
+          (catch Exception e
+            ; Deletion can give exception if a sync replica is down, that's expected
+            (assoc op :type :fail :info (str e))))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
