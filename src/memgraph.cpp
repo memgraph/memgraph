@@ -902,16 +902,9 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
     } catch (const memgraph::query::ReplicationException &e) {
-      throw memgraph::communication::bolt::ClientError(e.what());
-      // #NoCommit other error? kesaco
-      // maybe something else from bolt? unclear rn
-      // see https://7687.org/bolt/bolt-protocol-message-specification-4.html#summary-message---failure
-      // https://7687.org/bolt/bolt-protocol-server-state-specification-4.html#version-41
-
-      // for trigger: we just want to log an error, nothing else
-      // for data manipulation (or data definition): same for both, we return error from storage and throw error
-      // afterwards
-      //    give advice to user what to do: like check the replica machine etc...
+      throw memgraph::communication::bolt::VerboseError(
+          memgraph::communication::bolt::VerboseError::Classification::TRANSIENT_ERROR, "Cluster", "ReplicationFailure",
+          e.what());
     }
   }
 
