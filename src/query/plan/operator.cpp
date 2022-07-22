@@ -739,11 +739,11 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          in_edges_.emplace(
-              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+          in_edges_.emplace(UnwrapEdgesResult(
+              vertex.InEdges(self_.view_, context.fine_grained_access_checker, existing_node.ValueVertex())));
         }
       } else {
-        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, context.fine_grained_access_checker)));
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
@@ -756,11 +756,11 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          out_edges_.emplace(
-              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+          out_edges_.emplace(UnwrapEdgesResult(
+              vertex.OutEdges(self_.view_, context.fine_grained_access_checker, existing_node.ValueVertex())));
         }
       } else {
-        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, context.fine_grained_access_checker)));
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());

@@ -13,7 +13,6 @@
 
 #include <type_traits>
 
-#include "query/access_checker.hpp"
 #include "query/common.hpp"
 #include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"

@@ -82,16 +82,14 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(
-      View view, const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
-      const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> InEdges(View view, const ExecutionContex *execution_context = nullptr,
+                                            const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(
-      View view, const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
-      const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> OutEdges(View view, const ExecutionContex *execution_context = nullptr,
+                                             const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

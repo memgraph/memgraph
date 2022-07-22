@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include "auth/models.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {

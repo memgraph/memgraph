@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <cstddef>
 #include <optional>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -130,35 +132,34 @@ class VertexAccessor final {
     return impl_.ClearProperties();
   }
 
-  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+  auto InEdges(storage::View view, const ExecutionContex &execution_context) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types);
+    auto maybe_edges = impl_.InEdges(view, &execution_context.fine_grained_access_checker);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
   auto InEdges(storage::View view) const { return InEdges(view, {}); }
 
-  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types, const VertexAccessor &dest) const
+  auto InEdges(storage::View view, const ExecutionContex &execution_context, const VertexAccessor &dest) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
+    auto maybe_edges = impl_.InEdges(view, &execution_context.fine_grained_access_checker, &dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
+  auto OutEdges(storage::View view, const ExecutionContex &execution_context) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types);
+    auto maybe_edges = impl_.OutEdges(view, &execution_context.fine_grained_access_checker);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
   auto OutEdges(storage::View view) const { return OutEdges(view, {}); }
 
-  auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types,
-                const VertexAccessor &dest) const
+  auto OutEdges(storage::View view, const ExecutionContex &execution_context, const VertexAccessor &dest) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
+    auto maybe_edges = impl_.OutEdges(view, &execution_context.fine_grained_access_checker, &dest.impl_);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }

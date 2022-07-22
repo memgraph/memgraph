@@ -23,7 +23,6 @@
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
-#include "query/access_checker.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
