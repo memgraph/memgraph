@@ -1,0 +1,13 @@
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: []
+      log_file: "configuration-check-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Configuration check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/configuration_check.py"]
+    <<: *template_cluster
