@@ -739,11 +739,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          in_edges_.emplace(UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, context.fine_grained_access_checker, existing_node.ValueVertex())));
+          in_edges_.emplace(
+              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types,
+                                               context.fine_grained_access_checker, existing_node.ValueVertex())));
         }
       } else {
-        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, context.fine_grained_access_checker)));
+        in_edges_.emplace(UnwrapEdgesResult(
+            vertex.InEdges(self_.view_, self_.common_.edge_types, context.fine_grained_access_checker)));
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
@@ -756,11 +758,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          out_edges_.emplace(UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, context.fine_grained_access_checker, existing_node.ValueVertex())));
+          out_edges_.emplace(
+              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types,
+                                                context.fine_grained_access_checker, existing_node.ValueVertex())));
         }
       } else {
-        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, context.fine_grained_access_checker)));
+        out_edges_.emplace(UnwrapEdgesResult(
+            vertex.OutEdges(self_.view_, self_.common_.edge_types, context.fine_grained_access_checker)));
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
@@ -817,7 +821,8 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
+                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
+                      const ExecutionContext &context) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -825,16 +830,18 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
   };
 
   storage::View view = storage::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
+  utils::pmr::vector<decltype(wrapper(direction,
+                                      *vertex.InEdges(view, edge_types, context.fine_grained_access_checker)))>
+      chain_elements(memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types, context.fine_grained_access_checker));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
   if (direction != EdgeAtom::Direction::IN) {
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
+    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types, context.fine_grained_access_checker));
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -899,8 +906,9 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
-                                                self_.common_.edge_types, utils::NewDeleteResource()));
+  using ExpandEdges =
+      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
+                                utils::NewDeleteResource(), std::declval<ExecutionContext>()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -941,7 +949,8 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory));
+        edges_.emplace_back(
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1041,7 +1050,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1184,7 +1193,8 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(
+              vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
           for (const auto &edge : out_edges) {
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
@@ -1201,7 +1211,8 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(
+              vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
           for (const auto &edge : in_edges) {
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
@@ -1232,7 +1243,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       // reversed.
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          auto out_edges = UnwrapEdgesResult(
+              vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
           for (const auto &edge : out_edges) {
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
@@ -1249,7 +1261,8 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          auto in_edges = UnwrapEdgesResult(
+              vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
           for (const auto &edge : in_edges) {
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
@@ -1323,13 +1336,15 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const auto &vertex) {
+    auto expand_from_vertex = [this, &expand_pair, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(
+            vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
         for (const auto &edge : out_edges) expand_pair(edge, edge.To());
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(
+            vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
         for (const auto &edge : in_edges) expand_pair(edge, edge.From());
       }
     };
@@ -1505,16 +1520,18 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair](const VertexAccessor &vertex, const TypedValue &weight,
-                                                   int64_t depth) {
+    auto expand_from_vertex = [this, &expand_pair, &context](const VertexAccessor &vertex, const TypedValue &weight,
+                                                             int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        auto out_edges = UnwrapEdgesResult(
+            vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
         for (const auto &edge : out_edges) {
           expand_pair(edge, edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        auto in_edges = UnwrapEdgesResult(
+            vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.fine_grained_access_checker));
         for (const auto &edge : in_edges) {
           expand_pair(edge, edge.From(), weight, depth);
         }

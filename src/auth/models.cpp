@@ -296,10 +296,12 @@ FineGrainedAccessHandler::FineGrainedAccessHandler(const FineGrainedAccessPermis
     : label_permissions_(labelPermissions), edge_type_permissions_(edgeTypePermissions) {}
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() const { return label_permissions_; }
+FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() { return label_permissions_; }
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() const {
   return edge_type_permissions_;
 }
+FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
@@ -312,8 +314,8 @@ FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::j
   if (!data.is_object()) {
     throw AuthException("Couldn't load role data!");
   }
-  if (!data["fine_grained_access_handler"].is_object()) {
-    throw AuthException("Couldn't load FineGrainedAccessHandler data!");
+  if (!data["label_permissions"].is_object() && !data["edge_type_permissions"].is_object()) {
+    throw AuthException("Couldn't load label_permissions or edge_type_permissions data!");
   }
   auto label_permissions = FineGrainedAccessPermissions::Deserialize(data["label_permissions"]);
   auto edge_type_permissions = FineGrainedAccessPermissions::Deserialize(data["edge_type_permissions"]);

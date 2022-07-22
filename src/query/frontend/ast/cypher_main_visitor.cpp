@@ -1298,7 +1298,9 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      if (privilege->LABELS()) {
+      if (privilege->EDGE_TYPES()) {
+        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+      } else if (privilege->LABELS()) {
         auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
       } else {
         auth->privileges_.push_back(privilege->accept(this));
@@ -1320,7 +1322,9 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      if (privilege->LABELS()) {
+      if (privilege->EDGE_TYPES()) {
+        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+      } else if (privilege->LABELS()) {
         auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
       } else {
         auth->privileges_.push_back(privilege->accept(this));
@@ -1387,7 +1391,6 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
   if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
   if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
-  if (ctx->EDGE_TYPES()) return AuthQuery::Privilege::EDGE_TYPES;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 

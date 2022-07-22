@@ -840,7 +840,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           edit_fun(&role->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_fun(&user->fine_grained_access_handler().edge_type_permissions(), label);
+          edit_fun(&user->fine_grained_access_handler().label_permissions(), label);
         }
         for (const auto &edgeType : edgeTypes) {
           edit_fun(&role->fine_grained_access_handler().edge_type_permissions(), edgeType);

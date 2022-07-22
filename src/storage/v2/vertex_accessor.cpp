@@ -13,7 +13,6 @@
 
 #include <memory>
 
-#include "query/context.hpp"
 #include "query/fine_grained_access_checker.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -342,8 +341,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
-    View view, const query::FineGrainedAccessChecker *fine_grained_access_checker,
-    const VertexAccessor *destination) const {
+    View view, const std::vector<storage::EdgeTypeId> &edge_types,
+    const query::FineGrainedAccessChecker *fine_grained_access_checker, const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -358,62 +357,71 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
       for (const auto &item : vertex_->in_edges) {
         const auto &[edge_type, from_vertex, edge] = item;
         if (destination && from_vertex != destination->vertex_) continue;
-        if (!fine_grained_access_checker && fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) &&
-            fine_grained_access_checker->IsUserAuthorizedLabels(from_vertex->labels))
+        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+          continue;
+        if (fine_grained_access_checker && (!fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) ||
+                                            !fine_grained_access_checker->IsUserAuthorizedLabels(from_vertex->labels)))
           continue;
         in_edges.push_back(item);
       }
     }
     delta = vertex_->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view,
-                     [&exists, &deleted, &in_edges, &fine_grained_access_checker, &destination](const Delta &delta) {
-                       switch (delta.action) {
-                         case Delta::Action::ADD_IN_EDGE: {
-                           if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
-                           if (!fine_grained_access_checker &&
-                               fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) &&
-                               fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels))
-                             break;
-                           // Add the edge because we don't see the removal.
-                           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
-                               delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-                           auto it = std::find(in_edges.begin(), in_edges.end(), link);
-                           MG_ASSERT(it == in_edges.end(), "Invalid database state!");
-                           in_edges.push_back(link);
-                           break;
-                         }
-                         case Delta::Action::REMOVE_IN_EDGE: {
-                           if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
-                           if (!fine_grained_access_checker &&
-                               fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) &&
-                               fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels))
-                             break;
-                           // Remove the label because we don't see the addition.
-                           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
-                               delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-                           auto it = std::find(in_edges.begin(), in_edges.end(), link);
-                           MG_ASSERT(it != in_edges.end(), "Invalid database state!");
-                           std::swap(*it, *in_edges.rbegin());
-                           in_edges.pop_back();
-                           break;
-                         }
-                         case Delta::Action::DELETE_OBJECT: {
-                           exists = false;
-                           break;
-                         }
-                         case Delta::Action::RECREATE_OBJECT: {
-                           deleted = false;
-                           break;
-                         }
-                         case Delta::Action::ADD_LABEL:
-                         case Delta::Action::REMOVE_LABEL:
-                         case Delta::Action::SET_PROPERTY:
-                         case Delta::Action::ADD_OUT_EDGE:
-                         case Delta::Action::REMOVE_OUT_EDGE:
-                           break;
-                       }
-                     });
+  ApplyDeltasForRead(
+      transaction_, delta, view,
+      [&exists, &deleted, &in_edges, &edge_types, &fine_grained_access_checker, &destination](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_IN_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
+              break;
+            if (fine_grained_access_checker &&
+                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
+                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
+              break;
+            // Add the edge because we don't see the removal.
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                                                           delta.vertex_edge.edge};
+            auto it = std::find(in_edges.begin(), in_edges.end(), link);
+            MG_ASSERT(it == in_edges.end(), "Invalid database state!");
+            in_edges.push_back(link);
+            break;
+          }
+          case Delta::Action::REMOVE_IN_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
+              break;
+            if (fine_grained_access_checker &&
+                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
+                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
+              break;
+            // Remove the label because we don't see the addition.
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                                                           delta.vertex_edge.edge};
+            auto it = std::find(in_edges.begin(), in_edges.end(), link);
+            MG_ASSERT(it != in_edges.end(), "Invalid database state!");
+            std::swap(*it, *in_edges.rbegin());
+            in_edges.pop_back();
+            break;
+          }
+          case Delta::Action::DELETE_OBJECT: {
+            exists = false;
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            deleted = false;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+      });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   std::vector<EdgeAccessor> ret;
@@ -426,8 +434,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
-    View view, const query::FineGrainedAccessChecker *fine_grained_access_checker,
-    const VertexAccessor *destination) const {
+    View view, const std::vector<storage::EdgeTypeId> &edge_types,
+    const query::FineGrainedAccessChecker *fine_grained_access_checker, const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -442,62 +450,71 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
       for (const auto &item : vertex_->out_edges) {
         const auto &[edge_type, to_vertex, edge] = item;
         if (destination && to_vertex != destination->vertex_) continue;
-        if (!fine_grained_access_checker && fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) &&
-            fine_grained_access_checker->IsUserAuthorizedLabels(to_vertex->labels))
+        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+          continue;
+        if (fine_grained_access_checker && (!fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) ||
+                                            !fine_grained_access_checker->IsUserAuthorizedLabels(to_vertex->labels)))
           continue;
         out_edges.push_back(item);
       }
     }
     delta = vertex_->delta;
   }
-  ApplyDeltasForRead(transaction_, delta, view,
-                     [&exists, &deleted, &out_edges, &fine_grained_access_checker, &destination](const Delta &delta) {
-                       switch (delta.action) {
-                         case Delta::Action::ADD_OUT_EDGE: {
-                           if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
-                           if (!fine_grained_access_checker &&
-                               fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) &&
-                               fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels))
-                             break;
-                           // Add the edge because we don't see the removal.
-                           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
-                               delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-                           auto it = std::find(out_edges.begin(), out_edges.end(), link);
-                           MG_ASSERT(it == out_edges.end(), "Invalid database state!");
-                           out_edges.push_back(link);
-                           break;
-                         }
-                         case Delta::Action::REMOVE_OUT_EDGE: {
-                           if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
-                           if (!fine_grained_access_checker &&
-                               fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) &&
-                               fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels))
-                             break;
-                           // Remove the label because we don't see the addition.
-                           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{
-                               delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-                           auto it = std::find(out_edges.begin(), out_edges.end(), link);
-                           MG_ASSERT(it != out_edges.end(), "Invalid database state!");
-                           std::swap(*it, *out_edges.rbegin());
-                           out_edges.pop_back();
-                           break;
-                         }
-                         case Delta::Action::DELETE_OBJECT: {
-                           exists = false;
-                           break;
-                         }
-                         case Delta::Action::RECREATE_OBJECT: {
-                           deleted = false;
-                           break;
-                         }
-                         case Delta::Action::ADD_LABEL:
-                         case Delta::Action::REMOVE_LABEL:
-                         case Delta::Action::SET_PROPERTY:
-                         case Delta::Action::ADD_IN_EDGE:
-                         case Delta::Action::REMOVE_IN_EDGE:
-                           break;
-                       }
-                     });
+  ApplyDeltasForRead(
+      transaction_, delta, view,
+      [&exists, &deleted, &out_edges, &edge_types, &fine_grained_access_checker, &destination](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_OUT_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
+              break;
+            if (fine_grained_access_checker &&
+                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
+                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
+              break;
+            // Add the edge because we don't see the removal.
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                                                           delta.vertex_edge.edge};
+            auto it = std::find(out_edges.begin(), out_edges.end(), link);
+            MG_ASSERT(it == out_edges.end(), "Invalid database state!");
+            out_edges.push_back(link);
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
+            if (!edge_types.empty() &&
+                std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
+              break;
+            if (fine_grained_access_checker &&
+                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
+                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
+              break;
+            // Remove the label because we don't see the addition.
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
+                                                           delta.vertex_edge.edge};
+            auto it = std::find(out_edges.begin(), out_edges.end(), link);
+            MG_ASSERT(it != out_edges.end(), "Invalid database state!");
+            std::swap(*it, *out_edges.rbegin());
+            out_edges.pop_back();
+            break;
+          }
+          case Delta::Action::DELETE_OBJECT: {
+            exists = false;
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            deleted = false;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::SET_PROPERTY:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+            break;
+        }
+      });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (deleted) return Error::DELETED_OBJECT;
   std::vector<EdgeAccessor> ret;

@@ -262,12 +262,12 @@ privilege : CREATE
 
 privilegeList : privilege ( ',' privilege )* ;
 
-
 edgeTypeList : '*' | listOfEdgeTypes ;
 
 listOfEdgeTypes : edgeType ( ',' edgeType )* ;
 
 edgeType : COLON symbolicName ;
+
 labelList : '*' | listOfLabels ;
 
 listOfLabels : label ( ',' label )* ;

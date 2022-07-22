@@ -14,11 +14,10 @@
 #include <optional>
 
 #include "query/fine_grained_access_checker.hpp"
-#include "storage/v2/vertex.hpp"
-
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
@@ -82,14 +81,18 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> InEdges(View view, const ExecutionContex *execution_context = nullptr,
-                                            const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> InEdges(
+      View view, const std::vector<storage::EdgeTypeId> &edge_types = {},
+      const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
+      const VertexAccessor *destination = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<EdgeAccessor>> OutEdges(View view, const ExecutionContex *execution_context = nullptr,
-                                             const VertexAccessor *destination = nullptr) const;
+  Result<std::vector<EdgeAccessor>> OutEdges(
+      View view, const std::vector<storage::EdgeTypeId> &edge_types = {},
+      const query::FineGrainedAccessChecker *fine_grained_access_checker = nullptr,
+      const VertexAccessor *destination = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 
