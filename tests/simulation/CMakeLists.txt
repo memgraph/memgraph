@@ -14,7 +14,7 @@ function(add_simulation_test test_cpp san)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} gtest gmock mg-utils mg-io mg-io-simulator mg-io-rsm)
+  target_link_libraries(${target_name} gtest gmock mg-utils mg-io mg-io-simulator)
 
   # sanitize
   target_compile_options(${target_name} PRIVATE -fsanitize=${san})
