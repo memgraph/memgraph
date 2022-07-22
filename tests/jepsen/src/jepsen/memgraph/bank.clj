@@ -89,8 +89,8 @@
         (try
           (c/detach-delete-all session)
           (catch Exception e
-            ; Deletion can give exception if a sync replica is down, that's expected
-            (assoc :type :fail :info (str e))))))
+            ; Transaction can fail on serialization errors
+            (assoc op :type :fail :info (str e)))))))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
