@@ -312,8 +312,32 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
 # Test mg-storage-v3
 
-# add_unit_test(storage_v3_schema.cpp)
-# target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
+add_unit_test(storage_v3.cpp)
+target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
+
+add_unit_test(storage_v3_schema.cpp)
+target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
+
+add_unit_test(interpreter_v2.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}interpreter_v2 mg-storage-v2 mg-query mg-communication)
+
+add_unit_test(storage_v3_query_plan_accumulate_aggregate.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_accumulate_aggregate mg-query)
+
+add_unit_test(storage_v3_query_plan_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_create_set_remove_delete mg-query)
+
+add_unit_test(storage_v3_query_plan_bag_semantics.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_bag_semantics mg-query)
+
+add_unit_test(storage_v3_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_edge_cases mg-communication mg-query)
+
+add_unit_test(storage_v3_query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_delete mg-query)
+
+add_unit_test(storage_v3_query_plan_match_filter_return.cpp)
+target_link_libraries(${test_prefix}storage_v3_query_plan_match_filter_return mg-query)
 
 # Test mg-auth
 if(MG_ENTERPRISE)
@@ -355,31 +379,3 @@ find_package(Boost REQUIRED)
 
 add_unit_test(websocket.cpp)
 target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
-
-# Test storage-v3
-add_unit_test(storage_v3.cpp)
-target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
-
-add_unit_test(storage_v3_schema.cpp)
-target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
-
-add_unit_test(interpreter_v2.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter_v2 mg-storage-v2 mg-query mg-communication)
-
-add_unit_test(storage_v3_query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_accumulate_aggregate mg-query)
-
-add_unit_test(storage_v3_query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_create_set_remove_delete mg-query)
-
-add_unit_test(storage_v3_query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_bag_semantics mg-query)
-
-add_unit_test(storage_v3_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_edge_cases mg-communication mg-query)
-
-add_unit_test(storage_v3_query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_delete mg-query)
-
-add_unit_test(storage_v3_query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_match_filter_return mg-query)
