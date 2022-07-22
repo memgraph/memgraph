@@ -79,7 +79,6 @@ memgraphCypherKeyword : cypherKeyword
                       | SESSION
                       | SETTING
                       | SETTINGS
-                      | SHOW_CONFIG
                       | SNAPSHOT
                       | START
                       | STATS
