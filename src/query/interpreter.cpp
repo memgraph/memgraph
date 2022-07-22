@@ -793,7 +793,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
 Callback HandleConfigQuery() {
   Callback callback;
-  callback.header = {"name", "default_value", "current_value"};
+  callback.header = {"name", "default_configuration", "current_configuration"};
 
   callback.fn = [] {
     // Query the flags that the currently running instance was started up with.
