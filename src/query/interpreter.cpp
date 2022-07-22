@@ -2448,12 +2448,9 @@ void Interpreter::Commit() {
     db_accessor_.reset();
     trigger_context_collector_.reset();
   };
+  utils::OnScopeExit members_reseter(reset_necessary_members);
 
-  auto commit_confirmed_by_all_sync_repplicas =
-      true;  // #NoCommit see how to do this differently. We still want to execute
-             // triggers even if one synbc replica can't receive the commit
-
-  // maybe have reset_necessary_members in a scopeguard, we always execute it before returning
+  auto commit_confirmed_by_all_sync_repplicas = true;
 
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
@@ -2461,7 +2458,7 @@ void Interpreter::Commit() {
     const auto &error = storage_error.error;
 
     std::visit(
-        [&execution_db_accessor = execution_db_accessor_, &reset_necessary_members,
+        [&execution_db_accessor = execution_db_accessor_,
          &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
@@ -2473,7 +2470,6 @@ void Interpreter::Commit() {
                 auto label_name = execution_db_accessor->LabelToName(constraint_violation.label);
                 MG_ASSERT(constraint_violation.properties.size() == 1U);
                 auto property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
-                reset_necessary_members();
                 throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
                                      property_name);
               }
@@ -2484,7 +2480,6 @@ void Interpreter::Commit() {
                                      [&execution_db_accessor](auto &stream, const auto &prop) {
                                        stream << execution_db_accessor->PropertyToName(prop);
                                      });
-                reset_necessary_members();
                 throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                                      property_names_stream.str());
               }
@@ -2514,8 +2509,6 @@ void Interpreter::Commit() {
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
         });
   }
-
-  reset_necessary_members();
 
   SPDLOG_DEBUG("Finished committing the transaction");
   if (!commit_confirmed_by_all_sync_repplicas) {
