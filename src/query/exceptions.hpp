@@ -227,7 +227,7 @@ class VersionInfoInMulticommandTxException : public QueryException {
 class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  ReplicationException(const std::string &message)
+  explicit ReplicationException(const std::string &message)
       : utils::BasicException(fmt::format("{} Check the status of the replicas using 'SHOW REPLICA' query.", message)) {
   }
 };
