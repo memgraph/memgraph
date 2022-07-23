@@ -27,6 +27,10 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_int32(client_count, 1, "The number of concurrent clients executing queries against the server.");
 DEFINE_int32(per_client_query_count, 100, "The number of queries each client will try to execute.");
 
+// NOTE: memgraph::communication::bolt::Client is NOT movable/copyable. When
+// extracted into function RVO is not possible, so it's not possible to make an
+// init client function.
+
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   memgraph::communication::SSLInit sslInit;
