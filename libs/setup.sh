@@ -199,7 +199,7 @@ git apply ../rocksdb.patch
 popd
 
 # mgclient
-mgclient_tag="96e95c6845463cbe88948392be58d26da0d5ffd3" # (2022-02-08)
+mgclient_tag="v1.4.0" # (2022-06-14)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 

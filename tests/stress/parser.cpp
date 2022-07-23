@@ -18,6 +18,8 @@
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
+#include "mgclient.hpp"
+#include "utils/timer.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
@@ -27,49 +29,53 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_int32(client_count, 1, "The number of concurrent clients executing queries against the server.");
 DEFINE_int32(per_client_query_count, 100, "The number of queries each client will try to execute.");
 
-// NOTE: memgraph::communication::bolt::Client is NOT movable/copyable. When
-// extracted into function RVO is not possible, so it's not possible to make an
-// init client function.
+auto make_client() {
+  mg::Client::Params params;
+  params.host = FLAGS_address;
+  params.port = static_cast<uint16_t>(FLAGS_port);
+  params.use_ssl = FLAGS_use_ssl;
+  return mg::Client::Connect(params);
+}
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  memgraph::communication::SSLInit sslInit;
+  mg::Client::Init();
 
   spdlog::info("Cleaning the database instance...");
-  memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-  memgraph::communication::ClientContext context(FLAGS_use_ssl);
-  memgraph::communication::bolt::Client client(&context);
-  client.Connect(endpoint, FLAGS_username, FLAGS_password);
-  client.Execute("MATCH (n) DETACH DELETE n", {});
-  client.Close();
+  auto client = make_client();
+  client->Execute("MATCH (n) DETACH DELETE n");
+  client->DiscardAll();
 
   spdlog::info(fmt::format("Starting parser stress test with {} clients and {} queries per client...",
                            FLAGS_client_count, FLAGS_per_client_query_count));
   std::vector<std::thread> threads;
+  memgraph::utils::Timer timer;
   for (int i = 0; i < FLAGS_client_count; ++i) {
     threads.push_back(std::thread([]() {
-      memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
-      memgraph::communication::ClientContext context(FLAGS_use_ssl);
-      memgraph::communication::bolt::Client client(&context);
-      client.Connect(endpoint, FLAGS_username, FLAGS_password);
+      auto client = make_client();
       std::mt19937 generator{std::random_device{}()};
       std::uniform_int_distribution<uint64_t> distribution{std::numeric_limits<uint64_t>::min(),
                                                            std::numeric_limits<uint64_t>::max()};
       for (int i = 0; i < FLAGS_per_client_query_count; ++i) {
         try {
-          client.Execute(fmt::format("MATCH (n:Label{}) RETURN n;", distribution(generator)), {});
-        } catch (const memgraph::communication::bolt::ClientQueryException &e) {
+          auto is_executed = client->Execute(fmt::format("MATCH (n:Label{}) RETURN n;", distribution(generator)));
+          if (!is_executed) {
+            LOG_FATAL("One of the parser stress test queries failed.");
+          }
+          client->FetchAll();
+        } catch (const std::exception &e) {
           LOG_FATAL("One of the parser stress test queries failed.");
         }
       }
-      client.Close();
     }));
   }
 
   for (int i = 0; i < FLAGS_client_count; ++i) {
     threads[i].join();
   }
-  spdlog::info("All clients done. The parser managed to handle the load.");
+  auto elapsed = timer.Elapsed();
+  mg::Client::Finalize();
+  spdlog::info(fmt::format("All queries executed in {:.4f}s. The parser managed to handle the load.", elapsed.count()));
 
   return 0;
 }
