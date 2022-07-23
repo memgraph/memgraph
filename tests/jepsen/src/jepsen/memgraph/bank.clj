@@ -81,7 +81,7 @@
                                      :fail)))
                     (catch Exception e
                       ; Transaction can fail on serialization errors
-                      (assoc op :type :fail :info (str e))))
+                      (assoc :type :fail :info (str e))))
                   (assoc op :type :fail))))
   (teardown! [this test]
     (when (= replication-role :main)
