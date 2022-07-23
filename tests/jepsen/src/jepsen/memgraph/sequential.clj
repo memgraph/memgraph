@@ -71,9 +71,8 @@
       (c/with-session conn session
         (try
           (c/detach-delete-all session)
-          (catch Exception e
-            ; Deletion can give exception if a sync replica is down, that's expected
-            (assoc :type :fail :info (str e)))))))
+          (catch Exception e)))))
+          ; Deletion can give exception if a sync replica is down, that's expected
   (close! [_ est]
     (dbclient/disconnect conn)))
 
