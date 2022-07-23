@@ -74,8 +74,8 @@ int main(int argc, char **argv) {
     threads[i].join();
   }
   auto elapsed = timer.Elapsed();
-  mg::Client::Finalize();
   spdlog::info(fmt::format("All queries executed in {:.4f}s. The parser managed to handle the load.", elapsed.count()));
+  mg::Client::Finalize();
 
   return 0;
 }
