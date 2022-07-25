@@ -426,8 +426,9 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  if (!session.decoder_.ReadValue(&db, Value::Type::String)) {
+  if (!session.decoder_.ReadValue(&db)) {
     spdlog::trace("Couldn't read db field!");
+    return State::Close;
   }
   session.encoder_buffer_.Clear();
   bool fail_sent =
