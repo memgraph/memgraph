@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
   client->Execute("MATCH (n) DETACH DELETE n");
   client->DiscardAll();
 
-  spdlog::info(fmt::format("Starting parser stress test with {} clients and {} queries per client...",
+  spdlog::info(fmt::format("Starting parser stress test with {} workers and {} queries per worker...",
                            FLAGS_worker_count, FLAGS_per_worker_query_count));
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
@@ -70,11 +70,9 @@ int main(int argc, char **argv) {
     }));
   }
 
-  for (int i = 0; i < FLAGS_worker_count; ++i) {
-    threads[i].join();
-  }
-  auto elapsed = timer.Elapsed();
-  spdlog::info(fmt::format("All queries executed in {:.4f}s. The parser managed to handle the load.", elapsed.count()));
+  std::ranges::for_each(threads, [](auto &t) { t.join(); });
+  spdlog::info(
+      fmt::format("All queries executed in {:.4f}s. The parser managed to handle the load.", timer.Elapsed().count()));
   mg::Client::Finalize();
 
   return 0;
