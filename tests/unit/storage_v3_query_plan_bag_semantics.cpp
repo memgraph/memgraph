@@ -29,14 +29,14 @@ using namespace memgraph::query::plan;
 
 class QueryPlanBagSemanticsTest : public testing::Test {
  protected:
-  QueryPlanBagSemanticsTest() {
-    EXPECT_TRUE(
+  void SetUp() override {
+    ASSERT_TRUE(
         db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
   }
 
   memgraph::storage::Storage db;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  const memgraph::storage::LabelId label{db.NameToLabel("label")};
+  const memgraph::storage::PropertyId property{db.NameToProperty("property")};
 };
 
 TEST_F(QueryPlanBagSemanticsTest, Skip) {

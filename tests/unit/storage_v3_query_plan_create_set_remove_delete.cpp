@@ -37,14 +37,14 @@ using namespace memgraph::query::plan;
 
 class QueryPlanCRUDTest : public testing::Test {
  protected:
-  QueryPlanCRUDTest() {
-    EXPECT_TRUE(
+  void SetUp() override {
+    ASSERT_TRUE(
         db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
   }
 
   memgraph::storage::Storage db;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  const memgraph::storage::LabelId label{db.NameToLabel("label")};
+  const memgraph::storage::PropertyId property{db.NameToProperty("property")};
 };
 
 TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
@@ -454,9 +454,9 @@ TEST(QueryPlan, DeleteNull) {
   EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
 
-TEST(QueryPlan, DeleteAdvance) {
+TEST_F(QueryPlanCRUDTest, DeleteAdvance) {
   // test queries on empty DB:
-  // CREATE (n)
+  // CREATE (n: label{property: 1})
   // MATCH (n) DELETE n WITH n ...
   // this fails only if the deleted record `n` is actually used in subsequent
   // clauses, which is compatible with Neo's behavior.
@@ -473,7 +473,7 @@ TEST(QueryPlan, DeleteAdvance) {
   {
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
-    dba.InsertVertex();
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
     dba.AdvanceCommand();
     auto produce = MakeProduce(advance, NEXPR("res", LITERAL(42))->MapTo(res_sym));
     auto context = MakeContext(storage, symbol_table, &dba);
@@ -482,7 +482,7 @@ TEST(QueryPlan, DeleteAdvance) {
   {
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
-    dba.InsertVertex();
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}}).HasValue());
     dba.AdvanceCommand();
     auto n_prop = PROPERTY_LOOKUP(n_get, dba.NameToProperty("prop"));
     auto produce = MakeProduce(advance, NEXPR("res", n_prop)->MapTo(res_sym));

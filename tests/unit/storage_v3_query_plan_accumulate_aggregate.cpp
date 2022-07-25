@@ -32,14 +32,14 @@ using testing::UnorderedElementsAre;
 
 class QueryPlanAccumulateAggregateTest : public testing::Test {
  protected:
-  QueryPlanAccumulateAggregateTest() {
-    EXPECT_TRUE(
+  void SetUp() override {
+    ASSERT_TRUE(
         db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
   }
 
   memgraph::storage::Storage db;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  const memgraph::storage::LabelId label{db.NameToLabel("label")};
+  const memgraph::storage::PropertyId property{db.NameToProperty("property")};
 };
 
 TEST_F(QueryPlanAccumulateAggregateTest, Accumulate) {
@@ -155,8 +155,8 @@ std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator>
 // /** Test fixture for all the aggregation ops in one return. */
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
-  QueryPlanAggregateOps() {
-    EXPECT_TRUE(
+  void SetUp() override {
+    ASSERT_TRUE(
         db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
   }
   memgraph::storage::Storage db;
