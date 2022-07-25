@@ -47,9 +47,6 @@ class ShardMap {
 
   // TODO(tyler) ask Kostas if this would ever actually be useful
   Shard GetShardForKey(Label label, CompoundKey key);
-
-  /// This splits the previous shard
-  bool SplitShard(uint64_t previous_shard_map_version, Label label, CompoundKey split_key);
 };
 
 }  // namespace memgraph::coordinator
