@@ -28,7 +28,7 @@ SMALL_DATASET = [
     },
     {
         "test": "parser.cpp",
-        "options": ["--client-count", "12", "--per-client-query-count", "1000"],
+        "options": ["--per-worker-query-count", "1000"],
         "timeout": 5,
     },
     {

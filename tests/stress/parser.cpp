@@ -26,8 +26,8 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
-DEFINE_int32(client_count, 1, "The number of concurrent clients executing queries against the server.");
-DEFINE_int32(per_client_query_count, 100, "The number of queries each client will try to execute.");
+DEFINE_int32(worker_count, 1, "The number of concurrent workers executing queries against the server.");
+DEFINE_int32(per_worker_query_count, 100, "The number of queries each worker will try to execute.");
 
 auto make_client() {
   mg::Client::Params params;
@@ -47,16 +47,16 @@ int main(int argc, char **argv) {
   client->DiscardAll();
 
   spdlog::info(fmt::format("Starting parser stress test with {} clients and {} queries per client...",
-                           FLAGS_client_count, FLAGS_per_client_query_count));
+                           FLAGS_worker_count, FLAGS_per_worker_query_count));
   std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
-  for (int i = 0; i < FLAGS_client_count; ++i) {
+  for (int i = 0; i < FLAGS_worker_count; ++i) {
     threads.push_back(std::thread([]() {
       auto client = make_client();
       std::mt19937 generator{std::random_device{}()};
       std::uniform_int_distribution<uint64_t> distribution{std::numeric_limits<uint64_t>::min(),
                                                            std::numeric_limits<uint64_t>::max()};
-      for (int i = 0; i < FLAGS_per_client_query_count; ++i) {
+      for (int i = 0; i < FLAGS_per_worker_query_count; ++i) {
         try {
           auto is_executed = client->Execute(fmt::format("MATCH (n:Label{}) RETURN n;", distribution(generator)));
           if (!is_executed) {
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
     }));
   }
 
-  for (int i = 0; i < FLAGS_client_count; ++i) {
+  for (int i = 0; i < FLAGS_worker_count; ++i) {
     threads[i].join();
   }
   auto elapsed = timer.Elapsed();
