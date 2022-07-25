@@ -45,24 +45,20 @@ State StateErrorRun(TSession &session, State state) {
   // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();
 
-  if ((session.version_.major == 1 && signature == Signature::AckFailure) || signature == Signature::Reset) {
-    if (signature == Signature::AckFailure) {
-      spdlog::trace("AckFailure received");
-    } else {
-      spdlog::trace("Reset received");
-    }
+  if (session.version_.major == 1 && signature == Signature::AckFailure) {
+    spdlog::trace("AckFailure received");
 
     if (!session.encoder_.MessageSuccess()) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
 
-    if (signature == Signature::Reset) {
-      session.Abort();
-      return State::Idle;
-    }
-
     // We got AckFailure get back to right state.
+    MG_ASSERT(state == State::Error, "Shouldn't happen");
+    return State::Idle;
+  } else if (session.version_.major >= 3 && signature == Signature::Reset) {
+    spdlog::trace("Reset received");
+    session.Abort();
     MG_ASSERT(state == State::Error, "Shouldn't happen");
     return State::Idle;
   } else {
