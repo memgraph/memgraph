@@ -13,8 +13,12 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::communication::bolt {
+
+Client::Client(communication::ClientContext &context) : client_{&context} {}
+
 void Client::Connect(const io::network::Endpoint &endpoint, const std::string &username, const std::string &password,
                      const std::string &client_name) {
   if (!client_.Connect(endpoint)) {
@@ -22,43 +26,43 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
   }
 
   if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
-    SPDLOG_ERROR("Couldn't send preamble!");
+    spdlog::error("Couldn't send preamble!");
     throw ServerCommunicationException();
   }
   for (int i = 0; i < 4; ++i) {
     if (!client_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
-      SPDLOG_ERROR("Couldn't send protocol version!");
+      spdlog::error("Couldn't send protocol version!");
       throw ServerCommunicationException();
     }
   }
 
   if (!client_.Read(sizeof(kProtocol))) {
-    SPDLOG_ERROR("Couldn't get negotiated protocol version!");
+    spdlog::error("Couldn't get negotiated protocol version!");
     throw ServerCommunicationException();
   }
   if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
-    SPDLOG_ERROR("Server negotiated unsupported protocol version!");
+    spdlog::error("Server negotiated unsupported protocol version!");
     throw ClientFatalException("The server negotiated an usupported protocol version!");
   }
   client_.ShiftData(sizeof(kProtocol));
 
   if (!encoder_.MessageInit(client_name, {{"scheme", "basic"}, {"principal", username}, {"credentials", password}})) {
-    SPDLOG_ERROR("Couldn't send init message!");
+    spdlog::error("Couldn't send init message!");
     throw ServerCommunicationException();
   }
 
   Signature signature;
   Value metadata;
-  if (!ReadMessage(&signature, &metadata)) {
-    SPDLOG_ERROR("Couldn't read init message response!");
+  if (!ReadMessage(signature, metadata)) {
+    spdlog::error("Couldn't read init message response!");
     throw ServerCommunicationException();
   }
   if (signature != Signature::Success) {
-    SPDLOG_ERROR("Handshake failed!");
+    spdlog::error("Handshake failed!");
     throw ClientFatalException("Handshake with the server failed!");
   }
 
-  SPDLOG_INFO("Metadata of init message response: {}", metadata);
+  spdlog::info("Metadata of init message response: {}", metadata);
 }
 
 QueryData Client::Execute(const std::string &query, const std::map<std::string, Value> &parameters) {
@@ -66,15 +70,15 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  SPDLOG_INFO("Sending run message with statement: '{}'; parameters: {}", query, parameters);
+  spdlog::info("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
   encoder_.MessageRun(query, parameters);
   encoder_.MessagePullAll();
 
-  SPDLOG_INFO("Reading run message response");
+  spdlog::info("Reading run message response");
   Signature signature;
   Value fields;
-  if (!ReadMessage(&signature, &fields)) {
+  if (!ReadMessage(signature, fields)) {
     throw ServerCommunicationException();
   }
   if (fields.type() != Value::Type::Map) {
@@ -89,16 +93,16 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       auto it_code = tmp.find("code");
       if (it_code != tmp.end()) {
         throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
-      } else {
-        throw ClientQueryException("", it->second.ValueString());
       }
+      throw ClientQueryException("", it->second.ValueString());
     }
     throw ClientQueryException();
-  } else if (signature != Signature::Success) {
+  }
+  if (signature != Signature::Success) {
     throw ServerMalformedDataException();
   }
 
-  SPDLOG_INFO("Reading pull_all message response");
+  spdlog::info("Reading pull_all message response");
   Marker marker;
   Value metadata;
   std::vector<std::vector<Value>> records;
@@ -132,9 +136,8 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
         auto it_code = tmp.find("code");
         if (it_code != tmp.end()) {
           throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
-        } else {
-          throw ClientQueryException("", it->second.ValueString());
         }
+        throw ClientQueryException("", it->second.ValueString());
       }
       throw ClientQueryException();
     } else {
@@ -186,19 +189,19 @@ bool Client::GetMessage() {
   return true;
 }
 
-bool Client::ReadMessage(Signature *signature, Value *ret) {
+bool Client::ReadMessage(Signature &signature, Value &ret) {
   Marker marker;
   if (!GetMessage()) return false;
-  if (!decoder_.ReadMessageHeader(signature, &marker)) return false;
+  if (!decoder_.ReadMessageHeader(&signature, &marker)) return false;
   return ReadMessageData(marker, ret);
 }
 
-bool Client::ReadMessageData(Marker marker, Value *ret) {
+bool Client::ReadMessageData(Marker marker, Value &ret) {
   if (marker == Marker::TinyStruct) {
-    *ret = Value();
+    ret = Value();
     return true;
   } else if (marker == Marker::TinyStruct1) {
-    return decoder_.ReadValue(ret);
+    return decoder_.ReadValue(&ret);
   }
   return false;
 }
@@ -210,7 +213,7 @@ void Client::HandleFailure() {
   while (true) {
     Signature signature;
     Value data;
-    if (!ReadMessage(&signature, &data)) {
+    if (!ReadMessage(signature, data)) {
       throw ServerCommunicationException();
     }
     if (signature == Signature::Success) {

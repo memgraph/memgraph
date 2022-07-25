@@ -75,7 +75,7 @@ struct QueryData {
 /// server. It supports both SSL and plaintext connections.
 class Client final {
  public:
-  explicit Client(communication::ClientContext *context) : client_(context) {}
+  explicit Client(communication::ClientContext &context);
 
   Client(const Client &) = delete;
   Client(Client &&) = delete;
@@ -103,8 +103,8 @@ class Client final {
 
  private:
   bool GetMessage();
-  bool ReadMessage(Signature *signature, Value *ret);
-  bool ReadMessageData(Marker marker, Value *ret);
+  bool ReadMessage(Signature &signature, Value &ret);
+  bool ReadMessageData(Marker marker, Value &ret);
   void HandleFailure();
 
   // client

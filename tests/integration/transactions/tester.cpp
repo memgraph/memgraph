@@ -65,7 +65,7 @@ class BoltClient : public ::testing::Test {
   memgraph::io::network::Endpoint endpoint_{memgraph::io::network::ResolveHostname(FLAGS_address),
                                             static_cast<uint16_t>(FLAGS_port)};
   memgraph::communication::ClientContext context_{FLAGS_use_ssl};
-  Client client_{&context_};
+  Client client_{context_};
 };
 
 const std::string kNoCurrentTransactionToCommit = "No current transaction to commit.";
