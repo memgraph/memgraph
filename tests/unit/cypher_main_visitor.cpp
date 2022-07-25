@@ -4134,6 +4134,11 @@ TEST_P(CypherMainVisitorTest, ConfigQuery) {
   TestInvalidQuery("SHOW CONFIGS", ast_generator);
   TestInvalidQuery("SHOW CONFIGURATION", ast_generator);
   TestInvalidQuery("SHOW CONFIGURATIONS", ast_generator);
+
+  Query *query = ast_generator.ParseQuery("SHOW CONFIG");
+  auto *ptr = dynamic_cast<ShowConfigQuery *>(query);
+  ASSERT_TRUE(ptr != nullptr);
+
   ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW CONFIG"));
 }
 
