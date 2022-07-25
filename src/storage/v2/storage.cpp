@@ -42,6 +42,7 @@
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -506,7 +507,7 @@ Storage::Accessor::~Accessor() {
 }
 
 // TODO Remove when replication is fixed
-[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
+VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
@@ -525,7 +526,13 @@ Storage::Accessor::~Accessor() {
   return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, &storage_->schema_validator_};
 }
 
-VertexAccessor Storage::Accessor::CreateVertex(const LabelId primary_label) {
+ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
+    storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+    const std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
+  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
+  if (maybe_schema_violation) {
+    return {std::move(*maybe_schema_violation)};
+  }
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
@@ -533,28 +540,24 @@ VertexAccessor Storage::Accessor::CreateVertex(const LabelId primary_label) {
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta, primary_label});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-
   delta->prev.Set(&*it);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, &storage_->schema_validator_};
-}
 
-VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid, const LabelId primary_label) {
-  OOMExceptionEnabler oom_exception;
-  // NOTE: When we update the next `vertex_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threaded and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
-  auto acc = storage_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta, primary_label});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&*it);
-  return {&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, &storage_->schema_validator_};
+  auto va = VertexAccessor{
+      &*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, &storage_->schema_validator_};
+  for (const auto label : labels) {
+    const auto maybe_error = va.AddLabel(label);
+    if (maybe_error.HasError()) {
+      return {maybe_error.GetError()};
+    }
+  }
+  // Set properties
+  for (auto [property_id, property_value] : properties) {
+    const auto maybe_error = va.SetProperty(property_id, property_value);
+    if (maybe_error.HasError()) {
+      return {maybe_error.GetError()};
+    }
+  }
+  return va;
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
@@ -1311,7 +1314,7 @@ SchemasInfo Storage::ListAllSchemas() const {
   return {schemas_.ListSchemas()};
 }
 
-std::optional<Schemas::Schema> Storage::GetSchema(const LabelId primary_label) const {
+const Schemas::Schema *Storage::GetSchema(const LabelId primary_label) const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return schemas_.GetSchema(primary_label);
 }

@@ -186,11 +186,12 @@ TEST(QueryPlan, CreateExpand) {
     MG_ASSERT(maybe_labels.HasValue());
     const auto &labels = *maybe_labels;
     EXPECT_EQ(labels.size(), 0);
-    memgraph::storage::LabelId primary_label = vertex.PrimaryLabel();
-    if (primary_label == label_node_1) {
+    auto maybe_primary_label = vertex.PrimaryLabel(memgraph::storage::View::OLD);
+    ASSERT_TRUE(maybe_primary_label.HasValue());
+    if (*maybe_primary_label == label_node_1) {
       // node created by first op
       EXPECT_EQ(vertex.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 1);
-    } else if (primary_label == label_node_2) {
+    } else if (*maybe_primary_label == label_node_2) {
       // node create by expansion
       EXPECT_EQ(vertex.GetProperty(memgraph::storage::View::OLD, property.second)->ValueInt(), 2);
     } else {

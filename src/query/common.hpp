@@ -88,7 +88,7 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId
 
 inline void HandleSchemaViolation(const storage::SchemaViolation &schema_violation, const DbAccessor &dba) {
   switch (schema_violation.status) {
-    case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY: {
+    case storage::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY: {
       throw SchemaViolationException(
           fmt::format("Primary key {} not defined on label :{}",
                       storage::SchemaTypeToString(schema_violation.violated_schema_property->type),
@@ -109,7 +109,7 @@ inline void HandleSchemaViolation(const storage::SchemaViolation &schema_violati
                                                  *schema_violation.violated_property_value,
                                                  dba.LabelToName(schema_violation.label)));
     }
-    case storage::SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL: {
+    case storage::SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL: {
       throw SchemaViolationException(fmt::format("Cannot add or remove label :{} since it is a primary label",
                                                  dba.LabelToName(schema_violation.label)));
     }
@@ -120,35 +120,31 @@ inline void HandleSchemaViolation(const storage::SchemaViolation &schema_violati
   }
 }
 
-template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key,
-                                       const TypedValue &value) {
-  return PropsSetChecked(record, dba, key, storage::PropertyValue(value));
+inline void HandleErrorOnPropertyUpdate(const storage::Error error) {
+  switch (error) {
+    case storage::Error::SERIALIZATION_ERROR:
+      throw TransactionSerializationException();
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to set properties on a deleted object.");
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Unexpected error when setting a property.");
+  }
 }
+
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
 storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key,
-                                       const storage::PropertyValue &value) {
+                                       const TypedValue &value) {
   try {
-    const auto handle_error = [](const storage::Error error) {
-      switch (error) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set properties on a deleted object.");
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a property.");
-      }
-    };
     if constexpr (std::is_same_v<T, VertexAccessor>) {
-      const auto maybe_old_value = record->SetPropertyAndValidate(key, value);
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, storage::PropertyValue(value));
       if (maybe_old_value.HasError()) {
-        std::visit(utils::Overloaded{[handle_error](const storage::Error error) { handle_error(error); },
+        std::visit(utils::Overloaded{[](const storage::Error error) { HandleErrorOnPropertyUpdate(error); },
                                      [&dba](const storage::SchemaViolation &schema_violation) {
                                        HandleSchemaViolation(schema_violation, dba);
                                      }},
@@ -157,14 +153,36 @@ storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const s
       return std::move(*maybe_old_value);
     } else {
       // No validation on edge properties
-      const auto maybe_old_value = record->SetProperty(key, value);
+      const auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
       if (maybe_old_value.HasError()) {
-        handle_error(maybe_old_value.GetError());
+        HandleErrorOnPropertyUpdate(maybe_old_value.GetError());
       }
       return std::move(*maybe_old_value);
     }
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+  }
+}
+
+template <AccessorWithSetProperty T>
+storage::PropertyValue PropsRemoveChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key) {
+  if constexpr (std::is_same_v<T, VertexAccessor>) {
+    const auto maybe_old_value = record->RemovePropertyAndValidate(key);
+    if (maybe_old_value.HasError()) {
+      std::visit(utils::Overloaded{[](const storage::Error error) { HandleErrorOnPropertyUpdate(error); },
+                                   [&dba](const storage::SchemaViolation &schema_violation) {
+                                     HandleSchemaViolation(schema_violation, dba);
+                                   }},
+                 maybe_old_value.GetError());
+    }
+    return std::move(*maybe_old_value);
+  } else {
+    // No validation on edge properties
+    const auto maybe_old_value = record->RemoveProperty(key);
+    if (maybe_old_value.HasError()) {
+      HandleErrorOnPropertyUpdate(maybe_old_value.GetError());
+    }
+    return std::move(*maybe_old_value);
   }
 }
 

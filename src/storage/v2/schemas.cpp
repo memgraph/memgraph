@@ -29,11 +29,11 @@ Schemas::SchemasList Schemas::ListSchemas() const {
   return ret;
 }
 
-std::optional<Schemas::Schema> Schemas::GetSchema(const LabelId primary_label) const {
+const Schemas::Schema *Schemas::GetSchema(const LabelId primary_label) const {
   if (auto schema_map = schemas_.find(primary_label); schema_map != schemas_.end()) {
-    return Schema{schema_map->first, schema_map->second};
+    return &*schema_map;
   }
-  return std::nullopt;
+  return nullptr;
 }
 
 bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {

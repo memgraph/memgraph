@@ -11,11 +11,12 @@
 
 #pragma once
 
-#include <cppitertools/filter.hpp>
-#include <cppitertools/imap.hpp>
 #include <optional>
 #include <variant>
 #include <vector>
+
+#include <cppitertools/filter.hpp>
+#include <cppitertools/imap.hpp>
 
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
@@ -34,7 +35,6 @@
 // This cannot be avoided by simple include orderings so we
 // simply undefine those macros as we're sure that libkrb5
 // won't and can't be used anywhere in the query engine.
-#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
@@ -106,35 +106,17 @@ class VertexAccessor final {
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
+  auto PrimaryLabel(storage::View view) const { return impl_.PrimaryLabel(view); }
+
   storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
 
-  storage::ResultSchema<bool> AddLabelAndValidate(storage::LabelId label) {
-    if (const auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateLabelUpdate(label);
-        maybe_violation_error) {
-      return {*maybe_violation_error};
-    }
-    auto maybe_error = impl_.AddLabel(label);
-    if (maybe_error.HasValue()) {
-      return *maybe_error;
-    }
-    return {maybe_error.GetError()};
-  }
+  storage::ResultSchema<bool> AddLabelAndValidate(storage::LabelId label) { return impl_.AddLabelAndValidate(label); }
 
   storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
 
   storage::ResultSchema<bool> RemoveLabelAndValidate(storage::LabelId label) {
-    if (const auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateLabelUpdate(label);
-        maybe_violation_error) {
-      return {*maybe_violation_error};
-    }
-    const auto maybe_error = impl_.RemoveLabel(label);
-    if (maybe_error.HasValue()) {
-      return *maybe_error;
-    }
-    return {maybe_error.GetError()};
+    return impl_.RemoveLabelAndValidate(label);
   }
-
-  storage::LabelId PrimaryLabel() const noexcept { return impl_.PrimaryLabel(); }
 
   storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
     return impl_.HasLabel(label, view);
@@ -152,16 +134,7 @@ class VertexAccessor final {
 
   storage::ResultSchema<storage::PropertyValue> SetPropertyAndValidate(storage::PropertyId key,
                                                                        const storage::PropertyValue &value) {
-    const auto primary_label = impl_.PrimaryLabel();
-    if (auto maybe_violation_error = impl_.GetSchemaValidator()->ValidateVertexUpdate(primary_label, key);
-        maybe_violation_error) {
-      return {*maybe_violation_error};
-    }
-    const auto maybe_error = impl_.SetProperty(key, value);
-    if (maybe_error.HasValue()) {
-      return *maybe_error;
-    }
-    return {maybe_error.GetError()};
+    return impl_.SetPropertyAndValidate(key, value);
   }
 
   storage::ResultSchema<storage::PropertyValue> RemovePropertyAndValidate(storage::PropertyId key) {
@@ -294,32 +267,14 @@ class DbAccessor final {
   // TODO Remove when query modules have been fixed
   [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
-  utils::BasicResult<std::variant<storage::SchemaViolation, storage::Error>, VertexAccessor> InsertVertexAndValidate(
+  storage::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
       const std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties) {
-    // auto validator = GetSchemaValidator();
-    auto validator = accessor_->GetSchemaValidator();
-    auto maybe_schema_violation = validator.ValidateVertexCreate(primary_label, labels, properties);
-    if (maybe_schema_violation) {
-      return {std::move(*maybe_schema_violation)};
+    auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(primary_label, labels, properties);
+    if (maybe_vertex_acc.HasError()) {
+      return {std::move(maybe_vertex_acc.GetError())};
     }
-    // Set labels
-    // TODO Maybe make db accessor a fiend of vertex accessor
-    auto vertex_acc = VertexAccessor(accessor_->CreateVertex(primary_label));
-    for (const auto label : labels) {
-      const auto maybe_error = vertex_acc.AddLabel(label);
-      if (maybe_error.HasError()) {
-        return {maybe_error.GetError()};
-      }
-    }
-    // Set properties
-    for (auto [property_id, property_value] : properties) {
-      const auto maybe_error = vertex_acc.SetProperty(property_id, property_value);
-      if (maybe_error.HasError()) {
-        return {maybe_error.GetError()};
-      }
-    }
-    return vertex_acc;
+    return VertexAccessor{maybe_vertex_acc.GetValue()};
   }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,

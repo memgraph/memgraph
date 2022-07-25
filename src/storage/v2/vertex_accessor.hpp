@@ -31,6 +31,19 @@ struct Constraints;
 
 class VertexAccessor final {
  private:
+  struct VertexValidator {
+    explicit VertexValidator(SchemaValidator *schema_validator, const Vertex *vertex)
+        : schema_validator_{schema_validator}, vertex_{vertex} {}
+
+    [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
+
+    [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId label) const;
+
+    [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
+
+    SchemaValidator *schema_validator_;
+    const Vertex *vertex_;
+  };
   friend class Storage;
 
  public:
@@ -41,7 +54,7 @@ class VertexAccessor final {
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_{schema_validator},
+        vertex_validator_{schema_validator, vertex},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
@@ -56,10 +69,22 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<bool> AddLabel(LabelId label);
 
+  /// Add a label and return `true` if insertion took place.
+  /// `false` is returned if the label already existed, or SchemaViolation
+  /// if adding the label has violated one of the schema constraints.
+  /// @throw std::bad_alloc
+  storage::ResultSchema<bool> AddLabelAndValidate(LabelId label);
+
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already.
   /// @throw std::bad_alloc
   Result<bool> RemoveLabel(LabelId label);
+
+  /// Remove a label and return `true` if deletion took place.
+  /// `false` is returned if the vertex did not have a label already. or SchemaViolation
+  /// if adding the label has violated one of the schema constraints.
+  /// @throw std::bad_alloc
+  ResultSchema<bool> RemoveLabelAndValidate(LabelId label);
 
   Result<bool> HasLabel(LabelId label, View view) const;
 
@@ -68,11 +93,15 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<std::vector<LabelId>> Labels(View view) const;
 
-  LabelId PrimaryLabel() const noexcept;
+  Result<LabelId> PrimaryLabel(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
+  /// Set a property value and return the old value or error.
+  /// @throw std::bad_alloc
+  ResultSchema<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
 
   /// Remove all properties and return the values of the removed properties.
   /// @throw std::bad_alloc
@@ -115,7 +144,7 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  SchemaValidator *schema_validator_;
+  VertexValidator vertex_validator_;
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this

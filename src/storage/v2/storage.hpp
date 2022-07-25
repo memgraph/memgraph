@@ -229,7 +229,9 @@ class Storage final {
     VertexAccessor CreateVertex(storage::Gid gid);
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::LabelId primary_label);
+    ResultSchema<VertexAccessor> CreateVertexAndValidate(
+        storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+        const std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
@@ -427,7 +429,7 @@ class Storage final {
 
   SchemasInfo ListAllSchemas() const;
 
-  std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
+  const Schemas::Schema *GetSchema(LabelId primary_label) const;
 
   bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
 

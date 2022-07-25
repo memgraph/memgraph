@@ -43,14 +43,14 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) const {
   // Schema on primary label
-  const auto schema = schemas_.GetSchema(primary_label);
-  if (!schema) {
+  const auto *schema = schemas_.GetSchema(primary_label);
+  if (schema == nullptr) {
     return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
   }
 
   // Is there another primary label among secondary labels
   for (const auto &secondary_label : labels) {
-    if (schemas_.GetSchema(secondary_label) != std::nullopt) {
+    if (schemas_.GetSchema(secondary_label)) {
       return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, secondary_label);
     }
   }
@@ -63,7 +63,8 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
           return property_type_value.first == schema_property_id;
         });
     if (property_pair == properties.end()) {
-      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PROPERTY, primary_label, schema_type);
+      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY, primary_label,
+                             schema_type);
     }
 
     // Check schema property type
@@ -77,13 +78,11 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
   return std::nullopt;
 }
 
-[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateVertexUpdate(const LabelId primary_label,
-                                                                                   const PropertyId property_id) const {
+[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidatePropertyUpdate(
+    const LabelId primary_label, const PropertyId property_id) const {
   // Verify existence of schema on primary label
-  const auto schema = schemas_.GetSchema(primary_label);
-  if (!schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
-  }
+  const auto *schema = schemas_.GetSchema(primary_label);
+  MG_ASSERT(schema, "Cannot validate against non existing schema!");
 
   // Verify that updating property is not part of schema
   if (const auto schema_property = std::ranges::find_if(
@@ -97,9 +96,9 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 }
 
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
-  const auto schema = schemas_.GetSchema(label);
+  const auto *schema = schemas_.GetSchema(label);
   if (schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_ALREADY_HAS_PRIMARY_LABEL, label);
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL, label);
   }
   return std::nullopt;
 }

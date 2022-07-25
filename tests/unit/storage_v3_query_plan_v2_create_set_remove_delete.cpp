@@ -93,7 +93,7 @@ TEST_F(QueryPlanCRUDTest, ScanAll) {
   {
     auto dba = db.Access();
     for (int i = 0; i < 42; ++i) {
-      auto v = dba.CreateVertex(label);
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}});
       ASSERT_TRUE(v.SetProperty(property, memgraph::storage::PropertyValue(i)).HasValue());
     }
     EXPECT_FALSE(dba.Commit().HasError());
@@ -119,12 +119,12 @@ TEST_F(QueryPlanCRUDTest, ScanAllByLabel) {
     auto dba = db.Access();
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) {
-      auto v = dba.CreateVertex(label);
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}});
       ASSERT_TRUE(v.SetProperty(property, memgraph::storage::PropertyValue(i)).HasValue());
     }
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
-      auto v = dba.CreateVertex(label);
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}});
       ASSERT_TRUE(v.SetProperty(property, memgraph::storage::PropertyValue(i)).HasValue());
       ASSERT_TRUE(v.AddLabel(label2).HasValue());
     }

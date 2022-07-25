@@ -36,8 +36,8 @@ bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using Schema = std::pair<LabelId, std::vector<SchemaProperty>>;
   using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
+  using Schema = SchemasMap::value_type;
   using SchemasList = std::vector<Schema>;
 
   Schemas() = default;
@@ -49,7 +49,7 @@ class Schemas {
 
   [[nodiscard]] SchemasList ListSchemas() const;
 
-  [[nodiscard]] std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
+  [[nodiscard]] const Schema *GetSchema(LabelId primary_label) const;
 
   // Returns true if it was successfully created or false if the schema
   // already exists

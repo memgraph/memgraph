@@ -2377,7 +2377,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
-    auto old_value = PropsSetChecked(record, *context.db_accessor, property, storage::PropertyValue{});
+    auto old_value = PropsRemoveChecked(record, *context.db_accessor, property);
 
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,

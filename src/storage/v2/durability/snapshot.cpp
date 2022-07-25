@@ -713,6 +713,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
+      // TODO Fix snapshot with new schema rules @jbajic
       auto ea = EdgeAccessor{
           edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items, nullptr};
 
