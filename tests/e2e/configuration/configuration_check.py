@@ -24,12 +24,19 @@ def test_does_default_config_match():
     cursor.execute("SHOW CONFIG")
     config = cursor.fetchall()
 
+    assert len(config) == len(default_config.startup_config)
+
     for idx, flag in enumerate(config):
         assert len(flag) == len(default_config.startup_config[idx])
-        if flag[0] != default_config.startup_config[idx][0]:
-            print(flag[0], default_config.startup_config[idx][0])
 
-        assert flag[1] == default_config.startup_config[idx][1]
+        current_flag = ()
+
+        for flag in config:
+            if flag[0] == default_config.startup_config[idx][0]:
+                current_flag = flag
+                break
+
+        assert current_flag[1] == default_config.startup_config[idx][1]
 
 
 if __name__ == "__main__":
