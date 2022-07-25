@@ -86,7 +86,7 @@ startup_config = [
     (
         "log_level",
         "WARNING",
-        "TRACE",
+        "WARNING",
         "Minimum log level. Allowed values: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     ),
     (
@@ -184,4 +184,5 @@ startup_config = [
         "Maximum count of indexed vertices which provoke indexed lookup and then expand to existing, instead of a regular expand. Default is 10, to turn off use -1.",
     ),
     ("query_max_plans", "1000", "1000", "Maximum number of generated plans for a query."),
+    ("flag_file", "", "", "load flags from file"),
 ]

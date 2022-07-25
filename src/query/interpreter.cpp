@@ -804,7 +804,7 @@ Callback HandleConfigQuery() {
     for (const auto &flag : flags) {
       if (flag.hidden ||
           // These flags are not defined with gflags macros but are specified in config/flags.yaml
-          flag.name == "flag_file" || flag.name == "help" || flag.name == "help_xml" || flag.name == "version") {
+          flag.name == "help" || flag.name == "help_xml" || flag.name == "version") {
         continue;
       }
 

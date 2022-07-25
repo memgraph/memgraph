@@ -9,9 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-import mgclient
 import sys
+import mgclient
 import pytest
 
 import default_config
@@ -25,8 +24,9 @@ def test_does_default_config_match():
     cursor.execute("SHOW CONFIG")
     config = cursor.fetchall()
 
-    for flag in config:
-        assert config[1] == default_config.startup_config[1]
+    for idx, flag in enumerate(config):
+        assert len(flag) == len(default_config.startup_config[idx])
+        assert flag[1] == default_config.startup_config[idx][1]
 
 
 if __name__ == "__main__":
