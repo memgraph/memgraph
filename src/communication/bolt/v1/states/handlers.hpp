@@ -136,7 +136,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -157,7 +157,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct1", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -235,7 +235,7 @@ template <typename TSession>
 State HandleRunV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
   Value query;
