@@ -125,6 +125,50 @@ struct Path {
   std::vector<int64_t> indices;
 };
 
+/**
+ * Structure used when reading a Graph with the decoder.
+ * The decoder writes data into this structure.
+ */
+struct Graph {
+  Graph() {}
+
+  Graph(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
+    // Helper function. Looks for the given element in the collection. If found,
+    // puts its index into `indices`. Otherwise emplaces the given element
+    // into the collection and puts that index into `indices`. A multiplier is
+    // added to switch between positive and negative indices (that define edge
+    // direction).
+    auto add_element = [this](auto &collection, const auto &element, int multiplier, int offset) {
+      auto found =
+          std::find_if(collection.begin(), collection.end(), [&](const auto &e) { return e.id == element.id; });
+      indices.emplace_back(multiplier * (std::distance(collection.begin(), found) + offset));
+      if (found == collection.end()) collection.push_back(element);
+    };
+
+    this->vertices.reserve(vertices.size());
+    this->edges.reserve(edges.size());
+    this->vertices.emplace_back(vertices[0]);
+    for (uint i = 0; i < edges.size(); i++) {
+      const auto &e = edges[i];
+      const auto &v = vertices[i + 1];
+      UnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
+      add_element(this->vertices, v, 1, 0);
+    }
+  }
+
+  /** Unique vertices in the path. */
+  std::vector<Vertex> vertices;
+  /** Unique edges in the path. */
+  std::vector<UnboundedEdge> edges;
+  /**
+   * Indices that map path positions to vertices/edges.
+   * Positive indices for left-to-right directionality and negative for
+   * right-to-left.
+   */
+  std::vector<int64_t> indices;
+};
+
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:
@@ -147,7 +191,8 @@ class Value {
     Date,
     LocalTime,
     LocalDateTime,
-    Duration
+    Duration,
+    Graph
   };
 
   // constructors for primitive types
@@ -167,6 +212,8 @@ class Value {
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
   Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
+  Value(const Graph &value) : type_(Type::Graph) { new (&graph_v) Graph(value); }
+
   Value(const utils::Date &date) : type_(Type::Date) { new (&date_v) utils::Date(date); }
   Value(const utils::LocalTime &time) : type_(Type::LocalTime) { new (&local_time_v) utils::LocalTime(time); }
   Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {
@@ -185,6 +232,7 @@ class Value {
     new (&unbounded_edge_v) UnboundedEdge(std::move(value));
   }
   Value(Path &&value) noexcept : type_(Type::Path) { new (&path_v) Path(std::move(value)); }
+  Value(Graph &&value) noexcept : type_(Type::Graph) { new (&graph_v) Graph(std::move(value)); }
 
   Value &operator=(const Value &other);
   Value &operator=(Value &&other) noexcept;
@@ -220,6 +268,7 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalTime, utils::LocalTime)
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
+  DECL_GETTER_BY_REFERENCE(Graph, Graph)
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -239,6 +288,7 @@ class Value {
   TYPE_CHECKER(LocalTime)
   TYPE_CHECKER(LocalDateTime)
   TYPE_CHECKER(Duration)
+  TYPE_CHECKER(Graph)
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -262,6 +312,7 @@ class Value {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
+    Graph graph_v;
   };
 };
 /**

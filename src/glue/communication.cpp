@@ -60,6 +60,8 @@ query::TypedValue ToTypedValue(const Value &value) {
       return query::TypedValue(value.ValueLocalDateTime());
     case Value::Type::Duration:
       return query::TypedValue(value.ValueDuration());
+    case Value::Type::Graph:
+      throw communication::bolt::ValueException("Unsupported conversion from Value to TypedValue");
   }
 }
 
@@ -128,7 +130,9 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
     case query::TypedValue::Type::Graph:
-      throw communication::bolt::ValueException("Unsupported conversion from TypedValue to Value for Graph");
+      auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
+      if (maybe_graph.HasError()) return maybe_graph.GetError();
+      return Value(std::move(*maybe_graph));
   }
 }
 
@@ -185,6 +189,25 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
+storage::Result<communication::bolt::Graph> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
+                                                        storage::View view) {
+  std::vector<communication::bolt::Vertex> vertices;
+  vertices.reserve(graph.vertices().size());
+  for (const auto &v : graph.vertices()) {
+    auto maybe_vertex = ToBoltVertex(v, db, view);
+    if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+    vertices.emplace_back(std::move(*maybe_vertex));
+  }
+  std::vector<communication::bolt::Edge> edges;
+  edges.reserve(graph.edges().size());
+  for (const auto &e : graph.edges()) {
+    auto maybe_edge = ToBoltEdge(e, db, view);
+    if (maybe_edge.HasError()) return maybe_edge.GetError();
+    edges.emplace_back(std::move(*maybe_edge));
+  }
+  return communication::bolt::Graph(vertices, edges);
+}
+
 storage::PropertyValue ToPropertyValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
@@ -225,6 +248,8 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::Duration:
       return storage::PropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
+    case Value::Type::Graph:
+      throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
   }
 }
 

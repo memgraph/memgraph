@@ -51,6 +51,14 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
                                                       storage::View view);
 
+/// @param query::Graph for converting to communication::bolt::Graph.
+/// @param storage::Storage for ToBoltVertex and ToBoltEdge.
+/// @param storage::View for ToBoltVertex and ToBoltEdge.
+///
+/// @throw std::bad_alloc
+storage::Result<communication::bolt::Graph> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
+                                                        storage::View view);
+
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
