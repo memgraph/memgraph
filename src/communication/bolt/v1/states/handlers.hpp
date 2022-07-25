@@ -216,7 +216,8 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
                   session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  Value query, params;
+  Value query;
+  Value params;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
     return State::Close;
@@ -237,7 +238,9 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  Value query, params, extra;
+  Value query;
+  Value params;
+  Value extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
     return State::Close;
@@ -404,11 +407,27 @@ State HandleGoodbye() {
 
 template <typename TSession>
 State HandleRoute(TSession &session) {
-  // Route message is not implemented since it is neo4j specific, therefore we
-  // will receive it an inform user that there is no implementation.
+  // Route message is not implemented since it is Neo4j specific, therefore we will receive it an inform user that there
+  // is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean state.
+  Value routing;
+  Value bookmarks;
+  Value db;
+  if (!session.decoder_.ReadValue(&routing, Value::Type::Map)) {
+    spdlog::trace("Couldn't read routing field!");
+    return State::Close;
+  }
+
+  if (!session.decoder_.ReadValue(&bookmarks, Value::Type::List)) {
+    spdlog::trace("Couldn't read bookmarks field!");
+    return State::Close;
+  }
+
+  if (!session.decoder_.ReadValue(&db, Value::Type::String)) {
+    spdlog::trace("Couldn't read db field!");
+  }
   session.encoder_buffer_.Clear();
   bool fail_sent =
-      session.encoder_.MessageFailure({{"code", 66}, {"message", "Route message not supported in Memgraph!"}});
+      session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message not supported in Memgraph!"}});
   if (!fail_sent) {
     spdlog::trace("Couldn't send failure message!");
     return State::Close;
