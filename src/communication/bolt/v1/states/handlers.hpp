@@ -432,7 +432,7 @@ State HandleRoute(TSession &session, const Marker marker) {
   }
   session.encoder_buffer_.Clear();
   bool fail_sent =
-      session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message not supported in Memgraph!"}});
+      session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
   if (!fail_sent) {
     spdlog::trace("Couldn't send failure message!");
     return State::Close;
