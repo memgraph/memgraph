@@ -15,6 +15,25 @@
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
 
+namespace {
+using ClientEncoder = memgraph::communication::bolt::ClientEncoder<
+    memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::ClientOutputStream>>;
+template <typename TException = memgraph::communication::bolt::FailureResponseException>
+[[noreturn]] void HandleFailure(ClientEncoder &encoder,
+                                const std::map<std::string, memgraph::communication::bolt::Value> &response_map) {
+  MG_ASSERT(encoder.MessageReset(), "Can't send reset!");
+  auto it = response_map.find("message");
+  if (it != response_map.end()) {
+    auto it_code = response_map.find("code");
+    if (it_code != response_map.end()) {
+      throw TException(it_code->second.ValueString(), it->second.ValueString());
+    }
+    throw TException("", it->second.ValueString());
+  }
+  throw TException();
+}
+}  // namespace
+
 namespace memgraph::communication::bolt {
 
 Client::Client(communication::ClientContext &context) : client_{&context} {}
@@ -29,8 +48,14 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     spdlog::error("Couldn't send preamble!");
     throw ServerCommunicationException();
   }
-  for (int i = 0; i < 4; ++i) {
-    if (!client_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
+
+  if (!client_.Write(kProtocol, sizeof(kProtocol), true)) {
+    spdlog::error("Couldn't send protocol version!");
+    throw ServerCommunicationException();
+  }
+
+  for (int i = 0; i < 3; ++i) {
+    if (!client_.Write(kEmptyProtocol, sizeof(kEmptyProtocol), i != 2)) {
       spdlog::error("Couldn't send protocol version!");
       throw ServerCommunicationException();
     }
@@ -40,18 +65,23 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     spdlog::error("Couldn't get negotiated protocol version!");
     throw ServerCommunicationException();
   }
+
   if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
     spdlog::error("Server negotiated unsupported protocol version!");
     throw ClientFatalException("The server negotiated an usupported protocol version!");
   }
   client_.ShiftData(sizeof(kProtocol));
 
-  if (!encoder_.MessageInit(client_name, {{"scheme", "basic"}, {"principal", username}, {"credentials", password}})) {
+  if (!encoder_.MessageInit({{"user_agent", client_name},
+                             {"scheme", "basic"},
+                             {"principal", username},
+                             {"credentials", password},
+                             {"routing", {}}})) {
     spdlog::error("Couldn't send init message!");
     throw ServerCommunicationException();
   }
 
-  Signature signature;
+  Signature signature{};
   Value metadata;
   if (!ReadMessage(signature, metadata)) {
     spdlog::error("Couldn't read init message response!");
@@ -72,11 +102,11 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
 
   spdlog::info("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
-  encoder_.MessageRun(query, parameters);
-  encoder_.MessagePullAll();
+  encoder_.MessageRun(query, parameters, {});
+  encoder_.MessagePull({});
 
   spdlog::info("Reading run message response");
-  Signature signature;
+  Signature signature{};
   Value fields;
   if (!ReadMessage(signature, fields)) {
     throw ServerCommunicationException();
@@ -86,24 +116,15 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   }
 
   if (signature == Signature::Failure) {
-    HandleFailure();
-    auto &tmp = fields.ValueMap();
-    auto it = tmp.find("message");
-    if (it != tmp.end()) {
-      auto it_code = tmp.find("code");
-      if (it_code != tmp.end()) {
-        throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
-      }
-      throw ClientQueryException("", it->second.ValueString());
-    }
-    throw ClientQueryException();
+    MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
+    HandleFailure<ClientQueryException>(encoder_, fields.ValueMap());
   }
   if (signature != Signature::Success) {
     throw ServerMalformedDataException();
   }
 
   spdlog::info("Reading pull_all message response");
-  Marker marker;
+  Marker marker{};
   Value metadata;
   std::vector<std::vector<Value>> records;
   while (true) {
@@ -129,17 +150,8 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       if (!decoder_.ReadValue(&data)) {
         throw ServerCommunicationException();
       }
-      HandleFailure();
-      auto &tmp = data.ValueMap();
-      auto it = tmp.find("message");
-      if (it != tmp.end()) {
-        auto it_code = tmp.find("code");
-        if (it_code != tmp.end()) {
-          throw ClientQueryException(it_code->second.ValueString(), it->second.ValueString());
-        }
-        throw ClientQueryException("", it->second.ValueString());
-      }
-      throw ClientQueryException();
+      MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
+      HandleFailure<ClientQueryException>(encoder_, data.ValueMap());
     } else {
       throw ServerMalformedDataException();
     }
@@ -170,6 +182,47 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   return ret;
 }
 
+void Client::Reset() {
+  if (!client_.IsConnected()) {
+    throw ClientFatalException("You must first connect to the server before using the client!");
+  }
+
+  spdlog::info("Sending reset message");
+
+  encoder_.MessageReset();
+}
+
+std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::string, Value> &routing,
+                                                          const std::vector<Value> &bookmarks,
+                                                          const std::optional<std::string> &db) {
+  if (!client_.IsConnected()) {
+    throw ClientFatalException("You must first connect to the server before using the client!");
+  }
+
+  spdlog::info("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
+               db.has_value() ? *db : Value());
+
+  encoder_.MessageRoute(routing, bookmarks, db);
+
+  spdlog::info("Reading route message response");
+  Signature signature{};
+  Value fields;
+  if (!ReadMessage(signature, fields)) {
+    throw ServerCommunicationException();
+  }
+  if (signature == Signature::Ignored) {
+    return std::nullopt;
+  }
+  if (signature == Signature::Failure) {
+    MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
+    HandleFailure(encoder_, fields.ValueMap());
+  }
+  if (signature != Signature::Success) {
+    throw ServerMalformedDataException{};
+  }
+  return fields.ValueMap();
+}
+
 void Client::Close() { client_.Close(); };
 
 bool Client::GetMessage() {
@@ -178,7 +231,7 @@ bool Client::GetMessage() {
     if (!client_.Read(kChunkHeaderSize)) return false;
 
     size_t chunk_size = client_.GetData()[0];
-    chunk_size <<= 8;
+    chunk_size <<= 8U;
     chunk_size += client_.GetData()[1];
     if (chunk_size == 0) return true;
 
@@ -190,7 +243,7 @@ bool Client::GetMessage() {
 }
 
 bool Client::ReadMessage(Signature &signature, Value &ret) {
-  Marker marker;
+  Marker marker{};
   if (!GetMessage()) return false;
   if (!decoder_.ReadMessageHeader(&signature, &marker)) return false;
   return ReadMessageData(marker, ret);
@@ -200,28 +253,10 @@ bool Client::ReadMessageData(Marker marker, Value &ret) {
   if (marker == Marker::TinyStruct) {
     ret = Value();
     return true;
-  } else if (marker == Marker::TinyStruct1) {
+  }
+  if (marker == Marker::TinyStruct1) {
     return decoder_.ReadValue(&ret);
   }
   return false;
 }
-
-void Client::HandleFailure() {
-  if (!encoder_.MessageAckFailure()) {
-    throw ServerCommunicationException();
-  }
-  while (true) {
-    Signature signature;
-    Value data;
-    if (!ReadMessage(signature, data)) {
-      throw ServerCommunicationException();
-    }
-    if (signature == Signature::Success) {
-      break;
-    } else if (signature != Signature::Ignored) {
-      throw ServerMalformedDataException();
-    }
-  }
-}
-
 }  // namespace memgraph::communication::bolt

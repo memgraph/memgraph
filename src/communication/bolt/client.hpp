@@ -11,6 +11,11 @@
 
 #pragma once
 
+#include <map>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
@@ -22,23 +27,27 @@
 
 namespace memgraph::communication::bolt {
 
-/// This exception is thrown whenever an error occurs during query execution
-/// that isn't fatal (eg. mistyped query or some transient error occurred).
-/// It should be handled by everyone who uses the client.
-class ClientQueryException : public utils::BasicException {
+class FailureResponseException : public utils::BasicException {
  public:
-  using utils::BasicException::BasicException;
+  FailureResponseException() : utils::BasicException{"Couldn't execute query!"} {}
 
-  ClientQueryException() : utils::BasicException("Couldn't execute query!") {}
+  explicit FailureResponseException(const std::string &message) : utils::BasicException{message} {}
 
-  template <class... Args>
-  ClientQueryException(const std::string &code, Args &&...args)
-      : utils::BasicException(std::forward<Args>(args)...), code_(code) {}
+  FailureResponseException(const std::string &code, const std::string &message)
+      : utils::BasicException{message}, code_{code} {}
 
   const std::string &code() const { return code_; }
 
  private:
   std::string code_;
+};
+
+/// This exception is thrown whenever an error occurs during query execution
+/// that isn't fatal (eg. mistyped query or some transient error occurred).
+/// It should be handled by everyone who uses the client.
+class ClientQueryException : public FailureResponseException {
+ public:
+  using FailureResponseException::FailureResponseException;
 };
 
 /// This exception is thrown whenever a fatal error occurs during query
@@ -81,6 +90,7 @@ class Client final {
   Client(Client &&) = delete;
   Client &operator=(const Client &) = delete;
   Client &operator=(Client &&) = delete;
+  ~Client() = default;
 
   /// Method used to connect to the server. Before executing queries this method
   /// should be called to set-up the connection to the server. After the
@@ -101,11 +111,19 @@ class Client final {
   /// Close the active client connection.
   void Close();
 
+  /// Can be used to reset the active client connection. Reset is automatically sent after receiving a failure message
+  /// from the server, which result in throwing an FailureResponseException or any exception derived from it.
+  void Reset();
+
+  /// Can be used to send a route message.
+  std::optional<std::map<std::string, Value>> Route(const std::map<std::string, Value> &routing,
+                                                    const std::vector<Value> &bookmarks,
+                                                    const std::optional<std::string> &db);
+
  private:
   bool GetMessage();
   bool ReadMessage(Signature &signature, Value &ret);
   bool ReadMessageData(Marker marker, Value &ret);
-  void HandleFailure();
 
   // client
   communication::Client client_;
