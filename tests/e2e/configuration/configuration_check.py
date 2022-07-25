@@ -26,6 +26,9 @@ def test_does_default_config_match():
 
     for idx, flag in enumerate(config):
         assert len(flag) == len(default_config.startup_config[idx])
+        if flag[0] != default_config.startup_config[idx][0]:
+            print(flag[0], default_config.startup_config[idx][0])
+
         assert flag[1] == default_config.startup_config[idx][1]
 
 
