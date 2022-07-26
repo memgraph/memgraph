@@ -38,9 +38,9 @@ using Shards = std::map<CompoundKey, Shard>;
 // use string for intermachine communication and NameIdMapper within the machine
 using Label = std::string;
 
-class ShardMap {
-  uint64_t shard_map_version_;
-  std::map<Label, Shards> shards_;
+struct ShardMap {
+  uint64_t shard_map_version;
+  std::map<Label, Shards> shards;
 
  public:
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
