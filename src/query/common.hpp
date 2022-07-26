@@ -164,27 +164,5 @@ storage::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const s
   }
 }
 
-template <AccessorWithSetProperty T>
-storage::PropertyValue PropsRemoveChecked(T *record, const DbAccessor &dba, const storage::PropertyId &key) {
-  if constexpr (std::is_same_v<T, VertexAccessor>) {
-    const auto maybe_old_value = record->RemovePropertyAndValidate(key);
-    if (maybe_old_value.HasError()) {
-      std::visit(utils::Overloaded{[](const storage::Error error) { HandleErrorOnPropertyUpdate(error); },
-                                   [&dba](const storage::SchemaViolation &schema_violation) {
-                                     HandleSchemaViolation(schema_violation, dba);
-                                   }},
-                 maybe_old_value.GetError());
-    }
-    return std::move(*maybe_old_value);
-  } else {
-    // No validation on edge properties
-    const auto maybe_old_value = record->RemoveProperty(key);
-    if (maybe_old_value.HasError()) {
-      HandleErrorOnPropertyUpdate(maybe_old_value.GetError());
-    }
-    return std::move(*maybe_old_value);
-  }
-}
-
 int64_t QueryTimestamp();
 }  // namespace memgraph::query
