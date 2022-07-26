@@ -36,7 +36,7 @@ CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 
 if [ ! -d "$script_dir/jepsen" ]; then
-    git clone https://github.com/jepsen-io/jepsen.git -b "0.2.1" "$script_dir/jepsen"
+    git clone https://github.com/jepsen-io/jepsen.git -b "0.2.4" "$script_dir/jepsen"
 fi
 
 if [ "$#" -lt 1 ]; then
