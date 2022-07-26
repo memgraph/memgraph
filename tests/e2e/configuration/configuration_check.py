@@ -33,9 +33,9 @@ def test_does_default_config_match():
 
         current_flag = ()
 
-        for flag in config:
-            if flag[0] == default_config.startup_config[idx][0]:
-                current_flag = flag
+        for tuple in config:
+            if tuple[0] == default_config.startup_config[idx][0]:
+                current_flag = tuple
                 break
 
         assert len(current_flag) == len(default_config.startup_config[idx])
@@ -43,6 +43,8 @@ def test_does_default_config_match():
         print(current_flag[0], default_config.startup_config[idx][0])
 
         assert current_flag[1] == default_config.startup_config[idx][1]
+
+        print(current_flag[1], default_config.startup_config[idx][1])
 
 
 if __name__ == "__main__":
