@@ -688,7 +688,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
 
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidatePropertyUpdate(
     PropertyId property_id) const {
-  return schema_validator_->ValidatePropertyUpdate(vertex_->primary_label, property_id);
+  return schema_validator_->ValidatePropertyUpdate(primary_label_, property_id);
 };
 
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateAddLabel(LabelId label) const {

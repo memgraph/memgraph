@@ -32,8 +32,8 @@ struct Constraints;
 class VertexAccessor final {
  private:
   struct VertexValidator {
-    explicit VertexValidator(SchemaValidator *schema_validator, const Vertex *vertex)
-        : schema_validator_{schema_validator}, vertex_{vertex} {}
+    explicit VertexValidator(SchemaValidator *schema_validator, const LabelId primary_label)
+        : schema_validator_{schema_validator}, primary_label_{primary_label} {}
 
     [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
 
@@ -42,7 +42,7 @@ class VertexAccessor final {
     [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
 
     SchemaValidator *schema_validator_;
-    const Vertex *vertex_;
+    LabelId primary_label_;
   };
   friend class Storage;
 
@@ -54,7 +54,7 @@ class VertexAccessor final {
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        vertex_validator_{schema_validator, vertex},
+        vertex_validator_{schema_validator, vertex->primary_label},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,

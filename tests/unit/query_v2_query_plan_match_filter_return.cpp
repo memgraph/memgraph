@@ -1935,9 +1935,9 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyRangeNull) {
   {
     auto storage_dba = db.Access();
     DbAccessor dba(&storage_dba);
-    auto vertex = dba.InsertVertex();
+    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
