@@ -686,6 +686,9 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
+VertexAccessor::VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
+    : schema_validator_{&schema_validator}, primary_label_{primary_label} {}
+
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidatePropertyUpdate(
     PropertyId property_id) const {
   return schema_validator_->ValidatePropertyUpdate(primary_label_, property_id);
@@ -698,4 +701,5 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateRemoveLabel(LabelId label) const {
   return schema_validator_->ValidateLabelUpdate(label);
 }
+
 }  // namespace memgraph::storage
