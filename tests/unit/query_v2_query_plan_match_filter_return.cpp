@@ -17,7 +17,6 @@
 #include <vector>
 
 #include <fmt/format.h>
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <cppitertools/enumerate.hpp>
@@ -28,31 +27,38 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-
 #include "query_plan_common.hpp"
 #include "storage/v2/property_value.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
+namespace std {
+template <>
+struct hash<std::pair<int, int>> {
+  size_t operator()(const std::pair<int, int> &p) const { return p.first + 31 * p.second; }
+};
+}  // namespace std
+
+namespace memgraph::query::tests {
+
 class MatchReturnFixture : public testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_TRUE(
-        db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
+    ASSERT_TRUE(db.CreateSchema(label, {storage::SchemaProperty{property, common::SchemaType::INT}}));
   }
 
-  memgraph::storage::Storage db;
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
-  const memgraph::storage::LabelId label{db.NameToLabel("label")};
-  const memgraph::storage::PropertyId property{db.NameToProperty("property")};
+  storage::Storage db;
+  storage::Storage::Accessor storage_dba{db.Access()};
+  DbAccessor dba{&storage_dba};
+  const storage::LabelId label{db.NameToLabel("label")};
+  const storage::PropertyId property{db.NameToProperty("property")};
   AstStorage storage;
   SymbolTable symbol_table;
 
   void AddVertices(int count) {
     for (int i = 0; i < count; i++) {
-      ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}}).HasValue());
+      ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}}).HasValue());
     }
   }
 
@@ -68,7 +74,7 @@ TEST_F(MatchReturnFixture, MatchReturn) {
   AddVertices(2);
   dba.AdvanceCommand();
 
-  auto test_pull_count = [&](memgraph::storage::View view) {
+  auto test_pull_count = [&](storage::View view) {
     auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -77,13 +83,13 @@ TEST_F(MatchReturnFixture, MatchReturn) {
     return PullAll(*produce, &context);
   };
 
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::NEW));
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
-  EXPECT_EQ(3, test_pull_count(memgraph::storage::View::NEW));
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_pull_count(storage::View::NEW));
+  EXPECT_EQ(2, test_pull_count(storage::View::OLD));
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
+  EXPECT_EQ(3, test_pull_count(storage::View::NEW));
+  EXPECT_EQ(2, test_pull_count(storage::View::OLD));
   dba.AdvanceCommand();
-  EXPECT_EQ(3, test_pull_count(memgraph::storage::View::OLD));
+  EXPECT_EQ(3, test_pull_count(storage::View::OLD));
 }
 
 TEST_F(MatchReturnFixture, MatchReturnPath) {
@@ -98,8 +104,8 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   auto produce = MakeProduce(make_path, output);
   auto results = PathResults(produce);
   ASSERT_EQ(results.size(), 2);
-  std::vector<memgraph::query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
+  std::vector<Path> expected_paths;
+  for (const auto &v : dba.Vertices(storage::View::OLD)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
@@ -107,23 +113,22 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
 class QueryPlanMatchFilterTest : public testing::Test {
  protected:
   QueryPlanMatchFilterTest() {
-    EXPECT_TRUE(
-        db.CreateSchema(label, {memgraph::storage::SchemaProperty{property, memgraph::common::SchemaType::INT}}));
+    EXPECT_TRUE(db.CreateSchema(label, {storage::SchemaProperty{property, common::SchemaType::INT}}));
   }
 
-  memgraph::storage::Storage db;
-  memgraph::storage::LabelId label = db.NameToLabel("label");
-  memgraph::storage::PropertyId property = db.NameToProperty("property");
+  storage::Storage db;
+  storage::LabelId label = db.NameToLabel("label");
+  storage::PropertyId property = db.NameToProperty("property");
 };
 
 TEST_F(QueryPlanMatchFilterTest, MatchReturnCartesian) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}})
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}})
                   ->AddLabel(dba.NameToLabel("l1"))
                   .HasValue());
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}})
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}})
                   ->AddLabel(dba.NameToLabel("l2"))
                   .HasValue());
 
@@ -148,11 +153,11 @@ TEST_F(QueryPlanMatchFilterTest, MatchReturnCartesian) {
 
 TEST_F(QueryPlanMatchFilterTest, StandaloneReturn) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // add a few nodes to the database
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}}).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -171,17 +176,17 @@ TEST_F(QueryPlanMatchFilterTest, StandaloneReturn) {
 
 TEST_F(QueryPlanMatchFilterTest, NodeFilterLabelsAndProperties) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // add a few nodes to the database
-  memgraph::storage::LabelId label1 = dba.NameToLabel("Label1");
+  storage::LabelId label1 = dba.NameToLabel("Label1");
   auto property1 = PROPERTY_PAIR("Property1");
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
-  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(4)}});
-  auto v5 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(5)}});
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(6)}}).HasValue());
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}});
+  auto v4 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(4)}});
+  auto v5 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(5)}});
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(6)}}).HasValue());
 
   // test all combination of (label | no_label) * (no_prop | wrong_prop |
   // right_prop)
@@ -190,10 +195,10 @@ TEST_F(QueryPlanMatchFilterTest, NodeFilterLabelsAndProperties) {
   ASSERT_TRUE(v2.AddLabel(label1).HasValue());
   ASSERT_TRUE(v3.AddLabel(label1).HasValue());
   // v1 and v4 will have the right properties
-  ASSERT_TRUE(v1.SetProperty(property1.second, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v2.SetProperty(property1.second, memgraph::storage::PropertyValue(1)).HasValue());
-  ASSERT_TRUE(v4.SetProperty(property1.second, memgraph::storage::PropertyValue(42)).HasValue());
-  ASSERT_TRUE(v5.SetProperty(property1.second, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(property1.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(property1.second, storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v4.SetProperty(property1.second, storage::PropertyValue(42)).HasValue());
+  ASSERT_TRUE(v5.SetProperty(property1.second, storage::PropertyValue(1)).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -225,31 +230,31 @@ TEST_F(QueryPlanMatchFilterTest, NodeFilterLabelsAndProperties) {
 
 TEST_F(QueryPlanMatchFilterTest, NodeFilterMultipleLabels) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // add a few nodes to the database
-  memgraph::storage::LabelId label1 = dba.NameToLabel("label1");
-  memgraph::storage::LabelId label2 = dba.NameToLabel("label2");
-  memgraph::storage::LabelId label3 = dba.NameToLabel("label3");
+  storage::LabelId label1 = dba.NameToLabel("label1");
+  storage::LabelId label2 = dba.NameToLabel("label2");
+  storage::LabelId label3 = dba.NameToLabel("label3");
   // the test will look for nodes that have label1 and label2
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}})
-                  .HasValue());  // NOT accepted
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}})
+  ASSERT_TRUE(
+      dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());  // NOT accepted
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}})
                   ->AddLabel(label1)
                   .HasValue());  // NOT accepted
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}})
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}})
                   ->AddLabel(label2)
                   .HasValue());  // NOT accepted
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(4)}})
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(4)}})
                   ->AddLabel(label3)
-                  .HasValue());                                                                          // NOT accepted
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(5)}});  // YES accepted
+                  .HasValue());                                                                // NOT accepted
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(5)}});  // YES accepted
   ASSERT_TRUE(v1.AddLabel(label1).HasValue());
   ASSERT_TRUE(v1.AddLabel(label2).HasValue());
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(6)}});  // NOT accepted
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(6)}});  // NOT accepted
   ASSERT_TRUE(v2.AddLabel(label1).HasValue());
   ASSERT_TRUE(v2.AddLabel(label3).HasValue());
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(7)}});  // YES accepted
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(7)}});  // YES accepted
   ASSERT_TRUE(v3.AddLabel(label1).HasValue());
   ASSERT_TRUE(v3.AddLabel(label2).HasValue());
   ASSERT_TRUE(v3.AddLabel(label3).HasValue());
@@ -278,15 +283,15 @@ TEST_F(QueryPlanMatchFilterTest, NodeFilterMultipleLabels) {
 
 TEST_F(QueryPlanMatchFilterTest, Cartesian) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   auto add_vertex = [&dba, this](std::string label1) {
-    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     MG_ASSERT(vertex.AddLabel(dba.NameToLabel(label1)).HasValue());
     return vertex;
   };
 
-  std::vector<memgraph::query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
+  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -316,7 +321,7 @@ TEST_F(QueryPlanMatchFilterTest, Cartesian) {
 
 TEST_F(QueryPlanMatchFilterTest, CartesianEmptySet) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -338,14 +343,14 @@ TEST_F(QueryPlanMatchFilterTest, CartesianEmptySet) {
 
 TEST_F(QueryPlanMatchFilterTest, CartesianThreeWay) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
   auto add_vertex = [&dba, this](std::string label1) {
-    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     MG_ASSERT(vertex.AddLabel(dba.NameToLabel(label1)).HasValue());
     return vertex;
   };
 
-  std::vector<memgraph::query::VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
+  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"), add_vertex("v3")};
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -385,21 +390,18 @@ TEST_F(QueryPlanMatchFilterTest, CartesianThreeWay) {
 
 class ExpandFixture : public QueryPlanMatchFilterTest {
  protected:
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  storage::Storage::Accessor storage_dba{db.Access()};
+  DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  memgraph::query::VertexAccessor v1{
-      *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}})};
-  memgraph::query::VertexAccessor v2{
-      *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}})};
-  memgraph::query::VertexAccessor v3{
-      *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}})};
-  memgraph::storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
-  memgraph::query::EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
-  memgraph::query::EdgeAccessor r2{*dba.InsertEdge(&v1, &v3, edge_type)};
+  VertexAccessor v1{*dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}})};
+  VertexAccessor v2{*dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}})};
+  VertexAccessor v3{*dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}})};
+  storage::EdgeTypeId edge_type{db.NameToEdgeType("Edge")};
+  EdgeAccessor r1{*dba.InsertEdge(&v1, &v2, edge_type)};
+  EdgeAccessor r2{*dba.InsertEdge(&v1, &v3, edge_type)};
 
   void SetUp() override {
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
@@ -410,7 +412,7 @@ class ExpandFixture : public QueryPlanMatchFilterTest {
 };
 
 TEST_F(ExpandFixture, Expand) {
-  auto test_expand = [&](EdgeAtom::Direction direction, memgraph::storage::View view) {
+  auto test_expand = [&](EdgeAtom::Direction direction, storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
@@ -424,22 +426,22 @@ TEST_F(ExpandFixture, Expand) {
   // test that expand works well for both old and new graph state
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
-  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, storage::View::OLD));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, storage::View::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, storage::View::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, storage::View::NEW));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, storage::View::NEW));
+  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, storage::View::NEW));
   dba.AdvanceCommand();
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, storage::View::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, storage::View::OLD));
+  EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, storage::View::OLD));
 }
 
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
-                        memgraph::storage::View::OLD);
+                        storage::View::OLD);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
   auto path = std::make_shared<ConstructNamedPath>(r_m.op_, path_sym,
                                                    std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
@@ -447,12 +449,11 @@ TEST_F(ExpandFixture, ExpandPath) {
       NEXPR("path", IDENT("path")->MapTo(path_sym))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
-  std::vector<memgraph::query::Path> expected_paths{memgraph::query::Path(v1, r2, v3),
-                                                    memgraph::query::Path(v1, r1, v2)};
+  std::vector<Path> expected_paths{Path(v1, r2, v3), Path(v1, r1, v2)};
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);
-  std::vector<memgraph::query::Path> results_paths;
+  std::vector<Path> results_paths;
   for (const auto &result : results) results_paths.emplace_back(result[0].ValuePath());
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results_paths.begin()));
 }
@@ -475,12 +476,12 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
   // a lot below in test declaration
   using map_int = std::unordered_map<int, int>;
 
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
+  storage::Storage::Accessor storage_dba{db.Access()};
+  DbAccessor dba{&storage_dba};
   // labels for layers in the double chain
-  std::vector<memgraph::storage::LabelId> labels;
+  std::vector<storage::LabelId> labels;
   // for all the edges
-  memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -491,11 +492,11 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
   void SetUp() {
     // create the graph
     int chain_length = 3;
-    std::vector<memgraph::query::VertexAccessor> layer;
+    std::vector<VertexAccessor> layer;
     for (int from_layer_ind = -1; from_layer_ind < chain_length - 1; from_layer_ind++) {
-      std::vector<memgraph::query::VertexAccessor> new_layer{
-          *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}),
-          *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}})};
+      std::vector<VertexAccessor> new_layer{
+          *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}),
+          *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}})};
       auto label = dba.NameToLabel(std::to_string(from_layer_ind + 1));
       labels.push_back(label);
       for (size_t v_to_ind = 0; v_to_ind < new_layer.size(); v_to_ind++) {
@@ -505,16 +506,16 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
           auto &v_from = layer[v_from_ind];
           auto edge = dba.InsertEdge(&v_from, &v_to, edge_type);
           ASSERT_TRUE(edge->SetProperty(dba.NameToProperty("p"),
-                                        memgraph::storage::PropertyValue(fmt::format(
-                                            "V{}{}->V{}{}", from_layer_ind, v_from_ind, from_layer_ind + 1, v_to_ind)))
+                                        storage::PropertyValue(fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
+                                                                           from_layer_ind + 1, v_to_ind)))
                           .HasValue());
         }
       }
       layer = new_layer;
     }
     dba.AdvanceCommand();
-    ASSERT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 2 * chain_length);
-    ASSERT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 4 * (chain_length - 1));
+    ASSERT_EQ(CountIterable(dba.Vertices(storage::View::OLD)), 2 * chain_length);
+    ASSERT_EQ(CountEdges(&dba, storage::View::OLD), 4 * (chain_length - 1));
   }
 
   /**
@@ -531,15 +532,14 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
   template <typename TExpansionOperator>
   std::shared_ptr<LogicalOperator> AddMatch(std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
                                             int layer, EdgeAtom::Direction direction,
-                                            const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
+                                            const std::vector<storage::EdgeTypeId> &edge_types,
                                             std::optional<size_t> lower, std::optional<size_t> upper, Symbol edge_sym,
-                                            const std::string &node_to, memgraph::storage::View view,
-                                            bool is_reverse = false) {
+                                            const std::string &node_to, storage::View view, bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
         n_from.op_,
-        storage.Create<memgraph::query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
+        storage.Create<LabelsTest>(n_from.node_->identifier_,
+                                   std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -550,8 +550,7 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
       auto convert = [this](std::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
-      MG_ASSERT(view == memgraph::storage::View::OLD,
-                "ExpandVariable should only be planned with memgraph::storage::View::OLD");
+      MG_ASSERT(view == storage::View::OLD, "ExpandVariable should only be planned with storage::View::OLD");
 
       return std::make_shared<ExpandVariable>(filter_op, n_from.sym_, n_to_sym, edge_sym, EdgeAtom::Type::DEPTH_FIRST,
                                               direction, edge_types, is_reverse, convert(lower), convert(upper), false,
@@ -575,9 +574,9 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
    */
   auto GetListResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba);
-    std::vector<memgraph::utils::pmr::vector<TypedValue>> results;
+    std::vector<utils::pmr::vector<TypedValue>> results;
     while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValueList());
     return results;
   }
@@ -587,7 +586,7 @@ class QueryPlanExpandVariable : public QueryPlanMatchFilterTest {
    */
   auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = input_op->MakeCursor(utils::NewDeleteResource());
     auto context = MakeContext(storage, symbol_table, &dba);
     std::vector<Path> results;
     while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValuePath());
@@ -618,9 +617,9 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse) {
     auto e = Edge("r", direction);
-    return GetEdgeListSizes(AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m",
-                                                     memgraph::storage::View::OLD, reverse),
-                            e);
+    return GetEdgeListSizes(
+        AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower, upper, e, "m", storage::View::OLD, reverse),
+        e);
   };
 
   for (int reverse = 0; reverse < 2; ++reverse) {
@@ -658,19 +657,19 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
 
     if (single_expansion_before) {
       symbols.push_back(Edge("r0", direction));
-      last_op = AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper, symbols.back(), "m0",
-                                 memgraph::storage::View::OLD);
+      last_op =
+          AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower, upper, symbols.back(), "m0", storage::View::OLD);
     }
 
     auto var_length_sym = Edge("r1", direction);
     symbols.push_back(var_length_sym);
     last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower, upper, var_length_sym, "m1",
-                                       memgraph::storage::View::OLD);
+                                       storage::View::OLD);
 
     if (!single_expansion_before) {
       symbols.push_back(Edge("r2", direction));
-      last_op = AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper, symbols.back(), "m2",
-                                 memgraph::storage::View::OLD);
+      last_op =
+          AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower, upper, symbols.back(), "m2", storage::View::OLD);
     }
 
     if (add_uniqueness_check) {
@@ -693,11 +692,11 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool add_uniqueness_check) {
     auto e1 = Edge("r1", direction);
-    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1",
-                                          memgraph::storage::View::OLD);
+    auto first =
+        AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower, upper, e1, "m1", storage::View::OLD);
     auto e2 = Edge("r2", direction);
-    auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2",
-                                            memgraph::storage::View::OLD);
+    auto last_op =
+        AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower, upper, e2, "m2", storage::View::OLD);
     if (add_uniqueness_check) {
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2, std::vector<Symbol>{e1});
     }
@@ -711,8 +710,8 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
 
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
-  auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m",
-                                         memgraph::storage::View::OLD);
+  auto expand =
+      AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m", storage::View::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &sym : symbol_table.table())
       if (sym.second.name() == name) return sym.second;
@@ -723,12 +722,12 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto create_path = std::make_shared<ConstructNamedPath>(expand, path_symbol,
                                                           std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
 
-  std::vector<memgraph::query::Path> expected_paths;
-  for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
-    if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
-    auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+  std::vector<Path> expected_paths;
+  for (const auto &v : dba.Vertices(storage::View::OLD)) {
+    if (!*v.HasLabel(storage::View::OLD, labels[0])) continue;
+    auto maybe_edges1 = v.OutEdges(storage::View::OLD);
     for (const auto &e1 : *maybe_edges1) {
-      auto maybe_edges2 = e1.To().OutEdges(memgraph::storage::View::OLD);
+      auto maybe_edges2 = e1.To().OutEdges(storage::View::OLD);
       for (const auto &e2 : *maybe_edges2) {
         expected_paths.emplace_back(v, e1, e1.To(), e2, e2.To());
       }
@@ -749,27 +748,27 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
     auto node = NODE("n");
     auto symbol = symbol_table.CreateSymbol("n", true);
     node->identifier_->MapTo(symbol);
-    auto logical_op = std::make_shared<ScanAll>(nullptr, symbol, memgraph::storage::View::OLD);
+    auto logical_op = std::make_shared<ScanAll>(nullptr, symbol, storage::View::OLD);
     auto n_from = ScanAllTuple{node, logical_op, symbol};
 
     auto filter_op = std::make_shared<Filter>(
         n_from.op_,
-        storage.Create<memgraph::query::LabelsTest>(
-            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
+        storage.Create<LabelsTest>(n_from.node_->identifier_,
+                                   std::vector<LabelIx>{storage.GetLabelIx(dba.LabelToName(labels[layer]))}));
 
     // convert optional ints to optional expressions
     auto convert = [this](std::optional<size_t> bound) {
       return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
     };
 
-    return GetEdgeListSizes(std::make_shared<ExpandVariable>(
-                                filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
-                                std::vector<memgraph::storage::EdgeTypeId>{}, reverse, convert(lower), convert(upper),
-                                /* existing = */ true,
-                                ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
-                                                symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                std::nullopt, std::nullopt),
-                            e);
+    return GetEdgeListSizes(
+        std::make_shared<ExpandVariable>(filter_op, symbol, symbol, e, EdgeAtom::Type::DEPTH_FIRST, direction,
+                                         std::vector<storage::EdgeTypeId>{}, reverse, convert(lower), convert(upper),
+                                         /* existing = */ true,
+                                         ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
+                                                         symbol_table.CreateSymbol("inner_node", false), nullptr},
+                                         std::nullopt, std::nullopt),
+        e);
   };
 
   // The graph is a double chain:
@@ -931,34 +930,27 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
   }
 }
 
-namespace std {
-template <>
-struct hash<std::pair<int, int>> {
-  size_t operator()(const std::pair<int, int> &p) const { return p.first + 31 * p.second; }
-};
-}  // namespace std
-
 /** A test fixture for weighted shortest path expansion */
 class QueryPlanExpandWeightedShortestPath : public QueryPlanMatchFilterTest {
  public:
   struct ResultType {
-    std::vector<memgraph::query::EdgeAccessor> path;
-    memgraph::query::VertexAccessor vertex;
+    std::vector<EdgeAccessor> path;
+    VertexAccessor vertex;
     double total_weight;
   };
 
  protected:
-  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
-  memgraph::query::DbAccessor dba{&storage_dba};
-  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property1");
-  memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+  storage::Storage::Accessor storage_dba{db.Access()};
+  DbAccessor dba{&storage_dba};
+  std::pair<std::string, storage::PropertyId> prop = PROPERTY_PAIR("property1");
+  storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   // make 5 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
-  std::vector<memgraph::query::VertexAccessor> v;
+  std::vector<VertexAccessor> v;
 
   // make some edges too, in a map (from, to) vertex indices
-  std::unordered_map<std::pair<int, int>, memgraph::query::EdgeAccessor> e;
+  std::unordered_map<std::pair<int, int>, EdgeAccessor> e;
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -974,13 +966,13 @@ class QueryPlanExpandWeightedShortestPath : public QueryPlanMatchFilterTest {
 
   void SetUp() {
     for (int i = 0; i < 5; i++) {
-      v.push_back(*dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}}));
-      ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
+      v.push_back(*dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}}));
+      ASSERT_TRUE(v.back().SetProperty(prop.second, storage::PropertyValue(i)).HasValue());
     }
 
     auto add_edge = [&](int from, int to, double weight) {
       auto edge = dba.InsertEdge(&v[from], &v[to], edge_type);
-      ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(weight)).HasValue());
+      ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(weight)).HasValue());
       e.emplace(std::make_pair(from, to), *edge);
     };
 
@@ -1014,17 +1006,17 @@ class QueryPlanExpandWeightedShortestPath : public QueryPlanMatchFilterTest {
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
-        std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
+        std::vector<storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
         ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(ident_e, prop)}, total_weight);
 
     Frame frame(symbol_table.max_position());
-    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = last_op->MakeCursor(utils::NewDeleteResource());
     std::vector<ResultType> results;
     auto context = MakeContext(storage, symbol_table, &dba);
     while (cursor->Pull(frame, context)) {
-      results.push_back(ResultType{std::vector<memgraph::query::EdgeAccessor>(), frame[node_sym].ValueVertex(),
-                                   frame[total_weight].ValueDouble()});
+      results.push_back(
+          ResultType{std::vector<EdgeAccessor>(), frame[node_sym].ValueVertex(), frame[total_weight].ValueDouble()});
       for (const TypedValue &edge : frame[edge_list_sym].ValueList())
         results.back().path.emplace_back(edge.ValueEdge());
     }
@@ -1034,12 +1026,12 @@ class QueryPlanExpandWeightedShortestPath : public QueryPlanMatchFilterTest {
 
   template <typename TAccessor>
   auto GetProp(const TAccessor &accessor) {
-    return accessor.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueInt();
+    return accessor.GetProperty(storage::View::OLD, prop.second)->ValueInt();
   }
 
   template <typename TAccessor>
   auto GetDoubleProp(const TAccessor &accessor) {
-    return accessor.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueDouble();
+    return accessor.GetProperty(storage::View::OLD, prop.second)->ValueDouble();
   }
 
   Expression *PropNe(Symbol symbol, int value) {
@@ -1203,11 +1195,11 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[2].total_weight, 12);
   }
   {
-    auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-    ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+    ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
     auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(2)).HasValue());
     dba.AdvanceCommand();
 
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
@@ -1227,21 +1219,21 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
-  auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue("not a number")).HasValue());
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
-  auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto new_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, storage::PropertyValue(5)).HasValue());
   auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
   ASSERT_TRUE(edge.HasValue());
-  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
+  ASSERT_TRUE(edge->SetProperty(prop.second, storage::PropertyValue(-10)).HasValue());  // negative weight
   dba.AdvanceCommand();
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
 }
@@ -1252,7 +1244,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
 
 TEST_F(QueryPlanMatchFilterTest, ExpandOptional) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1260,20 +1252,20 @@ TEST_F(QueryPlanMatchFilterTest, ExpandOptional) {
   // graph (v2 {p: 2})<-[:T]-(v1 {p: 1})-[:T]->(v3 {p: 2})
   auto prop = dba.NameToProperty("p");
   auto edge_type = dba.NameToEdgeType("T");
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  ASSERT_TRUE(v1.SetProperty(prop, memgraph::storage::PropertyValue(1)).HasValue());
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
-  ASSERT_TRUE(v2.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  ASSERT_TRUE(v1.SetProperty(prop, storage::PropertyValue(1)).HasValue());
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
+  ASSERT_TRUE(v2.SetProperty(prop, storage::PropertyValue(2)).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
-  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(3)}});
-  ASSERT_TRUE(v3.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
+  auto v3 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}});
+  ASSERT_TRUE(v3.SetProperty(prop, storage::PropertyValue(2)).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type).HasValue());
   dba.AdvanceCommand();
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
-                        memgraph::storage::View::OLD);
+                        storage::View::OLD);
   auto optional = std::make_shared<plan::Optional>(n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
   // RETURN n, r, m
@@ -1288,8 +1280,8 @@ TEST_F(QueryPlanMatchFilterTest, ExpandOptional) {
   for (auto &row : results) {
     ASSERT_EQ(row[0].type(), TypedValue::Type::Vertex);
     auto &va = row[0].ValueVertex();
-    auto va_p = *va.GetProperty(memgraph::storage::View::OLD, prop);
-    ASSERT_EQ(va_p.type(), memgraph::storage::PropertyValue::Type::Int);
+    auto va_p = *va.GetProperty(storage::View::OLD, prop);
+    ASSERT_EQ(va_p.type(), storage::PropertyValue::Type::Int);
     if (va_p.ValueInt() == 1) {
       v1_is_n_count++;
       EXPECT_EQ(row[1].type(), TypedValue::Type::Edge);
@@ -1303,9 +1295,9 @@ TEST_F(QueryPlanMatchFilterTest, ExpandOptional) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDB) {
-  memgraph::storage::Storage db;
+  storage::Storage db;
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1323,9 +1315,9 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
-  memgraph::storage::Storage db;
+  storage::Storage db;
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
@@ -1338,7 +1330,7 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
   auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r", EdgeAtom::Direction::OUT, {}, "m", false,
-                        memgraph::storage::View::OLD);
+                        storage::View::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(r_m.op_, m_ne);
@@ -1349,15 +1341,15 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
 
 TEST_F(QueryPlanMatchFilterTest, OptionalMatchThenExpandToMissingNode) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
   // Make a graph with 2 connected, unlabeled nodes.
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   dba.AdvanceCommand();
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-  EXPECT_EQ(1, CountEdges(&dba, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
+  EXPECT_EQ(1, CountEdges(&dba, storage::View::OLD));
   AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
@@ -1381,9 +1373,8 @@ TEST_F(QueryPlanMatchFilterTest, OptionalMatchThenExpandToMissingNode) {
   edge->identifier_->MapTo(edge_sym);
   auto node = NODE("n");
   node->identifier_->MapTo(with_n_sym);
-  auto expand =
-      std::make_shared<plan::Expand>(m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
-                                     std::vector<memgraph::storage::EdgeTypeId>{}, true, memgraph::storage::View::OLD);
+  auto expand = std::make_shared<plan::Expand>(m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
+                                               std::vector<storage::EdgeTypeId>{}, true, storage::View::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(expand, m_ne);
@@ -1394,12 +1385,12 @@ TEST_F(QueryPlanMatchFilterTest, OptionalMatchThenExpandToMissingNode) {
 
 TEST_F(QueryPlanMatchFilterTest, ExpandExistingNode) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // make a graph (v1)->(v2) that
   // has a recursive edge (v1)->(v1)
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
   auto edge_type = dba.NameToEdgeType("Edge");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v1, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
@@ -1411,11 +1402,10 @@ TEST_F(QueryPlanMatchFilterTest, ExpandExistingNode) {
   auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "n", with_existing,
-                          memgraph::storage::View::OLD);
+                          storage::View::OLD);
     if (with_existing)
       r_n.op_ = std::make_shared<Expand>(n.op_, n.sym_, n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-                                         std::vector<memgraph::storage::EdgeTypeId>{}, with_existing,
-                                         memgraph::storage::View::OLD);
+                                         std::vector<storage::EdgeTypeId>{}, with_existing, storage::View::OLD);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n")->MapTo(n.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
@@ -1433,9 +1423,9 @@ TEST_F(QueryPlanMatchFilterTest, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
-  auto v = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto v = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
   ASSERT_TRUE(dba.InsertEdge(&v, &v, dba.NameToEdgeType("et")).HasValue());
   dba.AdvanceCommand();
 
@@ -1444,35 +1434,35 @@ TEST_F(QueryPlanMatchFilterTest, ExpandBothCycleEdgeCase) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::BOTH, {}, "_", false,
-                       memgraph::storage::View::OLD);
+                       storage::View::OLD);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
 
 TEST_F(QueryPlanMatchFilterTest, EdgeFilter) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // make an N-star expanding from (v1)
   // where only one edge will qualify
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<memgraph::storage::EdgeTypeId> edge_types;
+  std::vector<storage::EdgeTypeId> edge_types;
   for (int j = 0; j < 2; ++j) edge_types.push_back(dba.NameToEdgeType("et" + std::to_string(j)));
-  std::vector<memgraph::query::VertexAccessor> vertices;
+  std::vector<VertexAccessor> vertices;
   for (int i = 0; i < 7; ++i) {
-    vertices.push_back(*dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}}));
+    vertices.push_back(*dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}}));
   }
   auto prop = PROPERTY_PAIR("property1");
-  std::vector<memgraph::query::EdgeAccessor> edges;
+  std::vector<EdgeAccessor> edges;
   for (int i = 0; i < 6; ++i) {
     edges.push_back(*dba.InsertEdge(&vertices[0], &vertices[i + 1], edge_types[i % 2]));
     switch (i % 3) {
       case 0:
-        ASSERT_TRUE(edges.back().SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
+        ASSERT_TRUE(edges.back().SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
         break;
       case 1:
-        ASSERT_TRUE(edges.back().SetProperty(prop.second, memgraph::storage::PropertyValue(100)).HasValue());
+        ASSERT_TRUE(edges.back().SetProperty(prop.second, storage::PropertyValue(100)).HasValue());
         break;
       default:
         break;
@@ -1490,7 +1480,7 @@ TEST_F(QueryPlanMatchFilterTest, EdgeFilter) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     const auto &edge_type = edge_types[0];
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {edge_type}, "m", false,
-                          memgraph::storage::View::OLD);
+                          storage::View::OLD);
     r_m.edge_->edge_types_.push_back(storage.GetEdgeTypeIx(dba.EdgeTypeToName(edge_type)));
     std::get<0>(r_m.edge_->properties_)[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr = EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
@@ -1506,7 +1496,7 @@ TEST_F(QueryPlanMatchFilterTest, EdgeFilter) {
 
   EXPECT_EQ(1, test_filter());
   // test that edge filtering always filters on old state
-  for (auto &edge : edges) ASSERT_TRUE(edge.SetProperty(prop.second, memgraph::storage::PropertyValue(42)).HasValue());
+  for (auto &edge : edges) ASSERT_TRUE(edge.SetProperty(prop.second, storage::PropertyValue(42)).HasValue());
   EXPECT_EQ(1, test_filter());
   dba.AdvanceCommand();
   EXPECT_EQ(3, test_filter());
@@ -1514,10 +1504,10 @@ TEST_F(QueryPlanMatchFilterTest, EdgeFilter) {
 
 TEST_F(QueryPlanMatchFilterTest, EdgeFilterMultipleTypes) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
   auto type_1 = dba.NameToEdgeType("type_1");
   auto type_2 = dba.NameToEdgeType("type_2");
   auto type_3 = dba.NameToEdgeType("type_3");
@@ -1532,7 +1522,7 @@ TEST_F(QueryPlanMatchFilterTest, EdgeFilterMultipleTypes) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {type_1, type_2}, "m",
-                        false, memgraph::storage::View::OLD);
+                        false, storage::View::OLD);
 
   // make a named expression and a produce
   auto output =
@@ -1545,16 +1535,16 @@ TEST_F(QueryPlanMatchFilterTest, EdgeFilterMultipleTypes) {
 
 TEST_F(QueryPlanMatchFilterTest, Filter) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property1 = PROPERTY_PAIR("property1");
   for (int i = 0; i < 6; ++i) {
-    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(i)}})
-                    ->SetProperty(property1.second, memgraph::storage::PropertyValue(i % 3 == 0))
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}})
+                    ->SetProperty(property1.second, storage::PropertyValue(i % 3 == 0))
                     .HasValue());
   }
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}})
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}})
                   .HasValue());  // prop not set, gives NULL
   dba.AdvanceCommand();
 
@@ -1573,11 +1563,11 @@ TEST_F(QueryPlanMatchFilterTest, Filter) {
 
 TEST_F(QueryPlanMatchFilterTest, EdgeUniquenessFilter) {
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
-  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(2)}});
+  auto v1 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v1, edge_type).HasValue());
@@ -1589,10 +1579,10 @@ TEST_F(QueryPlanMatchFilterTest, EdgeUniquenessFilter) {
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
     auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1", EdgeAtom::Direction::OUT, {}, "n2", false,
-                            memgraph::storage::View::OLD);
+                            storage::View::OLD);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
     auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2", EdgeAtom::Direction::OUT, {}, "n3",
-                            false, memgraph::storage::View::OLD);
+                            false, storage::View::OLD);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
       last_op = std::make_shared<EdgeUniquenessFilter>(last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
@@ -1608,9 +1598,9 @@ TEST(QueryPlan, Distinct) {
   // test queries like
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
-  memgraph::storage::Storage db;
+  storage::Storage db;
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -1655,14 +1645,14 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabel) {
   auto label1 = db.NameToLabel("label");
   db.CreateIndex(label1);
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  DbAccessor dba(&storage_dba);
   // Add a vertex with a label and one without.
-  auto labeled_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+  auto labeled_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
   ASSERT_TRUE(labeled_vertex.AddLabel(label1).HasValue());
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
 
   dba.AdvanceCommand();
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (n :label)
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1683,29 +1673,26 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
   auto label1 = db.NameToLabel("label1");
   auto prop = db.NameToProperty("prop");
   // vertex property values that will be stored into the DB
-  std::vector<memgraph::storage::PropertyValue> values{
-      memgraph::storage::PropertyValue(true),
-      memgraph::storage::PropertyValue(false),
-      memgraph::storage::PropertyValue("a"),
-      memgraph::storage::PropertyValue("b"),
-      memgraph::storage::PropertyValue("c"),
-      memgraph::storage::PropertyValue(0),
-      memgraph::storage::PropertyValue(1),
-      memgraph::storage::PropertyValue(2),
-      memgraph::storage::PropertyValue(0.5),
-      memgraph::storage::PropertyValue(1.5),
-      memgraph::storage::PropertyValue(2.5),
-      memgraph::storage::PropertyValue(
-          std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(0)}),
-      memgraph::storage::PropertyValue(
-          std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(1)}),
-      memgraph::storage::PropertyValue(
-          std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2)})};
+  std::vector<storage::PropertyValue> values{
+      storage::PropertyValue(true),
+      storage::PropertyValue(false),
+      storage::PropertyValue("a"),
+      storage::PropertyValue("b"),
+      storage::PropertyValue("c"),
+      storage::PropertyValue(0),
+      storage::PropertyValue(1),
+      storage::PropertyValue(2),
+      storage::PropertyValue(0.5),
+      storage::PropertyValue(1.5),
+      storage::PropertyValue(2.5),
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(0)}),
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(1)}),
+      storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(2)})};
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     for (const auto &value : values) {
-      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
       ASSERT_TRUE(vertex.AddLabel(label1).HasValue());
       ASSERT_TRUE(vertex.SetProperty(prop, value).HasValue());
     }
@@ -1714,8 +1701,8 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  ASSERT_EQ(14, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  ASSERT_EQ(14, CountIterable(dba.Vertices(storage::View::OLD)));
 
   auto run_scan_all = [&](const TypedValue &lower, Bound::Type lower_type, const TypedValue &upper,
                           Bound::Type upper_type) {
@@ -1736,8 +1723,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
     auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
-      TypedValue equal =
-          TypedValue(*results[i][0].ValueVertex().GetProperty(memgraph::storage::View::OLD, prop)) == expected[i];
+      TypedValue equal = TypedValue(*results[i][0].ValueVertex().GetProperty(storage::View::OLD, prop)) == expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
       EXPECT_TRUE(equal.ValueBool());
     }
@@ -1750,23 +1736,23 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
   check(TypedValue(1.5), Bound::Type::EXCLUSIVE, TypedValue(2.5), Bound::Type::INCLUSIVE,
         {TypedValue(2), TypedValue(2.5)});
 
-  auto are_comparable = [](memgraph::storage::PropertyValue::Type a, memgraph::storage::PropertyValue::Type b) {
-    auto is_numeric = [](const memgraph::storage::PropertyValue::Type t) {
-      return t == memgraph::storage::PropertyValue::Type::Int || t == memgraph::storage::PropertyValue::Type::Double;
+  auto are_comparable = [](storage::PropertyValue::Type a, storage::PropertyValue::Type b) {
+    auto is_numeric = [](const storage::PropertyValue::Type t) {
+      return t == storage::PropertyValue::Type::Int || t == storage::PropertyValue::Type::Double;
     };
 
     return a == b || (is_numeric(a) && is_numeric(b));
   };
 
-  auto is_orderable = [](const memgraph::storage::PropertyValue &t) {
+  auto is_orderable = [](const storage::PropertyValue &t) {
     return t.IsNull() || t.IsInt() || t.IsDouble() || t.IsString();
   };
 
   // when a range contains different types, nothing should get returned
   for (const auto &value_a : values) {
     for (const auto &value_b : values) {
-      if (are_comparable(static_cast<memgraph::storage::PropertyValue>(value_a).type(),
-                         static_cast<memgraph::storage::PropertyValue>(value_b).type()))
+      if (are_comparable(static_cast<storage::PropertyValue>(value_a).type(),
+                         static_cast<storage::PropertyValue>(value_b).type()))
         continue;
       if (is_orderable(value_a) && is_orderable(value_b)) {
         check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
@@ -1795,20 +1781,20 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyEqualityNoError) {
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-    auto number_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    DbAccessor dba(&storage_dba);
+    auto number_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(number_vertex.AddLabel(label1).HasValue());
-    ASSERT_TRUE(number_vertex.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
-    auto string_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    ASSERT_TRUE(number_vertex.SetProperty(prop, storage::PropertyValue(42)).HasValue());
+    auto string_vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(string_vertex.AddLabel(label1).HasValue());
-    ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
+    ASSERT_TRUE(string_vertex.SetProperty(prop, storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1822,7 +1808,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyEqualityNoError) {
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
   auto vertex = row[0].ValueVertex();
-  TypedValue value(*vertex.GetProperty(memgraph::storage::View::OLD, prop));
+  TypedValue value(*vertex.GetProperty(storage::View::OLD, prop));
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
@@ -1832,19 +1818,19 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyValueError) {
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     for (int i = 0; i < 2; ++i) {
-      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
       ASSERT_TRUE(vertex.AddLabel(label1).HasValue());
-      ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (m), (n :label1 {prop: m})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1862,19 +1848,19 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyRangeError) {
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     for (int i = 0; i < 2; ++i) {
-      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+      auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
       ASSERT_TRUE(vertex.AddLabel(label1).HasValue());
-      ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(vertex.SetProperty(prop, storage::PropertyValue(i)).HasValue());
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (m), (n :label1 {prop: m})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1914,19 +1900,19 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyEqualNull) {
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    DbAccessor dba(&storage_dba);
+    auto vertex = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(vertex.AddLabel(label1).HasValue());
-    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(vertex_with_prop.AddLabel(label1).HasValue());
-    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (n :label1 {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1948,19 +1934,19 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyRangeNull) {
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
-    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    auto vertex_with_prop = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
-    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex_with_prop.SetProperty(prop, storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
   // MATCH (n :label1) WHERE null <= n.prop < null
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1980,17 +1966,17 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyNoValueInIndexContinuatio
   auto prop = db.NameToProperty("prop");
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    DbAccessor dba(&storage_dba);
+    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(v.AddLabel(label1).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
+    ASSERT_TRUE(v.SetProperty(prop, storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
   db.CreateIndex(label1, prop);
 
   auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
-  EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  DbAccessor dba(&storage_dba);
+  EXPECT_EQ(1, CountIterable(dba.Vertices(storage::View::OLD)));
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2019,11 +2005,11 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllEqualsScanAllByLabelProperty) {
 
   for (int i = 0; i < vertex_count; ++i) {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, memgraph::storage::PropertyValue(1)}});
+    DbAccessor dba(&storage_dba);
+    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
     ASSERT_TRUE(v.AddLabel(label1).HasValue());
-    ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2))
-                    .HasValue());
+    ASSERT_TRUE(
+        v.SetProperty(prop, storage::PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
@@ -2032,8 +2018,8 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllEqualsScanAllByLabelProperty) {
   // Make sure there are `vertex_count` vertices
   {
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-    EXPECT_EQ(vertex_count, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    DbAccessor dba(&storage_dba);
+    EXPECT_EQ(vertex_count, CountIterable(dba.Vertices(storage::View::OLD)));
   }
 
   // Make sure there are `vertex_prop_count` results when using index
@@ -2041,7 +2027,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllEqualsScanAllByLabelProperty) {
     AstStorage storage;
     SymbolTable symbol_table;
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     auto scan_all_by_label_property_value =
         MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label1, prop, "prop", LITERAL(prop_value));
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
@@ -2056,7 +2042,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllEqualsScanAllByLabelProperty) {
     AstStorage storage;
     SymbolTable symbol_table;
     auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    DbAccessor dba(&storage_dba);
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
     auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
     auto filter = std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
@@ -2073,3 +2059,4 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllEqualsScanAllByLabelProperty) {
   count_with_index(prop_value2, vertex_count - vertex_prop_count);
   count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
 }
+}  // namespace memgraph::query::tests

@@ -321,23 +321,23 @@ target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v2)
 add_unit_test(interpreter_v2.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}interpreter_v2 mg-storage-v2 mg-query mg-communication)
 
-add_unit_test(storage_v3_query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_accumulate_aggregate mg-query)
+add_unit_test(query_v2_query_plan_accumulate_aggregate.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_accumulate_aggregate mg-query)
 
-add_unit_test(storage_v3_query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_create_set_remove_delete mg-query)
+add_unit_test(query_v2_query_plan_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_create_set_remove_delete mg-query)
 
-add_unit_test(storage_v3_query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_bag_semantics mg-query)
+add_unit_test(query_v2_query_plan_bag_semantics.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query)
 
-add_unit_test(storage_v3_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_edge_cases mg-communication mg-query)
+add_unit_test(query_v2_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_edge_cases mg-communication mg-query)
 
-add_unit_test(storage_v3_query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_v2_create_set_remove_delete mg-query)
+add_unit_test(query_v2_query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_v2_create_set_remove_delete mg-query)
 
-add_unit_test(storage_v3_query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}storage_v3_query_plan_match_filter_return mg-query)
+add_unit_test(query_v2_query_plan_match_filter_return.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_match_filter_return mg-query)
 
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
