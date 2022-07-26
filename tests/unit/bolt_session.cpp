@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <string>
+
 #include <gflags/gflags.h>
 
 #include "bolt_common.hpp"
@@ -151,7 +153,10 @@ inline constexpr uint8_t noop[] = {0x00, 0x00};
 }  // namespace v4_1
 
 namespace v4_3 {
-inline constexpr uint8_t route[]{0xb0, 0x60};
+inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00,
+                                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
+inline constexpr uint8_t route[]{0xb3, 0x66, 0xa0, 0x90, 0xc0};
 }  // namespace v4_3
 
 // Write bolt chunk header (length)
@@ -705,67 +710,89 @@ TEST(BoltSession, ErrorWrongMarker) {
 }
 
 TEST(BoltSession, ErrorOK) {
-  // v1
+  // TODO(antaljanosbenjamin): Write test for sending Reset on Idle connection.
   {
+    SCOPED_TRACE("v1");
     // test ACK_FAILURE and RESET
     const uint8_t *dataset[] = {ackfailure_req, reset_req};
 
     for (int i = 0; i < 2; ++i) {
+      SCOPED_TRACE("i: " + std::to_string(i));
       // first test with socket write success, then with socket write fail
       for (int j = 0; j < 2; ++j) {
+        SCOPED_TRACE("j: " + std::to_string(j));
+        const auto write_success = j == 0;
         INIT_VARS;
 
         ExecuteHandshake(input_stream, session, output);
-        ExecuteInit(input_stream, session, output);
+        ASSERT_EQ(session.version_.major, 1U);
 
+        ExecuteInit(input_stream, session, output);
         WriteRunRequest(input_stream, kInvalidQuery);
         session.Execute();
 
         output.clear();
 
-        output_stream.SetWriteSuccess(j == 0);
-        if (j == 0) {
+        output_stream.SetWriteSuccess(write_success);
+        if (write_success) {
           ExecuteCommand(input_stream, session, dataset[i], 2);
         } else {
           ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2), SessionException);
         }
 
         // assert that all data from the init message was cleaned up
-        ASSERT_EQ(session.decoder_buffer_.Size(), 0);
+        EXPECT_EQ(session.decoder_buffer_.Size(), 0);
 
-        if (j == 0) {
-          ASSERT_EQ(session.state_, State::Idle);
+        if (write_success) {
+          EXPECT_EQ(session.state_, State::Idle);
           CheckOutput(output, success_resp, sizeof(success_resp));
         } else {
-          ASSERT_EQ(session.state_, State::Close);
-          ASSERT_EQ(output.size(), 0);
+          EXPECT_EQ(session.state_, State::Close);
+          EXPECT_EQ(output.size(), 0);
         }
       }
     }
   }
 
-  // v4+
   {
+    SCOPED_TRACE("v4");
     const uint8_t *dataset[] = {ackfailure_req, v4::reset_req};
     for (int i = 0; i < 2; ++i) {
-      INIT_VARS;
+      SCOPED_TRACE("i: " + std::to_string(i));
+      // first test with socket write success, then with socket write fail
+      for (int j = 0; j < 2; ++j) {
+        SCOPED_TRACE("j: " + std::to_string(j));
+        const auto write_success = j == 0;
+        const auto reset = i == 1;
+        INIT_VARS;
 
-      ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
-      ExecuteInit(input_stream, session, output, true);
+        ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+        ASSERT_EQ(session.version_.major, 4U);
+        ExecuteInit(input_stream, session, output, true);
 
-      WriteRunRequest(input_stream, kInvalidQuery, true);
-      session.Execute();
+        WriteRunRequest(input_stream, kInvalidQuery, true);
+        session.Execute();
 
-      output.clear();
+        output.clear();
+        output_stream.SetWriteSuccess(write_success);
 
-      ExecuteCommand(input_stream, session, dataset[i], 2);
+        // ACK_FAILURE does not exist in v3+, ingored message is sent
+        // For RESET the server mustn't send anythin
+        if (write_success || reset) {
+          ExecuteCommand(input_stream, session, dataset[i], 2);
+        } else {
+          ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2), SessionException);
+        }
 
-      // ACK_FAILURE does not exist in v4+
-      if (i == 0) {
-        ASSERT_EQ(session.state_, State::Error);
-      } else {
-        ASSERT_EQ(session.state_, State::Idle);
-        CheckOutput(output, success_resp, sizeof(success_resp));
+        if (reset) {
+          EXPECT_EQ(session.state_, State::Idle);
+          EXPECT_EQ(output.size(), 0);
+        } else if (write_success) {
+          ASSERT_EQ(session.state_, State::Error);
+          CheckOutput(output, ignored_resp, 6);
+        } else {
+          EXPECT_EQ(session.state_, State::Close);
+        }
       }
     }
   }
@@ -950,18 +977,95 @@ TEST(BoltSession, Noop) {
 TEST(BoltSession, Route) {
   // Memgraph does not support route message, but it handles it
   {
+    SCOPED_TRACE("v1");
     INIT_VARS;
 
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+    EXPECT_EQ(session.state_, State::Close);
   }
   {
+    SCOPED_TRACE("v4");
     INIT_VARS;
 
-    ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
-    ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
+    EXPECT_EQ(output.size(), 68);
+    static constexpr uint8_t expected_resp[] = {
+        0x00,
+        0x40 /*chunk contains 64 bytes of data*/,
+        0xb1 /*TinyStruct1*/,
+        0x7f /*Failure*/,
+        0xa2 /*TinyMap with 2 items*/,
+        0x84 /*TinyString with 4 chars*/,
+        'c',
+        'o',
+        'd',
+        'e',
+        0x82 /*TinyString with 2 chars*/,
+        '6',
+        '6',
+        0x87 /*TinyString with 7 chars*/,
+        'm',
+        'e',
+        's',
+        's',
+        'a',
+        'g',
+        'e',
+        0xd0 /*String*/,
+        0x2b /*With 43 chars*/,
+        'R',
+        'o',
+        'u',
+        't',
+        'e',
+        ' ',
+        'm',
+        'e',
+        's',
+        's',
+        'a',
+        'g',
+        'e',
+        ' ',
+        'i',
+        's',
+        ' ',
+        'n',
+        'o',
+        't',
+        ' ',
+        's',
+        'u',
+        'p',
+        'p',
+        'o',
+        'r',
+        't',
+        'e',
+        'd',
+        ' ',
+        'i',
+        'n',
+        ' ',
+        'M',
+        'e',
+        'm',
+        'g',
+        'r',
+        'a',
+        'p',
+        'h',
+        '!',
+        0x00 /*Terminating zeros*/,
+        0x00,
+    };
+    EXPECT_EQ(input_stream.size(), 0U);
+    CheckOutput(output, expected_resp, 68);
+    EXPECT_EQ(session.state_, State::Error);
   }
 }
 
