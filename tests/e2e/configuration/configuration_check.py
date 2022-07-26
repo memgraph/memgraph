@@ -26,25 +26,21 @@ def test_does_default_config_match():
 
     assert len(config) == len(default_config.startup_config)
 
-    for idx, flag in enumerate(config):
-        if flag[0] == "bolt_num_workers":
-            # This will always depend on the number of processing units available on the given machine
-            continue
-
+    for idx in range(len(config)):
         current_flag = ()
 
-        for tuple in config:
-            if tuple[0] == default_config.startup_config[idx][0]:
-                current_flag = tuple
+        for flag in config:
+            if flag[0] == default_config.startup_config[idx][0]:
+                # This will always depend on the number of processing units available on the given machine
+                if flag[0] == "bolt_num_workers":
+                    continue
+
+                current_flag = flag
                 break
 
-        assert len(current_flag) == len(default_config.startup_config[idx])
-
-        print(current_flag[0], default_config.startup_config[idx][0])
-
-        assert current_flag[1] == default_config.startup_config[idx][1]
-
-        print(current_flag[1], default_config.startup_config[idx][1])
+        if current_flag != ():
+            assert len(current_flag) == len(default_config.startup_config[idx])
+            assert current_flag[1] == default_config.startup_config[idx][1]
 
 
 if __name__ == "__main__":
