@@ -524,7 +524,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_,
-                     vertex_validator_.schema_validator_);
+                     vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }
@@ -605,7 +605,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_,
-                     vertex_validator_.schema_validator_);
+                     vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }
@@ -686,20 +686,21 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-VertexAccessor::VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
-    : schema_validator_{&schema_validator}, primary_label_{primary_label} {}
+VertexAccessor::VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const Vertex *vertex)
+    : schema_validator{&schema_validator}, vertex_{vertex} {}
 
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidatePropertyUpdate(
     PropertyId property_id) const {
-  return schema_validator_->ValidatePropertyUpdate(primary_label_, property_id);
+  MG_ASSERT(vertex_ != nullptr, "Cannot validate vertex which is nullptr");
+  return schema_validator->ValidatePropertyUpdate(vertex_->primary_label, property_id);
 };
 
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateAddLabel(LabelId label) const {
-  return schema_validator_->ValidateLabelUpdate(label);
+  return schema_validator->ValidateLabelUpdate(label);
 }
 
 [[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateRemoveLabel(LabelId label) const {
-  return schema_validator_->ValidateLabelUpdate(label);
+  return schema_validator->ValidateLabelUpdate(label);
 }
 
 }  // namespace memgraph::storage
