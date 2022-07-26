@@ -12,7 +12,6 @@
 #pragma once
 
 #include <optional>
-#include <variant>
 #include <vector>
 
 #include <cppitertools/filter.hpp>

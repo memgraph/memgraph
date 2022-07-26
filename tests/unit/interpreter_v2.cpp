@@ -1601,7 +1601,7 @@ TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
   ASSERT_EQ(get_number_of_schemas(), 1);
   Interpret("CREATE SCHEMA ON :label1(name STRING, age INTEGER)");
   ASSERT_EQ(get_number_of_schemas(), 2);
-  Interpret("CREATE SCHEMA ON :label2(name STRING, sex BOOL)");
+  Interpret("CREATE SCHEMA ON :label2(name STRING, alive BOOL)");
   ASSERT_EQ(get_number_of_schemas(), 3);
   Interpret("DROP SCHEMA ON :label1");
   ASSERT_EQ(get_number_of_schemas(), 2);

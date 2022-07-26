@@ -38,13 +38,13 @@ struct SchemaViolation {
   SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_schema_property,
                   PropertyValue violated_property_value);
 
+  friend bool operator==(const SchemaViolation &lhs, const SchemaViolation &rhs);
+
   ValidationStatus status;
   LabelId label;
   std::optional<SchemaProperty> violated_schema_property;
   std::optional<PropertyValue> violated_property_value;
 };
-
-bool operator==(const SchemaViolation &lhs, const SchemaViolation &rhs);
 
 class SchemaValidator {
  public:

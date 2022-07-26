@@ -28,9 +28,9 @@ namespace memgraph::storage {
 struct SchemaProperty {
   PropertyId property_id;
   common::SchemaType type;
-};
 
-bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
+  friend bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
+};
 
 /// Structure that represents a collection of schemas
 /// Schema can be mapped under only one label => primary label
