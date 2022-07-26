@@ -112,15 +112,13 @@ jobs:
 
       - name: Set base branch
         if: ${{ github.event_name == 'pull_request' }}
-        uses: allenevans/set-env@v2.0.0
-        with:
-          BASE_BRANCH: "${{ github.base_ref }}"
+        run: |
+          echo "BASE_BRANCH=${{ github.base_ref }}" >> $GITHUB_ENV
 
       - name: Set base branch # if we manually dispatch or push to master
         if: ${{ github.event_name != 'pull_request' }}
-        uses: allenevans/set-env@v2.0.0
-        with:
-          BASE_BRANCH: "master"
+        run: |
+          echo "BASE_BRANCH=master" >> $GITHUB_ENV
 
       - name: Run clang-tidy
         run: |
