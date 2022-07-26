@@ -51,8 +51,12 @@ class Coordinator {
   ShardMap shard_map_;
   Io<SimT> io_;
 
-  /// This splits the previous shard
-  void Handle(SplitShardRequest &split_shard_request, Address from_addr) {}
+  /// This splits the shard
+  void Handle(SplitShardRequest &split_shard_request, Address from_addr) {
+    if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
+      // TODO reply with failure
+    }
+  }
 
   void Handle(RegisterStorageEngineRequest &register_storage_engine_request, Address from_addr) {}
 
