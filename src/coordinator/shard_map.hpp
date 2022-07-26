@@ -35,7 +35,7 @@ using CompoundKey = std::vector<memgraph::storage::PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<CompoundKey, Shard>;
 
-// TODO(tyler) ask Bendzo or Jure what this type should actually be
+// use string for intermachine communication and NameIdMapper within the machine
 using Label = std::string;
 
 class ShardMap {
@@ -45,7 +45,6 @@ class ShardMap {
  public:
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
-  // TODO(tyler) ask Kostas if this would ever actually be useful
   Shard GetShardForKey(Label label, CompoundKey key);
 };
 
