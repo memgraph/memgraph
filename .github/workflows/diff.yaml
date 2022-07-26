@@ -70,6 +70,11 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+        # This is also needed if we want do co comparison against other branches
+        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      - name: Fetch all history for all tags and branches
+        run: git fetch
+
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
@@ -113,12 +118,12 @@ jobs:
       - name: Set base branch
         if: ${{ github.event_name == 'pull_request' }}
         run: |
-          echo "BASE_BRANCH=${{ github.base_ref }}" >> $GITHUB_ENV
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
 
       - name: Set base branch # if we manually dispatch or push to master
         if: ${{ github.event_name != 'pull_request' }}
         run: |
-          echo "BASE_BRANCH=master" >> $GITHUB_ENV
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
 
       - name: Run clang-tidy
         run: |
