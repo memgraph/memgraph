@@ -110,12 +110,24 @@ jobs:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
 
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: allenevans/set-env@v2.0.0
+        with:
+          BASE_BRANCH: "${{ github.base_ref }}"
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        uses: allenevans/set-env@v2.0.0
+        with:
+          BASE_BRANCH: "master"
+
       - name: Run clang-tidy
         run: |
           source /opt/toolchain-v4/activate
 
           # Restrict clang-tidy results only to the modified parts
-          git diff -U0 master... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+          git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
 
           # Fail if any warning is reported
           ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
