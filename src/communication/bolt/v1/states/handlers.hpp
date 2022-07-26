@@ -406,9 +406,13 @@ State HandleGoodbye() {
 }
 
 template <typename TSession>
-State HandleRoute(TSession &session) {
+State HandleRoute(TSession &session, const Marker marker) {
   // Route message is not implemented since it is Neo4j specific, therefore we will receive it an inform user that there
   // is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean state.
+  if (marker != Marker::TinyStruct3) {
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    return State::Close;
+  }
   Value routing;
   Value bookmarks;
   Value db;
