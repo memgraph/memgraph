@@ -70,7 +70,7 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-        # This is also needed if we want do co comparison against other branches
+        # This is also needed if we want do to comparison against other branches
         # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
       - name: Fetch all history for all tags and branches
         run: git fetch
