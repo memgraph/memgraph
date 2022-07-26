@@ -18,6 +18,7 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
@@ -295,10 +296,7 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  // Clear all pending data and send a success message.
-  session.encoder_buffer_.Clear();
-
-  if (!session.encoder_.MessageSuccess()) {
+  if (session.version_.major < 3 && !session.encoder_.MessageSuccess()) {
     spdlog::trace("Couldn't send success message!");
     return State::Close;
   }
