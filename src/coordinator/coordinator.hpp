@@ -21,24 +21,42 @@ using Address = memgraph::io::Address;
 using Io = memgraph::io::Io;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 
-struct SplitShardRequest {};
-struct SplitShardResponse {};
+struct SplitShardRequest {
+  uint64_t previous_shard_map_version;
+  Label label;
+  CompoundKey split_key;
+};
 
-struct RegisterStorageEngineRequest {};
-struct RegisterStorageEngineResponse {};
+struct SplitShardResponse {
+  bool success;
+};
+
+struct RegisterStorageEngineRequest {
+  Address address;
+};
+
+struct RegisterStorageEngineResponse {
+  bool success;
+};
+
+struct DeregisterStorageEngineRequest {
+  Address address;
+};
+
+struct DeregisterStorageEngineResponse {
+  bool success;
+};
 
 class Coordinator {
   ShardMap shard_map_;
   Io<SimT> io_;
 
+  /// This splits the previous shard
   void Handle(SplitShardRequest &split_shard_request, Address from_addr) {}
 
   void Handle(RegisterStorageEngineRequest &register_storage_engine_request, Address from_addr) {}
 
  public:
-  /// This splits the previous shard
-  bool SplitShard(uint64_t previous_shard_map_version, Label label, CompoundKey split_key);
-
   void Run() {
     while (!io_.ShouldShutDown()) {
       std::cout << "[Coordinator] Is receiving..." << std::endl;
