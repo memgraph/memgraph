@@ -214,7 +214,7 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     return std::nullopt;
   }
   if (signature == Signature::Failure) {
-    MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
+    MG_ASSERT(encoder_.MessageReset(), "Couldn't send reset!");
     HandleFailure(encoder_, fields.ValueMap());
   }
   if (signature != Signature::Success) {
