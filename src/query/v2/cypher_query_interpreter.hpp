@@ -110,9 +110,8 @@ struct ParsedQuery {
   bool is_cacheable{true};
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::v3::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
-                       const InterpreterConfig::Query &query_config);
+ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
