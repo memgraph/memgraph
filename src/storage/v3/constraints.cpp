@@ -301,7 +301,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
     auto acc = constraint->second.access();
 
     for (const auto &lo_vertex : vertices) {
-      auto &vertex = lo_vertex.vertex;
+      const auto &vertex = lo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
