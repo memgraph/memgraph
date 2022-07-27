@@ -18,9 +18,8 @@
 #include <thread>
 #include <utility>
 
-#include "utils/logging.hpp"
-
 #include "io/errors.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::io {
 
