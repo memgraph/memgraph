@@ -52,18 +52,18 @@ class VertexAccessor final {
   // Be careful when using VertexAccessor since it can be instantiated with
   // nullptr values
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, const SchemaValidator *schema_validator, bool for_deleted = false)
+                 Config::Items config, const SchemaValidator &schema_validator, bool for_deleted = false)
       : vertex_(vertex),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        vertex_validator_{*schema_validator, vertex},
+        vertex_validator_{schema_validator, vertex},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config,
-                                              SchemaValidator *schema_validator, View view);
+                                              const SchemaValidator &schema_validator, View view);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;

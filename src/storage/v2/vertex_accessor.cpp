@@ -64,7 +64,7 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                      Constraints *constraints, Config::Items config,
-                                                     SchemaValidator *schema_validator, View view) {
+                                                     const SchemaValidator &schema_validator, View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
@@ -524,7 +524,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_,
-                     vertex_validator_.schema_validator);
+                     *vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }
@@ -605,7 +605,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_,
-                     vertex_validator_.schema_validator);
+                     *vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }

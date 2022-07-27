@@ -73,7 +73,7 @@ class AllVerticesIterable final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  SchemaValidator *schema_validator_;
+  const SchemaValidator *schema_validator_;
   std::optional<VertexAccessor> vertex_;
 
  public:

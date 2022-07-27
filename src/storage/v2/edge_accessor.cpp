@@ -55,11 +55,11 @@ bool EdgeAccessor::IsVisible(const View view) const {
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const {
-  return VertexAccessor{from_vertex_, transaction_, indices_, constraints_, config_, schema_validator_};
+  return VertexAccessor{from_vertex_, transaction_, indices_, constraints_, config_, *schema_validator_};
 }
 
 VertexAccessor EdgeAccessor::ToVertex() const {
-  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, schema_validator_};
+  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_, *schema_validator_};
 }
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
