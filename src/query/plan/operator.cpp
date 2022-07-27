@@ -1708,7 +1708,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
 
-    // For the given (edge, vertex, weight, depth) tuple checks if they
+    // For the given (edge, src_vertex, dst_vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
     auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const VertexAccessor &src_vertex,
@@ -1764,6 +1764,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto weight = found_it->second;
 
         if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
+          // Has been visited, but now found a shorter path
           visited_cost_.emplace(dst_vertex, next_weight);
         } else {
           // Continue and do not expand if current weight is larger
@@ -1805,7 +1806,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     // Checkf if upper bound exists
     if (self_.upper_bound_) {
-      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion");
       upper_bound_set_ = true;
     } else {
       upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -1814,7 +1815,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // Check if upper bound is valid
     if (upper_bound_ < 1) {
       throw QueryRuntimeException(
-          "Maximum depth in weighted shortest path expansion must be at "
+          "Maximum depth in all shortest paths expansion must be at "
           "least 1.");
     }
 
@@ -1833,14 +1834,15 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Clean out the current stack
         if (current_level.empty()) {
-          if (!edges_on_frame.empty()) edges_on_frame.pop_back();
+          if (!edges_on_frame.empty()) edges_on_frame.erase(edges_on_frame.begin());
           traversal_stack_.pop_back();
           continue;
         }
         auto current_edge = current_level.back();
         current_level.pop_back();
 
-        edges_on_frame.emplace_back(current_edge);
+        // order needs to be reverse since we expand from the back
+        edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
 
         auto next_vertex = self_.common_.direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
         frame[self_.common_.node_symbol] = next_vertex;
@@ -1906,7 +1908,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
             ClearQueue();
         } else {
           frame[self_.common_.node_symbol] = current_vertex;
-          frame[self_.total_weight_.value()] = visited_cost_.at(current_vertex);
         }
       }
 
