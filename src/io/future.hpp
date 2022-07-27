@@ -47,13 +47,27 @@ class Shared {
   Shared &operator=(const Shared &) = delete;
   ~Shared() = default;
 
+  /// Takes the item out of our optional item_ and returns it.
+  /// Requires caller holds mutex, proving it by passing reference.
+  T Take(std::unique_lock<std::mutex> &) {
+    MG_ASSERT(item_, "Take called without item_ being present");
+    MG_ASSERT(!consumed_, "Take called on already-consumed Future");
+
+    T ret = std::move(item_).value();
+    item_.reset();
+
+    consumed_ = true;
+
+    return ret;
+  }
+
   T Wait() {
     std::unique_lock<std::mutex> lock(mu_);
     waiting_ = true;
 
     while (!item_) {
       bool simulator_progressed = false;
-if (simulator_notifier_) [[unlikely]]
+      if (simulator_notifier_) [[unlikely]] {
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
         // involves acquiring the simulator's mutex
@@ -80,13 +94,9 @@ if (simulator_notifier_) [[unlikely]]
       MG_ASSERT(!consumed_, "Future consumed twice!");
     }
 
-    T ret = std::move(item_).value();
-    item_.reset();
-
     waiting_ = false;
-    consumed_ = true;
 
-    return ret;
+    return Take(lock);
   }
 
   bool IsReady() {
@@ -98,13 +108,7 @@ if (simulator_notifier_) [[unlikely]]
     std::unique_lock<std::mutex> lock(mu_);
 
     if (item_) {
-      T ret = std::move(item_).value();
-      item_.reset();
-
-      waiting_ = false;
-      consumed_ = true;
-
-      return ret;
+      return Take(lock);
     } else {
       return std::nullopt;
     }

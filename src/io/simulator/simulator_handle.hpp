@@ -398,6 +398,8 @@ class SimulatorHandle {
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     std::unique_lock<std::mutex> lock(mu_);
 
+    blocked_on_receive_ += 1;
+
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
@@ -410,19 +412,22 @@ class SimulatorHandle {
           // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
           auto m_opt = message.Take<Ms...>();
+
+          blocked_on_receive_ -= 1;
+
           return std::move(m_opt).value();
         }
       }
 
-      blocked_on_receive_ += 1;
       lock.unlock();
       bool made_progress = MaybeTickSimulator();
       lock.lock();
       if (!should_shut_down_ && !made_progress) {
         cv_.wait(lock);
       }
-      blocked_on_receive_ -= 1;
     }
+
+    blocked_on_receive_ -= 1;
 
     return TimedOut{};
   }
