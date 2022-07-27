@@ -144,9 +144,9 @@ class Future {
 
   Future() = delete;
   Future(Future &&old) {
+    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
-    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
   Future &operator=(Future &&old) {
