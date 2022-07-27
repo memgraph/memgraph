@@ -11,13 +11,20 @@
 
 #pragma once
 
+#include <chrono>
+
+#include "io/time.hpp"
+
 namespace memgraph::io::simulator {
+
+using memgraph::io::Time;
+
 struct SimulatorConfig {
   int drop_percent = 0;
   bool perform_timeouts = false;
   bool scramble_messages = true;
   uint64_t rng_seed = 0;
-  uint64_t start_time = 0;
-  uint64_t abort_time = ULLONG_MAX;
+  Time start_time = Time::min();
+  Time abort_time = Time::max();
 };
 };  // namespace memgraph::io::simulator
