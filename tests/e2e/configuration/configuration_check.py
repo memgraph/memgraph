@@ -28,15 +28,18 @@ def test_does_default_config_match():
 
     for flag in config:
         flag_name = flag[0]
-        flag_desc = flag[3]
 
         # The default value of these is dependent on the given machine.
         machine_dependent_configurations = ["bolt_num_workers", "data_directory", "log_file"]
         if flag_name in machine_dependent_configurations:
             continue
 
-        assert default_config.startup_config_dict[flag_desc][0] == flag[1]
-        assert default_config.startup_config_dict[flag_desc][1] == flag[2]
+        # default_value
+        assert default_config.startup_config_dict[flag_name][0] == flag[1]
+        # current_value
+        assert default_config.startup_config_dict[flag_name][1] == flag[2]
+        # description
+        assert default_config.startup_config_dict[flag_name][2] == flag[3]
 
 
 if __name__ == "__main__":
