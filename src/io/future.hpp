@@ -53,7 +53,7 @@ class Shared {
 
     while (!item_) {
       bool simulator_progressed = false;
-      if (simulator_notifier_) {
+if (simulator_notifier_) [[unlikely]]
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
         // involves acquiring the simulator's mutex
