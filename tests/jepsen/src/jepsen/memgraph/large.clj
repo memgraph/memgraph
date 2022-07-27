@@ -40,8 +40,11 @@
                                :node node}))
       :add    (if (= replication-role :main)
                 (c/with-session conn session
-                  (create-nodes session)
-                  (assoc op :type :ok))
+                  (try
+                    ((create-nodes session)
+                    (assoc op :type :ok))
+                    (catch Exception e
+                      (assoc op :type :ok :info (str e))))) ; Exception due to down sync replica is accepted/expected
                 (assoc op :type :fail))))
   (teardown! [this test]
     (when (= replication-role :main)
