@@ -97,7 +97,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   }
 
   if (signature == Signature::Failure) {
-    HandleFailure<ClientQueryException>(encoder_, fields.ValueMap());
+    HandleFailure<ClientQueryException>(fields.ValueMap());
   }
   if (signature != Signature::Success) {
     throw ServerMalformedDataException();
@@ -130,7 +130,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       if (!decoder_.ReadValue(&data)) {
         throw ServerCommunicationException();
       }
-      HandleFailure<ClientQueryException>(encoder_, data.ValueMap());
+      HandleFailure<ClientQueryException>(data.ValueMap());
     } else {
       throw ServerMalformedDataException();
     }
@@ -200,7 +200,7 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     return std::nullopt;
   }
   if (signature == Signature::Failure) {
-    HandleFailure(encoder_, fields.ValueMap());
+    HandleFailure(fields.ValueMap());
   }
   if (signature != Signature::Success) {
     throw ServerMalformedDataException{};

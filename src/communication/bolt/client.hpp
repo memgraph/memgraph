@@ -125,7 +125,7 @@ class Client final {
   using ClientEncoder = ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>;
 
   template <typename TException = FailureResponseException>
-  [[noreturn]] void HandleFailure(ClientEncoder &encoder, const std::map<std::string, Value> &response_map) {
+  [[noreturn]] void HandleFailure(const std::map<std::string, Value> &response_map) {
     Reset();
     auto it = response_map.find("message");
     if (it != response_map.end()) {
