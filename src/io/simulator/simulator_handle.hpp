@@ -211,7 +211,7 @@ class SimulatorHandle {
   // messages that have not yet been scheduled or dropped
   std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
 
-  // the responsese to requests that are being waited on
+  // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
 
   // messages that are sent to servers that may later receive them
