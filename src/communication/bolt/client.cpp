@@ -84,7 +84,6 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   spdlog::info("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
   encoder_.MessageRun(query, parameters, {});
-  encoder_.MessagePull({});
 
   spdlog::info("Reading run message response");
   Signature signature{};
@@ -103,6 +102,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ServerMalformedDataException();
   }
 
+  encoder_.MessagePull({});
   spdlog::info("Reading pull_all message response");
   Marker marker{};
   Value metadata;
