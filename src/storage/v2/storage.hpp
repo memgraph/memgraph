@@ -536,10 +536,10 @@ class Storage final {
 
   NameIdMapper name_id_mapper_;
 
+  SchemaValidator schema_validator_;
   Constraints constraints_;
   Indices indices_;
   Schemas schemas_;
-  SchemaValidator schema_validator_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

@@ -319,8 +319,8 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Storage::Storage(Config config)
-    : indices_(&constraints_, config.items),
-      schema_validator_(schemas_),
+    : schema_validator_(schemas_),
+      indices_(&constraints_, config.items, schema_validator_),
       isolation_level_(config.transaction.isolation_level),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),

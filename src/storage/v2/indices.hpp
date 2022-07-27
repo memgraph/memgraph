@@ -52,8 +52,8 @@ class LabelIndex {
   };
 
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator)
+      : indices_(indices), constraints_(constraints), config_(config), schema_validator_{&schema_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -149,8 +149,9 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config)
-      : indices_(indices), constraints_(constraints), config_(config) {}
+  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config,
+                     const SchemaValidator &schema_validator)
+      : indices_(indices), constraints_(constraints), config_(config), schema_validator_{&schema_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -250,11 +251,13 @@ class LabelPropertyIndex {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  const SchemaValidator *schema_validator_;
 };
 
 struct Indices {
-  Indices(Constraints *constraints, Config::Items config)
-      : label_index(this, constraints, config), label_property_index(this, constraints, config) {}
+  Indices(Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator)
+      : label_index(this, constraints, config, schema_validator),
+        label_property_index(this, constraints, config, schema_validator) {}
 
   // Disable copy and move because members hold pointer to `this`.
   Indices(const Indices &) = delete;
