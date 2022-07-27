@@ -576,16 +576,17 @@ struct mgp_graph {
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
+  memgraph::query::Graph *subgraph;
 
   // memgraph:::query::Graph *subraph;
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
+    return mgp_graph{&acc, view, &ctx, nullptr};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
+    return mgp_graph{&acc, view, nullptr, nullptr};
   }
 };
 

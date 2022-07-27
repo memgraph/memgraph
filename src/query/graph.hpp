@@ -66,6 +66,16 @@ class Graph {
     std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.push_back(e); });
   }
 
+  std::vector<query::EdgeAccessor> OutEdges(query::VertexAccessor vertex_accessor) {
+    std::vector<query::EdgeAccessor> out_edges;
+    for (auto it = edges_.begin(); it != edges_.end(); ++it) {
+      if (it->From() == vertex_accessor) {
+        out_edges.emplace_back(*it);
+      }
+    }
+    return out_edges;
+  }
+
   /** Move assign other, utils::MemoryResource of `this` is used. */
   Graph &operator=(Graph &&) = default;
 

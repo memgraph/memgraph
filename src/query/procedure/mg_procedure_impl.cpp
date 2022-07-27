@@ -1866,6 +1866,24 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
       [v, memory] {
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
         MG_ASSERT(it != nullptr);
+        if (v->graph->subgraph) {
+          spdlog::info("works here");
+          auto edges = v->graph->subgraph->OutEdges(v->impl);
+          std::vector<mgp_edge> edges_;
+          edges_.reserve(edges.size());
+
+          for (auto it = edges.begin(); it != edges.end(); ++it) {
+            edges_.emplace_back(mgp_edge(*it, v->graph, memory->impl));
+          }
+
+          // it->out.emplace(std::move(edges_));
+          // it->out_it.emplace(it->out->begin());
+          // if (*it->out_it != it->out->end()) {
+          //   it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
+          // }
+
+          // return it.release();
+        }
 
         auto maybe_edges = v->impl.OutEdges(v->graph->view);
         if (maybe_edges.HasError()) {

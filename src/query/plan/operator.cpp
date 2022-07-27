@@ -3739,10 +3739,12 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
-  const query::Graph *subgraph;
+
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
-    subgraph = &args_list.front().ValueGraph();
-    args_list.erase(args_list.begin());
+    TypedValue subgraph = TypedValue(args_list.front(), args_list.front().ValueGraph().GetMemoryResource());
+
+    args_list.erase(args_list.begin());  // ova linija obrise vertexe
+    graph.subgraph = &subgraph.ValueGraph();
   }
 
   // if we have graph at first element, it is okay to have 1+ element here
