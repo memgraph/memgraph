@@ -710,7 +710,6 @@ TEST(BoltSession, ErrorWrongMarker) {
 }
 
 TEST(BoltSession, ErrorOK) {
-  // TODO(antaljanosbenjamin): Write test for sending Reset on Idle connection.
   {
     SCOPED_TRACE("v1");
     // test ACK_FAILURE and RESET
@@ -1100,5 +1099,26 @@ TEST(BoltSession, Rollback) {
 
     ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4::rollback, sizeof(v4::rollback)), SessionException);
+  }
+}
+
+TEST(BoltSession, ResetInIdle) {
+  {
+    SCOPED_TRACE("v1");
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, reset_req, sizeof(reset_req)));
+    EXPECT_EQ(session.state_, State::Idle);
+  }
+  {
+    SCOPED_TRACE("v4");
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
+    EXPECT_EQ(session.state_, State::Idle);
   }
 }
