@@ -1711,9 +1711,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, src_vertex, dst_vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const VertexAccessor &src_vertex,
-                                                    const VertexAccessor &dst_vertex, const TypedValue &total_weight,
-                                                    int64_t depth) {
+    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
+                                                    const VertexAccessor &src_vertex, const VertexAccessor &dst_vertex,
+                                                    const TypedValue &total_weight, int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 
       // If filter expression exists, evaluate filter
@@ -1777,11 +1777,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Append the expansion to the priority queue
       // Update the parent
       if (previous_.find(src_vertex) == previous_.end()) {
-        utils::pmr::list<EdgeAccessor> empty(memory);
+        utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
         previous_[src_vertex] = std::move(empty);
       }
 
-      previous_.at(src_vertex).emplace_back(std::move(edge));
+      previous_.at(src_vertex).emplace_back(std::move(edge), direction);
       pq_.push({next_weight, depth + 1, dst_vertex});
     };
 
@@ -1793,13 +1793,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
-          expand_vertex(edge, edge.From(), edge.To(), weight, depth);
+          expand_vertex(edge, EdgeAtom::Direction::OUT, edge.From(), edge.To(), weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
-          expand_vertex(edge, edge.To(), edge.From(), weight, depth);
+          expand_vertex(edge, EdgeAtom::Direction::IN, edge.To(), edge.From(), weight, depth);
         }
       }
     };
@@ -1838,13 +1838,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           traversal_stack_.pop_back();
           continue;
         }
-        auto current_edge = current_level.back();
+        auto [current_edge, current_edge_direction] = current_level.back();
         current_level.pop_back();
 
-        // order needs to be reverse since we expand from the back
+        // Order needs to be reverse since we expand from the back
         edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
-
-        auto next_vertex = self_.common_.direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+        auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
         frame[self_.common_.node_symbol] = next_vertex;
         frame[self_.total_weight_.value()] = visited_cost_.at(next_vertex);
 
@@ -1853,7 +1852,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           traversal_stack_.emplace_back(std::move(edges_previous));
         } else {
           // Signal the end of iteration
-          utils::pmr::list<EdgeAccessor> empty(memory);
+          utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
           traversal_stack_.emplace_back(std::move(empty));
         }
 
@@ -1939,9 +1938,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Maps vertices to weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
   // Maps the vertex with the potential expansion edge.
-  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<EdgeAccessor>> previous_;
+  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>>> previous_;
   // Stack indicating the traversal level.
-  utils::pmr::list<utils::pmr::list<EdgeAccessor>> traversal_stack_;
+  utils::pmr::list<utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>>> traversal_stack_;
 
   static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
     if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
