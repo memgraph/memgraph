@@ -36,7 +36,7 @@ class Shared {
   std::optional<T> item_;
   bool consumed_ = false;
   bool waiting_ = false;
-  std::optional<std::function<bool()>> simulator_notifier_;
+  std::function<bool()> simulator_notifier_ = nullptr;
 
  public:
   explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
@@ -65,7 +65,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        simulator_progressed = (*simulator_notifier_)();
+        simulator_progressed = (simulator_notifier_)();
         lock.lock();
         if (item_) {
           // item may have been filled while we
