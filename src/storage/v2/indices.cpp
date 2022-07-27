@@ -328,7 +328,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, nullptr),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, self_->schema_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -480,7 +480,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, nullptr),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, self_->schema_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
