@@ -1066,6 +1066,12 @@ TEST(BoltSession, Route) {
     EXPECT_EQ(input_stream.size(), 0U);
     CheckOutput(output, expected_resp, sizeof(expected_resp));
     EXPECT_EQ(session.state_, State::Error);
+
+    SCOPED_TRACE("Try to reset connection after ROUTE failed");
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
+    EXPECT_EQ(input_stream.size(), 0U);
+    CheckOutput(output, success_resp, sizeof(success_resp));
+    EXPECT_EQ(session.state_, State::Idle);
   }
 }
 
