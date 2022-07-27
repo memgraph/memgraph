@@ -255,7 +255,7 @@ class SimulatorHandle {
   }
 
   void TimeoutPromisesPastDeadline() {
-    Time now = cluster_wide_time_microseconds_;
+    const Time now = cluster_wide_time_microseconds_;
 
     for (auto &[promise_key, dop] : promises_) {
       // TODO(tyler) queue this up and drop it after its deadline
@@ -339,7 +339,7 @@ class SimulatorHandle {
       DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
       promises_.erase(promise_key);
 
-      bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
+      const bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
 
       if (should_drop || normal_timeout) {
         stats_.timed_out_requests++;
@@ -375,7 +375,7 @@ class SimulatorHandle {
                      ResponsePromise<Response> &&promise) {
     std::unique_lock<std::mutex> lock(mu_);
 
-    Time deadline = cluster_wide_time_microseconds_ + timeout;
+    const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     std::any message(std::move(request));
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message)};
@@ -398,7 +398,7 @@ class SimulatorHandle {
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     std::unique_lock<std::mutex> lock(mu_);
 
-    Time deadline = cluster_wide_time_microseconds_ + timeout;
+    const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
       if (can_receive_.contains(receiver)) {
