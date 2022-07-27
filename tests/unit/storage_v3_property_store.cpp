@@ -51,7 +51,7 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(TemporalData(TemporalType::Date, 23)),
 };
 
-void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
+void AssertPropertyIsEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
   ASSERT_TRUE(store.IsPropertyEqual(property, value));
   for (const auto &sample : kSampleValues) {
     if (sample == value) {
@@ -84,13 +84,13 @@ TEST(PropertyStore, Simple) {
   ASSERT_TRUE(props.SetProperty(prop, value));
   ASSERT_EQ(props.GetProperty(prop), value);
   ASSERT_TRUE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, value);
+  AssertPropertyIsEqual(props, prop, value);
   ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
 
   ASSERT_FALSE(props.SetProperty(prop, PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
   ASSERT_FALSE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, PropertyValue());
+  AssertPropertyIsEqual(props, prop, PropertyValue());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
@@ -102,7 +102,7 @@ TEST(PropertyStore, SimpleLarge) {
     ASSERT_TRUE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, value);
+    AssertPropertyIsEqual(props, prop, value);
     ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   {
@@ -110,14 +110,14 @@ TEST(PropertyStore, SimpleLarge) {
     ASSERT_FALSE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, value);
+    AssertPropertyIsEqual(props, prop, value);
     ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
 
   ASSERT_FALSE(props.SetProperty(prop, PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
   ASSERT_FALSE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, PropertyValue());
+  AssertPropertyIsEqual(props, prop, PropertyValue());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
@@ -127,7 +127,7 @@ TEST(PropertyStore, EmptySetToNull) {
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
   ASSERT_FALSE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, PropertyValue());
+  AssertPropertyIsEqual(props, prop, PropertyValue());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
@@ -138,12 +138,12 @@ TEST(PropertyStore, Clear) {
   ASSERT_TRUE(props.SetProperty(prop, value));
   ASSERT_EQ(props.GetProperty(prop), value);
   ASSERT_TRUE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, value);
+  AssertPropertyIsEqual(props, prop, value);
   ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   ASSERT_TRUE(props.ClearProperties());
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
   ASSERT_FALSE(props.HasProperty(prop));
-  TestIsPropertyEqual(props, prop, PropertyValue());
+  AssertPropertyIsEqual(props, prop, PropertyValue());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
@@ -160,19 +160,19 @@ TEST(PropertyStore, MoveConstruct) {
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, value);
+  AssertPropertyIsEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     PropertyStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value);
+    AssertPropertyIsEqual(props2, prop, value);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
   ASSERT_FALSE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, PropertyValue());
+  AssertPropertyIsEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
@@ -183,19 +183,19 @@ TEST(PropertyStore, MoveConstructLarge) {
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, value);
+  AssertPropertyIsEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     PropertyStore props2(std::move(props1));
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value);
+    AssertPropertyIsEqual(props2, prop, value);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
   ASSERT_FALSE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, PropertyValue());
+  AssertPropertyIsEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
@@ -206,7 +206,7 @@ TEST(PropertyStore, MoveAssign) {
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, value);
+  AssertPropertyIsEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = PropertyValue(68);
@@ -214,18 +214,18 @@ TEST(PropertyStore, MoveAssign) {
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value2);
+    AssertPropertyIsEqual(props2, prop, value2);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value2)));
     props2 = std::move(props1);
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value);
+    AssertPropertyIsEqual(props2, prop, value);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
   ASSERT_FALSE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, PropertyValue());
+  AssertPropertyIsEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
@@ -236,7 +236,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   ASSERT_TRUE(props1.SetProperty(prop, value));
   ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, value);
+  AssertPropertyIsEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   {
     auto value2 = PropertyValue(std::string(10000, 'b'));
@@ -244,18 +244,18 @@ TEST(PropertyStore, MoveAssignLarge) {
     ASSERT_TRUE(props2.SetProperty(prop, value2));
     ASSERT_EQ(props2.GetProperty(prop), value2);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value2);
+    AssertPropertyIsEqual(props2, prop, value2);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value2)));
     props2 = std::move(props1);
     ASSERT_EQ(props2.GetProperty(prop), value);
     ASSERT_TRUE(props2.HasProperty(prop));
-    TestIsPropertyEqual(props2, prop, value);
+    AssertPropertyIsEqual(props2, prop, value);
     ASSERT_THAT(props2.Properties(), UnorderedElementsAre(std::pair(prop, value)));
   }
   // NOLINTNEXTLINE(bugprone-use-after-move,clang-analyzer-cplusplus.Move,hicpp-invalid-access-moved)
   ASSERT_TRUE(props1.GetProperty(prop).IsNull());
   ASSERT_FALSE(props1.HasProperty(prop));
-  TestIsPropertyEqual(props1, prop, PropertyValue());
+  AssertPropertyIsEqual(props1, prop, PropertyValue());
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
@@ -274,22 +274,22 @@ TEST(PropertyStore, EmptySet) {
     ASSERT_TRUE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, value);
+    AssertPropertyIsEqual(props, prop, value);
     ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
     ASSERT_FALSE(props.SetProperty(prop, value));
     ASSERT_EQ(props.GetProperty(prop), value);
     ASSERT_TRUE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, value);
+    AssertPropertyIsEqual(props, prop, value);
     ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
     ASSERT_FALSE(props.SetProperty(prop, PropertyValue()));
     ASSERT_TRUE(props.GetProperty(prop).IsNull());
     ASSERT_FALSE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, PropertyValue());
+    AssertPropertyIsEqual(props, prop, PropertyValue());
     ASSERT_EQ(props.Properties().size(), 0);
     ASSERT_TRUE(props.SetProperty(prop, PropertyValue()));
     ASSERT_TRUE(props.GetProperty(prop).IsNull());
     ASSERT_FALSE(props.HasProperty(prop));
-    TestIsPropertyEqual(props, prop, PropertyValue());
+    AssertPropertyIsEqual(props, prop, PropertyValue());
     ASSERT_EQ(props.Properties().size(), 0);
   }
 }
@@ -332,11 +332,11 @@ TEST(PropertyStore, FullSet) {
           } else {
             ASSERT_TRUE(props.HasProperty(item.first));
           }
-          TestIsPropertyEqual(props, item.first, alt[i]);
+          AssertPropertyIsEqual(props, item.first, alt[i]);
         } else {
           ASSERT_EQ(props.GetProperty(item.first), item.second);
           ASSERT_TRUE(props.HasProperty(item.first));
-          TestIsPropertyEqual(props, item.first, item.second);
+          AssertPropertyIsEqual(props, item.first, item.second);
         }
       }
       auto current = data;
@@ -358,11 +358,11 @@ TEST(PropertyStore, FullSet) {
           } else {
             ASSERT_TRUE(props.HasProperty(item.first));
           }
-          TestIsPropertyEqual(props, item.first, alt[i]);
+          AssertPropertyIsEqual(props, item.first, alt[i]);
         } else {
           ASSERT_EQ(props.GetProperty(item.first), item.second);
           ASSERT_TRUE(props.HasProperty(item.first));
-          TestIsPropertyEqual(props, item.first, item.second);
+          AssertPropertyIsEqual(props, item.first, item.second);
         }
       }
       auto current = data;
@@ -377,14 +377,14 @@ TEST(PropertyStore, FullSet) {
     ASSERT_TRUE(props.SetProperty(target.first, target.second));
     ASSERT_EQ(props.GetProperty(target.first), target.second);
     ASSERT_TRUE(props.HasProperty(target.first));
-    TestIsPropertyEqual(props, target.first, target.second);
+    AssertPropertyIsEqual(props, target.first, target.second);
 
     props.ClearProperties();
     ASSERT_EQ(props.Properties().size(), 0);
     for (const auto &item : data) {
       ASSERT_TRUE(props.GetProperty(item.first).IsNull());
       ASSERT_FALSE(props.HasProperty(item.first));
-      TestIsPropertyEqual(props, item.first, PropertyValue());
+      AssertPropertyIsEqual(props, item.first, PropertyValue());
     }
   }
 }
@@ -428,14 +428,14 @@ TEST(PropertyStore, IntEncoding) {
     ASSERT_TRUE(props.SetProperty(item.first, item.second));
     ASSERT_EQ(props.GetProperty(item.first), item.second);
     ASSERT_TRUE(props.HasProperty(item.first));
-    TestIsPropertyEqual(props, item.first, item.second);
+    AssertPropertyIsEqual(props, item.first, item.second);
   }
   for (auto it = data.rbegin(); it != data.rend(); ++it) {
     const auto &item = *it;
     ASSERT_FALSE(props.SetProperty(item.first, item.second)) << item.first.AsInt();
     ASSERT_EQ(props.GetProperty(item.first), item.second);
     ASSERT_TRUE(props.HasProperty(item.first));
-    TestIsPropertyEqual(props, item.first, item.second);
+    AssertPropertyIsEqual(props, item.first, item.second);
   }
 
   ASSERT_EQ(props.Properties(), data);
@@ -445,7 +445,7 @@ TEST(PropertyStore, IntEncoding) {
   for (const auto &item : data) {
     ASSERT_TRUE(props.GetProperty(item.first).IsNull());
     ASSERT_FALSE(props.HasProperty(item.first));
-    TestIsPropertyEqual(props, item.first, PropertyValue());
+    AssertPropertyIsEqual(props, item.first, PropertyValue());
   }
 }
 
