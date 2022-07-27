@@ -279,11 +279,12 @@ bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices)
   }
   try {
     auto acc = it->second.access();
-    for (auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      acc.insert(Entry{&GetVertex(vertex), 0});
+      acc.insert(Entry{&vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -426,15 +427,16 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, Vertice
   }
   try {
     auto acc = it->second.access();
-    for (auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      auto value = GetVertex(vertex).properties.GetProperty(property);
+      auto value = vertex.properties.GetProperty(property);
       if (value.IsNull()) {
         continue;
       }
-      acc.insert(Entry{std::move(value), &GetVertex(vertex), 0});
+      acc.insert(Entry{std::move(value), &vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;

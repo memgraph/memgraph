@@ -159,9 +159,10 @@ inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(C
   if (utils::Contains(constraints->existence_constraints, std::make_pair(label, property))) {
     return false;
   }
-  for (const auto &vertex : vertices) {
-    if (!GetVertex(vertex).deleted && utils::Contains(GetVertex(vertex).labels, label) &&
-        !GetVertex(vertex).properties.HasProperty(property)) {
+  for (const auto &lgo_vertex : vertices) {
+    auto &vertex = lgo_vertex.vertex;
+
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }

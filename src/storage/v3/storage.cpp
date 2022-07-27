@@ -57,7 +57,7 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
                             Constraints *constraints, Config::Items config) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&GetVertex(*it), tx, indices, constraints, config, view);
+    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -474,8 +474,8 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&GetVertex(*it));
-  return {&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  delta->prev.Set(&it->vertex);
+  return {&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
@@ -493,15 +493,15 @@ VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   auto [it, inserted] = acc.insert({Vertex{gid, delta}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&GetVertex(*it));
-  return {&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  delta->prev.Set(&it->vertex);
+  return {&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
   auto it = acc.find(std::vector{PropertyValue{gid.AsInt()}});
   if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&GetVertex(*it), &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+  return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                 view);
   return {};
 }

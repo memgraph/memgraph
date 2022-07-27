@@ -300,11 +300,12 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
   {
     auto acc = constraint->second.access();
 
-    for (const auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (const auto &lo_vertex : vertices) {
+      auto &vertex = lo_vertex.vertex;
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      auto values = ExtractPropertyValues(GetVertex(vertex), properties);
+      auto values = ExtractPropertyValues(vertex, properties);
       if (!values) {
         continue;
       }
@@ -317,7 +318,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
         break;
       }
 
-      acc.insert(Entry{std::move(*values), &GetVertex(vertex), 0});
+      acc.insert(Entry{std::move(*values), &vertex, 0});
     }
   }
 

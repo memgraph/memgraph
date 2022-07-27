@@ -39,17 +39,4 @@ struct LexicographicallyOrderedVertex {
     return lhs.vertex.keys < rhs;
   }
 };
-
-inline auto &GetVertex(LexicographicallyOrderedVertex &lo_vertex) { return lo_vertex.vertex; }
-inline auto &GetVertex(const LexicographicallyOrderedVertex &lo_vertex) { return lo_vertex.vertex; }
-
-template <typename T>
-concept IsLexicographicallyOrderedVertexHolder = utils::Dereferenceable<T> &&
-    std::same_as<LexicographicallyOrderedVertex &, std::remove_cv_t<decltype(*(std::declval<T>()))>>;
-
-template <IsLexicographicallyOrderedVertexHolder T>
-auto &GetVertex(T &wrapper) {
-  return (*wrapper).vertex;
-}
-
 }  // namespace memgraph::storage::v3
