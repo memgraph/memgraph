@@ -12,6 +12,7 @@
 #pragma once
 
 #include <concepts>
+#include <type_traits>
 
 #include "storage/v3/vertex.hpp"
 #include "utils/concepts.hpp"
@@ -39,17 +40,12 @@ struct LexicographicallyOrderedVertex {
   }
 };
 
-template <typename T>
-concept IsLexicographicallyOrderedVertex = std::same_as<LexicographicallyOrderedVertex, std::remove_cvref_t<T>>;
+inline auto &GetVertex(LexicographicallyOrderedVertex &lo_vertex) { return lo_vertex.vertex; }
+inline auto &GetVertex(const LexicographicallyOrderedVertex &lo_vertex) { return lo_vertex.vertex; }
 
 template <typename T>
 concept IsLexicographicallyOrderedVertexHolder = utils::Dereferenceable<T> &&
-    std::same_as<LexicographicallyOrderedVertex, std::remove_cvref_t<decltype(*(std::declval<T>()))>>;
-
-template <IsLexicographicallyOrderedVertex T>
-auto &GetVertex(T &wrapper) {
-  return wrapper.vertex;
-}
+    std::same_as<LexicographicallyOrderedVertex &, std::remove_cv_t<decltype(*(std::declval<T>()))>>;
 
 template <IsLexicographicallyOrderedVertexHolder T>
 auto &GetVertex(T &wrapper) {
