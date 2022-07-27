@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <limits>
 
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
