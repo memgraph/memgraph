@@ -34,7 +34,7 @@ struct Vertex {
 
   Gid Gid() const { return Gid::FromInt(keys.GetKey(0).ValueInt()); }
 
-  KeyStore keys{{}};
+  KeyStore keys;
   std::vector<LabelId> labels;
   PropertyStore properties;
 
