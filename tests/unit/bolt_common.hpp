@@ -99,19 +99,17 @@ void PrintOutput(std::vector<uint8_t> &output) {
  */
 void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len, bool clear = true) {
   if (clear) {
-    if (clear) {
-      ASSERT_EQ(len, output.size());
-    } else {
-      ASSERT_LE(len, output.size());
-    }
-    for (size_t i = 0; i < len; ++i) {
-      EXPECT_EQ(output[i], data[i]) << i;
-    }
-    if (clear) {
-      output.clear();
-    } else {
-      output.erase(output.begin(), output.begin() + len);
-    }
+    ASSERT_EQ(len, output.size());
+  } else {
+    ASSERT_LE(len, output.size());
+  }
+  for (size_t i = 0; i < len; ++i) {
+    EXPECT_EQ(output[i], data[i]) << i;
+  }
+  if (clear) {
+    output.clear();
+  } else {
+    output.erase(output.begin(), output.begin() + len);
   }
 }
 

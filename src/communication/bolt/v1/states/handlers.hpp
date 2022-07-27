@@ -296,7 +296,7 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  if (session.version_.major < 3 && !session.encoder_.MessageSuccess()) {
+  if (!session.encoder_.MessageSuccess()) {
     spdlog::trace("Couldn't send success message!");
     return State::Close;
   }

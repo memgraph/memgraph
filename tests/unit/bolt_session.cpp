@@ -763,7 +763,7 @@ TEST(BoltSession, ErrorOK) {
       for (int j = 0; j < 2; ++j) {
         SCOPED_TRACE("j: " + std::to_string(j));
         const auto write_success = j == 0;
-        const auto reset = i == 1;
+        const auto is_reset = i == 1;
         INIT_VARS;
 
         ExecuteHandshake(input_stream, session, output, v4::handshake_req, v4::handshake_resp);
@@ -777,19 +777,20 @@ TEST(BoltSession, ErrorOK) {
         output_stream.SetWriteSuccess(write_success);
 
         // ACK_FAILURE does not exist in v3+, ingored message is sent
-        // For RESET the server mustn't send anythin
-        if (write_success || reset) {
+        if (write_success) {
           ExecuteCommand(input_stream, session, dataset[i], 2);
         } else {
           ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2), SessionException);
         }
 
-        if (reset) {
-          EXPECT_EQ(session.state_, State::Idle);
-          EXPECT_EQ(output.size(), 0);
-        } else if (write_success) {
-          ASSERT_EQ(session.state_, State::Error);
-          CheckOutput(output, ignored_resp, 6);
+        if (write_success) {
+          if (is_reset) {
+            EXPECT_EQ(session.state_, State::Idle);
+            CheckOutput(output, success_resp, sizeof(success_resp));
+          } else {
+            ASSERT_EQ(session.state_, State::Error);
+            CheckOutput(output, ignored_resp, sizeof(ignored_resp));
+          }
         } else {
           EXPECT_EQ(session.state_, State::Close);
         }
@@ -992,10 +993,9 @@ TEST(BoltSession, Route) {
     ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
     ExecuteInit(input_stream, session, output, true);
     ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-    EXPECT_EQ(output.size(), 68);
     static constexpr uint8_t expected_resp[] = {
-        0x00,
-        0x40 /*chunk contains 64 bytes of data*/,
+        0x00 /*two bytes of chunk header, chunk contains 64 bytes of data*/,
+        0x40,
         0xb1 /*TinyStruct1*/,
         0x7f /*Failure*/,
         0xa2 /*TinyMap with 2 items*/,
@@ -1064,7 +1064,7 @@ TEST(BoltSession, Route) {
         0x00,
     };
     EXPECT_EQ(input_stream.size(), 0U);
-    CheckOutput(output, expected_resp, 68);
+    CheckOutput(output, expected_resp, sizeof(expected_resp));
     EXPECT_EQ(session.state_, State::Error);
   }
 }

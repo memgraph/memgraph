@@ -59,6 +59,7 @@ State StateErrorRun(TSession &session, State state) {
     return State::Idle;
   }
   if (signature == Signature::Reset) {
+    spdlog::trace("Reset received");
     return HandleReset(session, marker);
   }
 

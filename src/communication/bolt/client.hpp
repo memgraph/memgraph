@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
@@ -121,6 +122,22 @@ class Client final {
                                                     const std::optional<std::string> &db);
 
  private:
+  using ClientEncoder = ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>;
+
+  template <typename TException = FailureResponseException>
+  [[noreturn]] void HandleFailure(ClientEncoder &encoder, const std::map<std::string, Value> &response_map) {
+    Reset();
+    auto it = response_map.find("message");
+    if (it != response_map.end()) {
+      auto it_code = response_map.find("code");
+      if (it_code != response_map.end()) {
+        throw TException(it_code->second.ValueString(), it->second.ValueString());
+      }
+      throw TException("", it->second.ValueString());
+    }
+    throw TException();
+  }
+
   bool GetMessage();
   bool ReadMessage(Signature &signature, Value &ret);
   bool ReadMessageData(Marker marker, Value &ret);
@@ -136,6 +153,6 @@ class Client final {
 
   // encoder objects
   ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{output_stream_};
-  ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>> encoder_{encoder_buffer_};
+  ClientEncoder encoder_{encoder_buffer_};
 };
 }  // namespace memgraph::communication::bolt

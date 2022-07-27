@@ -15,25 +15,6 @@
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
 
-namespace {
-using ClientEncoder = memgraph::communication::bolt::ClientEncoder<
-    memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::ClientOutputStream>>;
-template <typename TException = memgraph::communication::bolt::FailureResponseException>
-[[noreturn]] void HandleFailure(ClientEncoder &encoder,
-                                const std::map<std::string, memgraph::communication::bolt::Value> &response_map) {
-  MG_ASSERT(encoder.MessageReset(), "Can't send reset!");
-  auto it = response_map.find("message");
-  if (it != response_map.end()) {
-    auto it_code = response_map.find("code");
-    if (it_code != response_map.end()) {
-      throw TException(it_code->second.ValueString(), it->second.ValueString());
-    }
-    throw TException("", it->second.ValueString());
-  }
-  throw TException();
-}
-}  // namespace
-
 namespace memgraph::communication::bolt {
 
 Client::Client(communication::ClientContext &context) : client_{&context} {}
@@ -116,7 +97,6 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   }
 
   if (signature == Signature::Failure) {
-    MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
     HandleFailure<ClientQueryException>(encoder_, fields.ValueMap());
   }
   if (signature != Signature::Success) {
@@ -150,7 +130,6 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       if (!decoder_.ReadValue(&data)) {
         throw ServerCommunicationException();
       }
-      MG_ASSERT(encoder_.MessageReset(), "Couldn't set reset!");
       HandleFailure<ClientQueryException>(encoder_, data.ValueMap());
     } else {
       throw ServerMalformedDataException();
@@ -190,6 +169,13 @@ void Client::Reset() {
   spdlog::info("Sending reset message");
 
   encoder_.MessageReset();
+
+  Signature signature{};
+  Value fields;
+  if (!ReadMessage(signature, fields)) {
+    throw ServerCommunicationException();
+  }
+  MG_ASSERT(signature == Signature::Success, "Server did not respond SUCCESS to RESET!");
 }
 
 std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::string, Value> &routing,
@@ -214,7 +200,6 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     return std::nullopt;
   }
   if (signature == Signature::Failure) {
-    MG_ASSERT(encoder_.MessageReset(), "Couldn't send reset!");
     HandleFailure(encoder_, fields.ValueMap());
   }
   if (signature != Signature::Success) {
