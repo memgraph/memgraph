@@ -235,6 +235,7 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
       throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
                                   name, i, type->GetPresentableName());
     }
+    // why do we move graph here?
     args_list.elems.emplace_back(std::move(arg), &graph);
   }
   // Fill missing optional arguments with their default values.

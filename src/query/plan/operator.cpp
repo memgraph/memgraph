@@ -3739,6 +3739,13 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
+  const query::Graph *subgraph;
+  if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
+    subgraph = &args_list.front().ValueGraph();
+    args_list.erase(args_list.begin());
+  }
+
+  // if we have graph at first element, it is okay to have 1+ element here
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,

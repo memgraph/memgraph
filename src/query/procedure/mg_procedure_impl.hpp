@@ -577,6 +577,8 @@ struct mgp_graph {
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
 
+  // memgraph:::query::Graph *subraph;
+
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
     return mgp_graph{&acc, view, &ctx};
