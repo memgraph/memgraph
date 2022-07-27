@@ -24,23 +24,19 @@ def test_does_default_config_match():
     cursor.execute("SHOW CONFIG")
     config = cursor.fetchall()
 
-    assert len(config) == len(default_config.startup_config)
+    assert len(config) == len(default_config.startup_config_dict)
 
-    for idx in range(len(config)):
-        current_flag = ()
+    for flag in config:
+        flag_name = flag[0]
+        flag_desc = flag[3]
 
-        for flag in config:
-            if flag[0] == default_config.startup_config[idx][0]:
-                # This will always depend on the number of processing units available on the given machine
-                if flag[0] == "bolt_num_workers":
-                    continue
+        # The default value of these is dependent on the given machine.
+        machine_dependent_configurations = ["bolt_num_workers", "data_directory", "log_file"]
+        if flag_name in machine_dependent_configurations:
+            continue
 
-                current_flag = flag
-                break
-
-        if current_flag != ():
-            assert len(current_flag) == len(default_config.startup_config[idx])
-            assert current_flag[1] == default_config.startup_config[idx][1]
+        assert default_config.startup_config_dict[flag_desc][0] == flag[1]
+        assert default_config.startup_config_dict[flag_desc][1] == flag[2]
 
 
 if __name__ == "__main__":
