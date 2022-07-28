@@ -206,13 +206,14 @@ class Promise {
 
   Promise() = delete;
   Promise(Promise &&old) {
-    shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
+    shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
+
   Promise &operator=(Promise &&old) {
-    shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
+    shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
   Promise(const Promise &) = delete;
