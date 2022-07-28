@@ -98,8 +98,8 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 }
 
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
-  auto *query =
-      AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, std::vector<AuthQuery::Privilege>{});
+  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, std::vector<AuthQuery::Privilege>{},
+                           std::vector<std::string>{});
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 
