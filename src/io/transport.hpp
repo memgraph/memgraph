@@ -16,12 +16,11 @@
 #include <random>
 #include <variant>
 
-#include "utils/result.hpp"
-
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/future.hpp"
 #include "io/time.hpp"
+#include "utils/result.hpp"
 
 using memgraph::utils::BasicResult;
 
