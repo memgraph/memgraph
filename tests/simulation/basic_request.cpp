@@ -72,7 +72,7 @@ int main() {
     CounterRequest cli_req;
     cli_req.proposal = i;
     auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
-    auto res_rez = res_f.Wait();
+    auto res_rez = std::move(res_f).Wait();
     if (!res_rez.HasError()) {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();

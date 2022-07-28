@@ -182,7 +182,7 @@ class Future {
 
   /// Block on the corresponding promise to be filled,
   /// returning the inner item when ready.
-  T Wait() {
+  T Wait() && {
     MG_ASSERT(!consumed_or_moved_, "Future should only be consumed with Wait once!");
     T ret = shared_->Wait();
     consumed_or_moved_ = true;
