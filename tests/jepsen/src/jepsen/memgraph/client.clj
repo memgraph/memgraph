@@ -40,11 +40,11 @@
          name
          " "
          (replication-mode-str node-config)
-         " TO \""
+         " TO '"
          (:ip node-config)
          ":"
          (:port node-config)
-         "\"")))
+         "'")))
 
 (defn create-set-replica-role-query
   [port]
@@ -103,12 +103,10 @@
                                (doseq [n (filter #(= (:replication-role (val %))
                                                      :replica)
                                                  node-config)]
-                                           (try
                                              (c/with-session conn session
                                                ((c/create-register-replica-query
                                                   (first n)
-                                                  (second n)) session))
-                                           (catch Exception e)))
+                                                  (second n)) session)))
                                (assoc op :type :ok))
                              (assoc op :type :fail)))
           cases))

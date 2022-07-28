@@ -43,7 +43,7 @@
                   (try
                     ((create-nodes session)
                     (assoc op :type :ok))
-                    (catch Exception e
+                    (catch org.neo4j.driver.exceptions.TransientException e
                       (assoc op :type :ok :info (str e))))) ; Exception due to down sync replica is accepted/expected
                 (assoc op :type :fail))))
   (teardown! [this test]
