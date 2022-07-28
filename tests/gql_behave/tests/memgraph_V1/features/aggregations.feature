@@ -73,6 +73,16 @@ Feature: Aggregations
             | n |
             | 5 |
 
+    Scenario: Count test 07:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN count(null)
+        """
+        Then the result should be:
+            | count(null) |
+            | 0           |
+
     Scenario: Sum test 01:
         Given an empty graph
         And having executed
@@ -113,6 +123,16 @@ Feature: Aggregations
             | n | a.x |
             | 4 | 0   |
             | 4 | 1   |
+
+    Scenario: Sum test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN sum(null)
+        """
+        Then the result should be:
+            | sum(null) |
+            | 0         |
 
     Scenario: Avg test 01:
         Given an empty graph
@@ -155,6 +175,16 @@ Feature: Aggregations
             | 2.0 | 0   |
             | 4.0 | 1   |
 
+    Scenario: Avg test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN avg(null)
+        """
+        Then the result should be:
+            | avg(null) |
+            | null      |
+
     Scenario: Min test 01:
         Given an empty graph
         And having executed
@@ -196,6 +226,16 @@ Feature: Aggregations
             | 1 | 0   |
             | 4 | 1   |
 
+    Scenario: Min test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN min(null)
+        """
+        Then the result should be:
+            | min(null) |
+            | null      |
+
     Scenario: Max test 01:
         Given an empty graph
         And having executed
@@ -236,6 +276,16 @@ Feature: Aggregations
             | n | a.x |
             | 3 | 0   |
             | 4 | 1   |
+
+    Scenario: Max test 04:
+        Given an empty graph
+        When executing query:
+        """
+        RETURN max(null)
+        """
+        Then the result should be:
+            | max(null) |
+            | null      |
 
     Scenario: Collect test 01:
         Given an empty graph
@@ -279,3 +329,18 @@ Feature: Aggregations
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
 
+        Scenario: Combined aggregations - some evauluates to null:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (f)
+            CREATE (n {property: 1})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN count(n) < n.property, count(n.property), count(n), avg(n.property), min(n.property), max(n.property), sum(n.property)
+            """
+        Then the result should be:
+            | count(n) < n.property | count(n.property)     | count(n)              | avg(n.property)       | min(n.property)       | max(n.property)       | sum(n.property)       |
+            | false                 | 1                     | 1                     | 1.0                   | 1                     | 1                     | 1                     |
+            | null                  | 0                     | 1                     | null                  | null                  | null                  | 0                     |
