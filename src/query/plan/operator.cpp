@@ -1698,6 +1698,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
         visited_cost_(mem),
+        expanded_(mem),
         previous_(mem),
         traversal_stack_(mem),
         pq_(mem) {}
@@ -1712,21 +1713,22 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
     auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
-                                                    const VertexAccessor &src_vertex, const VertexAccessor &dst_vertex,
                                                     const TypedValue &total_weight, int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
+
+      auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
       // If filter expression exists, evaluate filter
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-        frame[self_.filter_lambda_.inner_node_symbol] = dst_vertex;
+        frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
 
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
       }
 
       // Evaluate current weight
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = dst_vertex;
+      frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
 
       TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
@@ -1758,31 +1760,24 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         return TypedValue(current_weight, memory) + total_weight;
       });
 
-      auto found_it = visited_cost_.find(dst_vertex);
+      auto found_it = visited_cost_.find(next_vertex);
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
         auto weight = found_it->second;
 
         if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
           // Has been visited, but now found a shorter path
-          visited_cost_.emplace(dst_vertex, next_weight);
+          visited_cost_[next_vertex] = next_weight;
         } else {
           // Continue and do not expand if current weight is larger
           return;
         }
       } else {
-        visited_cost_.emplace(dst_vertex, next_weight);
+        visited_cost_[next_vertex] = next_weight;
       }
 
-      // Append the expansion to the priority queue
-      // Update the parent
-      if (previous_.find(src_vertex) == previous_.end()) {
-        utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
-        previous_[src_vertex] = std::move(empty);
-      }
-
-      previous_.at(src_vertex).emplace_back(std::move(edge), direction);
-      pq_.push({next_weight, depth + 1, dst_vertex});
+      DirectedEdge directed_edge = {edge, direction};
+      pq_.push({next_weight, depth + 1, next_vertex, directed_edge});
     };
 
     // Populates the priority queue structure with expansions
@@ -1793,13 +1788,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
-          expand_vertex(edge, EdgeAtom::Direction::OUT, edge.From(), edge.To(), weight, depth);
+          expand_vertex(edge, EdgeAtom::Direction::OUT, weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
-          expand_vertex(edge, EdgeAtom::Direction::IN, edge.To(), edge.From(), weight, depth);
+          expand_vertex(edge, EdgeAtom::Direction::IN, weight, depth);
         }
       }
     };
@@ -1814,9 +1809,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     }
     // Check if upper bound is valid
     if (upper_bound_ < 1) {
-      throw QueryRuntimeException(
-          "Maximum depth in all shortest paths expansion must be at "
-          "least 1.");
+      throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");
     }
 
     std::optional<VertexAccessor> start_vertex;
@@ -1852,7 +1845,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           traversal_stack_.emplace_back(std::move(edges_previous));
         } else {
           // Signal the end of iteration
-          utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
+          utils::pmr::list<DirectedEdge> empty(memory);
           traversal_stack_.emplace_back(std::move(empty));
         }
 
@@ -1877,10 +1870,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Clear existing data structures.
         visited_cost_.clear();
+        expanded_.clear();
         previous_.clear();
         traversal_stack_.clear();
 
-        pq_.push({TypedValue(), 0, *start_vertex});
+        pq_.push({TypedValue(), 0, *start_vertex, std::nullopt});
         visited_cost_.emplace(*start_vertex, 0);
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
@@ -1889,24 +1883,36 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       while (!pq_.empty()) {
         if (MustAbort(context)) throw HintedAbortError();
 
-        auto [current_weight, current_depth, current_vertex] = pq_.top();
+        auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
         pq_.pop();
 
-        // Expand only if what we've just expanded is less than max depth.
-        if (previous_.find(current_vertex) == previous_.end() && current_depth < upper_bound_)
-          expand_from_vertex(current_vertex, current_weight, current_depth);
+        // Check if this route is the longer one, skip if it is
+        auto maybe_cost = visited_cost_.find(current_vertex);
+        if (maybe_cost != visited_cost_.end()) {
+          auto min_cost = maybe_cost->second;
+          if (!current_weight.IsNull() && (current_weight > min_cost).ValueBool()) continue;
+        }
 
-        // Place destination node on the frame, handle existence flag.
-        if (self_.common_.existing_node) {
-          const auto &node = frame[self_.common_.node_symbol];
-          if ((node != TypedValue(current_vertex, memory)).ValueBool())
-            continue;
-          else
-            // Prevent expanding other paths, because we found the
-            // shortest to existing node.
-            ClearQueue();
-        } else {
-          frame[self_.common_.node_symbol] = current_vertex;
+        // Expand only if what we've just expanded is less than max depth.
+        if (expanded_.find(current_vertex) == expanded_.end() && current_depth < upper_bound_) {
+          expand_from_vertex(current_vertex, current_weight, current_depth);
+          expanded_.emplace(current_vertex);
+        }
+
+        // If in priority queue, the vertex is already expanded.
+        if (maybe_directed_edge) {
+          auto &[current_edge, direction] = *maybe_directed_edge;
+          // Searching for a previous vertex in the expansion
+          auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+
+          // Append the expansion to the priority queue
+          // Update the parent
+          if (previous_.find(prev_vertex) == previous_.end()) {
+            utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
+            previous_[prev_vertex] = std::move(empty);
+          }
+
+          previous_.at(prev_vertex).emplace_back(std::move(current_edge), direction);
         }
       }
 
@@ -1922,6 +1928,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   void Reset() override {
     input_cursor_->Reset();
     visited_cost_.clear();
+    expanded_.clear();
     previous_.clear();
     traversal_stack_.clear();
     ClearQueue();
@@ -1935,12 +1942,15 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   int64_t upper_bound_{-1};
   bool upper_bound_set_{false};
 
-  // Maps vertices to weights they got in expansion.
+  using DirectedEdge = std::pair<EdgeAccessor, EdgeAtom::Direction>;
+  // Maps vertices to minimum weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
+  // Marking the expanded vertices to prevent multiple visits.
+  utils::pmr::unordered_set<VertexAccessor> expanded_;
   // Maps the vertex with the potential expansion edge.
-  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>>> previous_;
+  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<DirectedEdge>> previous_;
   // Stack indicating the traversal level.
-  utils::pmr::list<utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>>> traversal_stack_;
+  utils::pmr::list<utils::pmr::list<DirectedEdge>> traversal_stack_;
 
   static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
     if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
@@ -1954,8 +1964,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   // Priority queue comparator. Keep lowest weight on top of the queue.
   class PriorityQueueComparator {
    public:
-    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor> &lhs,
-                    const std::tuple<TypedValue, int64_t, VertexAccessor> &rhs) {
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &rhs) {
       const auto &lhs_weight = std::get<0>(lhs);
       const auto &rhs_weight = std::get<0>(rhs);
       // Null defines minimum value for all types
@@ -1972,8 +1982,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     }
   };
 
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor>>, PriorityQueueComparator>
+  // Priority queue - core element of the algorithm.
+  // Stores: {weight, depth, next vertex, edge and direction}
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>>,
+                      PriorityQueueComparator>
       pq_;
 
   void ClearQueue() {
