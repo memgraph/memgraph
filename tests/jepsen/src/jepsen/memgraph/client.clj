@@ -103,10 +103,12 @@
                                (doseq [n (filter #(= (:replication-role (val %))
                                                      :replica)
                                                  node-config)]
+                                                 (try
                                              (c/with-session conn session
                                                ((c/create-register-replica-query
                                                   (first n)
-                                                  (second n)) session)))
+                                                  (second n)) session))
+                                                  (catch Exception e)))
                                (assoc op :type :ok))
                              (assoc op :type :fail)))
           cases))
