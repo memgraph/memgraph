@@ -20,7 +20,7 @@ namespace memgraph::io::simulator {
 using memgraph::io::Time;
 
 struct SimulatorConfig {
-  int drop_percent = 0;
+  uint8_t drop_percent = 0;
   bool perform_timeouts = false;
   bool scramble_messages = true;
   uint64_t rng_seed = 0;
