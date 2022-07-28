@@ -154,7 +154,7 @@ Trigger::Trigger(std::string name, const std::string &query,
                  const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::optional<std::string> owner, const query::AuthChecker *auth_checker)
+                 std::optional<std::string> owner, const query::v2::AuthChecker *auth_checker)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
@@ -258,7 +258,7 @@ TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                    const InterpreterConfig::Query &query_config,
-                                   const query::AuthChecker *auth_checker) {
+                                   const query::v2::AuthChecker *auth_checker) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
@@ -337,7 +337,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                               const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                              const query::AuthChecker *auth_checker) {
+                              const query::v2::AuthChecker *auth_checker) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");

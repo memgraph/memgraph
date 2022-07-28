@@ -33,10 +33,10 @@
 namespace memgraph::query::v2 {
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
-                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                   const std::map<std::string, storage::v3::PropertyValue> &user_parameters,
+                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                   const query::AuthChecker *auth_checker);
+                   const query::v2::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, const TriggerContext &context,
@@ -81,13 +81,13 @@ struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
+                       const InterpreterConfig::Query &query_config, const query::v2::AuthChecker *auth_checker);
 
   void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::v3::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                  const query::AuthChecker *auth_checker);
+                  const query::v2::AuthChecker *auth_checker);
 
   void DropTrigger(const std::string &name);
 

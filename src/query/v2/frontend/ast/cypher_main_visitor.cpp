@@ -278,7 +278,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
     if (ctx->WITH() && ctx->TIMEOUT()) {
       if (ctx->timeout->numberLiteral()) {
         // we accept both double and integer literals
-        replication_query->timeout_ = ctx->timeout->accept(this);
+        replication_query->timeout_ = std::any_cast<Expression *>(ctx->timeout->accept(this));
       } else {
         throw SemanticException("Timeout should be a integer or double literal!");
       }
