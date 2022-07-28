@@ -27,6 +27,11 @@ SMALL_DATASET = [
         "timeout": 5,
     },
     {
+        "test": "parser.cpp",
+        "options": ["--per-worker-query-count", "1000"],
+        "timeout": 5,
+    },
+    {
         "test": "long_running.cpp",
         "options": ["--vertex-count", "1000", "--edge-count", "5000", "--max-time", "1", "--verify", "20"],
         "timeout": 5,
@@ -42,30 +47,35 @@ SMALL_DATASET = [
 # bipartite.py and create_match.py run for approx. 15min
 # long_running runs for 5min x 6 times = 30min
 # long_running runs for 8h
-LARGE_DATASET = [
-    {
-        "test": "bipartite.py",
-        "options": ["--u-count", "300", "--v-count", "300"],
-        "timeout": 30,
-    },
-    {
-        "test": "create_match.py",
-        "options": ["--vertex-count", "500000", "--create-pack-size", "500"],
-        "timeout": 30,
-    },
-] + [
-    {
-        "test": "long_running.cpp",
-        "options": ["--vertex-count", "10000", "--edge-count", "40000", "--max-time", "5", "--verify", "60"],
-        "timeout": 16,
-    },
-] * 6 + [
-    {
-        "test": "long_running.cpp",
-        "options": ["--vertex-count", "200000", "--edge-count", "1000000", "--max-time", "480", "--verify", "300"],
-        "timeout": 500,
-    },
-]
+LARGE_DATASET = (
+    [
+        {
+            "test": "bipartite.py",
+            "options": ["--u-count", "300", "--v-count", "300"],
+            "timeout": 30,
+        },
+        {
+            "test": "create_match.py",
+            "options": ["--vertex-count", "500000", "--create-pack-size", "500"],
+            "timeout": 30,
+        },
+    ]
+    + [
+        {
+            "test": "long_running.cpp",
+            "options": ["--vertex-count", "10000", "--edge-count", "40000", "--max-time", "5", "--verify", "60"],
+            "timeout": 16,
+        },
+    ]
+    * 6
+    + [
+        {
+            "test": "long_running.cpp",
+            "options": ["--vertex-count", "200000", "--edge-count", "1000000", "--max-time", "480", "--verify", "300"],
+            "timeout": 500,
+        },
+    ]
+)
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -101,8 +111,7 @@ def run_test(args, test, options, timeout):
     # find binary
     if test.endswith(".py"):
         logging = "DEBUG" if args.verbose else "WARNING"
-        binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test),
-                "--logging", logging]
+        binary = [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--logging", logging]
     elif test.endswith(".cpp"):
         exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
         binary = [exe]
@@ -112,11 +121,10 @@ def run_test(args, test, options, timeout):
     # start test
     cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
-    ret_test = subprocess.run(cmd, cwd = SCRIPT_DIR, timeout = timeout * 60)
+    ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
     if ret_test.returncode != 0:
-        raise Exception("Test '{}' binary returned non-zero ({})!".format(
-                test, ret_test.returncode))
+        raise Exception("Test '{}' binary returned non-zero ({})!".format(test, ret_test.returncode))
 
     runtime = time.time() - start
     print("    Done after {:.3f} seconds".format(runtime))
@@ -125,39 +133,54 @@ def run_test(args, test, options, timeout):
 
 
 # parse arguments
-parser = argparse.ArgumentParser(description = "Run stress tests on Memgraph.")
-parser.add_argument("--memgraph", default = os.path.join(BUILD_DIR,
-        "memgraph"))
-parser.add_argument("--log-file", default = "")
-parser.add_argument("--data-directory", default = "")
-parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
-        "ve3", "bin", "python3"), type = str)
-parser.add_argument("--large-dataset", action = "store_const",
-        const = True, default = False)
-parser.add_argument("--use-ssl", action = "store_const",
-        const = True, default = False)
-parser.add_argument("--verbose", action = "store_const",
-        const = True, default = False)
+parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
+parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
+parser.add_argument("--log-file", default="")
+parser.add_argument("--data-directory", default="")
+parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
+parser.add_argument("--large-dataset", action="store_const", const=True, default=False)
+parser.add_argument("--use-ssl", action="store_const", const=True, default=False)
+parser.add_argument("--verbose", action="store_const", const=True, default=False)
 args = parser.parse_args()
 
 # generate temporary SSL certs
 if args.use_ssl:
     # https://unix.stackexchange.com/questions/104171/create-ssl-certificate-non-interactively
     subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
-    subprocess.run(["openssl", "req", "-new", "-newkey", "rsa:4096",
-            "-days", "365", "-nodes", "-x509", "-subj", subj,
-            "-keyout", KEY_FILE, "-out", CERT_FILE], check=True)
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-new",
+            "-newkey",
+            "rsa:4096",
+            "-days",
+            "365",
+            "-nodes",
+            "-x509",
+            "-subj",
+            subj,
+            "-keyout",
+            KEY_FILE,
+            "-out",
+            CERT_FILE,
+        ],
+        check=True,
+    )
 
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
-cmd = [args.memgraph, "--bolt-num-workers=" + str(THREADS),
-       "--storage-properties-on-edges=true",
-       "--storage-snapshot-on-exit=true",
-       "--storage-snapshot-interval-sec=600",
-       "--storage-snapshot-retention-count=1",
-       "--storage-wal-enabled=true",
-       "--storage-recover-on-startup=false",
-       "--query-execution-timeout-sec=1200"]
+cmd = [
+    args.memgraph,
+    "--bolt-num-workers=" + str(THREADS),
+    "--storage-properties-on-edges=true",
+    "--storage-snapshot-on-exit=true",
+    "--storage-snapshot-interval-sec=600",
+    "--storage-snapshot-retention-count=1",
+    "--storage-wal-enabled=true",
+    "--storage-recover-on-startup=false",
+    "--query-execution-timeout-sec=1200",
+]
 if not args.verbose:
     cmd += ["--log-level", "WARNING"]
 if args.log_file:
@@ -166,7 +189,7 @@ if args.data_directory:
     cmd += ["--data-directory", args.data_directory]
 if args.use_ssl:
     cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
-proc_mg = subprocess.Popen(cmd, cwd = cwd)
+proc_mg = subprocess.Popen(cmd, cwd=cwd)
 wait_for_server(7687)
 assert proc_mg.poll() is None, "The database binary died prematurely!"
 
@@ -174,9 +197,11 @@ assert proc_mg.poll() is None, "The database binary died prematurely!"
 @atexit.register
 def cleanup():
     global proc_mg
-    if proc_mg.poll() != None: return
+    if proc_mg.poll() != None:
+        return
     proc_mg.kill()
     proc_mg.wait()
+
 
 # run tests
 runtimes = {}
