@@ -902,9 +902,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
     } catch (const memgraph::query::ReplicationException &e) {
-      throw memgraph::communication::bolt::VerboseError(
-          memgraph::communication::bolt::VerboseError::Classification::TRANSIENT_ERROR, "Cluster", "ReplicationFailure",
-          e.what());
+      throw memgraph::communication::bolt::ClientError(e.what());
     }
   }
 
