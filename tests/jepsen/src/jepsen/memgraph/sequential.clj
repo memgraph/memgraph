@@ -2,6 +2,7 @@
   "Sequential test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
+            [clojure.string :as string]
             [jepsen [client :as client]
                     [checker :as checker]
                     [generator :as gen]]
@@ -55,9 +56,11 @@
       :add    (if (= replication-role :main)
                 (try
                   (assoc op :type (if (add-next-node conn) :ok :fail))
-                  (catch Exception e
-                    ; Transaction can fail on serialization errors
-                    (assoc op :type :fail :info (str e))))
+                    (catch Exception e
+                        (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                          (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
+                      )
+                    )
                 (assoc op :type :fail))
       :delete (if (= replication-role :main)
                 (try
@@ -71,8 +74,11 @@
       (c/with-session conn session
         (try
           (c/detach-delete-all session)
-          (catch org.neo4j.driver.exceptions.TransientException e)))))
-          ; Deletion can give exception if a sync replica is down, that's expected
+          (catch Exception e
+                        (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                          (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
+                      )
+          ))))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
