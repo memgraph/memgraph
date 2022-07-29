@@ -19,51 +19,25 @@
 
 #include "common/types.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage {
 
-class SchemaViolationException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
 struct SchemaProperty {
   PropertyId property_id;
   common::SchemaType type;
-};
 
-struct SchemaViolation {
-  enum class ValidationStatus : uint8_t {
-    VERTEX_HAS_NO_PRIMARY_LABEL,
-    VERTEX_HAS_NO_PROPERTY,
-    NO_SCHEMA_DEFINED_FOR_LABEL,
-    VERTEX_PROPERTY_WRONG_TYPE
-  };
-
-  SchemaViolation(ValidationStatus status, LabelId label);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type);
-
-  SchemaViolation(ValidationStatus status, LabelId label, SchemaProperty violated_type,
-                  PropertyValue violated_property_value);
-
-  ValidationStatus status;
-  LabelId label;
-  std::optional<SchemaProperty> violated_type;
-  std::optional<PropertyValue> violated_property_value;
+  friend bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
 };
 
 /// Structure that represents a collection of schemas
 /// Schema can be mapped under only one label => primary label
 class Schemas {
  public:
-  using Schema = std::pair<LabelId, std::vector<SchemaProperty>>;
   using SchemasMap = std::unordered_map<LabelId, std::vector<SchemaProperty>>;
+  using Schema = SchemasMap::value_type;
   using SchemasList = std::vector<Schema>;
 
   Schemas() = default;
@@ -75,7 +49,7 @@ class Schemas {
 
   [[nodiscard]] SchemasList ListSchemas() const;
 
-  [[nodiscard]] std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
+  [[nodiscard]] const Schema *GetSchema(LabelId primary_label) const;
 
   // Returns true if it was successfully created or false if the schema
   // already exists
@@ -84,8 +58,6 @@ class Schemas {
   // Returns true if it was successfully dropped or false if the schema
   // does not exist
   [[nodiscard]] bool DropSchema(LabelId label);
-
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertex(LabelId primary_label, const Vertex &vertex);
 
  private:
   SchemasMap schemas_;

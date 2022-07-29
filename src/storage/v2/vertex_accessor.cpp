@@ -18,6 +18,8 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_validator.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -61,12 +63,13 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config, View view) {
+                                                     Constraints *constraints, Config::Items config,
+                                                     const SchemaValidator &schema_validator, View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, transaction, indices, constraints, config};
+  return VertexAccessor{vertex, transaction, indices, constraints, config, schema_validator};
 }
 
 bool VertexAccessor::IsVisible(View view) const {
@@ -81,6 +84,28 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
+
+  CreateAndLinkDelta(transaction_, vertex_, Delta::RemoveLabelTag(), label);
+
+  vertex_->labels.push_back(label);
+
+  UpdateOnAddLabel(indices_, label, vertex_, *transaction_);
+
+  return true;
+}
+
+storage::ResultSchema<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
+  if (const auto maybe_violation_error = vertex_validator_.ValidateAddLabel(label); maybe_violation_error) {
+    return {*maybe_violation_error};
+  }
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return {Error::SERIALIZATION_ERROR};
+
+  if (vertex_->deleted) return {Error::DELETED_OBJECT};
 
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
@@ -110,6 +135,26 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   return true;
 }
 
+ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
+  if (const auto maybe_violation_error = vertex_validator_.ValidateRemoveLabel(label); maybe_violation_error) {
+    return {*maybe_violation_error};
+  }
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) return {Error::SERIALIZATION_ERROR};
+
+  if (vertex_->deleted) return {Error::DELETED_OBJECT};
+
+  auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
+  if (it == vertex_->labels.end()) return false;
+
+  CreateAndLinkDelta(transaction_, vertex_, Delta::AddLabelTag(), label);
+
+  std::swap(*it, *vertex_->labels.rbegin());
+  vertex_->labels.pop_back();
+  return true;
+}
+
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool exists = true;
   bool deleted = false;
@@ -118,7 +163,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    has_label = std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end();
+    has_label = VertexHasLabel(*vertex_, label);
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &has_label, label](const Delta &delta) {
@@ -156,6 +201,40 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return has_label;
+}
+
+Result<LabelId> VertexAccessor::PrimaryLabel(const View view) const {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return vertex_->primary_label;
 }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -214,6 +293,36 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  auto current_value = vertex_->properties.GetProperty(property);
+  // We could skip setting the value if the previous one is the same to the new
+  // one. This would save some memory as a delta would not be created as well as
+  // avoid copying the value. The reason we are not doing that is because the
+  // current code always follows the logical pattern of "create a delta" and
+  // "modify in-place". Additionally, the created delta will make other
+  // transactions get a SERIALIZATION_ERROR.
+  CreateAndLinkDelta(transaction_, vertex_, Delta::SetPropertyTag(), property, current_value);
+  vertex_->properties.SetProperty(property, value);
+
+  UpdateOnSetProperty(indices_, property, value, vertex_, *transaction_);
+
+  return std::move(current_value);
+}
+
+ResultSchema<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId property, const PropertyValue &value) {
+  if (auto maybe_violation_error = vertex_validator_.ValidatePropertyUpdate(property); maybe_violation_error) {
+    return {*maybe_violation_error};
+  }
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+
+  if (!PrepareForWrite(transaction_, vertex_)) {
+    return {Error::SERIALIZATION_ERROR};
+  }
+
+  if (vertex_->deleted) {
+    return {Error::DELETED_OBJECT};
+  }
 
   auto current_value = vertex_->properties.GetProperty(property);
   // We could skip setting the value if the previous one is the same to the new
@@ -414,7 +523,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   ret.reserve(in_edges.size());
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, from_vertex, vertex_, transaction_, indices_, constraints_, config_,
+                     *vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }
@@ -494,7 +604,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   ret.reserve(out_edges.size());
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, vertex_, to_vertex, transaction_, indices_, constraints_, config_,
+                     *vertex_validator_.schema_validator);
   }
   return std::move(ret);
 }
@@ -573,6 +684,23 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return degree;
+}
+
+VertexAccessor::VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const Vertex *vertex)
+    : schema_validator{&schema_validator}, vertex_{vertex} {}
+
+[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidatePropertyUpdate(
+    PropertyId property_id) const {
+  MG_ASSERT(vertex_ != nullptr, "Cannot validate vertex which is nullptr");
+  return schema_validator->ValidatePropertyUpdate(vertex_->primary_label, property_id);
+};
+
+[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateAddLabel(LabelId label) const {
+  return schema_validator->ValidateLabelUpdate(label);
+}
+
+[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateRemoveLabel(LabelId label) const {
+  return schema_validator->ValidateLabelUpdate(label);
 }
 
 }  // namespace memgraph::storage

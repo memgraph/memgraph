@@ -34,6 +34,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_validator.hpp"
 #include "storage/v2/schemas.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -72,6 +73,7 @@ class AllVerticesIterable final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  const SchemaValidator *schema_validator_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -92,13 +94,15 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
+                      Indices *indices, Constraints *constraints, Config::Items config,
+                      SchemaValidator *schema_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
-        config_(config) {}
+        config_(config),
+        schema_validator_(schema_validator) {}
 
   Iterator begin() { return Iterator(this, vertices_accessor_.begin()); }
   Iterator end() { return Iterator(this, vertices_accessor_.end()); }
@@ -220,15 +224,21 @@ class Storage final {
 
     ~Accessor();
 
-    /// @throw std::bad_alloc
     VertexAccessor CreateVertex();
+
+    VertexAccessor CreateVertex(storage::Gid gid);
+
+    /// @throw std::bad_alloc
+    ResultSchema<VertexAccessor> CreateVertexAndValidate(
+        storage::LabelId primary_label, const std::vector<storage::LabelId> &labels,
+        const std::vector<std::pair<storage::PropertyId, storage::PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_.items,
+                                                  &storage_->schema_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -317,6 +327,8 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
+    const SchemaValidator &GetSchemaValidator() const;
+
     SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
 
     void AdvanceCommand();
@@ -334,7 +346,7 @@ class Storage final {
 
    private:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(storage::Gid gid);
+    VertexAccessor CreateVertex(storage::Gid gid, storage::LabelId primary_label);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
@@ -417,7 +429,7 @@ class Storage final {
 
   SchemasInfo ListAllSchemas() const;
 
-  std::optional<Schemas::Schema> GetSchema(LabelId primary_label) const;
+  const Schemas::Schema *GetSchema(LabelId primary_label) const;
 
   bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
 
@@ -524,6 +536,7 @@ class Storage final {
 
   NameIdMapper name_id_mapper_;
 
+  SchemaValidator schema_validator_;
   Constraints constraints_;
   Indices indices_;
   Schemas schemas_;
