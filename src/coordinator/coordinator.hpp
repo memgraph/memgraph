@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "coordinator/shard_map.hpp"
 #include "io/simulator/simulator.hpp"
+#include "io/time.hpp"
 #include "io/transport.hpp"
 
 namespace memgraph::coordinator {
@@ -22,7 +24,7 @@ using Io = memgraph::io::Io;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 
 struct SplitShardRequest {
-  uint64_t previous_shard_map_version;
+  Hlc previous_shard_map_version;
   Label label;
   CompoundKey split_key;
 };
@@ -47,6 +49,15 @@ struct DeregisterStorageEngineResponse {
   bool success;
 };
 
+struct HlcRequest {
+  Hlc last_shard_map_version;
+};
+
+struct HlcResponse {
+  Hlc new_hlc;
+  std::optional<ShardMap> fresher_shard_map;
+};
+
 class Coordinator {
   ShardMap shard_map_;
   Io<SimT> io_;
@@ -64,7 +75,8 @@ class Coordinator {
   void Run() {
     while (!io_.ShouldShutDown()) {
       std::cout << "[Coordinator] Is receiving..." << std::endl;
-      auto request_result = io_.ReceiveWithTimeout<SplitShardRequest, RegisterStorageEngineRequest>(100000);
+      auto request_result =
+          io_.Receive<SplitShardRequest, RegisterStorageEngineRequest, DeregisterStorageEngineRequest, HlcRequest>();
       if (request_result.HasError()) {
         std::cout << "[Coordinator] Error, continue" << std::endl;
         continue;

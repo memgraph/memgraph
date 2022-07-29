@@ -14,6 +14,7 @@
 #include <map>
 #include <vector>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
 
 namespace memgraph::coordinator {
@@ -39,7 +40,7 @@ using Shards = std::map<CompoundKey, Shard>;
 using Label = std::string;
 
 struct ShardMap {
-  uint64_t shard_map_version;
+  Hlc shard_map_version;
   std::map<Label, Shards> shards;
 
  public:
