@@ -38,6 +38,9 @@
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <cppitertools/filter.hpp>
+#include <cppitertools/imap.hpp>
+
 // This file contains implementation of top level C API functions, but this is
 // all actually part of memgraph::query::procedure. So use that namespace for simplicity.
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -1869,23 +1872,33 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         if (v->graph->subgraph) {
           spdlog::info("works here");
           auto edges = v->graph->subgraph->OutEdges(v->impl);
-          std::vector<mgp_edge> edges_;
-          edges_.reserve(edges.size());
 
-          for (auto it = edges.begin(); it != edges.end(); ++it) {
-            edges_.emplace_back(mgp_edge(*it, v->graph, memory->impl));
+          auto maybe_edges = v->impl.OutEdgesFiltered(v->graph->view);
+
+          std::vector<memgraph::storage::EdgeAccessor> filtered_edges;
+
+          for (auto it = maybe_edges->begin(); it != maybe_edges->end(); ++it) {
+            for (auto it2 = edges.begin(); it2 != edges.end(); ++it2) {
+              if (it->FromVertex() == it2->impl_.FromVertex() && it->ToVertex() == it2->impl_.ToVertex()) {
+                filtered_edges.push_back(*it);
+                break;
+              }
+            }
+          }
+          auto filtered_edges_final =
+              iter::imap(memgraph::query::VertexAccessor::MakeEdgeAccessor, std::move(filtered_edges));
+
+          it->out.emplace(std::move(filtered_edges_final));
+          it->out_it.emplace(it->out->begin());
+          if (*it->out_it != it->out->end()) {
+            it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
           }
 
-          // it->out.emplace(std::move(edges_));
-          // it->out_it.emplace(it->out->begin());
-          // if (*it->out_it != it->out->end()) {
-          //   it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
-          // }
-
-          // return it.release();
+          return it.release();
         }
 
         auto maybe_edges = v->impl.OutEdges(v->graph->view);
+
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -1900,6 +1913,17 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
               LOG_FATAL("Unexpected error when getting the outbound edges of a vertex.");
           }
         }
+
+        // std::optional<std::remove_reference_t<decltype(v->impl.InEdges(v->graph->view))>> out_1;
+        // storage::Result<decltype(iter::imap(MakeEdgeAccessor, v->impl->impl_.OutEdges(view)))> filtered_edges;
+
+        // for (auto it = maybe_edges->begin(); it != maybe_edges->end(); ++it) {
+        //   if (it->To()==v->impl){
+        //     continue;
+        //   }
+
+        // }
+
         it->out.emplace(std::move(*maybe_edges));
         it->out_it.emplace(it->out->begin());
         if (*it->out_it != it->out->end()) {

@@ -146,6 +146,10 @@ class VertexAccessor final {
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
+  storage::Result<std::vector<storage::EdgeAccessor>> OutEdgesFiltered(storage::View view) const {
+    return impl_.OutEdges(view, {});
+  }
+
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     auto maybe_edges = impl_.OutEdges(view, edge_types);
