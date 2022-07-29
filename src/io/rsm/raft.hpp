@@ -229,7 +229,7 @@ class Raft {
   }
 
   Duration RandomTimeout(Duration min, Duration max) {
-    std::uniform_int_distribution<> time_distrib(min, max);
+    std::uniform_int_distribution time_distrib(min, max);
     return io_.Rand(time_distrib);
   }
 
