@@ -18,9 +18,8 @@
 #include <thread>
 #include <utility>
 
-#include "utils/logging.hpp"
-
 #include "io/errors.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::io {
 
@@ -36,7 +35,7 @@ class Shared {
   std::optional<T> item_;
   bool consumed_ = false;
   bool waiting_ = false;
-  std::optional<std::function<bool()>> simulator_notifier_;
+  std::function<bool()> simulator_notifier_ = nullptr;
 
  public:
   explicit Shared(std::function<bool()> simulator_notifier) : simulator_notifier_(simulator_notifier) {}
@@ -47,13 +46,27 @@ class Shared {
   Shared &operator=(const Shared &) = delete;
   ~Shared() = default;
 
+  /// Takes the item out of our optional item_ and returns it.
+  /// Requires caller holds mutex, proving it by passing reference.
+  T Take(std::unique_lock<std::mutex> &) {
+    MG_ASSERT(item_, "Take called without item_ being present");
+    MG_ASSERT(!consumed_, "Take called on already-consumed Future");
+
+    T ret = std::move(item_).value();
+    item_.reset();
+
+    consumed_ = true;
+
+    return ret;
+  }
+
   T Wait() {
     std::unique_lock<std::mutex> lock(mu_);
     waiting_ = true;
 
     while (!item_) {
       bool simulator_progressed = false;
-      if (simulator_notifier_) {
+      if (simulator_notifier_) [[unlikely]] {
         // We can't hold our own lock while notifying
         // the simulator because notifying the simulator
         // involves acquiring the simulator's mutex
@@ -65,7 +78,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        simulator_progressed = (*simulator_notifier_)();
+        simulator_progressed = (simulator_notifier_)();
         lock.lock();
         if (item_) {
           // item may have been filled while we
@@ -80,13 +93,9 @@ class Shared {
       MG_ASSERT(!consumed_, "Future consumed twice!");
     }
 
-    T ret = std::move(item_).value();
-    item_.reset();
-
     waiting_ = false;
-    consumed_ = true;
 
-    return ret;
+    return Take(lock);
   }
 
   bool IsReady() {
@@ -98,13 +107,7 @@ class Shared {
     std::unique_lock<std::mutex> lock(mu_);
 
     if (item_) {
-      T ret = std::move(item_).value();
-      item_.reset();
-
-      waiting_ = false;
-      consumed_ = true;
-
-      return ret;
+      return Take(lock);
     } else {
       return std::nullopt;
     }
@@ -140,16 +143,18 @@ class Future {
 
   Future() = delete;
   Future(Future &&old) {
+    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
-    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     old.consumed_or_moved_ = true;
   }
+
   Future &operator=(Future &&old) {
-    shared_ = std::move(old.shared_);
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
+    shared_ = std::move(old.shared_);
     old.consumed_or_moved_ = true;
   }
+
   Future(const Future &) = delete;
   Future &operator=(const Future &) = delete;
   ~Future() = default;
@@ -177,7 +182,7 @@ class Future {
 
   /// Block on the corresponding promise to be filled,
   /// returning the inner item when ready.
-  T Wait() {
+  T Wait() && {
     MG_ASSERT(!consumed_or_moved_, "Future should only be consumed with Wait once!");
     T ret = shared_->Wait();
     consumed_or_moved_ = true;
@@ -201,13 +206,14 @@ class Promise {
 
   Promise() = delete;
   Promise(Promise &&old) {
-    shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
+    shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
+
   Promise &operator=(Promise &&old) {
-    shared_ = std::move(old.shared_);
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
+    shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
   Promise(const Promise &) = delete;

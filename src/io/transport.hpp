@@ -11,15 +11,16 @@
 
 #pragma once
 
+#include <chrono>
 #include <concepts>
 #include <random>
 #include <variant>
 
-#include "utils/result.hpp"
-
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/future.hpp"
+#include "io/time.hpp"
+#include "utils/result.hpp"
 
 using memgraph::utils::BasicResult;
 
@@ -61,46 +62,43 @@ class Io {
   I implementation_;
   Address address_;
   uint64_t request_id_counter_ = 0;
-  uint64_t default_timeout_microseconds_ = 50 * 1000;
+  Duration default_timeout_ = std::chrono::microseconds{50000};
 
  public:
   Io(I io, Address address) : implementation_(io), address_(address) {}
 
   /// Set the default timeout for all requests that are issued
   /// without an explicit timeout set.
-  void SetDefaultTimeoutMicroseconds(uint64_t timeout_microseconds) {
-    default_timeout_microseconds_ = timeout_microseconds;
-  }
+  void SetDefaultTimeout(Duration timeout) { default_timeout_ = timeout; }
 
   /// Issue a request with an explicit timeout in microseconds provided.
   template <Message Request, Message Response>
-  ResponseFuture<Response> RequestWithTimeout(Address address, Request request, uint64_t timeout_microseconds) {
+  ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {
     uint64_t request_id = ++request_id_counter_;
-    return implementation_.template Request<Request, Response>(address, request_id, request, timeout_microseconds);
+    return implementation_.template Request<Request, Response>(address, request_id, request, timeout);
   }
 
   /// Issue a request that times out after the default timeout.
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, Request request) {
     uint64_t request_id = ++request_id_counter_;
-    uint64_t timeout_microseconds = default_timeout_microseconds_;
-    return implementation_.template Request<Request, Response>(address, request_id, std::move(request),
-                                                               timeout_microseconds);
+    Duration timeout = default_timeout_;
+    return implementation_.template Request<Request, Response>(address, request_id, std::move(request), timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
   /// provided types to arrive.
   template <Message... Ms>
-  RequestResult<Ms...> ReceiveWithTimeout(uint64_t timeout_microseconds) {
-    return implementation_.template Receive<Ms...>(timeout_microseconds);
+  RequestResult<Ms...> ReceiveWithTimeout(Duration timeout) {
+    return implementation_.template Receive<Ms...>(timeout);
   }
 
   /// Wait the default number of microseconds for a request of one of the
   /// provided types to arrive.
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
-    uint64_t timeout_microseconds = default_timeout_microseconds_;
-    return implementation_.template Receive<Ms...>(timeout_microseconds);
+    Duration timeout = default_timeout_;
+    return implementation_.template Receive<Ms...>(timeout);
   }
 
   /// Send a message in a best-effort fashion. If you need reliable delivery,
@@ -114,7 +112,7 @@ class Io {
   /// This time source should be preferred over any other, because it
   /// lets us deterministically control clocks from tests for making
   /// things like timeouts deterministic.
-  uint64_t Now() { return implementation_.Now(); }
+  Time Now() { return implementation_.Now(); }
 
   /// Returns true of the system should shut-down.
   bool ShouldShutDown() { return implementation_.ShouldShutDown(); }

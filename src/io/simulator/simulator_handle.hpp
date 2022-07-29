@@ -27,9 +27,14 @@
 #include "io/errors.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_stats.hpp"
+#include "io/time.hpp"
 #include "io/transport.hpp"
 
 namespace memgraph::io::simulator {
+
+using memgraph::io::Duration;
+using memgraph::io::Time;
+
 struct OpaqueMessage {
   Address from_address;
   uint64_t request_id;
@@ -195,7 +200,7 @@ class OpaquePromise {
 };
 
 struct DeadlineAndOpaquePromise {
-  uint64_t deadline;
+  Time deadline;
   OpaquePromise promise;
 };
 
@@ -206,13 +211,13 @@ class SimulatorHandle {
   // messages that have not yet been scheduled or dropped
   std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
 
-  // the responsese to requests that are being waited on
+  // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
 
   // messages that are sent to servers that may later receive them
   std::map<Address, std::vector<OpaqueMessage>> can_receive_;
 
-  uint64_t cluster_wide_time_microseconds_;
+  Time cluster_wide_time_microseconds_;
   bool should_shut_down_ = false;
   SimulatorStats stats_;
   size_t blocked_on_receive_ = 0;
@@ -250,7 +255,7 @@ class SimulatorHandle {
   }
 
   void TimeoutPromisesPastDeadline() {
-    uint64_t now = cluster_wide_time_microseconds_;
+    const Time now = cluster_wide_time_microseconds_;
 
     for (auto &[promise_key, dop] : promises_) {
       // TODO(tyler) queue this up and drop it after its deadline
@@ -298,7 +303,7 @@ class SimulatorHandle {
       // We tick the clock forward when all servers are blocked but
       // there are no in-flight messages to schedule delivery of.
       std::poisson_distribution<> time_distrib(50);
-      uint64_t clock_advance = time_distrib(rng_);
+      Duration clock_advance = std::chrono::microseconds{time_distrib(rng_)};
       cluster_wide_time_microseconds_ += clock_advance;
 
       MG_ASSERT(cluster_wide_time_microseconds_ < config_.abort_time,
@@ -334,7 +339,7 @@ class SimulatorHandle {
       DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
       promises_.erase(promise_key);
 
-      bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
+      const bool normal_timeout = config_.perform_timeouts && (dop.deadline < cluster_wide_time_microseconds_);
 
       if (should_drop || normal_timeout) {
         stats_.timed_out_requests++;
@@ -366,11 +371,11 @@ class SimulatorHandle {
   }
 
   template <Message Request, Message Response>
-  void SubmitRequest(Address to_address, Address from_address, uint64_t request_id, Request &&request,
-                     uint64_t timeout_microseconds, ResponsePromise<Response> &&promise) {
+  void SubmitRequest(Address to_address, Address from_address, uint64_t request_id, Request &&request, Duration timeout,
+                     ResponsePromise<Response> &&promise) {
     std::unique_lock<std::mutex> lock(mu_);
 
-    uint64_t deadline = cluster_wide_time_microseconds_ + timeout_microseconds;
+    const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     std::any message(std::move(request));
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message)};
@@ -390,10 +395,12 @@ class SimulatorHandle {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, uint64_t timeout_microseconds) {
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     std::unique_lock<std::mutex> lock(mu_);
 
-    uint64_t deadline = cluster_wide_time_microseconds_ + timeout_microseconds;
+    blocked_on_receive_ += 1;
+
+    const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
       if (can_receive_.contains(receiver)) {
@@ -405,19 +412,22 @@ class SimulatorHandle {
           // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
           auto m_opt = message.Take<Ms...>();
+
+          blocked_on_receive_ -= 1;
+
           return std::move(m_opt).value();
         }
       }
 
-      blocked_on_receive_ += 1;
       lock.unlock();
       bool made_progress = MaybeTickSimulator();
       lock.lock();
       if (!should_shut_down_ && !made_progress) {
         cv_.wait(lock);
       }
-      blocked_on_receive_ -= 1;
     }
+
+    blocked_on_receive_ -= 1;
 
     return TimedOut{};
   }
@@ -434,7 +444,7 @@ class SimulatorHandle {
     cv_.notify_all();
   }
 
-  uint64_t Now() {
+  Time Now() {
     std::unique_lock<std::mutex> lock(mu_);
     return cluster_wide_time_microseconds_;
   }

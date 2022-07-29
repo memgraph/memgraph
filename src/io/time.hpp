@@ -13,18 +13,9 @@
 
 #include <chrono>
 
-#include "io/time.hpp"
+namespace memgraph::io {
 
-namespace memgraph::io::simulator {
+using Duration = std::chrono::duration<int64_t, std::ratio<1, 1000000>>;
+using Time = std::chrono::time_point<std::chrono::local_t, Duration>;
 
-using memgraph::io::Time;
-
-struct SimulatorConfig {
-  uint8_t drop_percent = 0;
-  bool perform_timeouts = false;
-  bool scramble_messages = true;
-  uint64_t rng_seed = 0;
-  Time start_time = Time::min();
-  Time abort_time = Time::max();
-};
-};  // namespace memgraph::io::simulator
+}  // namespace memgraph::io
