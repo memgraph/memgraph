@@ -236,10 +236,10 @@ class Raft {
   Term PreviousTermFromIndex(LogIndex index) {
     if (index == 0 || state_.log.size() + 1 <= index) {
       return 0;
-    } else {
-      auto &[term, data] = state_.log.at(index - 1);
-      return term;
     }
+
+    auto &[term, data] = state_.log.at(index - 1);
+    return term;
   }
 
   LogIndex CommittedLogIndex() { return state_.committed_log_size; }
@@ -248,10 +248,10 @@ class Raft {
     MG_ASSERT(state_.log.size() >= state_.committed_log_size);
     if (state_.log.empty() || state_.committed_log_size == 0) {
       return 0;
-    } else {
-      auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
-      return term;
     }
+
+    auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
+    return term;
   }
 
   LogIndex LastLogIndex() { return state_.log.size(); }
@@ -259,10 +259,10 @@ class Raft {
   Term LastLogTerm() {
     if (state_.log.empty()) {
       return 0;
-    } else {
-      auto &[term, data] = state_.log.back();
-      return term;
     }
+
+    auto &[term, data] = state_.log.back();
+    return term;
   }
 
   /// Periodic protocol maintenance.
@@ -323,9 +323,9 @@ class Raft {
     if (time_since_last_append_entries > election_timeout) {
       // become a Candidate if we haven't heard from the Leader after this timeout
       return Candidate{};
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 
   // Leaders (re)send AppendRequest to followers.
@@ -400,9 +400,9 @@ class Raft {
       Log("received a vote from an inferior candidate. Becoming Candidate");
       state_.term = std::max(state_.term, req.term) + 1;
       return Candidate{};
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 
   std::optional<Role> Handle(Candidate &candidate, VoteResponse &&res, RequestId, Address from_address) {
