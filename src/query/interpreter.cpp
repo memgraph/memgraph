@@ -1415,7 +1415,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   "on properties {}.",
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
-                  auto data_definition_error = arg;
+                  auto &data_definition_error = arg;
                   MG_ASSERT(storage::IndexDefinitionError::NONEXISTANT_INDEX == data_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::NONEXISTANT_INDEX;
@@ -1964,7 +1964,6 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
-                      auto label_name = interpreter_context->db->LabelToName(violation.label);
                       MG_ASSERT(violation.properties.size() == 1U);
                       auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
                       throw QueryRuntimeException(
@@ -1972,7 +1971,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "existing node violates it.",
                           label_name, property_name);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
-                      auto data_definition_error = arg;
+                      auto &data_definition_error = arg;
                       MG_ASSERT(storage::ConstraintDefinitionError::EXISTANT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
@@ -2082,7 +2081,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                   [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
-                      auto data_definition_error = arg;
+                      auto &data_definition_error = arg;
                       MG_ASSERT(storage::ConstraintDefinitionError::NONEXISTANT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
@@ -2370,7 +2369,7 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     auto maybe_commit_error = db_accessor.Commit();
     if (maybe_commit_error.HasError()) {
       const auto &storage_error = maybe_commit_error.GetError();
-      const auto error = storage_error.error;
+      const auto &error = storage_error.error;
 
       std::visit(
           [&trigger, &db_accessor, &trigger_replicated_all_sync_replicas]<typename T>(T &&arg) {
@@ -2464,16 +2463,15 @@ void Interpreter::Commit() {
             commit_confirmed_by_all_sync_repplicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
+            auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
             switch (constraint_violation.type) {
               case storage::ConstraintViolation::Type::EXISTENCE: {
-                auto label_name = execution_db_accessor->LabelToName(constraint_violation.label);
                 MG_ASSERT(constraint_violation.properties.size() == 1U);
-                auto property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
                 throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
                                      property_name);
               }
               case storage::ConstraintViolation::Type::UNIQUE: {
-                auto label_name = execution_db_accessor->LabelToName(constraint_violation.label);
                 std::stringstream property_names_stream;
                 utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
                                      [&execution_db_accessor](auto &stream, const auto &prop) {
