@@ -146,8 +146,8 @@ class Raft {
     Time last_cron = io_.Now();
 
     while (!io_.ShouldShutDown()) {
-      auto now = io_.Now();
-      Duration random_cron_interval = RandomTimeout(1000, 2000);
+      const auto now = io_.Now();
+      const Duration random_cron_interval = RandomTimeout(1000, 2000);
       if (now - last_cron > random_cron_interval) {
         Cron();
         last_cron = now;
@@ -183,7 +183,7 @@ class Raft {
     Log("committed_log_size is now ", state_.committed_log_size);
 
     while (!leader.pending_client_requests.empty()) {
-      auto &front = leader.pending_client_requests.front();
+      const auto &front = leader.pending_client_requests.front();
       if (front.log_index <= state_.committed_log_size) {
         Log("responding SUCCESS to client");
         ReplicationResponse rr{
@@ -200,7 +200,7 @@ class Raft {
 
   void BroadcastAppendEntries(std::map<Address, FollowerTracker> &followers) {
     for (auto &[address, follower] : followers) {
-      LogIndex index = follower.confirmed_contiguous_index;
+      const LogIndex index = follower.confirmed_contiguous_index;
 
       std::vector<std::pair<Term, Op>> entries;
 
@@ -208,7 +208,7 @@ class Raft {
         entries.insert(entries.begin(), state_.log.begin() + index, state_.log.end());
       }
 
-      Term previous_term_from_index = PreviousTermFromIndex(index);
+      const Term previous_term_from_index = PreviousTermFromIndex(index);
 
       Log("sending ", entries.size(), " entries to Follower ", address.last_known_port,
           " which are above its known index of ", index);
@@ -222,7 +222,7 @@ class Raft {
       };
 
       // request_id not necessary to set because it's not a Future-backed Request.
-      RequestId request_id = 0;
+      const RequestId request_id = 0;
 
       io_.Send(address, request_id, ar);
     }
@@ -280,15 +280,15 @@ class Raft {
   // 2. receiving Vote with a higher term (become a Follower)
   // 3. receiving a quorum of responses to our last batch of Vote (become a Leader)
   std::optional<Role> Cron(Candidate &candidate) {
-    auto now = io_.Now();
-    Duration election_timeout = RandomTimeout(100000, 200000);
+    const auto now = io_.Now();
+    const Duration election_timeout = RandomTimeout(100000, 200000);
 
     if (now - candidate.election_began > election_timeout) {
       state_.term++;
       Log("becoming Candidate for term ", state_.term, " after leader timeout of ", election_timeout,
           " elapsed since last election attempt");
 
-      VoteRequest request{
+      const VoteRequest request{
           .term = state_.term,
           .last_log_index = LastLogIndex(),
           .last_log_term = LastLogTerm(),
@@ -315,8 +315,8 @@ class Raft {
   // Followers become candidates if we haven't heard from the leader
   // after a randomized timeout.
   std::optional<Role> Cron(Follower &follower) {
-    auto now = io_.Now();
-    auto time_since_last_append_entries = now - follower.last_received_append_entries_timestamp;
+    const auto now = io_.Now();
+    const auto time_since_last_append_entries = now - follower.last_received_append_entries_timestamp;
     Duration election_timeout = RandomTimeout(100000, 200000);
 
     // randomized follower timeout with a range of 100-150ms.
@@ -330,8 +330,8 @@ class Raft {
 
   // Leaders (re)send AppendRequest to followers.
   std::optional<Role> Cron(Leader &leader) {
-    Time now = io_.Now();
-    Duration broadcast_timeout = RandomTimeout(40000, 60000);
+    const Time now = io_.Now();
+    const Duration broadcast_timeout = RandomTimeout(40000, 60000);
 
     if (now - leader.last_broadcast > broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
@@ -371,17 +371,17 @@ class Raft {
   template <typename AllRoles>
   std::optional<Role> Handle(AllRoles &, VoteRequest &&req, RequestId request_id, Address from_address) {
     Log("received Vote from ", from_address.last_known_port, " with term ", req.term);
-    bool last_log_term_dominates = req.last_log_term >= LastLogTerm();
-    bool term_dominates = req.term > state_.term;
-    bool last_log_index_dominates = req.last_log_index >= LastLogIndex();
-    bool new_leader = last_log_term_dominates && term_dominates && last_log_index_dominates;
+    const bool last_log_term_dominates = req.last_log_term >= LastLogTerm();
+    const bool term_dominates = req.term > state_.term;
+    const bool last_log_index_dominates = req.last_log_index >= LastLogIndex();
+    const bool new_leader = last_log_term_dominates && term_dominates && last_log_index_dominates;
 
     if (new_leader) {
       MG_ASSERT(req.term > state_.term);
       MG_ASSERT(std::max(req.term, state_.term) == req.term);
     }
 
-    VoteResponse res{
+    const VoteResponse res{
         .term = std::max(req.term, state_.term),
         .committed_log_size = state_.committed_log_size,
         .vote_granted = new_leader,
@@ -618,8 +618,8 @@ class Raft {
 
   template <typename... Ts>
   void Log(Ts &&...args) {
-    Time now = io_.Now();
-    Term term = state_.term;
+    const Time now = io_.Now();
+    const Term term = state_.term;
 
     std::cout << '\t' << now << "\t" << term << "\t" << io_.GetAddress().last_known_port;
 
