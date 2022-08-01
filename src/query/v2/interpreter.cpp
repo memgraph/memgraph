@@ -914,7 +914,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
         const auto label = db->NameToLabel(primary_label.name);
-        const auto schema = db->GetSchema(label);
+        const auto *schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
           for (const auto &schema_property : schema->second) {

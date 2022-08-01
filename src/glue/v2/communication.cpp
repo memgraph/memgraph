@@ -155,7 +155,7 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::Edg
   auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
   auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
-  auto type = db.EdgeTypeToName(edge.EdgeType());
+  const auto &type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
   std::map<std::string, Value> properties;
@@ -187,7 +187,7 @@ storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::Path 
 storage::v3::PropertyValue ToPropertyValue(const Value &value) {
   switch (value.type()) {
     case Value::Type::Null:
-      return storage::v3::PropertyValue();
+      return {};
     case Value::Type::Bool:
       return storage::v3::PropertyValue(value.ValueBool());
     case Value::Type::Int:
@@ -230,16 +230,16 @@ storage::v3::PropertyValue ToPropertyValue(const Value &value) {
 Value ToBoltValue(const storage::v3::PropertyValue &value) {
   switch (value.type()) {
     case storage::v3::PropertyValue::Type::Null:
-      return Value();
+      return {};
     case storage::v3::PropertyValue::Type::Bool:
-      return Value(value.ValueBool());
+      return {value.ValueBool()};
     case storage::v3::PropertyValue::Type::Int:
-      return Value(value.ValueInt());
+      return {value.ValueInt()};
       break;
     case storage::v3::PropertyValue::Type::Double:
-      return Value(value.ValueDouble());
+      return {value.ValueDouble()};
     case storage::v3::PropertyValue::Type::String:
-      return Value(value.ValueString());
+      return {value.ValueString()};
     case storage::v3::PropertyValue::Type::List: {
       const auto &values = value.ValueList();
       std::vector<Value> vec;
@@ -247,7 +247,7 @@ Value ToBoltValue(const storage::v3::PropertyValue &value) {
       for (const auto &v : values) {
         vec.push_back(ToBoltValue(v));
       }
-      return Value(std::move(vec));
+      return {std::move(vec)};
     }
     case storage::v3::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
@@ -255,19 +255,19 @@ Value ToBoltValue(const storage::v3::PropertyValue &value) {
       for (const auto &kv : map) {
         dv_map.emplace(kv.first, ToBoltValue(kv.second));
       }
-      return Value(std::move(dv_map));
+      return {std::move(dv_map)};
     }
     case storage::v3::PropertyValue::Type::TemporalData:
       const auto &type = value.ValueTemporalData();
       switch (type.type) {
         case storage::v3::TemporalType::Date:
-          return Value(utils::Date(type.microseconds));
+          return {utils::Date(type.microseconds)};
         case storage::v3::TemporalType::LocalTime:
-          return Value(utils::LocalTime(type.microseconds));
+          return {utils::LocalTime(type.microseconds)};
         case storage::v3::TemporalType::LocalDateTime:
-          return Value(utils::LocalDateTime(type.microseconds));
+          return {utils::LocalDateTime(type.microseconds)};
         case storage::v3::TemporalType::Duration:
-          return Value(utils::Duration(type.microseconds));
+          return {utils::Duration(type.microseconds)};
       }
   }
 }

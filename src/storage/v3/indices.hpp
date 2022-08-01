@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -119,7 +120,7 @@ class LabelIndex {
   int64_t ApproximateVertexCount(LabelId label) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return it->second.size();
+    return static_cast<int64_t>(it->second.size());
   }
 
   void Clear() { index_.clear(); }
@@ -229,7 +230,7 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return it->second.size();
+    return static_cast<int64_t>(it->second.size());
   }
 
   /// Supplying a specific value into the count estimation function will return

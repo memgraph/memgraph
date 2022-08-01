@@ -368,13 +368,12 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
-  } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
-    }
-    return created_vertex;
   }
+  auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+  if (context.trigger_context_collector) {
+    context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+  }
+  return created_vertex;
 }
 
 template <class TVerticesFun>
