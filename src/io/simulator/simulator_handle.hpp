@@ -38,12 +38,18 @@ using memgraph::io::Time;
 struct PromiseKey {
   Address requester_address;
   uint64_t request_id;
+  // TODO(tyler) possibly remove replier_address from promise key
+  // once we want to support DSR.
   Address replier_address;
 
  public:
   bool operator<(const PromiseKey &other) const {
     if (requester_address == other.requester_address) {
-      return request_id < other.request_id;
+      if (request_id == other.request_id) {
+        return replier_address < other.replier_address;
+      } else {
+        return request_id < other.request_id;
+      }
     } else {
       return requester_address < other.requester_address;
     }
