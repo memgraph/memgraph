@@ -26,7 +26,7 @@ using memgraph::io::Time;
 class SimulatorTransport {
   std::shared_ptr<SimulatorHandle> simulator_handle_;
   const Address address_;
-  std::mt19937 rng_{};
+  std::mt19937 rng_;
 
  public:
   SimulatorTransport(std::shared_ptr<SimulatorHandle> simulator_handle, Address address, uint64_t seed)

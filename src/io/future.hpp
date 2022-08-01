@@ -47,8 +47,7 @@ class Shared {
   ~Shared() = default;
 
   /// Takes the item out of our optional item_ and returns it.
-  /// Requires caller holds mutex, proving it by passing reference.
-  T Take(std::unique_lock<std::mutex> &) {
+  T Take() {
     MG_ASSERT(item_, "Take called without item_ being present");
     MG_ASSERT(!consumed_, "Take called on already-consumed Future");
 
@@ -95,7 +94,7 @@ class Shared {
 
     waiting_ = false;
 
-    return Take(lock);
+    return Take();
   }
 
   bool IsReady() {
@@ -107,7 +106,7 @@ class Shared {
     std::unique_lock<std::mutex> lock(mu_);
 
     if (item_) {
-      return Take(lock);
+      return Take();
     }
 
     return std::nullopt;
