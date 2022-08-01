@@ -192,11 +192,6 @@ TEST_F(TestPrivilegeExtractor, ShowVersion) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
 }
 
-TEST_F(TestPrivilegeExtractor, SchemaQuery) {
-  auto *query = storage.Create<SchemaQuery>();
-  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::SCHEMA));
-}
-
 TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {
   {
     auto *query = QUERY(SINGLE_QUERY(CALL_PROCEDURE("mg.get_module_files")));

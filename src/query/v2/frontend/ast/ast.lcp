@@ -1411,7 +1411,7 @@ cpp<#
                    :slk-load (slk-load-ast-pointer "Expression")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize (:slk :load-args '((storage "query::AstStorage *"))))
+      (:serialize (:slk :load-args '((storage "query::v2::AstStorage *"))))
       (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
