@@ -73,7 +73,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     throw ClientFatalException("Handshake with the server failed!");
   }
 
-  spdlog::info("Metadata of init message response: {}", metadata);
+  spdlog::debug("Metadata of init message response: {}", metadata);
 }
 
 QueryData Client::Execute(const std::string &query, const std::map<std::string, Value> &parameters) {
@@ -81,11 +81,11 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  spdlog::info("Sending run message with statement: '{}'; parameters: {}", query, parameters);
+  spdlog::debug("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
   encoder_.MessageRun(query, parameters, {});
 
-  spdlog::info("Reading run message response");
+  spdlog::debug("Reading run message response");
   Signature signature{};
   Value fields;
   if (!ReadMessage(signature, fields)) {
@@ -103,7 +103,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   }
 
   encoder_.MessagePull({});
-  spdlog::info("Reading pull_all message response");
+  spdlog::debug("Reading pull_all message response");
   Marker marker{};
   Value metadata;
   std::vector<std::vector<Value>> records;
@@ -166,7 +166,7 @@ void Client::Reset() {
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  spdlog::info("Sending reset message");
+  spdlog::debug("Sending reset message");
 
   encoder_.MessageReset();
 
@@ -185,12 +185,12 @@ std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::st
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
 
-  spdlog::info("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
-               db.has_value() ? *db : Value());
+  spdlog::debug("Sending route message with routing: {}; bookmarks: {}; db: {}", routing, bookmarks,
+                db.has_value() ? *db : Value());
 
   encoder_.MessageRoute(routing, bookmarks, db);
 
-  spdlog::info("Reading route message response");
+  spdlog::debug("Reading route message response");
   Signature signature{};
   Value fields;
   if (!ReadMessage(signature, fields)) {
