@@ -22,23 +22,6 @@ namespace memgraph::io::simulator {
 using memgraph::io::Duration;
 using memgraph::io::Time;
 
-void SimulatorHandle::TimeoutPromisesPastDeadline() {
-  const Time now = cluster_wide_time_microseconds_;
-
-  for (auto &[promise_key, dop] : promises_) {
-    if (dop.deadline < now) {
-      spdlog::debug("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
-                    promise_key.replier_address.ToString());
-      DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
-      promises_.erase(promise_key);
-
-      stats_.timed_out_requests++;
-
-      dop.promise.TimeOut();
-    }
-  }
-}
-
 void SimulatorHandle::ShutDown() {
   std::unique_lock<std::mutex> lock(mu_);
   should_shut_down_ = true;

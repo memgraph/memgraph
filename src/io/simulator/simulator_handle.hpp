@@ -77,13 +77,28 @@ class SimulatorHandle {
   std::mt19937 rng_;
   SimulatorConfig config_;
 
+  void TimeoutPromisesPastDeadline() {
+    const Time now = cluster_wide_time_microseconds_;
+
+    for (auto &[promise_key, dop] : promises_) {
+      if (dop.deadline < now) {
+        spdlog::debug("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
+                      promise_key.replier_address.ToString());
+        DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
+        promises_.erase(promise_key);
+
+        stats_.timed_out_requests++;
+
+        dop.promise.TimeOut();
+      }
+    }
+  }
+
  public:
   explicit SimulatorHandle(SimulatorConfig config)
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
   void IncrementServerCountAndWaitForQuiescentState(Address address);
-
-  void TimeoutPromisesPastDeadline();
 
   /// This method causes most of the interesting simulation logic to happen, wrt network behavior.
   /// It checks to see if all background "server" threads are blocked on new messages, and if so,
