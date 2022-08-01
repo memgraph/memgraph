@@ -169,6 +169,10 @@ class Raft {
   }
 
  private:
+  // Raft paper - 5.3
+  // When the entry has been safely replicated, the leader applies the
+  // entry to its state machine and returns the result of that
+  // execution to the client.
   void BumpCommitIndexAndReplyToClients(Leader &leader) {
     // set the current committed_log_size based on the
     auto indices = std::vector<LogIndex>{state_.log.size()};
@@ -198,6 +202,8 @@ class Raft {
     }
   }
 
+  // Raft paper - 5.1
+  // AppendEntries RPCs are initiated by leaders to replicate log entries and to provide a form of heartbeat
   void BroadcastAppendEntries(std::map<Address, FollowerTracker> &followers) {
     for (auto &[address, follower] : followers) {
       const LogIndex index = follower.confirmed_contiguous_index;
@@ -228,6 +234,8 @@ class Raft {
     }
   }
 
+  // Raft paper - 5.2
+  // Raft uses randomized election timeouts to ensure that split votes are rare and that they are resolved quickly
   Duration RandomTimeout(Duration min, Duration max) {
     std::uniform_int_distribution time_distrib(min, max);
     return io_.Rand(time_distrib);
@@ -275,6 +283,7 @@ class Raft {
     }
   }
 
+  // Raft paper - 5.2
   // Candidates keep sending Vote to peers until:
   // 1. receiving Append with a higher term (become Follower)
   // 2. receiving Vote with a higher term (become a Follower)
@@ -312,6 +321,7 @@ class Raft {
     return std::nullopt;
   }
 
+  // Raft paper - 5.2
   // Followers become candidates if we haven't heard from the leader
   // after a randomized timeout.
   std::optional<Role> Cron(Follower &follower) {
@@ -481,6 +491,11 @@ class Raft {
     return std::nullopt;
   }
 
+  // Raft paper - 8
+  // When a client first starts up, it connects to a randomly chosen
+  // server. If the client’s first choice is not the leader, that
+  // server will reject the client’s request and supply information
+  // about the most recent leader it has heard from.
   std::optional<Role> Handle(Follower &follower, ReplicationRequest &&req, RequestId request_id, Address from_address) {
     auto res = ReplicationResponse{};
 
@@ -523,7 +538,12 @@ class Raft {
     bool is_failed_competitor = is_candidate && req.term == state_.term;
     Time now = io_.Now();
 
-    // Handle early-exit conditions.
+    // Raft paper - 5.2
+    // While waiting for votes, a candidate may receive an
+    // AppendEntries RPC from another server claiming to be leader. If
+    // the leader’s term (included in its RPC) is at least as large as
+    // the candidate’s current term, then the candidate recognizes the
+    // leader as legitimate and returns to follower state.
     if (req.term > state_.term || is_failed_competitor) {
       // become follower of this leader, reply with our log status
       state_.term = req.term;
@@ -543,7 +563,6 @@ class Raft {
     }
 
     // at this point, we're dealing with our own leader
-
     if constexpr (std::is_same<AllRoles, Follower>()) {
       // small specialization for when we're already a Follower
       MG_ASSERT(role.leader_address == from_address, "Multiple Leaders are acting under the same term number!");
