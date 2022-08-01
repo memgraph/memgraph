@@ -266,11 +266,11 @@ class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccess
  public:
   explicit FineGrainedAccessChecker(memgraph::auth::User *user, DbAccessor *dba) : user_{user}, dba_{dba} {}
 
-  bool Accept(VertexAccessor &vertex) {
+  bool Accept(const VertexAccessor &vertex) {
     return IsUserAuthorizedLabels(vertex.Labels(memgraph::storage::View::NEW).GetValue());
   }
 
-  bool Accept(EdgeAccessor &edge) { return IsUserAuthorizedEdgeType(edge.EdgeType()); }
+  bool Accept(const EdgeAccessor &edge) { return IsUserAuthorizedEdgeType(edge.EdgeType()); }
 
  private:
   bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const final {

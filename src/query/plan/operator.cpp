@@ -683,6 +683,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
+      if (context.fine_grained_access_checker && !context.fine_grained_access_checker->Accept(edge)) continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
       return true;
@@ -695,6 +696,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
+      if (context.fine_grained_access_checker && !context.fine_grained_access_checker->Accept(edge)) continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
       return true;
@@ -816,7 +818,8 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
+                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
+                      const ExecutionContext &context) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -898,8 +901,9 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
-                                                self_.common_.edge_types, utils::NewDeleteResource()));
+  using ExpandEdges =
+      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
+                                utils::NewDeleteResource(), std::declval<ExecutionContext>()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -940,7 +944,8 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory));
+        edges_.emplace_back(
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1012,8 +1017,6 @@ class ExpandVariableCursor : public Cursor {
         edges_on_frame.resize(std::min(edges_on_frame.size(), edges_.size()));
       }
 
-      // if we are here, we have a valid stack,
-      // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
 
       // Check edge-uniqueness.
@@ -1021,10 +1024,13 @@ class ExpandVariableCursor : public Cursor {
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
-
-      AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
+
+      if (!context.fine_grained_access_checker->Accept(current_edge.first) ||
+          !context.fine_grained_access_checker->Accept(current_vertex))
+        continue;
+      AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
@@ -1040,7 +1046,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 

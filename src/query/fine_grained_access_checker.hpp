@@ -17,9 +17,9 @@
 namespace memgraph::query {
 class FineGrainedAccessChecker {
  public:
-  virtual bool Accept(VertexAccessor &vertex) = 0;
+  virtual bool Accept(const VertexAccessor &vertex) = 0;
 
-  virtual bool Accept(EdgeAccessor &edge) = 0;
+  virtual bool Accept(const EdgeAccessor &edge) = 0;
 
  private:
   virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const = 0;
