@@ -87,7 +87,7 @@ class Shared {
           break;
         }
       }
-      if (!simulator_progressed) {
+      if (!simulator_progressed) [[likely]] {
         cv_.wait(lock);
       }
       MG_ASSERT(!consumed_, "Future consumed twice!");
