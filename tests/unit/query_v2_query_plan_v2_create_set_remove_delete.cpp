@@ -11,23 +11,23 @@
 
 #include <gtest/gtest.h>
 
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/operator.hpp"
-#include "query_plan_common.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/storage.hpp"
+#include "query/v2/frontend/semantic/symbol_table.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query_v2_query_plan_common.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/storage.hpp"
 
-namespace memgraph::query::tests {
+namespace memgraph::query::v2::tests {
 
 class QueryPlanCRUDTest : public testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_TRUE(db.CreateSchema(label, {storage::SchemaProperty{property, common::SchemaType::INT}}));
+    ASSERT_TRUE(db.CreateSchema(label, {storage::v3::SchemaProperty{property, common::SchemaType::INT}}));
   }
 
-  storage::Storage db;
-  const storage::LabelId label{db.NameToLabel("label")};
-  const storage::PropertyId property{db.NameToProperty("property")};
+  storage::v3::Storage db;
+  const storage::v3::LabelId label{db.NameToLabel("label")};
+  const storage::v3::PropertyId property{db.NameToProperty("property")};
 };
 
 TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
@@ -39,7 +39,7 @@ TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
   plan::NodeCreationInfo node;
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
-  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(node.properties)
+  std::get<std::vector<std::pair<storage::v3::PropertyId, Expression *>>>(node.properties)
       .emplace_back(property, ast.Create<PrimitiveLiteral>(42));
 
   plan::CreateNode create_node(nullptr, node);
@@ -53,12 +53,12 @@ TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
     const auto &node_value = frame[node.symbol];
     EXPECT_EQ(node_value.type(), TypedValue::Type::Vertex);
     const auto &v = node_value.ValueVertex();
-    EXPECT_TRUE(*v.HasLabel(storage::View::NEW, label));
-    EXPECT_EQ(v.GetProperty(storage::View::NEW, property)->ValueInt(), 42);
-    EXPECT_EQ(CountIterable(*v.InEdges(storage::View::NEW)), 0);
-    EXPECT_EQ(CountIterable(*v.OutEdges(storage::View::NEW)), 0);
+    EXPECT_TRUE(*v.HasLabel(storage::v3::View::NEW, label));
+    EXPECT_EQ(v.GetProperty(storage::v3::View::NEW, property)->ValueInt(), 42);
+    EXPECT_EQ(CountIterable(*v.InEdges(storage::v3::View::NEW)), 0);
+    EXPECT_EQ(CountIterable(*v.OutEdges(storage::v3::View::NEW)), 0);
     // Invokes LOG(FATAL) instead of erroring out.
-    // EXPECT_TRUE(v.HasLabel(label, storage::View::OLD).IsError());
+    // EXPECT_TRUE(v.HasLabel(label, storage::v3::View::OLD).IsError());
   }
   EXPECT_EQ(count, 1);
 }
@@ -70,7 +70,7 @@ TEST_F(QueryPlanCRUDTest, ScanAllEmpty) {
   DbAccessor execution_dba(&dba);
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
-    plan::ScanAll scan_all(nullptr, node_symbol, storage::View::OLD);
+    plan::ScanAll scan_all(nullptr, node_symbol, storage::v3::View::OLD);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
     auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
@@ -79,7 +79,7 @@ TEST_F(QueryPlanCRUDTest, ScanAllEmpty) {
     EXPECT_EQ(count, 0);
   }
   {
-    plan::ScanAll scan_all(nullptr, node_symbol, storage::View::NEW);
+    plan::ScanAll scan_all(nullptr, node_symbol, storage::v3::View::NEW);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
     auto cursor = scan_all.MakeCursor(utils::NewDeleteResource());
@@ -93,8 +93,8 @@ TEST_F(QueryPlanCRUDTest, ScanAll) {
   {
     auto dba = db.Access();
     for (int i = 0; i < 42; ++i) {
-      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::PropertyValue(i)).HasValue());
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
+      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
     }
     EXPECT_FALSE(dba.Commit().HasError());
   }
@@ -119,13 +119,13 @@ TEST_F(QueryPlanCRUDTest, ScanAllByLabel) {
     auto dba = db.Access();
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) {
-      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::PropertyValue(i)).HasValue());
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
+      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
     }
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
-      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::PropertyValue(i)).HasValue());
+      auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
+      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
       ASSERT_TRUE(v.AddLabel(label2).HasValue());
     }
     EXPECT_FALSE(dba.Commit().HasError());
@@ -143,4 +143,4 @@ TEST_F(QueryPlanCRUDTest, ScanAllByLabel) {
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);
 }
-}  // namespace memgraph::query::tests
+}  // namespace memgraph::query::v2::tests
