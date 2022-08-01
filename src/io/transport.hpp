@@ -74,15 +74,15 @@ class Io {
   /// Issue a request with an explicit timeout in microseconds provided.
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {
-    uint64_t request_id = ++request_id_counter_;
+    const uint64_t request_id = ++request_id_counter_;
     return implementation_.template Request<Request, Response>(address, request_id, request, timeout);
   }
 
   /// Issue a request that times out after the default timeout.
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, Request request) {
-    uint64_t request_id = ++request_id_counter_;
-    Duration timeout = default_timeout_;
+    const uint64_t request_id = ++request_id_counter_;
+    const Duration timeout = default_timeout_;
     return implementation_.template Request<Request, Response>(address, request_id, std::move(request), timeout);
   }
 
@@ -97,7 +97,7 @@ class Io {
   /// provided types to arrive.
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
-    Duration timeout = default_timeout_;
+    const Duration timeout = default_timeout_;
     return implementation_.template Receive<Ms...>(timeout);
   }
 
