@@ -9,15 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/schema_validator.hpp"
+#include "storage/v3/schema_validator.hpp"
 
 #include <bits/ranges_algo.h>
 #include <cstddef>
 #include <ranges>
 
-#include "storage/v2/schemas.hpp"
+#include "storage/v3/schemas.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 bool operator==(const SchemaViolation &lhs, const SchemaViolation &rhs) {
   return lhs.status == rhs.status && lhs.label == rhs.label &&
@@ -103,4 +103,4 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
   return std::nullopt;
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

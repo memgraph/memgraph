@@ -18,12 +18,12 @@
 #include <vector>
 
 #include "common/types.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/temporal.hpp"
 #include "utils/result.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 struct SchemaProperty {
   PropertyId property_id;
@@ -67,4 +67,4 @@ std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &
 
 std::string SchemaTypeToString(common::SchemaType type);
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3
