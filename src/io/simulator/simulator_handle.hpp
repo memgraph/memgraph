@@ -11,9 +11,8 @@
 
 #pragma once
 
-#include <compare>
-
 #include <any>
+#include <compare>
 #include <iostream>
 #include <map>
 #include <memory>
