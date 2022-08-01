@@ -266,6 +266,13 @@ class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccess
  public:
   explicit FineGrainedAccessChecker(memgraph::auth::User *user, DbAccessor *dba) : user_{user}, dba_{dba} {}
 
+  bool Accept(VertexAccessor &vertex) {
+    return IsUserAuthorizedLabels(vertex.Labels(memgraph::storage::View::NEW).GetValue());
+  }
+
+  bool Accept(EdgeAccessor &edge) { return IsUserAuthorizedEdgeType(edge.EdgeType()); }
+
+ private:
   bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const final {
     return std::any_of(labels.begin(), labels.end(), [this](const auto label) {
       return user_->GetFineGrainedAccessLabelPermissions().Has(dba_->LabelToName(label)) ==
@@ -278,7 +285,6 @@ class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccess
            memgraph::auth::PermissionLevel::GRANT;
   }
 
- private:
   memgraph::auth::User *user_;
   DbAccessor *dba_;
 };

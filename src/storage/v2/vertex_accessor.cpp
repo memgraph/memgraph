@@ -13,7 +13,6 @@
 
 #include <memory>
 
-#include "query/fine_grained_access_checker.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices.hpp"
@@ -340,9 +339,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   return std::move(properties);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
-    View view, const std::vector<storage::EdgeTypeId> &edge_types,
-    const query::FineGrainedAccessChecker *fine_grained_access_checker, const VertexAccessor *destination) const {
+Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                          const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -351,7 +349,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (!fine_grained_access_checker && !destination) {
+    if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
     } else {
       for (const auto &item : vertex_->in_edges) {
@@ -359,26 +357,18 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
         if (destination && from_vertex != destination->vertex_) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
-        if (fine_grained_access_checker && (!fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) ||
-                                            !fine_grained_access_checker->IsUserAuthorizedLabels(from_vertex->labels)))
-          continue;
         in_edges.push_back(item);
       }
     }
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view,
-      [&exists, &deleted, &in_edges, &edge_types, &fine_grained_access_checker, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, &destination](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
             if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
-              break;
-            if (fine_grained_access_checker &&
-                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
-                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
               break;
             // Add the edge because we don't see the removal.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -392,10 +382,6 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
             if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
-              break;
-            if (fine_grained_access_checker &&
-                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
-                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
               break;
             // Remove the label because we don't see the addition.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -433,9 +419,8 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(
   return std::move(ret);
 }
 
-Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
-    View view, const std::vector<storage::EdgeTypeId> &edge_types,
-    const query::FineGrainedAccessChecker *fine_grained_access_checker, const VertexAccessor *destination) const {
+Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
+                                                           const VertexAccessor *destination) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
   bool exists = true;
   bool deleted = false;
@@ -444,7 +429,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
   {
     std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
-    if (!fine_grained_access_checker && !destination) {
+    if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
     } else {
       for (const auto &item : vertex_->out_edges) {
@@ -452,26 +437,18 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
         if (destination && to_vertex != destination->vertex_) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
-        if (fine_grained_access_checker && (!fine_grained_access_checker->IsUserAuthorizedEdgeType(edge_type) ||
-                                            !fine_grained_access_checker->IsUserAuthorizedLabels(to_vertex->labels)))
-          continue;
         out_edges.push_back(item);
       }
     }
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view,
-      [&exists, &deleted, &out_edges, &edge_types, &fine_grained_access_checker, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &destination](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
             if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
-              break;
-            if (fine_grained_access_checker &&
-                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
-                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
               break;
             // Add the edge because we don't see the removal.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,
@@ -485,10 +462,6 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(
             if (destination && delta.vertex_edge.vertex != destination->vertex_) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
-              break;
-            if (fine_grained_access_checker &&
-                (!fine_grained_access_checker->IsUserAuthorizedEdgeType(delta.vertex_edge.edge_type) ||
-                 !fine_grained_access_checker->IsUserAuthorizedLabels(delta.vertex_edge.vertex->labels)))
               break;
             // Remove the label because we don't see the addition.
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{delta.vertex_edge.edge_type, delta.vertex_edge.vertex,

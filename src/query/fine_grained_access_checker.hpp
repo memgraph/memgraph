@@ -11,11 +11,17 @@
 
 #pragma once
 
+#include "query/db_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
 class FineGrainedAccessChecker {
  public:
+  virtual bool Accept(VertexAccessor &vertex) = 0;
+
+  virtual bool Accept(EdgeAccessor &edge) = 0;
+
+ private:
   virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const = 0;
 
   virtual bool IsUserAuthorizedEdgeType(const memgraph::storage::EdgeTypeId &edgeType) const = 0;
