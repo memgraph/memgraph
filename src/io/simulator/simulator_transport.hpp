@@ -25,7 +25,7 @@ using memgraph::io::Time;
 
 class SimulatorTransport {
   std::shared_ptr<SimulatorHandle> simulator_handle_;
-  Address address_;
+  const Address address_;
   std::mt19937 rng_{};
 
  public:
@@ -53,9 +53,9 @@ class SimulatorTransport {
     return simulator_handle_->template Send<M>(address, address_, request_id, message);
   }
 
-  Time Now() { return simulator_handle_->Now(); }
+  Time Now() const { return simulator_handle_->Now(); }
 
-  bool ShouldShutDown() { return simulator_handle_->ShouldShutDown(); }
+  bool ShouldShutDown() const { return simulator_handle_->ShouldShutDown(); }
 
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
   Return Rand(D distrib) {

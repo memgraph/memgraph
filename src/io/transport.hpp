@@ -112,10 +112,10 @@ class Io {
   /// This time source should be preferred over any other, because it
   /// lets us deterministically control clocks from tests for making
   /// things like timeouts deterministic.
-  Time Now() { return implementation_.Now(); }
+  Time Now() const { return implementation_.Now(); }
 
   /// Returns true of the system should shut-down.
-  const bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
+  bool ShouldShutDown() const { return implementation_.ShouldShutDown(); }
 
   /// Returns a random number within the specified distribution.
   template <class D = std::poisson_distribution<>, class Return = uint64_t>

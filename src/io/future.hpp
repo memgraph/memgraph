@@ -30,8 +30,8 @@ namespace memgraph::io {
 namespace {
 template <typename T>
 class Shared {
-  std::condition_variable cv_;
-  std::mutex mu_;
+  mutable std::condition_variable cv_;
+  mutable std::mutex mu_;
   std::optional<T> item_;
   bool consumed_ = false;
   bool waiting_ = false;

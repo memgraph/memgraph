@@ -205,8 +205,8 @@ struct DeadlineAndOpaquePromise {
 };
 
 class SimulatorHandle {
-  std::mutex mu_{};
-  std::condition_variable cv_;
+  mutable std::mutex mu_{};
+  mutable std::condition_variable cv_;
 
   // messages that have not yet been scheduled or dropped
   std::vector<std::pair<Address, OpaqueMessage>> in_flight_;
@@ -258,7 +258,6 @@ class SimulatorHandle {
     const Time now = cluster_wide_time_microseconds_;
 
     for (auto &[promise_key, dop] : promises_) {
-      // TODO(tyler) queue this up and drop it after its deadline
       if (dop.deadline < now) {
         spdlog::debug("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
                       promise_key.replier_address.ToString());
