@@ -54,7 +54,7 @@ std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit
     return std::nullopt;
   }
 
-  auto memory_limit = memory_limit_ctx->literal()->accept(visitor);
+  auto *memory_limit = std::any_cast<Expression *>(memory_limit_ctx->literal()->accept(visitor));
   size_t memory_scale = 1024U;
   if (memory_limit_ctx->MB()) {
     memory_scale = 1024U * 1024U;
@@ -79,7 +79,7 @@ std::string JoinSymbolicNames(antlr4::tree::ParseTreeVisitor *visitor,
                               const std::vector<MemgraphCypher::SymbolicNameContext *> symbolicNames,
                               const std::string &separator = ".") {
   return JoinTokens(
-      symbolicNames, [&](auto *token) { return token->accept(visitor).template as<std::string>(); }, separator);
+      symbolicNames, [&](auto *token) { return std::any_cast<std::string>(token->accept(visitor)); }, separator);
 }
 
 std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &visitor,
@@ -92,7 +92,7 @@ std::string JoinSymbolicNamesWithDotsAndMinus(antlr4::tree::ParseTreeVisitor &vi
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 2, "ExplainQuery should have exactly two children!");
-  auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
+  auto *cypher_query = std::any_cast<CypherQuery *>(ctx->children[1]->accept(this));
   auto *explain_query = storage_->Create<ExplainQuery>();
   explain_query->cypher_query_ = cypher_query;
   query_ = explain_query;
@@ -101,7 +101,7 @@ antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryC
 
 antlrcpp::Any CypherMainVisitor::visitProfileQuery(MemgraphCypher::ProfileQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 2, "ProfileQuery should have exactly two children!");
-  auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
+  auto *cypher_query = std::any_cast<CypherQuery *>(ctx->children[1]->accept(this));
   auto *profile_query = storage_->Create<ProfileQuery>();
   profile_query->cypher_query_ = cypher_query;
   query_ = profile_query;
@@ -134,7 +134,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::Constraint
   } else if (ctx->DROP()) {
     constraint_query->action_type_ = ConstraintQuery::ActionType::DROP;
   }
-  constraint_query->constraint_ = ctx->constraint()->accept(this).as<Constraint>();
+  constraint_query->constraint_ = std::any_cast<Constraint>(ctx->constraint()->accept(this));
   query_ = constraint_query;
   return query_;
 }
@@ -149,16 +149,16 @@ antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintConte
   } else if (ctx->NODE() && ctx->KEY()) {
     constraint.type = Constraint::Type::NODE_KEY;
   }
-  constraint.label = AddLabel(ctx->labelName()->accept(this));
-  std::string node_name = ctx->nodeName->symbolicName()->accept(this);
+  constraint.label = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  auto node_name = std::any_cast<std::string>(ctx->nodeName->symbolicName()->accept(this));
   for (const auto &var_ctx : ctx->constraintPropertyList()->variable()) {
-    std::string var_name = var_ctx->symbolicName()->accept(this);
+    auto var_name = std::any_cast<std::string>(var_ctx->symbolicName()->accept(this));
     if (var_name != node_name) {
       throw SemanticException("All constraint variable should reference node '{}'", node_name);
     }
   }
   for (const auto &prop_lookup : ctx->constraintPropertyList()->propertyLookup()) {
-    constraint.properties.push_back(prop_lookup->propertyKeyName()->accept(this));
+    constraint.properties.push_back(std::any_cast<PropertyIx>(prop_lookup->propertyKeyName()->accept(this)));
   }
 
   return constraint;
@@ -167,7 +167,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintConte
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) {
   auto *cypher_query = storage_->Create<CypherQuery>();
   MG_ASSERT(ctx->singleQuery(), "Expected single query.");
-  cypher_query->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
+  cypher_query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
 
   // Check that union and union all dont mix
   bool has_union = false;
@@ -181,7 +181,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     if (has_union && has_union_all) {
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
-    cypher_query->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+    cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -198,7 +198,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "IndexQuery should have exactly one child!");
-  auto *index_query = ctx->children[0]->accept(this).as<IndexQuery *>();
+  auto *index_query = std::any_cast<IndexQuery *>(ctx->children[0]->accept(this));
   query_ = index_query;
   return index_query;
 }
@@ -206,9 +206,9 @@ antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryConte
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
-  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   if (ctx->propertyKeyName()) {
-    PropertyIx name_key = ctx->propertyKeyName()->accept(this);
+    auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
     index_query->properties_ = {name_key};
   }
   return index_query;
@@ -218,16 +218,16 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
   if (ctx->propertyKeyName()) {
-    PropertyIx key = ctx->propertyKeyName()->accept(this);
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
     index_query->properties_ = {key};
   }
-  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "AuthQuery should have exactly one child!");
-  auto *auth_query = ctx->children[0]->accept(this).as<AuthQuery *>();
+  auto *auth_query = std::any_cast<AuthQuery *>(ctx->children[0]->accept(this));
   query_ = auth_query;
   return auth_query;
 }
@@ -240,7 +240,7 @@ antlrcpp::Any CypherMainVisitor::visitDumpQuery(MemgraphCypher::DumpQueryContext
 
 antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::ReplicationQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "ReplicationQuery should have exactly one child!");
-  auto *replication_query = ctx->children[0]->accept(this).as<ReplicationQuery *>();
+  auto *replication_query = std::any_cast<ReplicationQuery *>(ctx->children[0]->accept(this));
   query_ = replication_query;
   return replication_query;
 }
@@ -257,7 +257,7 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
     replication_query->role_ = ReplicationQuery::ReplicationRole::REPLICA;
     if (ctx->WITH() && ctx->PORT()) {
       if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
-        replication_query->port_ = ctx->port->accept(this);
+        replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
       } else {
         throw SyntaxException("Port must be an integer literal!");
       }
@@ -274,7 +274,7 @@ antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowRe
 antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
-  replication_query->replica_name_ = ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  replication_query->replica_name_ = std::any_cast<std::string>(ctx->replicaName()->symbolicName()->accept(this));
   if (ctx->SYNC()) {
     replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
   } else if (ctx->ASYNC()) {
@@ -284,7 +284,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
     throw SemanticException("Socket address should be a string literal!");
   } else {
-    replication_query->socket_address_ = ctx->socketAddress()->accept(this);
+    replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
   }
 
   return replication_query;
@@ -293,7 +293,7 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
 antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::DROP_REPLICA;
-  replication_query->replica_name_ = ctx->replicaName()->symbolicName()->accept(this).as<std::string>();
+  replication_query->replica_name_ = std::any_cast<std::string>(ctx->replicaName()->symbolicName()->accept(this));
   return replication_query;
 }
 
@@ -323,7 +323,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   auto *load_csv = storage_->Create<LoadCsv>();
   // handle file name
   if (ctx->csvFile()->literal()->StringLiteral()) {
-    load_csv->file_ = ctx->csvFile()->accept(this);
+    load_csv->file_ = std::any_cast<Expression *>(ctx->csvFile()->accept(this));
   } else {
     throw SemanticException("CSV file path should be a string literal");
   }
@@ -340,7 +340,7 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle delimiter
   if (ctx->DELIMITER()) {
     if (ctx->delimiter()->literal()->StringLiteral()) {
-      load_csv->delimiter_ = ctx->delimiter()->accept(this);
+      load_csv->delimiter_ = std::any_cast<Expression *>(ctx->delimiter()->accept(this));
     } else {
       throw SemanticException("Delimiter should be a string literal");
     }
@@ -349,14 +349,15 @@ antlrcpp::Any CypherMainVisitor::visitLoadCsv(MemgraphCypher::LoadCsvContext *ct
   // handle quote
   if (ctx->QUOTE()) {
     if (ctx->quote()->literal()->StringLiteral()) {
-      load_csv->quote_ = ctx->quote()->accept(this);
+      load_csv->quote_ = std::any_cast<Expression *>(ctx->quote()->accept(this));
     } else {
       throw SemanticException("Quote should be a string literal");
     }
   }
 
   // handle row variable
-  load_csv->row_var_ = storage_->Create<Identifier>(ctx->rowVar()->variable()->accept(this).as<std::string>());
+  load_csv->row_var_ =
+      storage_->Create<Identifier>(std::any_cast<std::string>(ctx->rowVar()->variable()->accept(this)));
 
   return load_csv;
 }
@@ -369,7 +370,7 @@ antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemory
 
 antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "TriggerQuery should have exactly one child!");
-  auto *trigger_query = ctx->children[0]->accept(this).as<TriggerQuery *>();
+  auto *trigger_query = std::any_cast<TriggerQuery *>(ctx->children[0]->accept(this));
   query_ = trigger_query;
   return trigger_query;
 }
@@ -377,7 +378,7 @@ antlrcpp::Any CypherMainVisitor::visitTriggerQuery(MemgraphCypher::TriggerQueryC
 antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTriggerContext *ctx) {
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::CREATE_TRIGGER;
-  trigger_query->trigger_name_ = ctx->triggerName()->symbolicName()->accept(this).as<std::string>();
+  trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
 
   auto *statement = ctx->triggerStatement();
   antlr4::misc::Interval interval{statement->start->getStartIndex(), statement->stop->getStopIndex()};
@@ -429,7 +430,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTrigger(MemgraphCypher::CreateTrigge
 antlrcpp::Any CypherMainVisitor::visitDropTrigger(MemgraphCypher::DropTriggerContext *ctx) {
   auto *trigger_query = storage_->Create<TriggerQuery>();
   trigger_query->action_ = TriggerQuery::Action::DROP_TRIGGER;
-  trigger_query->trigger_name_ = ctx->triggerName()->symbolicName()->accept(this).as<std::string>();
+  trigger_query->trigger_name_ = std::any_cast<std::string>(ctx->triggerName()->symbolicName()->accept(this));
   return trigger_query;
 }
 
@@ -473,14 +474,14 @@ antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::Create
 
 antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
-  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));
   query_ = stream_query;
   return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateStream(MemgraphCypher::CreateStreamContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "CreateStreamQuery should have exactly one child!");
-  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));
   query_ = stream_query;
   return stream_query;
 }
@@ -572,7 +573,8 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
 
 antlrcpp::Any CypherMainVisitor::visitConfigKeyValuePair(MemgraphCypher::ConfigKeyValuePairContext *ctx) {
   MG_ASSERT(ctx->literal().size() == 2);
-  return std::pair{ctx->literal(0)->accept(this).as<Expression *>(), ctx->literal(1)->accept(this).as<Expression *>()};
+  return std::pair{std::any_cast<Expression *>(ctx->literal(0)->accept(this)),
+                   std::any_cast<Expression *>(ctx->literal(1)->accept(this))};
 }
 
 antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext *ctx) {
@@ -580,7 +582,7 @@ antlrcpp::Any CypherMainVisitor::visitConfigMap(MemgraphCypher::ConfigMapContext
   for (auto *key_value_pair : ctx->configKeyValuePair()) {
     // If the queries are cached, then only the stripped query is parsed, so the actual keys cannot be determined
     // here. That means duplicates cannot be checked.
-    map.insert(key_value_pair->accept(this).as<std::pair<Expression *, Expression *>>());
+    map.insert(std::any_cast<std::pair<Expression *, Expression *>>(key_value_pair->accept(this)));
   }
   return map;
 }
@@ -589,7 +591,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStream(MemgraphCypher::KafkaCre
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
   stream_query->type_ = StreamQuery::Type::KAFKA;
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
 
   for (auto *create_config_ctx : ctx->kafkaCreateStreamConfig()) {
     create_config_ctx->accept(this);
@@ -625,7 +627,7 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
     if (!topic_names_ctx->literal()->StringLiteral()) {
       throw SemanticException("Topic names should be defined as a string literal or as symbolic names");
     }
-    destination = topic_names_ctx->accept(&visitor).as<Expression *>();
+    destination = std::any_cast<Expression *>(topic_names_ctx->accept(&visitor));
   }
 }
 }  // namespace
@@ -652,7 +654,8 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
   if (ctx->CONFIGS()) {
     ThrowIfExists(memory_, KafkaConfigKey::CONFIGS);
     static constexpr auto configs_key = static_cast<uint8_t>(KafkaConfigKey::CONFIGS);
-    memory_.emplace(configs_key, ctx->configsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
+    memory_.emplace(configs_key,
+                    std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this)));
     return {};
   }
 
@@ -660,7 +663,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
     ThrowIfExists(memory_, KafkaConfigKey::CREDENTIALS);
     static constexpr auto credentials_key = static_cast<uint8_t>(KafkaConfigKey::CREDENTIALS);
     memory_.emplace(credentials_key,
-                    ctx->credentialsMap->accept(this).as<std::unordered_map<Expression *, Expression *>>());
+                    std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->credentialsMap->accept(this)));
     return {};
   }
 
@@ -671,7 +674,7 @@ antlrcpp::Any CypherMainVisitor::visitKafkaCreateStreamConfig(MemgraphCypher::Ka
   }
 
   const auto bootstrap_servers_key = static_cast<uint8_t>(KafkaConfigKey::BOOTSTRAP_SERVERS);
-  memory_[bootstrap_servers_key] = ctx->bootstrapServers->accept(this).as<Expression *>();
+  memory_[bootstrap_servers_key] = std::any_cast<Expression *>(ctx->bootstrapServers->accept(this));
   return {};
 }
 
@@ -692,7 +695,7 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStream(MemgraphCypher::PulsarC
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
   stream_query->type_ = StreamQuery::Type::PULSAR;
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
 
   for (auto *create_config_ctx : ctx->pulsarCreateStreamConfig()) {
     create_config_ctx->accept(this);
@@ -724,7 +727,7 @@ antlrcpp::Any CypherMainVisitor::visitPulsarCreateStreamConfig(MemgraphCypher::P
     throw SemanticException("Service URL must be a string!");
   }
   const auto service_url_key = static_cast<uint8_t>(PulsarConfigKey::SERVICE_URL);
-  memory_[service_url_key] = ctx->serviceUrl->accept(this).as<Expression *>();
+  memory_[service_url_key] = std::any_cast<Expression *>(ctx->serviceUrl->accept(this));
   return {};
 }
 
@@ -742,7 +745,7 @@ antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::C
       throw SemanticException("Batch interval must be an integer literal!");
     }
     const auto batch_interval_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_INTERVAL);
-    memory_[batch_interval_key] = ctx->batchInterval->accept(this).as<Expression *>();
+    memory_[batch_interval_key] = std::any_cast<Expression *>(ctx->batchInterval->accept(this));
     return {};
   }
 
@@ -752,14 +755,14 @@ antlrcpp::Any CypherMainVisitor::visitCommonCreateStreamConfig(MemgraphCypher::C
     throw SemanticException("Batch size must be an integer literal!");
   }
   const auto batch_size_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_SIZE);
-  memory_[batch_size_key] = ctx->batchSize->accept(this).as<Expression *>();
+  memory_[batch_size_key] = std::any_cast<Expression *>(ctx->batchSize->accept(this));
   return {};
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropStream(MemgraphCypher::DropStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::DROP_STREAM;
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
   return stream_query;
 }
 
@@ -771,7 +774,7 @@ antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamCon
     if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
       throw SemanticException("Batch limit should be an integer literal!");
     }
-    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+    stream_query->batch_limit_ = std::any_cast<Expression *>(ctx->batchLimit->accept(this));
   }
   if (ctx->TIMEOUT()) {
     if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
@@ -780,10 +783,10 @@ antlrcpp::Any CypherMainVisitor::visitStartStream(MemgraphCypher::StartStreamCon
     if (!ctx->BATCH_LIMIT()) {
       throw SemanticException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
     }
-    stream_query->timeout_ = ctx->timeout->accept(this);
+    stream_query->timeout_ = std::any_cast<Expression *>(ctx->timeout->accept(this));
   }
 
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
   return stream_query;
 }
 
@@ -796,7 +799,7 @@ antlrcpp::Any CypherMainVisitor::visitStartAllStreams(MemgraphCypher::StartAllSt
 antlrcpp::Any CypherMainVisitor::visitStopStream(MemgraphCypher::StopStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::STOP_STREAM;
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
   return stream_query;
 }
 
@@ -815,26 +818,26 @@ antlrcpp::Any CypherMainVisitor::visitShowStreams(MemgraphCypher::ShowStreamsCon
 antlrcpp::Any CypherMainVisitor::visitCheckStream(MemgraphCypher::CheckStreamContext *ctx) {
   auto *stream_query = storage_->Create<StreamQuery>();
   stream_query->action_ = StreamQuery::Action::CHECK_STREAM;
-  stream_query->stream_name_ = ctx->streamName()->symbolicName()->accept(this).as<std::string>();
+  stream_query->stream_name_ = std::any_cast<std::string>(ctx->streamName()->symbolicName()->accept(this));
 
   if (ctx->BATCH_LIMIT()) {
     if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
       throw SemanticException("Batch limit should be an integer literal!");
     }
-    stream_query->batch_limit_ = ctx->batchLimit->accept(this);
+    stream_query->batch_limit_ = std::any_cast<Expression *>(ctx->batchLimit->accept(this));
   }
   if (ctx->TIMEOUT()) {
     if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
       throw SemanticException("Timeout should be an integer literal!");
     }
-    stream_query->timeout_ = ctx->timeout->accept(this);
+    stream_query->timeout_ = std::any_cast<Expression *>(ctx->timeout->accept(this));
   }
   return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitSettingQuery(MemgraphCypher::SettingQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "SettingQuery should have exactly one child!");
-  auto *setting_query = ctx->children[0]->accept(this).as<SettingQuery *>();
+  auto *setting_query = std::any_cast<SettingQuery *>(ctx->children[0]->accept(this));
   query_ = setting_query;
   return setting_query;
 }
@@ -851,10 +854,10 @@ antlrcpp::Any CypherMainVisitor::visitSetSetting(MemgraphCypher::SetSettingConte
     throw SemanticException("Setting value should be a string literal");
   }
 
-  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
   MG_ASSERT(setting_query->setting_name_);
 
-  setting_query->setting_value_ = ctx->settingValue()->accept(this);
+  setting_query->setting_value_ = std::any_cast<Expression *>(ctx->settingValue()->accept(this));
   MG_ASSERT(setting_query->setting_value_);
   return setting_query;
 }
@@ -867,7 +870,7 @@ antlrcpp::Any CypherMainVisitor::visitShowSetting(MemgraphCypher::ShowSettingCon
     throw SemanticException("Setting name should be a string literal");
   }
 
-  setting_query->setting_name_ = ctx->settingName()->accept(this);
+  setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
   MG_ASSERT(setting_query->setting_name_);
 
   return setting_query;
@@ -889,7 +892,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherUnion(MemgraphCypher::CypherUnionCon
   bool distinct = !ctx->ALL();
   auto *cypher_union = storage_->Create<CypherUnion>(distinct);
   DMG_ASSERT(ctx->singleQuery(), "Expected single query.");
-  cypher_union->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
+  cypher_union->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
   return cypher_union;
 }
 
@@ -897,10 +900,10 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
   auto *single_query = storage_->Create<SingleQuery>();
   for (auto *child : ctx->clause()) {
     antlrcpp::Any got = child->accept(this);
-    if (got.is<Clause *>()) {
-      single_query->clauses_.push_back(got.as<Clause *>());
+    if (got.type() == typeid(Clause *)) {
+      single_query->clauses_.push_back(std::any_cast<Clause *>(got));
     } else {
-      auto child_clauses = got.as<std::vector<Clause *>>();
+      auto child_clauses = std::any_cast<std::vector<Clause *>>(got);
       single_query->clauses_.insert(single_query->clauses_.end(), child_clauses.begin(), child_clauses.end());
     }
   }
@@ -1012,42 +1015,42 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
 
 antlrcpp::Any CypherMainVisitor::visitClause(MemgraphCypher::ClauseContext *ctx) {
   if (ctx->cypherReturn()) {
-    return static_cast<Clause *>(ctx->cypherReturn()->accept(this).as<Return *>());
+    return static_cast<Clause *>(std::any_cast<Return *>(ctx->cypherReturn()->accept(this)));
   }
   if (ctx->cypherMatch()) {
-    return static_cast<Clause *>(ctx->cypherMatch()->accept(this).as<Match *>());
+    return static_cast<Clause *>(std::any_cast<Match *>(ctx->cypherMatch()->accept(this)));
   }
   if (ctx->create()) {
-    return static_cast<Clause *>(ctx->create()->accept(this).as<Create *>());
+    return static_cast<Clause *>(std::any_cast<Create *>(ctx->create()->accept(this)));
   }
   if (ctx->cypherDelete()) {
-    return static_cast<Clause *>(ctx->cypherDelete()->accept(this).as<Delete *>());
+    return static_cast<Clause *>(std::any_cast<Delete *>(ctx->cypherDelete()->accept(this)));
   }
   if (ctx->set()) {
     // Different return type!!!
-    return ctx->set()->accept(this).as<std::vector<Clause *>>();
+    return std::any_cast<std::vector<Clause *>>(ctx->set()->accept(this));
   }
   if (ctx->remove()) {
     // Different return type!!!
-    return ctx->remove()->accept(this).as<std::vector<Clause *>>();
+    return std::any_cast<std::vector<Clause *>>(ctx->remove()->accept(this));
   }
   if (ctx->with()) {
-    return static_cast<Clause *>(ctx->with()->accept(this).as<With *>());
+    return static_cast<Clause *>(std::any_cast<With *>(ctx->with()->accept(this)));
   }
   if (ctx->merge()) {
-    return static_cast<Clause *>(ctx->merge()->accept(this).as<Merge *>());
+    return static_cast<Clause *>(std::any_cast<Merge *>(ctx->merge()->accept(this)));
   }
   if (ctx->unwind()) {
-    return static_cast<Clause *>(ctx->unwind()->accept(this).as<Unwind *>());
+    return static_cast<Clause *>(std::any_cast<Unwind *>(ctx->unwind()->accept(this)));
   }
   if (ctx->callProcedure()) {
-    return static_cast<Clause *>(ctx->callProcedure()->accept(this).as<CallProcedure *>());
+    return static_cast<Clause *>(std::any_cast<CallProcedure *>(ctx->callProcedure()->accept(this)));
   }
   if (ctx->loadCsv()) {
-    return static_cast<Clause *>(ctx->loadCsv()->accept(this).as<LoadCsv *>());
+    return static_cast<Clause *>(std::any_cast<LoadCsv *>(ctx->loadCsv()->accept(this)));
   }
   if (ctx->foreach ()) {
-    return static_cast<Clause *>(ctx->foreach ()->accept(this).as<Foreach *>());
+    return static_cast<Clause *>(std::any_cast<Foreach *>(ctx->foreach ()->accept(this)));
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -1058,15 +1061,15 @@ antlrcpp::Any CypherMainVisitor::visitCypherMatch(MemgraphCypher::CypherMatchCon
   auto *match = storage_->Create<Match>();
   match->optional_ = !!ctx->OPTIONAL();
   if (ctx->where()) {
-    match->where_ = ctx->where()->accept(this);
+    match->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }
-  match->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
+  match->patterns_ = std::any_cast<std::vector<Pattern *>>(ctx->pattern()->accept(this));
   return match;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreate(MemgraphCypher::CreateContext *ctx) {
   auto *create = storage_->Create<Create>();
-  create->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
+  create->patterns_ = std::any_cast<std::vector<Pattern *>>(ctx->pattern()->accept(this));
   return create;
 }
 
@@ -1084,7 +1087,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
   call_proc->procedure_name_ = JoinSymbolicNames(this, ctx->procedureName()->symbolicName());
   call_proc->arguments_.reserve(ctx->expression().size());
   for (auto *expr : ctx->expression()) {
-    call_proc->arguments_.push_back(expr->accept(this));
+    call_proc->arguments_.push_back(std::any_cast<Expression *>(expr->accept(this)));
   }
 
   if (auto *memory_limit_ctx = ctx->procedureMemoryLimit()) {
@@ -1124,12 +1127,12 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     call_proc->result_identifiers_.reserve(yield_ctx->procedureResult().size());
     for (auto *result : yield_ctx->procedureResult()) {
       MG_ASSERT(result->variable().size() == 1 || result->variable().size() == 2);
-      call_proc->result_fields_.push_back(result->variable()[0]->accept(this).as<std::string>());
+      call_proc->result_fields_.push_back(std::any_cast<std::string>(result->variable()[0]->accept(this)));
       std::string result_alias;
       if (result->variable().size() == 2) {
-        result_alias = result->variable()[1]->accept(this).as<std::string>();
+        result_alias = std::any_cast<std::string>(result->variable()[1]->accept(this));
       } else {
-        result_alias = result->variable()[0]->accept(this).as<std::string>();
+        result_alias = std::any_cast<std::string>(result->variable()[0]->accept(this));
       }
       call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
     }
@@ -1165,7 +1168,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
  * @return std::string
  */
 antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleNameContext *ctx) {
-  return ctx->symbolicName()->accept(this).as<std::string>();
+  return std::any_cast<std::string>(ctx->symbolicName()->accept(this));
 }
 
 /**
@@ -1174,7 +1177,7 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleN
 antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
 }
 
@@ -1184,7 +1187,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
 antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_ROLE;
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
 }
 
@@ -1203,12 +1206,12 @@ antlrcpp::Any CypherMainVisitor::visitShowRoles(MemgraphCypher::ShowRolesContext
 antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_USER;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (ctx->password) {
     if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
       throw SyntaxException("Password should be a string literal or null.");
     }
-    auth->password_ = ctx->password->accept(this);
+    auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
   }
   return auth;
 }
@@ -1219,11 +1222,11 @@ antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserConte
 antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_PASSWORD;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
     throw SyntaxException("Password should be a string literal or null.");
   }
-  auth->password_ = ctx->password->accept(this);
+  auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
   return auth;
 }
 
@@ -1233,7 +1236,7 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordCon
 antlrcpp::Any CypherMainVisitor::visitDropUser(MemgraphCypher::DropUserContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_USER;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
 }
 
@@ -1252,8 +1255,8 @@ antlrcpp::Any CypherMainVisitor::visitShowUsers(MemgraphCypher::ShowUsersContext
 antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_ROLE;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
 }
 
@@ -1263,7 +1266,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
 antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
 }
 
@@ -1273,10 +1276,10 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
 antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivilegeContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
-  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
     }
   } else {
     /* grant all privileges */
@@ -1291,10 +1294,10 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
 antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivilegeContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
-  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
     }
   } else {
     /* deny all privileges */
@@ -1309,10 +1312,10 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
 antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
-  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      auth->privileges_.push_back(privilege->accept(this));
+      auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
     }
   } else {
     /* revoke all privileges */
@@ -1356,7 +1359,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
 antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
-  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   return auth;
 }
 
@@ -1366,7 +1369,7 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
 antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleForUserContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
-  auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   return auth;
 }
 
@@ -1376,13 +1379,13 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
 antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) {
   AuthQuery *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) {
   auto *return_clause = storage_->Create<Return>();
-  return_clause->body_ = ctx->returnBody()->accept(this);
+  return_clause->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
   if (ctx->DISTINCT()) {
     return_clause->body_.distinct = true;
   }
@@ -1392,23 +1395,23 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnC
 antlrcpp::Any CypherMainVisitor::visitReturnBody(MemgraphCypher::ReturnBodyContext *ctx) {
   ReturnBody body;
   if (ctx->order()) {
-    body.order_by = ctx->order()->accept(this).as<std::vector<SortItem>>();
+    body.order_by = std::any_cast<std::vector<SortItem>>(ctx->order()->accept(this));
   }
   if (ctx->skip()) {
-    body.skip = static_cast<Expression *>(ctx->skip()->accept(this));
+    body.skip = static_cast<Expression *>(std::any_cast<Expression *>(ctx->skip()->accept(this)));
   }
   if (ctx->limit()) {
-    body.limit = static_cast<Expression *>(ctx->limit()->accept(this));
+    body.limit = static_cast<Expression *>(std::any_cast<Expression *>(ctx->limit()->accept(this)));
   }
   std::tie(body.all_identifiers, body.named_expressions) =
-      ctx->returnItems()->accept(this).as<std::pair<bool, std::vector<NamedExpression *>>>();
+      std::any_cast<std::pair<bool, std::vector<NamedExpression *>>>(ctx->returnItems()->accept(this));
   return body;
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItems(MemgraphCypher::ReturnItemsContext *ctx) {
   std::vector<NamedExpression *> named_expressions;
   for (auto *item : ctx->returnItem()) {
-    named_expressions.push_back(item->accept(this));
+    named_expressions.push_back(std::any_cast<NamedExpression *>(item->accept(this)));
   }
   return std::pair<bool, std::vector<NamedExpression *>>(ctx->getTokens(MemgraphCypher::ASTERISK).size(),
                                                          named_expressions);
@@ -1416,10 +1419,10 @@ antlrcpp::Any CypherMainVisitor::visitReturnItems(MemgraphCypher::ReturnItemsCon
 
 antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemContext *ctx) {
   auto *named_expr = storage_->Create<NamedExpression>();
-  named_expr->expression_ = ctx->expression()->accept(this);
+  named_expr->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   MG_ASSERT(named_expr->expression_);
   if (ctx->variable()) {
-    named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+    named_expr->name_ = std::string(std::any_cast<std::string>(ctx->variable()->accept(this)));
     users_identifiers.insert(named_expr->name_);
   } else {
     if (in_with_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
@@ -1434,33 +1437,34 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
 antlrcpp::Any CypherMainVisitor::visitOrder(MemgraphCypher::OrderContext *ctx) {
   std::vector<SortItem> order_by;
   for (auto *sort_item : ctx->sortItem()) {
-    order_by.push_back(sort_item->accept(this));
+    order_by.push_back(std::any_cast<SortItem>(sort_item->accept(this)));
   }
   return order_by;
 }
 
 antlrcpp::Any CypherMainVisitor::visitSortItem(MemgraphCypher::SortItemContext *ctx) {
-  return SortItem{ctx->DESC() || ctx->DESCENDING() ? Ordering::DESC : Ordering::ASC, ctx->expression()->accept(this)};
+  return SortItem{ctx->DESC() || ctx->DESCENDING() ? Ordering::DESC : Ordering::ASC,
+                  std::any_cast<Expression *>(ctx->expression()->accept(this))};
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternContext *ctx) {
   auto *node = storage_->Create<NodeAtom>();
   if (ctx->variable()) {
-    std::string variable = ctx->variable()->accept(this);
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     node->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
+    node->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
     if (ctx->properties()->mapLiteral()) {
-      node->properties_ = ctx->properties()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+      node->properties_ = std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->properties()->accept(this));
     } else {
-      node->properties_ = ctx->properties()->accept(this).as<ParameterLookup *>();
+      node->properties_ = std::any_cast<ParameterLookup *>(ctx->properties()->accept(this));
     }
   }
   return node;
@@ -1469,7 +1473,7 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
   std::vector<LabelIx> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    labels.push_back(AddLabel(node_label->accept(this)));
+    labels.push_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
   }
   return labels;
 }
@@ -1486,8 +1490,8 @@ antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesConte
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralContext *ctx) {
   std::unordered_map<PropertyIx, Expression *> map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
-    PropertyIx key = ctx->propertyKeyName()[i]->accept(this);
-    Expression *value = ctx->expression()[i]->accept(this);
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()[i]->accept(this));
+    auto *value = std::any_cast<Expression *>(ctx->expression()[i]->accept(this));
     if (!map.insert({key, value}).second) {
       throw SemanticException("Same key can't appear twice in a map literal.");
     }
@@ -1497,12 +1501,14 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(MemgraphCypher::MapLiteralConte
 
 antlrcpp::Any CypherMainVisitor::visitListLiteral(MemgraphCypher::ListLiteralContext *ctx) {
   std::vector<Expression *> expressions;
-  for (auto expr_ctx_ptr : ctx->expression()) expressions.push_back(expr_ctx_ptr->accept(this));
+  for (auto *expr_ctx : ctx->expression()) {
+    expressions.push_back(std::any_cast<Expression *>(expr_ctx->accept(this)));
+  }
   return expressions;
 }
 
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(MemgraphCypher::PropertyKeyNameContext *ctx) {
-  return AddProperty(visitChildren(ctx));
+  return AddProperty(std::any_cast<std::string>(visitChildren(ctx)));
 }
 
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(MemgraphCypher::SymbolicNameContext *ctx) {
@@ -1540,15 +1546,15 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(MemgraphCypher::SymbolicNameC
 antlrcpp::Any CypherMainVisitor::visitPattern(MemgraphCypher::PatternContext *ctx) {
   std::vector<Pattern *> patterns;
   for (auto *pattern_part : ctx->patternPart()) {
-    patterns.push_back(pattern_part->accept(this));
+    patterns.push_back(std::any_cast<Pattern *>(pattern_part->accept(this)));
   }
   return patterns;
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternPart(MemgraphCypher::PatternPartContext *ctx) {
-  Pattern *pattern = ctx->anonymousPatternPart()->accept(this);
+  auto *pattern = std::any_cast<Pattern *>(ctx->anonymousPatternPart()->accept(this));
   if (ctx->variable()) {
-    std::string variable = ctx->variable()->accept(this);
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     pattern->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -1561,10 +1567,10 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(MemgraphCypher::PatternElem
   if (ctx->patternElement()) {
     return ctx->patternElement()->accept(this);
   }
-  auto pattern = storage_->Create<Pattern>();
-  pattern->atoms_.push_back(ctx->nodePattern()->accept(this).as<NodeAtom *>());
+  auto *pattern = storage_->Create<Pattern>();
+  pattern->atoms_.push_back(std::any_cast<NodeAtom *>(ctx->nodePattern()->accept(this)));
   for (auto *pattern_element_chain : ctx->patternElementChain()) {
-    std::pair<PatternAtom *, PatternAtom *> element = pattern_element_chain->accept(this);
+    auto element = std::any_cast<std::pair<PatternAtom *, PatternAtom *>>(pattern_element_chain->accept(this));
     pattern->atoms_.push_back(element.first);
     pattern->atoms_.push_back(element.second);
   }
@@ -1572,8 +1578,8 @@ antlrcpp::Any CypherMainVisitor::visitPatternElement(MemgraphCypher::PatternElem
 }
 
 antlrcpp::Any CypherMainVisitor::visitPatternElementChain(MemgraphCypher::PatternElementChainContext *ctx) {
-  return std::pair<PatternAtom *, PatternAtom *>(ctx->relationshipPattern()->accept(this).as<EdgeAtom *>(),
-                                                 ctx->nodePattern()->accept(this).as<NodeAtom *>());
+  return std::pair<PatternAtom *, PatternAtom *>(std::any_cast<EdgeAtom *>(ctx->relationshipPattern()->accept(this)),
+                                                 std::any_cast<NodeAtom *>(ctx->nodePattern()->accept(this)));
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::RelationshipPatternContext *ctx) {
@@ -1584,7 +1590,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   edge->type_ = EdgeAtom::Type::SINGLE;
   if (variableExpansion)
     std::tie(edge->type_, edge->lower_bound_, edge->upper_bound_) =
-        variableExpansion->accept(this).as<std::tuple<EdgeAtom::Type, Expression *, Expression *>>();
+        std::any_cast<std::tuple<EdgeAtom::Type, Expression *, Expression *>>(variableExpansion->accept(this));
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
     edge->direction_ = EdgeAtom::Direction::IN;
@@ -1602,7 +1608,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   }
 
   if (relationshipDetail->name) {
-    std::string variable = relationshipDetail->name->accept(this);
+    auto variable = std::any_cast<std::string>(relationshipDetail->name->accept(this));
     edge->identifier_ = storage_->Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -1610,7 +1616,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   }
 
   if (relationshipDetail->relationshipTypes()) {
-    edge->edge_types_ = ctx->relationshipDetail()->relationshipTypes()->accept(this).as<std::vector<EdgeTypeIx>>();
+    edge->edge_types_ =
+        std::any_cast<std::vector<EdgeTypeIx>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -1621,16 +1628,16 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           "path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
-      std::string traversed_edge_variable = lambda->traversed_edge->accept(this);
+      auto traversed_edge_variable = std::any_cast<std::string>(lambda->traversed_edge->accept(this));
       edge_lambda.inner_edge = storage_->Create<Identifier>(traversed_edge_variable);
-      std::string traversed_node_variable = lambda->traversed_node->accept(this);
+      auto traversed_node_variable = std::any_cast<std::string>(lambda->traversed_node->accept(this));
       edge_lambda.inner_node = storage_->Create<Identifier>(traversed_node_variable);
-      edge_lambda.expression = lambda->expression()->accept(this);
+      edge_lambda.expression = std::any_cast<Expression *>(lambda->expression()->accept(this));
       return edge_lambda;
     };
     auto visit_total_weight = [&]() {
       if (relationshipDetail->total_weight) {
-        std::string total_weight_name = relationshipDetail->total_weight->accept(this);
+        auto total_weight_name = std::any_cast<std::string>(relationshipDetail->total_weight->accept(this));
         edge->total_weight_ = storage_->Create<Identifier>(total_weight_name);
       } else {
         anonymous_identifiers.push_back(&edge->total_weight_);
@@ -1680,11 +1687,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       break;
     case 1: {
       if (properties[0]->mapLiteral()) {
-        edge->properties_ = properties[0]->accept(this).as<std::unordered_map<PropertyIx, Expression *>>();
+        edge->properties_ = std::any_cast<std::unordered_map<PropertyIx, Expression *>>(properties[0]->accept(this));
         break;
       }
       MG_ASSERT(properties[0]->parameter());
-      edge->properties_ = properties[0]->accept(this).as<ParameterLookup *>();
+      edge->properties_ = std::any_cast<ParameterLookup *>(properties[0]->accept(this));
       break;
     }
     default:
@@ -1707,7 +1714,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(MemgraphCypher::Relatio
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) {
   std::vector<EdgeTypeIx> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(AddEdgeType(edge_type->accept(this)));
+    types.push_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
   }
   return types;
 }
@@ -1727,7 +1734,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     // Case -[*]-
   } else if (ctx->expression().size() == 1U) {
     auto dots_tokens = ctx->getTokens(MemgraphCypher::DOTS);
-    Expression *bound = ctx->expression()[0]->accept(this);
+    auto *bound = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
     if (!dots_tokens.size()) {
       // Case -[*bound]-
       if (edge_type != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) lower = bound;
@@ -1741,8 +1748,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     }
   } else {
     // Case -[*lbound..rbound]-
-    lower = ctx->expression()[0]->accept(this);
-    upper = ctx->expression()[1]->accept(this);
+    lower = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
+    upper = std::any_cast<Expression *>(ctx->expression()[1]->accept(this));
   }
   if (lower && edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
     throw SemanticException("Lower bound is not allowed in weighted shortest path expansion.");
@@ -1751,7 +1758,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression(MemgraphCypher::ExpressionContext *ctx) {
-  return static_cast<Expression *>(ctx->expression12()->accept(this));
+  return std::any_cast<Expression *>(ctx->expression12()->accept(this));
 }
 
 // OR.
@@ -1797,11 +1804,11 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(MemgraphCypher::Expression8Con
   //  4 <= 5 < 7 > 6 -> false
   //  All of those comparisons evaluate to true in memgraph.
   std::vector<Expression *> children;
-  children.push_back(ctx->expression7()->accept(this));
+  children.push_back(std::any_cast<Expression *>(ctx->expression7()->accept(this)));
   std::vector<size_t> operators;
   auto partial_comparison_expressions = ctx->partialComparisonExpression();
   for (auto *child : partial_comparison_expressions) {
-    children.push_back(child->expression7()->accept(this));
+    children.push_back(std::any_cast<Expression *>(child->expression7()->accept(this)));
   }
   // First production is comparison operator.
   for (auto *child : partial_comparison_expressions) {
@@ -1863,7 +1870,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression4(MemgraphCypher::Expression4Con
 
 // IS NULL, IS NOT NULL, STARTS WITH, ..
 antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aContext *ctx) {
-  Expression *expression = ctx->expression3b()->accept(this);
+  auto *expression = std::any_cast<Expression *>(ctx->expression3b()->accept(this));
 
   for (auto *op : ctx->stringAndNullOperators()) {
     if (op->IS() && op->NOT() && op->CYPHERNULL()) {
@@ -1872,12 +1879,12 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
     } else if (op->IS() && op->CYPHERNULL()) {
       expression = static_cast<Expression *>(storage_->Create<IsNullOperator>(expression));
     } else if (op->IN()) {
-      expression =
-          static_cast<Expression *>(storage_->Create<InListOperator>(expression, op->expression3b()->accept(this)));
+      expression = static_cast<Expression *>(
+          storage_->Create<InListOperator>(expression, std::any_cast<Expression *>(op->expression3b()->accept(this))));
     } else if (utils::StartsWith(op->getText(), "=~")) {
       auto *regex_match = storage_->Create<RegexMatch>();
       regex_match->string_expr_ = expression;
-      regex_match->regex_ = op->expression3b()->accept(this);
+      regex_match->regex_ = std::any_cast<Expression *>(op->expression3b()->accept(this));
       expression = regex_match;
     } else {
       std::string function_name;
@@ -1890,7 +1897,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(MemgraphCypher::Expression3aC
       } else {
         throw utils::NotYetImplemented("function '{}'", op->getText());
       }
-      auto expression2 = op->expression3b()->accept(this);
+      auto *expression2 = std::any_cast<Expression *>(op->expression3b()->accept(this));
       std::vector<Expression *> args = {expression, expression2};
       expression = static_cast<Expression *>(storage_->Create<Function>(function_name, args));
     }
@@ -1903,18 +1910,19 @@ antlrcpp::Any CypherMainVisitor::visitStringAndNullOperators(MemgraphCypher::Str
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression3b(MemgraphCypher::Expression3bContext *ctx) {
-  Expression *expression = ctx->expression2a()->accept(this);
+  auto *expression = std::any_cast<Expression *>(ctx->expression2a()->accept(this));
   for (auto *list_op : ctx->listIndexingOrSlicing()) {
     if (list_op->getTokens(MemgraphCypher::DOTS).size() == 0U) {
       // If there is no '..' then we need to create list indexing operator.
-      expression = storage_->Create<SubscriptOperator>(expression, list_op->expression()[0]->accept(this));
+      expression = storage_->Create<SubscriptOperator>(
+          expression, std::any_cast<Expression *>(list_op->expression()[0]->accept(this)));
     } else if (!list_op->lower_bound && !list_op->upper_bound) {
       throw SemanticException("List slicing operator requires at least one bound.");
     } else {
       Expression *lower_bound_ast =
-          list_op->lower_bound ? static_cast<Expression *>(list_op->lower_bound->accept(this)) : nullptr;
+          list_op->lower_bound ? std::any_cast<Expression *>(list_op->lower_bound->accept(this)) : nullptr;
       Expression *upper_bound_ast =
-          list_op->upper_bound ? static_cast<Expression *>(list_op->upper_bound->accept(this)) : nullptr;
+          list_op->upper_bound ? std::any_cast<Expression *>(list_op->upper_bound->accept(this)) : nullptr;
       expression = storage_->Create<ListSlicingOperator>(expression, lower_bound_ast, upper_bound_ast);
     }
   }
@@ -1927,18 +1935,18 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
-  Expression *expression = ctx->expression2b()->accept(this);
+  auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabels()) {
-    auto labels = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
+    auto labels = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
     expression = storage_->Create<LabelsTest>(expression, labels);
   }
   return expression;
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression2b(MemgraphCypher::Expression2bContext *ctx) {
-  Expression *expression = ctx->atom()->accept(this);
+  auto *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
   for (auto *lookup : ctx->propertyLookup()) {
-    PropertyIx key = lookup->accept(this);
+    auto key = std::any_cast<PropertyIx>(lookup->accept(this));
     auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
@@ -1949,19 +1957,19 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
   if (ctx->literal()) {
     return ctx->literal()->accept(this);
   } else if (ctx->parameter()) {
-    return static_cast<Expression *>(ctx->parameter()->accept(this).as<ParameterLookup *>());
+    return static_cast<Expression *>(std::any_cast<ParameterLookup *>(ctx->parameter()->accept(this)));
   } else if (ctx->parenthesizedExpression()) {
-    return static_cast<Expression *>(ctx->parenthesizedExpression()->accept(this));
+    return static_cast<Expression *>(std::any_cast<Expression *>(ctx->parenthesizedExpression()->accept(this)));
   } else if (ctx->variable()) {
-    std::string variable = ctx->variable()->accept(this);
+    auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     users_identifiers.insert(variable);
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->functionInvocation()) {
-    return static_cast<Expression *>(ctx->functionInvocation()->accept(this));
+    return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
     std::vector<Expression *> exprs;
     for (auto *expr_context : ctx->expression()) {
-      exprs.emplace_back(expr_context->accept(this).as<Expression *>());
+      exprs.emplace_back(std::any_cast<Expression *>(expr_context->accept(this)));
     }
     return static_cast<Expression *>(storage_->Create<Coalesce>(std::move(exprs)));
   } else if (ctx->COUNT()) {
@@ -1970,57 +1978,57 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     // functionInvocation and atom producions in opencypher grammar.
     return static_cast<Expression *>(storage_->Create<Aggregation>(nullptr, nullptr, Aggregation::Op::COUNT));
   } else if (ctx->ALL()) {
-    auto *ident =
-        storage_->Create<Identifier>(ctx->filterExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list_expr = ctx->filterExpression()->idInColl()->expression()->accept(this);
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("ALL(...) requires a WHERE predicate.");
     }
-    Where *where = ctx->filterExpression()->where()->accept(this);
+    auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<All>(ident, list_expr, where));
   } else if (ctx->SINGLE()) {
-    auto *ident =
-        storage_->Create<Identifier>(ctx->filterExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list_expr = ctx->filterExpression()->idInColl()->expression()->accept(this);
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("SINGLE(...) requires a WHERE predicate.");
     }
-    Where *where = ctx->filterExpression()->where()->accept(this);
+    auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<Single>(ident, list_expr, where));
   } else if (ctx->ANY()) {
-    auto *ident =
-        storage_->Create<Identifier>(ctx->filterExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list_expr = ctx->filterExpression()->idInColl()->expression()->accept(this);
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("ANY(...) requires a WHERE predicate.");
     }
-    Where *where = ctx->filterExpression()->where()->accept(this);
+    auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<Any>(ident, list_expr, where));
   } else if (ctx->NONE()) {
-    auto *ident =
-        storage_->Create<Identifier>(ctx->filterExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list_expr = ctx->filterExpression()->idInColl()->expression()->accept(this);
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
+    auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
     if (!ctx->filterExpression()->where()) {
       throw SyntaxException("NONE(...) requires a WHERE predicate.");
     }
-    Where *where = ctx->filterExpression()->where()->accept(this);
+    auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
     return static_cast<Expression *>(storage_->Create<None>(ident, list_expr, where));
   } else if (ctx->REDUCE()) {
     auto *accumulator =
-        storage_->Create<Identifier>(ctx->reduceExpression()->accumulator->accept(this).as<std::string>());
-    Expression *initializer = ctx->reduceExpression()->initial->accept(this);
-    auto *ident =
-        storage_->Create<Identifier>(ctx->reduceExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list = ctx->reduceExpression()->idInColl()->expression()->accept(this);
-    Expression *expr = ctx->reduceExpression()->expression().back()->accept(this);
+        storage_->Create<Identifier>(std::any_cast<std::string>(ctx->reduceExpression()->accumulator->accept(this)));
+    auto *initializer = std::any_cast<Expression *>(ctx->reduceExpression()->initial->accept(this));
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->reduceExpression()->idInColl()->variable()->accept(this)));
+    auto *list = std::any_cast<Expression *>(ctx->reduceExpression()->idInColl()->expression()->accept(this));
+    auto *expr = std::any_cast<Expression *>(ctx->reduceExpression()->expression().back()->accept(this));
     return static_cast<Expression *>(storage_->Create<Reduce>(accumulator, initializer, ident, list, expr));
   } else if (ctx->caseExpression()) {
-    return static_cast<Expression *>(ctx->caseExpression()->accept(this));
+    return std::any_cast<Expression *>(ctx->caseExpression()->accept(this));
   } else if (ctx->extractExpression()) {
-    auto *ident =
-        storage_->Create<Identifier>(ctx->extractExpression()->idInColl()->variable()->accept(this).as<std::string>());
-    Expression *list = ctx->extractExpression()->idInColl()->expression()->accept(this);
-    Expression *expr = ctx->extractExpression()->expression()->accept(this);
+    auto *ident = storage_->Create<Identifier>(
+        std::any_cast<std::string>(ctx->extractExpression()->idInColl()->variable()->accept(this)));
+    auto *list = std::any_cast<Expression *>(ctx->extractExpression()->idInColl()->expression()->accept(this));
+    auto *expr = std::any_cast<Expression *>(ctx->extractExpression()->expression()->accept(this));
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
   }
   // TODO: Implement this. We don't support comprehensions, filtering... at
@@ -2046,34 +2054,35 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
       return static_cast<Expression *>(storage_->Create<ParameterLookup>(token_position));
     } else if (ctx->StringLiteral()) {
       return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
-          visitStringLiteral(ctx->StringLiteral()->getText()).as<std::string>(), token_position));
+          std::any_cast<std::string>(visitStringLiteral(std::any_cast<std::string>(ctx->StringLiteral()->getText()))),
+          token_position));
     } else if (ctx->booleanLiteral()) {
       return static_cast<Expression *>(
-          storage_->Create<PrimitiveLiteral>(ctx->booleanLiteral()->accept(this).as<bool>(), token_position));
+          storage_->Create<PrimitiveLiteral>(std::any_cast<bool>(ctx->booleanLiteral()->accept(this)), token_position));
     } else if (ctx->numberLiteral()) {
-      return static_cast<Expression *>(
-          storage_->Create<PrimitiveLiteral>(ctx->numberLiteral()->accept(this).as<TypedValue>(), token_position));
+      return static_cast<Expression *>(storage_->Create<PrimitiveLiteral>(
+          std::any_cast<TypedValue>(ctx->numberLiteral()->accept(this)), token_position));
     }
     LOG_FATAL("Expected to handle all cases above");
   } else if (ctx->listLiteral()) {
     return static_cast<Expression *>(
-        storage_->Create<ListLiteral>(ctx->listLiteral()->accept(this).as<std::vector<Expression *>>()));
+        storage_->Create<ListLiteral>(std::any_cast<std::vector<Expression *>>(ctx->listLiteral()->accept(this))));
   } else {
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
-        ctx->mapLiteral()->accept(this).as<std::unordered_map<PropertyIx, Expression *>>()));
+        std::any_cast<std::unordered_map<PropertyIx, Expression *>>(ctx->mapLiteral()->accept(this))));
   }
   return visitChildren(ctx);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
-  return static_cast<Expression *>(ctx->expression()->accept(this));
+  return std::any_cast<Expression *>(ctx->expression()->accept(this));
 }
 
 antlrcpp::Any CypherMainVisitor::visitNumberLiteral(MemgraphCypher::NumberLiteralContext *ctx) {
   if (ctx->integerLiteral()) {
-    return TypedValue(ctx->integerLiteral()->accept(this).as<int64_t>());
+    return TypedValue(std::any_cast<int64_t>(ctx->integerLiteral()->accept(this)));
   } else if (ctx->doubleLiteral()) {
-    return TypedValue(ctx->doubleLiteral()->accept(this).as<double>());
+    return TypedValue(std::any_cast<double>(ctx->doubleLiteral()->accept(this)));
   } else {
     // This should never happen, except grammar changes and we don't notice
     // change in this production.
@@ -2086,10 +2095,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   if (ctx->DISTINCT()) {
     throw utils::NotYetImplemented("DISTINCT function call");
   }
-  std::string function_name = ctx->functionName()->accept(this);
+  auto function_name = std::any_cast<std::string>(ctx->functionName()->accept(this));
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {
-    expressions.push_back(expression->accept(this));
+    expressions.push_back(std::any_cast<Expression *>(expression->accept(this)));
   }
   if (expressions.size() == 1U) {
     if (function_name == Aggregation::kCount) {
@@ -2171,21 +2180,21 @@ antlrcpp::Any CypherMainVisitor::visitCypherDelete(MemgraphCypher::CypherDeleteC
     del->detach_ = true;
   }
   for (auto *expression : ctx->expression()) {
-    del->expressions_.push_back(expression->accept(this));
+    del->expressions_.push_back(std::any_cast<Expression *>(expression->accept(this)));
   }
   return del;
 }
 
 antlrcpp::Any CypherMainVisitor::visitWhere(MemgraphCypher::WhereContext *ctx) {
   auto *where = storage_->Create<Where>();
-  where->expression_ = ctx->expression()->accept(this);
+  where->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   return where;
 }
 
 antlrcpp::Any CypherMainVisitor::visitSet(MemgraphCypher::SetContext *ctx) {
   std::vector<Clause *> set_items;
   for (auto *set_item : ctx->setItem()) {
-    set_items.push_back(set_item->accept(this));
+    set_items.push_back(std::any_cast<Clause *>(set_item->accept(this)));
   }
   return set_items;
 }
@@ -2194,16 +2203,17 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
   // SetProperty
   if (ctx->propertyExpression()) {
     auto *set_property = storage_->Create<SetProperty>();
-    set_property->property_lookup_ = ctx->propertyExpression()->accept(this);
-    set_property->expression_ = ctx->expression()->accept(this);
+    set_property->property_lookup_ = std::any_cast<PropertyLookup *>(ctx->propertyExpression()->accept(this));
+    set_property->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
     return static_cast<Clause *>(set_property);
   }
 
   // SetProperties either assignment or update
   if (ctx->getTokens(MemgraphCypher::EQ).size() || ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
     auto *set_properties = storage_->Create<SetProperties>();
-    set_properties->identifier_ = storage_->Create<Identifier>(ctx->variable()->accept(this).as<std::string>());
-    set_properties->expression_ = ctx->expression()->accept(this);
+    set_properties->identifier_ =
+        storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
+    set_properties->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
     if (ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
       set_properties->update_ = true;
     }
@@ -2212,15 +2222,15 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
 
   // SetLabels
   auto *set_labels = storage_->Create<SetLabels>();
-  set_labels->identifier_ = storage_->Create<Identifier>(ctx->variable()->accept(this).as<std::string>());
-  set_labels->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
+  set_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
+  set_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(set_labels);
 }
 
 antlrcpp::Any CypherMainVisitor::visitRemove(MemgraphCypher::RemoveContext *ctx) {
   std::vector<Clause *> remove_items;
   for (auto *remove_item : ctx->removeItem()) {
-    remove_items.push_back(remove_item->accept(this));
+    remove_items.push_back(std::any_cast<Clause *>(remove_item->accept(this)));
   }
   return remove_items;
 }
@@ -2229,21 +2239,21 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
   // RemoveProperty
   if (ctx->propertyExpression()) {
     auto *remove_property = storage_->Create<RemoveProperty>();
-    remove_property->property_lookup_ = ctx->propertyExpression()->accept(this);
+    remove_property->property_lookup_ = std::any_cast<PropertyLookup *>(ctx->propertyExpression()->accept(this));
     return static_cast<Clause *>(remove_property);
   }
 
   // RemoveLabels
   auto *remove_labels = storage_->Create<RemoveLabels>();
-  remove_labels->identifier_ = storage_->Create<Identifier>(ctx->variable()->accept(this).as<std::string>());
-  remove_labels->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
+  remove_labels->identifier_ = storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
+  remove_labels->labels_ = std::any_cast<std::vector<LabelIx>>(ctx->nodeLabels()->accept(this));
   return static_cast<Clause *>(remove_labels);
 }
 
 antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::PropertyExpressionContext *ctx) {
-  Expression *expression = ctx->atom()->accept(this);
+  auto *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
   for (auto *lookup : ctx->propertyLookup()) {
-    PropertyIx key = lookup->accept(this);
+    auto key = std::any_cast<PropertyIx>(lookup->accept(this));
     auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
@@ -2252,17 +2262,18 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::Propert
 }
 
 antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpressionContext *ctx) {
-  Expression *test_expression = ctx->test ? ctx->test->accept(this).as<Expression *>() : nullptr;
+  Expression *test_expression = ctx->test ? std::any_cast<Expression *>(ctx->test->accept(this)) : nullptr;
   auto alternatives = ctx->caseAlternatives();
   // Reverse alternatives so that tree of IfOperators can be built bottom-up.
   std::reverse(alternatives.begin(), alternatives.end());
-  Expression *else_expression = ctx->else_expression ? ctx->else_expression->accept(this).as<Expression *>()
+  Expression *else_expression = ctx->else_expression ? std::any_cast<Expression *>(ctx->else_expression->accept(this))
                                                      : storage_->Create<PrimitiveLiteral>(TypedValue());
   for (auto *alternative : alternatives) {
     Expression *condition =
-        test_expression ? storage_->Create<EqualOperator>(test_expression, alternative->when_expression->accept(this))
-                        : alternative->when_expression->accept(this).as<Expression *>();
-    Expression *then_expression = alternative->then_expression->accept(this);
+        test_expression ? storage_->Create<EqualOperator>(
+                              test_expression, std::any_cast<Expression *>(alternative->when_expression->accept(this)))
+                        : std::any_cast<Expression *>(alternative->when_expression->accept(this));
+    auto *then_expression = std::any_cast<Expression *>(alternative->then_expression->accept(this));
     else_expression = storage_->Create<IfOperator>(condition, then_expression, else_expression);
   }
   return else_expression;
@@ -2276,22 +2287,22 @@ antlrcpp::Any CypherMainVisitor::visitCaseAlternatives(MemgraphCypher::CaseAlter
 antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   auto *with = storage_->Create<With>();
   in_with_ = true;
-  with->body_ = ctx->returnBody()->accept(this);
+  with->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
   in_with_ = false;
   if (ctx->DISTINCT()) {
     with->body_.distinct = true;
   }
   if (ctx->where()) {
-    with->where_ = ctx->where()->accept(this);
+    with->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }
   return with;
 }
 
 antlrcpp::Any CypherMainVisitor::visitMerge(MemgraphCypher::MergeContext *ctx) {
   auto *merge = storage_->Create<Merge>();
-  merge->pattern_ = ctx->patternPart()->accept(this);
+  merge->pattern_ = std::any_cast<Pattern *>(ctx->patternPart()->accept(this));
   for (auto &merge_action : ctx->mergeAction()) {
-    auto set = merge_action->set()->accept(this).as<std::vector<Clause *>>();
+    auto set = std::any_cast<std::vector<Clause *>>(merge_action->set()->accept(this));
     if (merge_action->MATCH()) {
       merge->on_match_.insert(merge->on_match_.end(), set.begin(), set.end());
     } else {
@@ -2304,8 +2315,8 @@ antlrcpp::Any CypherMainVisitor::visitMerge(MemgraphCypher::MergeContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitUnwind(MemgraphCypher::UnwindContext *ctx) {
   auto *named_expr = storage_->Create<NamedExpression>();
-  named_expr->expression_ = ctx->expression()->accept(this);
-  named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+  named_expr->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
+  named_expr->name_ = std::any_cast<std::string>(ctx->variable()->accept(this));
   return storage_->Create<Unwind>(named_expr);
 }
 
@@ -2318,27 +2329,27 @@ antlrcpp::Any CypherMainVisitor::visitForeach(MemgraphCypher::ForeachContext *ct
   auto *for_each = storage_->Create<Foreach>();
 
   auto *named_expr = storage_->Create<NamedExpression>();
-  named_expr->expression_ = ctx->expression()->accept(this);
-  named_expr->name_ = std::string(ctx->variable()->accept(this).as<std::string>());
+  named_expr->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
+  named_expr->name_ = std::any_cast<std::string>(ctx->variable()->accept(this));
   for_each->named_expression_ = named_expr;
 
   for (auto *update_clause_ctx : ctx->updateClause()) {
     if (auto *set = update_clause_ctx->set(); set) {
-      auto set_items = visitSet(set).as<std::vector<Clause *>>();
+      auto set_items = std::any_cast<std::vector<Clause *>>(visitSet(set));
       std::copy(set_items.begin(), set_items.end(), std::back_inserter(for_each->clauses_));
     } else if (auto *remove = update_clause_ctx->remove(); remove) {
-      auto remove_items = visitRemove(remove).as<std::vector<Clause *>>();
+      auto remove_items = std::any_cast<std::vector<Clause *>>(visitRemove(remove));
       std::copy(remove_items.begin(), remove_items.end(), std::back_inserter(for_each->clauses_));
     } else if (auto *merge = update_clause_ctx->merge(); merge) {
-      for_each->clauses_.push_back(visitMerge(merge).as<Merge *>());
+      for_each->clauses_.push_back(std::any_cast<Merge *>(visitMerge(merge)));
     } else if (auto *create = update_clause_ctx->create(); create) {
-      for_each->clauses_.push_back(visitCreate(create).as<Create *>());
+      for_each->clauses_.push_back(std::any_cast<Create *>(visitCreate(create)));
     } else if (auto *cypher_delete = update_clause_ctx->cypherDelete(); cypher_delete) {
-      for_each->clauses_.push_back(visitCypherDelete(cypher_delete).as<Delete *>());
+      for_each->clauses_.push_back(std::any_cast<Delete *>(visitCypherDelete(cypher_delete)));
     } else {
       auto *nested_for_each = update_clause_ctx->foreach ();
       MG_ASSERT(nested_for_each != nullptr, "Unexpected clause in FOREACH");
-      for_each->clauses_.push_back(visitForeach(nested_for_each).as<Foreach *>());
+      for_each->clauses_.push_back(std::any_cast<Foreach *>(visitForeach(nested_for_each)));
     }
   }
 
