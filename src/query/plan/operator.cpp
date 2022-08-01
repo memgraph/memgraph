@@ -831,12 +831,27 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
+    if (context.fine_grained_access_checker) {
+      auto *fine_grained_access_checker = context.fine_grained_access_checker;
+      (void)std::remove_if(edges.begin(), edges.end(), [&fine_grained_access_checker](const auto &edge) {
+        return !fine_grained_access_checker->Accept(edge);
+      });
+    }
+
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
+
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
+    if (context.fine_grained_access_checker) {
+      auto *fine_grained_access_checker = context.fine_grained_access_checker;
+      (void)std::remove_if(edges.begin(), edges.end(), [&fine_grained_access_checker](const auto &edge) {
+        return !fine_grained_access_checker->Accept(edge);
+      });
+    }
+
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -1368,6 +1383,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         const auto &vertex = vertex_value.ValueVertex();
         processed_.emplace(vertex, std::nullopt);
+
         expand_from_vertex(vertex);
 
         // go back to loop start and see if we expanded anything
