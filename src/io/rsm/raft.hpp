@@ -246,7 +246,8 @@ class Raft {
       return 0;
     }
 
-    return state_.log.at(index - 1).first;
+    auto &[term, data] = state_.log.at(index - 1);
+    return term;
   }
 
   LogIndex CommittedLogIndex() { return state_.committed_log_size; }
@@ -257,7 +258,8 @@ class Raft {
       return 0;
     }
 
-    return state_.log.at(state_.committed_log_size - 1).first;
+    auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
+    return term;
   }
 
   LogIndex LastLogIndex() { return state_.log.size(); }
@@ -267,7 +269,8 @@ class Raft {
       return 0;
     }
 
-    return state_.log.back().first;
+    auto &[term, data] = state_.log.back();
+    return term;
   }
 
   /// Periodic protocol maintenance.
