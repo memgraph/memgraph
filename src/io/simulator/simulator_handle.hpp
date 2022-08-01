@@ -260,7 +260,8 @@ class SimulatorHandle {
     for (auto &[promise_key, dop] : promises_) {
       // TODO(tyler) queue this up and drop it after its deadline
       if (dop.deadline < now) {
-        std::cout << "timing out request" << std::endl;
+        spdlog::debug("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
+                      promise_key.replier_address.ToString());
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
         promises_.erase(promise_key);
 

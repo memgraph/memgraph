@@ -13,8 +13,10 @@
 
 #include <compare>
 
+#include <fmt/format.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 namespace memgraph::io {
 struct Address {
@@ -51,6 +53,11 @@ struct Address {
     } else {
       return unique_id < other.unique_id;
     }
+  }
+
+  std::string ToString() const {
+    return fmt::format("Address {{ unique_id: {}, last_known_ip: {}, last_known_port: {} }}",
+                       boost::uuids::to_string(unique_id), last_known_ip.to_string(), last_known_port);
   }
 };
 };  // namespace memgraph::io

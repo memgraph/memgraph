@@ -115,7 +115,7 @@ class Io {
   Time Now() { return implementation_.Now(); }
 
   /// Returns true of the system should shut-down.
-  bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
+  const bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
 
   /// Returns a random number within the specified distribution.
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
