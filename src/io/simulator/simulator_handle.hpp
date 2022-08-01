@@ -93,7 +93,7 @@ class SimulatorHandle {
 
   void ShutDown();
 
-  bool ShouldShutDown();
+  bool ShouldShutDown() const;
 
   template <Message Request, Message Response>
   void SubmitRequest(Address to_address, Address from_address, uint64_t request_id, Request &&request, Duration timeout,

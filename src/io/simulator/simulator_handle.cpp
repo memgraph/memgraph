@@ -45,7 +45,7 @@ void SimulatorHandle::ShutDown() {
   cv_.notify_all();
 }
 
-bool SimulatorHandle::ShouldShutDown() {
+bool SimulatorHandle::ShouldShutDown() const {
   std::unique_lock<std::mutex> lock(mu_);
   return should_shut_down_;
 }
