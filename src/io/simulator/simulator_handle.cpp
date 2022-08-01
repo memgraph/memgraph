@@ -163,7 +163,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
   return true;
 }
 
-Time SimulatorHandle::Now() {
+Time SimulatorHandle::Now() const {
   std::unique_lock<std::mutex> lock(mu_);
   return cluster_wide_time_microseconds_;
 }

@@ -169,7 +169,7 @@ class SimulatorHandle {
     cv_.notify_all();
   }
 
-  Time Now();
+  Time Now() const;
 
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
   Return Rand(D distrib) {
