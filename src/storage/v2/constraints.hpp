@@ -158,7 +158,7 @@ inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
     return false;
   }
   for (const auto &vertex : vertices) {
-    if (!vertex.deleted && VertexHasLabel(vertex, label) && !vertex.properties.HasProperty(property)) {
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }
@@ -184,7 +184,7 @@ inline bool DropExistenceConstraint(Constraints *constraints, LabelId label, Pro
 [[nodiscard]] inline std::optional<ConstraintViolation> ValidateExistenceConstraints(const Vertex &vertex,
                                                                                      const Constraints &constraints) {
   for (const auto &[label, property] : constraints.existence_constraints) {
-    if (!vertex.deleted && VertexHasLabel(vertex, label) && !vertex.properties.HasProperty(property)) {
+    if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }
   }

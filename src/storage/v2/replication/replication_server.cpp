@@ -166,10 +166,9 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   storage_->edges_.clear();
 
   storage_->constraints_ = Constraints();
-  storage_->indices_.label_index =
-      LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items, storage_->schema_validator_);
-  storage_->indices_.label_property_index = LabelPropertyIndex(&storage_->indices_, &storage_->constraints_,
-                                                               storage_->config_.items, storage_->schema_validator_);
+  storage_->indices_.label_index = LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
+  storage_->indices_.label_property_index =
+      LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
@@ -474,8 +473,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
                                &transaction->transaction_,
                                &storage_->indices_,
                                &storage_->constraints_,
-                               storage_->config_.items,
-                               storage_->schema_validator_};
+                               storage_->config_.items};
 
         auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                   delta.vertex_edge_set_property.value);
