@@ -118,7 +118,7 @@ class SimulatorHandle {
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
-    std::any message(std::forward(request));
+    std::any message(request);
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message)};
     in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
