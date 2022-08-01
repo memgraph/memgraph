@@ -224,4 +224,12 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
+/**
+ * An exception for an illegal operation that violates schema
+ */
+class SchemaViolationException : public QueryRuntimeException {
+ public:
+  using QueryRuntimeException::QueryRuntimeException;
+};
+
 }  // namespace memgraph::query::v2
