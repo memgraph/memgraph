@@ -83,7 +83,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
 
   spdlog::debug("Sending run message with statement: '{}'; parameters: {}", query, parameters);
 
+  // It is super critical from performance point of view to send the pull message right after the run message. Otherwise
+  // the performance will degrade multiple magnitudes.
   encoder_.MessageRun(query, parameters, {});
+  encoder_.MessagePull({});
 
   spdlog::debug("Reading run message response");
   Signature signature{};
@@ -102,7 +105,6 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ServerMalformedDataException();
   }
 
-  encoder_.MessagePull({});
   spdlog::debug("Reading pull_all message response");
   Marker marker{};
   Value metadata;
@@ -172,10 +174,19 @@ void Client::Reset() {
 
   Signature signature{};
   Value fields;
-  if (!ReadMessage(signature, fields)) {
-    throw ServerCommunicationException();
+  // In Execute the pull message is sent right after the run message without reading the answer for the run message.
+  // That means some of the messages sent might get ignored.
+  while (true) {
+    if (!ReadMessage(signature, fields)) {
+      throw ServerCommunicationException();
+    }
+    if (signature == Signature::Success) {
+      break;
+    }
+    if (signature != Signature::Ignored) {
+      throw ServerMalformedDataException();
+    }
   }
-  MG_ASSERT(signature == Signature::Success, "Server did not respond SUCCESS to RESET!");
 }
 
 std::optional<std::map<std::string, Value>> Client::Route(const std::map<std::string, Value> &routing,
