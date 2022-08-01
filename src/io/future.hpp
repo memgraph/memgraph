@@ -27,7 +27,7 @@ namespace memgraph::io {
 // construct a Promise or Future is to pass a Shared in. This
 // ensures that Promises and Futures can only be constructed
 // in this translation unit.
-namespace {
+namespace details {
 template <typename T>
 class Shared {
   mutable std::condition_variable cv_;
@@ -131,15 +131,15 @@ class Shared {
     return waiting_;
   }
 };
-}  // namespace
+}  // namespace details
 
 template <typename T>
 class Future {
   bool consumed_or_moved_ = false;
-  std::shared_ptr<Shared<T>> shared_;
+  std::shared_ptr<details::Shared<T>> shared_;
 
  public:
-  explicit Future(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Future(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Future() = delete;
   Future(Future &&old) {
@@ -198,11 +198,11 @@ class Future {
 
 template <typename T>
 class Promise {
-  std::shared_ptr<Shared<T>> shared_;
+  std::shared_ptr<details::Shared<T>> shared_;
   bool filled_or_moved_ = false;
 
  public:
-  explicit Promise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Promise(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Promise() = delete;
   Promise(Promise &&old) {
@@ -242,7 +242,7 @@ class Promise {
 
 template <typename T>
 std::pair<Future<T>, Promise<T>> FuturePromisePair() {
-  std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>();
+  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>();
 
   Future<T> future = Future<T>(shared);
   Promise<T> promise = Promise<T>(shared);
@@ -252,7 +252,7 @@ std::pair<Future<T>, Promise<T>> FuturePromisePair() {
 
 template <typename T>
 std::pair<Future<T>, Promise<T>> FuturePromisePairWithNotifier(std::function<bool()> simulator_notifier) {
-  std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>(simulator_notifier);
+  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>(simulator_notifier);
 
   Future<T> future = Future<T>(shared);
   Promise<T> promise = Promise<T>(shared);
