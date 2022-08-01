@@ -33,7 +33,7 @@ class Simulator {
   Io<SimulatorTransport> Register(Address address) {
     std::uniform_int_distribution<uint64_t> seed_distrib;
     uint64_t seed = seed_distrib(rng_);
-    return Io(SimulatorTransport(simulator_handle_, address, seed), address);
+    return Io{SimulatorTransport{simulator_handle_, address, seed}, address};
   }
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {

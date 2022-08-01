@@ -22,9 +22,10 @@
 #include "io/time.hpp"
 #include "utils/result.hpp"
 
+namespace memgraph::io {
+
 using memgraph::utils::BasicResult;
 
-namespace memgraph::io {
 // TODO(tyler) ensure that Message continues to represent
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.

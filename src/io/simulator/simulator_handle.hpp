@@ -47,12 +47,10 @@ struct PromiseKey {
     if (requester_address == other.requester_address) {
       if (request_id == other.request_id) {
         return replier_address < other.replier_address;
-      } else {
-        return request_id < other.request_id;
       }
-    } else {
-      return requester_address < other.requester_address;
+      return request_id < other.request_id;
     }
+    return requester_address < other.requester_address;
   }
 };
 
@@ -120,9 +118,9 @@ class SimulatorHandle {
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
-    std::any message(std::move(request));
+    std::any message(std::forward(request));
     OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message)};
-    in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
+    in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
     PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
     OpaquePromise opaque_promise(std::move(promise).ToUnique());
@@ -133,8 +131,6 @@ class SimulatorHandle {
     stats_.total_requests++;
 
     cv_.notify_all();
-
-    return;
   }
 
   template <Message... Ms>

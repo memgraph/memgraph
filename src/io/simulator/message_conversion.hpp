@@ -67,9 +67,9 @@ struct OpaqueMessage {
           .request_id = request_id,
           .from_address = from_address,
       };
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 };
 
@@ -82,17 +82,17 @@ class OpaquePromise {
   std::function<void(void *)> time_out_;
 
  public:
-  OpaquePromise(OpaquePromise &&old)
+  OpaquePromise(OpaquePromise &&old) noexcept
       : ti_(old.ti_),
         ptr_(old.ptr_),
-        dtor_(old.dtor_),
-        is_awaited_(old.is_awaited_),
-        fill_(old.fill_),
-        time_out_(old.time_out_) {
+        dtor_(std::move(old.dtor_)),
+        is_awaited_(std::move(old.is_awaited_)),
+        fill_(std::move(old.fill_)),
+        time_out_(std::move(old.time_out_)) {
     old.ptr_ = nullptr;
   }
 
-  OpaquePromise &operator=(OpaquePromise &&old) {
+  OpaquePromise &operator=(OpaquePromise &&old) noexcept {
     MG_ASSERT(this != &old);
 
     ptr_ = old.ptr_;
@@ -115,7 +115,7 @@ class OpaquePromise {
     MG_ASSERT(typeid(T) == *ti_);
     MG_ASSERT(ptr_ != nullptr);
 
-    ResponsePromise<T> *ptr = static_cast<ResponsePromise<T> *>(ptr_);
+    auto ptr = static_cast<ResponsePromise<T> *>(ptr_);
 
     ptr_ = nullptr;
 
@@ -133,12 +133,12 @@ class OpaquePromise {
           auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                        .request_id = opaque_message.request_id,
                                                        .from_address = opaque_message.from_address};
-          ResponsePromise<T> *promise = static_cast<ResponsePromise<T> *>(this_ptr);
+          auto promise = static_cast<ResponsePromise<T> *>(this_ptr);
           auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
           unique_promise->Fill(std::move(response_envelope));
         }),
         time_out_([](void *ptr) {
-          ResponsePromise<T> *promise = static_cast<ResponsePromise<T> *>(ptr);
+          auto promise = static_cast<ResponsePromise<T> *>(ptr);
           auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
           ResponseResult<T> result = TimedOut{};
           unique_promise->Fill(std::move(result));

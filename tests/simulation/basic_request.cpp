@@ -30,7 +30,7 @@ struct CounterResponse {
 };
 
 void run_server(Io<SimulatorTransport> io) {
-  uint64_t highest_seen;
+  uint64_t highest_seen = 0;
 
   while (!io.ShouldShutDown()) {
     std::cout << "[SERVER] Is receiving..." << std::endl;

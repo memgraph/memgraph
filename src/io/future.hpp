@@ -108,9 +108,9 @@ class Shared {
 
     if (item_) {
       return Take(lock);
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 
   void Fill(T item) {
@@ -142,14 +142,14 @@ class Future {
   explicit Future(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Future() = delete;
-  Future(Future &&old) {
+  Future(Future &&old) noexcept {
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
     old.consumed_or_moved_ = true;
   }
 
-  Future &operator=(Future &&old) {
+  Future &operator=(Future &&old) noexcept {
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     old.consumed_or_moved_ = true;
@@ -205,13 +205,13 @@ class Promise {
   explicit Promise(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Promise() = delete;
-  Promise(Promise &&old) {
+  Promise(Promise &&old) noexcept {
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
 
-  Promise &operator=(Promise &&old) {
+  Promise &operator=(Promise &&old) noexcept {
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;

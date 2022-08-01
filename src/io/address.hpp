@@ -47,12 +47,10 @@ struct Address {
     if (unique_id == other.unique_id) {
       if (last_known_ip == other.last_known_ip) {
         return last_known_port < other.last_known_port;
-      } else {
-        return last_known_ip < other.last_known_ip;
       }
-    } else {
-      return unique_id < other.unique_id;
+      return last_known_ip < other.last_known_ip;
     }
+    return unique_id < other.unique_id;
   }
 
   std::string ToString() const {
