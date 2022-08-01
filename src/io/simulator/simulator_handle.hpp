@@ -89,7 +89,7 @@ class SimulatorHandle {
       if (dop.deadline < now) {
         spdlog::debug("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
                       promise_key.replier_address.ToString());
-        DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
+        DeadlineAndOpaquePromise dop = std::move(dop);
         promises_.erase(promise_key);
 
         stats_.timed_out_requests++;
