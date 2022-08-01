@@ -246,8 +246,7 @@ class Raft {
       return 0;
     }
 
-    auto &[term, data] = state_.log.at(index - 1);
-    return term;
+    return state_.log.at(index - 1).first;
   }
 
   LogIndex CommittedLogIndex() { return state_.committed_log_size; }
@@ -258,8 +257,7 @@ class Raft {
       return 0;
     }
 
-    auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
-    return term;
+    return state_.log.at(state_.committed_log_size - 1).first;
   }
 
   LogIndex LastLogIndex() { return state_.log.size(); }
@@ -269,8 +267,7 @@ class Raft {
       return 0;
     }
 
-    auto &[term, data] = state_.log.back();
-    return term;
+    return state_.log.back().first;
   }
 
   /// Periodic protocol maintenance.
@@ -534,9 +531,9 @@ class Raft {
       MG_ASSERT(req.term != state_.term, "Multiple leaders are acting under the term ", req.term);
     }
 
-    bool is_candidate = std::is_same<AllRoles, Candidate>();
-    bool is_failed_competitor = is_candidate && req.term == state_.term;
-    Time now = io_.Now();
+    const bool is_candidate = std::is_same<AllRoles, Candidate>();
+    const bool is_failed_competitor = is_candidate && req.term == state_.term;
+    const Time now = io_.Now();
 
     // Raft paper - 5.2
     // While waiting for votes, a candidate may receive an
