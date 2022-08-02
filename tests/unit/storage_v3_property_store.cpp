@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <array>
 #include <limits>
 
 #include <gmock/gmock.h>
@@ -20,50 +21,54 @@
 
 namespace memgraph::storage::v3::tests {
 
-using testing::UnorderedElementsAre;
+class StorageV3PropertyStore : public ::testing::Test {
+ protected:
+  PropertyStore props;
 
-const PropertyValue kSampleValues[] = {
-    PropertyValue(),
-    PropertyValue(false),
-    PropertyValue(true),
-    PropertyValue(0),
-    PropertyValue(33),
-    PropertyValue(-33),
-    PropertyValue(-3137),
-    PropertyValue(3137),
-    PropertyValue(310000007),
-    PropertyValue(-310000007),
-    PropertyValue(3100000000007L),
-    PropertyValue(-3100000000007L),
-    PropertyValue(0.0),
-    PropertyValue(33.33),
-    PropertyValue(-33.33),
-    PropertyValue(3137.3137),
-    PropertyValue(-3137.3137),
-    PropertyValue("sample"),
-    PropertyValue(std::string(404, 'n')),
-    PropertyValue(
-        std::vector<PropertyValue>{PropertyValue(33), PropertyValue(std::string("sample")), PropertyValue(-33.33)}),
-    PropertyValue(std::vector<PropertyValue>{PropertyValue(), PropertyValue(false)}),
-    PropertyValue(std::map<std::string, PropertyValue>{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
-    PropertyValue(std::map<std::string, PropertyValue>{
-        {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
-    PropertyValue(TemporalData(TemporalType::Date, 23)),
-};
+  const std::array<PropertyValue, 24> kSampleValues = {
+      PropertyValue(),
+      PropertyValue(false),
+      PropertyValue(true),
+      PropertyValue(0),
+      PropertyValue(33),
+      PropertyValue(-33),
+      PropertyValue(-3137),
+      PropertyValue(3137),
+      PropertyValue(310000007),
+      PropertyValue(-310000007),
+      PropertyValue(3100000000007L),
+      PropertyValue(-3100000000007L),
+      PropertyValue(0.0),
+      PropertyValue(33.33),
+      PropertyValue(-33.33),
+      PropertyValue(3137.3137),
+      PropertyValue(-3137.3137),
+      PropertyValue("sample"),
+      PropertyValue(std::string(404, 'n')),
+      PropertyValue(
+          std::vector<PropertyValue>{PropertyValue(33), PropertyValue(std::string("sample")), PropertyValue(-33.33)}),
+      PropertyValue(std::vector<PropertyValue>{PropertyValue(), PropertyValue(false)}),
+      PropertyValue(std::map<std::string, PropertyValue>{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
+      PropertyValue(std::map<std::string, PropertyValue>{
+          {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
+      PropertyValue(TemporalData(TemporalType::Date, 23)),
+  };
 
-void AssertPropertyIsEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
-  ASSERT_TRUE(store.IsPropertyEqual(property, value));
-  for (const auto &sample : kSampleValues) {
-    if (sample == value) {
-      ASSERT_TRUE(store.IsPropertyEqual(property, sample));
-    } else {
-      ASSERT_FALSE(store.IsPropertyEqual(property, sample));
+  void AssertPropertyIsEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
+    ASSERT_TRUE(store.IsPropertyEqual(property, value));
+    for (const auto &sample : kSampleValues) {
+      if (sample == value) {
+        ASSERT_TRUE(store.IsPropertyEqual(property, sample));
+      } else {
+        ASSERT_FALSE(store.IsPropertyEqual(property, sample));
+      }
     }
   }
-}
+};
 
-TEST(PropertyStore, StoreTwoProperties) {
-  PropertyStore props;
+using testing::UnorderedElementsAre;
+
+TEST_F(StorageV3PropertyStore, StoreTwoProperties) {
   const auto make_prop = [](int64_t prop_id_and_value) {
     auto prop = PropertyId::FromInt(prop_id_and_value);
     auto value = PropertyValue(prop_id_and_value);
@@ -77,8 +82,7 @@ TEST(PropertyStore, StoreTwoProperties) {
   ASSERT_THAT(props.Properties(), UnorderedElementsAre(first_prop_and_value, second_prop_and_value));
 }
 
-TEST(PropertyStore, Simple) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, Simple) {
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props.SetProperty(prop, value));
@@ -94,8 +98,7 @@ TEST(PropertyStore, Simple) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, SimpleLarge) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, SimpleLarge) {
   auto prop = PropertyId::FromInt(42);
   {
     auto value = PropertyValue(std::string(10000, 'a'));
@@ -121,8 +124,7 @@ TEST(PropertyStore, SimpleLarge) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptySetToNull) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, EmptySetToNull) {
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue()));
   ASSERT_TRUE(props.GetProperty(prop).IsNull());
@@ -131,8 +133,7 @@ TEST(PropertyStore, EmptySetToNull) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, Clear) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, Clear) {
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
   ASSERT_TRUE(props.SetProperty(prop, value));
@@ -147,13 +148,12 @@ TEST(PropertyStore, Clear) {
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptyClear) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, EmptyClear) {
   ASSERT_FALSE(props.ClearProperties());
   ASSERT_EQ(props.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveConstruct) {
+TEST_F(StorageV3PropertyStore, MoveConstruct) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
@@ -176,7 +176,7 @@ TEST(PropertyStore, MoveConstruct) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveConstructLarge) {
+TEST_F(StorageV3PropertyStore, MoveConstructLarge) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(std::string(10000, 'a'));
@@ -199,7 +199,7 @@ TEST(PropertyStore, MoveConstructLarge) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveAssign) {
+TEST_F(StorageV3PropertyStore, MoveAssign) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(42);
@@ -229,7 +229,7 @@ TEST(PropertyStore, MoveAssign) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, MoveAssignLarge) {
+TEST_F(StorageV3PropertyStore, MoveAssignLarge) {
   PropertyStore props1;
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(std::string(10000, 'a'));
@@ -259,7 +259,7 @@ TEST(PropertyStore, MoveAssignLarge) {
   ASSERT_EQ(props1.Properties().size(), 0);
 }
 
-TEST(PropertyStore, EmptySet) {
+TEST_F(StorageV3PropertyStore, EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
@@ -269,32 +269,32 @@ TEST(PropertyStore, EmptySet) {
 
   auto prop = PropertyId::FromInt(42);
   for (const auto &value : data) {
-    PropertyStore props;
+    PropertyStore local_props;
 
-    ASSERT_TRUE(props.SetProperty(prop, value));
-    ASSERT_EQ(props.GetProperty(prop), value);
-    ASSERT_TRUE(props.HasProperty(prop));
-    AssertPropertyIsEqual(props, prop, value);
-    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
-    ASSERT_FALSE(props.SetProperty(prop, value));
-    ASSERT_EQ(props.GetProperty(prop), value);
-    ASSERT_TRUE(props.HasProperty(prop));
-    AssertPropertyIsEqual(props, prop, value);
-    ASSERT_THAT(props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
-    ASSERT_FALSE(props.SetProperty(prop, PropertyValue()));
-    ASSERT_TRUE(props.GetProperty(prop).IsNull());
-    ASSERT_FALSE(props.HasProperty(prop));
-    AssertPropertyIsEqual(props, prop, PropertyValue());
-    ASSERT_EQ(props.Properties().size(), 0);
-    ASSERT_TRUE(props.SetProperty(prop, PropertyValue()));
-    ASSERT_TRUE(props.GetProperty(prop).IsNull());
-    ASSERT_FALSE(props.HasProperty(prop));
-    AssertPropertyIsEqual(props, prop, PropertyValue());
-    ASSERT_EQ(props.Properties().size(), 0);
+    ASSERT_TRUE(local_props.SetProperty(prop, value));
+    ASSERT_EQ(local_props.GetProperty(prop), value);
+    ASSERT_TRUE(local_props.HasProperty(prop));
+    AssertPropertyIsEqual(local_props, prop, value);
+    ASSERT_THAT(local_props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_FALSE(local_props.SetProperty(prop, value));
+    ASSERT_EQ(local_props.GetProperty(prop), value);
+    ASSERT_TRUE(local_props.HasProperty(prop));
+    AssertPropertyIsEqual(local_props, prop, value);
+    ASSERT_THAT(local_props.Properties(), UnorderedElementsAre(std::pair(prop, value)));
+    ASSERT_FALSE(local_props.SetProperty(prop, PropertyValue()));
+    ASSERT_TRUE(local_props.GetProperty(prop).IsNull());
+    ASSERT_FALSE(local_props.HasProperty(prop));
+    AssertPropertyIsEqual(local_props, prop, PropertyValue());
+    ASSERT_EQ(local_props.Properties().size(), 0);
+    ASSERT_TRUE(local_props.SetProperty(prop, PropertyValue()));
+    ASSERT_TRUE(local_props.GetProperty(prop).IsNull());
+    ASSERT_FALSE(local_props.HasProperty(prop));
+    AssertPropertyIsEqual(local_props, prop, PropertyValue());
+    ASSERT_EQ(local_props.Properties().size(), 0);
   }
 }
 
-TEST(PropertyStore, FullSet) {
+TEST_F(StorageV3PropertyStore, FullSet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
   std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
@@ -312,7 +312,6 @@ TEST(PropertyStore, FullSet) {
                                  PropertyValue(std::string(10000, 'a')),
                                  PropertyValue(std::string(100000, 'a'))};
 
-  PropertyStore props;
   for (const auto &target : data) {
     for (const auto &item : data) {
       ASSERT_TRUE(props.SetProperty(item.first, item.second));
@@ -389,7 +388,7 @@ TEST(PropertyStore, FullSet) {
   }
 }
 
-TEST(PropertyStore, IntEncoding) {
+TEST_F(StorageV3PropertyStore, IntEncoding) {
   std::map<PropertyId, PropertyValue> data{
       // {PropertyId::FromUint(0UL),
       //  PropertyValue(std::numeric_limits<int64_t>::min())},
@@ -423,7 +422,6 @@ TEST(PropertyStore, IntEncoding) {
       {PropertyId::FromUint(137438953472UL), PropertyValue(137438953472L)},
       {PropertyId::FromUint(std::numeric_limits<uint64_t>::max()), PropertyValue(std::numeric_limits<int64_t>::max())}};
 
-  PropertyStore props;
   for (const auto &item : data) {
     ASSERT_TRUE(props.SetProperty(item.first, item.second));
     ASSERT_EQ(props.GetProperty(item.first), item.second);
@@ -449,8 +447,7 @@ TEST(PropertyStore, IntEncoding) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, IsPropertyEqualIntAndDouble) {
   auto prop = PropertyId::FromInt(42);
 
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue(42)));
@@ -543,8 +540,7 @@ TEST(PropertyStore, IsPropertyEqualIntAndDouble) {
   }
 }
 
-TEST(PropertyStore, IsPropertyEqualString) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, IsPropertyEqualString) {
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue("test")));
   ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue("test")));
@@ -560,8 +556,7 @@ TEST(PropertyStore, IsPropertyEqualString) {
   ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue("testt")));
 }
 
-TEST(PropertyStore, IsPropertyEqualList) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, IsPropertyEqualList) {
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(
       props.SetProperty(prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test")})));
@@ -581,8 +576,7 @@ TEST(PropertyStore, IsPropertyEqualList) {
       prop, PropertyValue(std::vector<PropertyValue>{PropertyValue(42), PropertyValue("test"), PropertyValue(true)})));
 }
 
-TEST(PropertyStore, IsPropertyEqualMap) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, IsPropertyEqualMap) {
   auto prop = PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue(std::map<std::string, PropertyValue>{
                                           {"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
@@ -613,8 +607,7 @@ TEST(PropertyStore, IsPropertyEqualMap) {
                 {"abc", PropertyValue(42)}, {"sdf", PropertyValue(true)}, {"zyx", PropertyValue("test")}})));
 }
 
-TEST(PropertyStore, IsPropertyEqualTemporalData) {
-  PropertyStore props;
+TEST_F(StorageV3PropertyStore, IsPropertyEqualTemporalData) {
   auto prop = PropertyId::FromInt(42);
   const TemporalData temporal{TemporalType::Date, 23};
   ASSERT_TRUE(props.SetProperty(prop, PropertyValue(temporal)));
