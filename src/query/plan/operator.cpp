@@ -835,25 +835,12 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
 
   if (direction != EdgeAtom::Direction::IN) {
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -1043,11 +1030,7 @@ class ExpandVariableCursor : public Cursor {
       if (found_existing) continue;
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
-      if (context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor,
-                                                         current_edge.first.EdgeType()) ||
-          context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
-                                                       current_vertex.Labels(storage::View::NEW).GetValue()))
-        continue;
+
       AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
