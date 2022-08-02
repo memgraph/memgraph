@@ -38,7 +38,7 @@ struct Address {
   }
 
   bool operator==(const Address &other) const {
-    return ((unique_id == other.unique_id) && last_known_ip == other.last_known_ip) &&
+    return (unique_id == other.unique_id) && (last_known_ip == other.last_known_ip) &&
            (last_known_port == other.last_known_port);
   }
 
