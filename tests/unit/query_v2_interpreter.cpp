@@ -98,7 +98,7 @@ struct InterpreterFaker {
 class InterpreterTest : public ::testing::Test {
  protected:
   memgraph::storage::v3::Storage db_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
 
   InterpreterFaker default_interpreter{&db_, {}, data_directory};
 

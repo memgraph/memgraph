@@ -34,7 +34,8 @@ class QueryExecution : public testing::Test {
   std::optional<InterpreterContext> interpreter_context_;
   std::optional<Interpreter> interpreter_;
 
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
+                                       "MG_tests_unit_query_v2_query_plan_edge_cases"};
 
   void SetUp() {
     db_.emplace();
