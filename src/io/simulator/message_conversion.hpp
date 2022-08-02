@@ -58,7 +58,7 @@ struct OpaqueMessage {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) std::optional<RequestEnvelope<Ms...>> Take() {
+  requires(sizeof...(Ms) > 0) std::optional<RequestEnvelope<Ms...>> Take() && {
     std::optional<std::variant<Ms...>> m_opt = VariantFromAny<Ms...>(std::move(message));
 
     if (m_opt) {
@@ -111,7 +111,7 @@ class OpaquePromise {
   OpaquePromise &operator=(const OpaquePromise &) = delete;
 
   template <typename T>
-  std::unique_ptr<ResponsePromise<T>> Take() {
+  std::unique_ptr<ResponsePromise<T>> Take() && {
     MG_ASSERT(typeid(T) == *ti_);
     MG_ASSERT(ptr_ != nullptr);
 

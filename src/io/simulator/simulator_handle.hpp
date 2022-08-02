@@ -152,7 +152,7 @@ class SimulatorHandle {
 
           // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
-          auto m_opt = message.Take<Ms...>();
+          auto m_opt = std::move(message).Take<Ms...>();
 
           blocked_on_receive_ -= 1;
 
