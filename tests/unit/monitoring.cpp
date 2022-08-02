@@ -56,19 +56,19 @@ struct MockAuth : public memgraph::communication::websocket::AuthenticationInter
   bool has_any_users{true};
 };
 
-class WebSocketServerTest : public ::testing::Test {
+class MonitoringServerTest : public ::testing::Test {
  protected:
-  void SetUp() override { ASSERT_NO_THROW(websocket_server.Start()); }
+  void SetUp() override { ASSERT_NO_THROW(monitoring_server.Start()); }
 
   void TearDown() override {
     StopLogging();
-    ASSERT_NO_THROW(websocket_server.Shutdown());
-    ASSERT_NO_THROW(websocket_server.AwaitShutdown());
+    ASSERT_NO_THROW(monitoring_server.Shutdown());
+    ASSERT_NO_THROW(monitoring_server.AwaitShutdown());
   }
 
-  std::string ServerPort() const { return std::to_string(websocket_server.GetEndpoint().port()); }
+  std::string ServerPort() const { return std::to_string(monitoring_server.GetEndpoint().port()); }
 
-  std::string ServerAddress() const { return websocket_server.GetEndpoint().address().to_string(); }
+  std::string ServerAddress() const { return monitoring_server.GetEndpoint().address().to_string(); }
 
   void StartLogging(std::vector<std::tuple<spdlog::level::level_enum, std::string, std::string>> messages) {
     messages_ = std::move(messages);
@@ -94,7 +94,7 @@ class WebSocketServerTest : public ::testing::Test {
 
   MockAuth auth;
   memgraph::communication::ServerContext context;
-  memgraph::communication::websocket::Server websocket_server{{"0.0.0.0", 0}, &context, auth};
+  memgraph::communication::websocket::Server monitoring_server{{"0.0.0.0", 0}, &context, auth};
 
  private:
   std::jthread bg_thread_;
@@ -134,7 +134,7 @@ class Client {
   beast::flat_buffer buffer_;
 };
 
-TEST(WebSocketServer, WebsocketWorkflow) {
+TEST(MonitoringServer, MonitoringWorkflow) {
   /**
    * Notice how there is no port management for the clients
    * and the servers, that is because when using "0.0.0.0" as address and
@@ -144,43 +144,43 @@ TEST(WebSocketServer, WebsocketWorkflow) {
    */
   MockAuth auth;
   memgraph::communication::ServerContext context;
-  memgraph::communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
-  const auto port = websocket_server.GetEndpoint().port();
+  memgraph::communication::websocket::Server monitoring_server({"0.0.0.0", 0}, &context, auth);
+  const auto port = monitoring_server.GetEndpoint().port();
 
   SCOPED_TRACE(fmt::format("Checking port number different then 0: {}", port));
   EXPECT_NE(port, 0);
-  EXPECT_NO_THROW(websocket_server.Start());
-  EXPECT_TRUE(websocket_server.IsRunning());
+  EXPECT_NO_THROW(monitoring_server.Start());
+  EXPECT_TRUE(monitoring_server.IsRunning());
 
-  EXPECT_NO_THROW(websocket_server.Shutdown());
-  EXPECT_FALSE(websocket_server.IsRunning());
+  EXPECT_NO_THROW(monitoring_server.Shutdown());
+  EXPECT_FALSE(monitoring_server.IsRunning());
 
-  EXPECT_NO_THROW(websocket_server.AwaitShutdown());
-  EXPECT_FALSE(websocket_server.IsRunning());
+  EXPECT_NO_THROW(monitoring_server.AwaitShutdown());
+  EXPECT_FALSE(monitoring_server.IsRunning());
 }
 
-TEST(WebSocketServer, WebsocketConnection) {
+TEST(MonitoringServer, Connection) {
   MockAuth auth;
   memgraph::communication::ServerContext context;
-  memgraph::communication::websocket::Server websocket_server({"0.0.0.0", 0}, &context, auth);
-  ASSERT_NO_THROW(websocket_server.Start());
+  memgraph::communication::websocket::Server monitoring_server({"0.0.0.0", 0}, &context, auth);
+  ASSERT_NO_THROW(monitoring_server.Start());
   {
     Client client;
-    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(websocket_server.GetEndpoint().port())));
+    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(monitoring_server.GetEndpoint().port())));
   }
 
-  ASSERT_NO_THROW(websocket_server.Shutdown());
-  ASSERT_NO_THROW(websocket_server.AwaitShutdown());
-  ASSERT_FALSE(websocket_server.IsRunning());
+  ASSERT_NO_THROW(monitoring_server.Shutdown());
+  ASSERT_NO_THROW(monitoring_server.AwaitShutdown());
+  ASSERT_FALSE(monitoring_server.IsRunning());
 }
 
-TEST_F(WebSocketServerTest, WebsocketLogging) {
+TEST_F(MonitoringServerTest, Logging) {
   auth.has_any_users = false;
   // Set up the websocket logger as one of the defaults for spdlog
   {
     auto default_logger = spdlog::default_logger();
     auto sinks = default_logger->sinks();
-    sinks.push_back(websocket_server.GetLoggingSink());
+    sinks.push_back(monitoring_server.GetLoggingSink());
 
     auto logger = std::make_shared<spdlog::logger>("memgraph_log", sinks.begin(), sinks.end());
     logger->set_level(default_logger->level());
@@ -214,7 +214,7 @@ TEST_F(WebSocketServerTest, WebsocketLogging) {
   }
 }
 
-TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
+TEST_F(MonitoringServerTest, AuthenticationParsingError) {
   static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
   {
@@ -244,7 +244,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationParsingError) {
   }
 }
 
-TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
+TEST_F(MonitoringServerTest, AuthenticationWhenAuthPasses) {
   static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
 
   {
@@ -258,7 +258,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWhenAuthPasses) {
   }
 }
 
-TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
+TEST_F(MonitoringServerTest, AuthenticationWithMultipleAttempts) {
   static constexpr auto auth_success = R"({"message":"User has been successfully authenticated!","success":true})";
   static constexpr auto auth_fail = "Cannot parse JSON for WebSocket authentication";
 
@@ -309,7 +309,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationWithMultipleAttempts) {
   }
 }
 
-TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
+TEST_F(MonitoringServerTest, AuthenticationFails) {
   auth.authentication = false;
 
   static constexpr auto auth_fail = R"({"message":"Authentication failed!","success":false})";
@@ -324,7 +324,7 @@ TEST_F(WebSocketServerTest, WebsocketAuthenticationFails) {
 }
 
 #ifdef MG_ENTERPRISE
-TEST_F(WebSocketServerTest, WebsocketAuthorizationFails) {
+TEST_F(MonitoringServerTest, AuthorizationFails) {
   auth.authorization = false;
   static constexpr auto auth_fail = R"({"message":"Authorization failed!","success":false})";
 
