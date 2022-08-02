@@ -885,6 +885,20 @@ class AuthChecker final : public memgraph::query::AuthChecker {
     return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
   }
 
+  bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                              const std::vector<memgraph::storage::LabelId> &labels) const final {
+    return std::any_of(labels.begin(), labels.end(), [dba, user](const auto label) {
+      return user->GetFineGrainedAccessLabelPermissions().Has(dba->LabelToName(label)) ==
+             memgraph::auth::PermissionLevel::GRANT;
+    });
+  }
+
+  bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                                const memgraph::storage::EdgeTypeId &edgeType) const final {
+    return user->GetFineGrainedAccessEdgeTypePermissions().Has(dba->EdgeTypeToName(edgeType)) ==
+           memgraph::auth::PermissionLevel::GRANT;
+  }
+
  private:
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };

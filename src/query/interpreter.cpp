@@ -29,7 +29,6 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
-#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -260,33 +259,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
  private:
   storage::Storage *db_;
-};
-
-class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
- public:
-  explicit FineGrainedAccessChecker(memgraph::auth::User *user, DbAccessor *dba) : user_{user}, dba_{dba} {}
-
-  bool Accept(const VertexAccessor &vertex) {
-    return IsUserAuthorizedLabels(vertex.Labels(memgraph::storage::View::NEW).GetValue());
-  }
-
-  bool Accept(const EdgeAccessor &edge) { return IsUserAuthorizedEdgeType(edge.EdgeType()); }
-
- private:
-  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const final {
-    return std::any_of(labels.begin(), labels.end(), [this](const auto label) {
-      return user_->GetFineGrainedAccessLabelPermissions().Has(dba_->LabelToName(label)) ==
-             memgraph::auth::PermissionLevel::GRANT;
-    });
-  }
-
-  bool IsUserAuthorizedEdgeType(const memgraph::storage::EdgeTypeId &edgeType) const final {
-    return user_->GetFineGrainedAccessEdgeTypePermissions().Has(dba_->EdgeTypeToName(edgeType)) ==
-           memgraph::auth::PermissionLevel::GRANT;
-  }
-
-  memgraph::auth::User *user_;
-  DbAccessor *dba_;
 };
 
 /// returns false if the replication role can't be set
@@ -974,8 +946,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
-    memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user, dba};
+    ctx_.user = interpreter_context->auth->GetUser(*username);
+    ctx_.auth_checker = interpreter_context->auth_checker;
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {

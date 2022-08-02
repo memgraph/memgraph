@@ -683,7 +683,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      if (context.fine_grained_access_checker && !context.fine_grained_access_checker->Accept(edge)) continue;
+      if (context.auth_checker &&
+          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+        continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
       return true;
@@ -696,7 +698,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-      if (context.fine_grained_access_checker && !context.fine_grained_access_checker->Accept(edge)) continue;
+      if (context.auth_checker &&
+          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+        continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
       return true;
@@ -831,10 +835,9 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (context.fine_grained_access_checker) {
-      auto *fine_grained_access_checker = context.fine_grained_access_checker;
-      (void)std::remove_if(edges.begin(), edges.end(), [&fine_grained_access_checker](const auto &edge) {
-        return !fine_grained_access_checker->Accept(edge);
+    if (context.auth_checker) {
+      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
+        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
       });
     }
 
@@ -845,10 +848,9 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (context.fine_grained_access_checker) {
-      auto *fine_grained_access_checker = context.fine_grained_access_checker;
-      (void)std::remove_if(edges.begin(), edges.end(), [&fine_grained_access_checker](const auto &edge) {
-        return !fine_grained_access_checker->Accept(edge);
+    if (context.auth_checker) {
+      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
+        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
       });
     }
 
@@ -1041,9 +1043,10 @@ class ExpandVariableCursor : public Cursor {
       if (found_existing) continue;
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
-
-      if (!context.fine_grained_access_checker->Accept(current_edge.first) ||
-          !context.fine_grained_access_checker->Accept(current_vertex))
+      if (context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor,
+                                                         current_edge.first.EdgeType()) ||
+          context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                       current_vertex.Labels(storage::View::NEW).GetValue()))
         continue;
       AppendEdge(current_edge.first, &edges_on_frame);
 

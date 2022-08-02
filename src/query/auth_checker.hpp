@@ -11,13 +11,19 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "query/frontend/ast/ast.hpp"
-
 namespace memgraph::query {
 class AuthChecker {
  public:
   virtual bool IsUserAuthorized(const std::optional<std::string> &username,
                                 const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
+
+  virtual bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                                      const std::vector<memgraph::storage::LabelId> &labels) const = 0;
+
+  virtual bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                                        const memgraph::storage::EdgeTypeId &edgeType) const = 0;
 };
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
@@ -25,5 +31,14 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override {
     return true;
   }
+  bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                              const std::vector<memgraph::storage::LabelId> &labels) const override {
+    return true;
+  };
+
+  bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                                const memgraph::storage::EdgeTypeId &edgeType) const override {
+    return true;
+  };
 };
 }  // namespace memgraph::query
