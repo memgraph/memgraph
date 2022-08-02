@@ -38,15 +38,7 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   server_addresses_.insert(address);
 
   while (true) {
-    size_t blocked_servers = blocked_on_receive_;
-
-    for (auto &[promise_key, opaque_promise] : promises_) {
-      if (opaque_promise.promise.IsAwaited()) {
-        if (server_addresses_.contains(promise_key.requester_address)) {
-          blocked_servers++;
-        }
-      }
-    }
+    size_t blocked_servers = BlockedServers();
 
     bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
@@ -58,9 +50,7 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   }
 }
 
-bool SimulatorHandle::MaybeTickSimulator() {
-  std::unique_lock<std::mutex> lock(mu_);
-
+size_t SimulatorHandle::BlockedServers() {
   size_t blocked_servers = blocked_on_receive_;
 
   for (auto &[promise_key, opaque_promise] : promises_) {
@@ -70,6 +60,14 @@ bool SimulatorHandle::MaybeTickSimulator() {
       }
     }
   }
+
+  return blocked_servers;
+}
+
+bool SimulatorHandle::MaybeTickSimulator() {
+  std::unique_lock<std::mutex> lock(mu_);
+
+  size_t blocked_servers = BlockedServers();
 
   if (blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all

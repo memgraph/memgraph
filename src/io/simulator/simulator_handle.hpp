@@ -82,6 +82,14 @@ class SimulatorHandle {
   std::mt19937 rng_;
   SimulatorConfig config_;
 
+  /// Returns the number of servers currently blocked on Receive, plus
+  /// the servers that are blocked on Futures that were created through
+  /// SimulatorTransport::Request.
+  ///
+  /// TODO(tyler) investigate whether avoiding consideration of Futures
+  /// increases determinism.
+  size_t BlockedServers();
+
   void TimeoutPromisesPastDeadline() {
     const Time now = cluster_wide_time_microseconds_;
 
