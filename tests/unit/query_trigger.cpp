@@ -21,6 +21,7 @@
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
@@ -37,6 +38,12 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
   MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
+  MOCK_CONST_METHOD3(IsUserAuthorizedEdgeType,
+                     bool(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                          const memgraph::storage::EdgeTypeId &edgeType));
+  MOCK_CONST_METHOD3(IsUserAuthorizedLabels,
+                     bool(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+                          const std::vector<memgraph::storage::LabelId> &labels));
 };
 }  // namespace
 
