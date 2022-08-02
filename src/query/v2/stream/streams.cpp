@@ -20,6 +20,7 @@
 
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/discard_value_stream.hpp"
 #include "query/v2/exceptions.hpp"
@@ -28,7 +29,7 @@
 #include "query/v2/procedure/mg_procedure_impl.hpp"
 #include "query/v2/procedure/module.hpp"
 #include "query/v2/stream/sources.hpp"
-#include "query/v2/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -509,7 +510,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
           auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-          storage::v3::PropertyValue params_prop{params_value};
+          storage::v3::PropertyValue params_prop = storage::v3::TypedToPropertyValue(params_value);
 
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);

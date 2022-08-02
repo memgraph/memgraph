@@ -18,11 +18,11 @@
 #include <string>
 #include <vector>
 
+#include "frontend/parsing.hpp"
+#include "parser/opencypher/generated/MemgraphCypher.h"
+#include "parser/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#include "parser/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/v2/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
-#include "query/v2/frontend/opencypher/generated/MemgraphCypherLexer.h"
-#include "query/v2/frontend/parsing.hpp"
 #include "query/v2/frontend/stripped_lexer_constants.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
@@ -134,13 +134,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       case Token::SPACE:
         break;
       case Token::STRING:
-        replace_stripped(token_index, ParseStringLiteral(token.second), kStrippedStringToken);
+        replace_stripped(token_index, expr::ParseStringLiteral(token.second), kStrippedStringToken);
         break;
       case Token::INT:
-        replace_stripped(token_index, ParseIntegerLiteral(token.second), kStrippedIntToken);
+        replace_stripped(token_index, expr::ParseIntegerLiteral(token.second), kStrippedIntToken);
         break;
       case Token::REAL:
-        replace_stripped(token_index, ParseDoubleLiteral(token.second), kStrippedDoubleToken);
+        replace_stripped(token_index, expr::ParseDoubleLiteral(token.second), kStrippedDoubleToken);
         break;
       case Token::SPECIAL:
       case Token::ESCAPED_NAME:
@@ -148,7 +148,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
         token_strings.push_back(token.second);
         break;
       case Token::PARAMETER:
-        parameters_[token_index] = ParseParameter(token.second);
+        parameters_[token_index] = expr::ParseParameter(token.second);
         token_strings.push_back(token.second);
         break;
     }

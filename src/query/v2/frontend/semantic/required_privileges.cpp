@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/v2/bindings/ast_visitor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/ast/ast_visitor.hpp"
 #include "query/v2/procedure/module.hpp"
 #include "utils/memory.hpp"
 

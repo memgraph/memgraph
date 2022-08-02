@@ -26,17 +26,18 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "query/v2/bindings/eval.hpp"
+#include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol_table.hpp"
-#include "query/v2/interpret/eval.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_impl.hpp"
 #include "query/v2/procedure/module.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -497,7 +498,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
       if (!bound) return std::nullopt;
       const auto &value = bound->value()->Accept(evaluator);
       try {
-        const auto &property_value = storage::v3::PropertyValue(value);
+        const auto &property_value = storage::v3::TypedToPropertyValue(value);
         switch (property_value.type()) {
           case storage::v3::PropertyValue::Type::Bool:
           case storage::v3::PropertyValue::Type::List:
@@ -516,7 +517,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
             // yet.
             return std::make_optional(utils::Bound<storage::v3::PropertyValue>(property_value, bound->type()));
         }
-      } catch (const TypedValueException &) {
+      } catch (const expr::TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
       }
     };
@@ -557,10 +558,10 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
     if (value.IsNull()) return std::nullopt;
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-    }
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::PropertyValue(value)));
+    //    if (!value.IsPropertyValue()) {
+    //      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    //    }
+    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::TypedToPropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue");
@@ -933,7 +934,7 @@ class ExpandVariableCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::v3::View::OLD);
       auto calc_bound = [&evaluator](auto &bound) {
-        auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
+        auto value = expr::EvaluateInt(&evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
         return value;
       };
@@ -1085,10 +1086,11 @@ class STShortestPathCursor : public query::v2::plan::Cursor {
       const auto &sink = sink_tv.ValueVertex();
 
       int64_t lower_bound =
-          self_.lower_bound_ ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
-      int64_t upper_bound = self_.upper_bound_
-                                ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
-                                : std::numeric_limits<int64_t>::max();
+          self_.lower_bound_ ? expr::EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion")
+                             : 1;
+      int64_t upper_bound =
+          self_.upper_bound_ ? expr::EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                             : std::numeric_limits<int64_t>::max();
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
 
@@ -1355,10 +1357,10 @@ class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
         lower_bound_ = self_.lower_bound_
-                           ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion")
+                           ? expr::EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion")
                            : 1;
         upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                           ? expr::EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
                            : std::numeric_limits<int64_t>::max();
 
         if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
@@ -1537,7 +1539,8 @@ class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
           if (node.IsNull()) continue;
         }
         if (self_.upper_bound_) {
-          upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+          upper_bound_ =
+              expr::EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
           upper_bound_set_ = true;
         } else {
           upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -2050,7 +2053,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+      auto old_value =
+          storage::v3::PropertyToTypedValue<TypedValue>(PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs));
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2060,7 +2064,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       break;
     }
     case TypedValue::Type::Edge: {
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+      auto old_value =
+          storage::v3::PropertyToTypedValue<TypedValue>(PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs));
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2167,7 +2172,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   };
 
   auto register_set_property = [&](auto &&returned_old_value, auto key, auto &&new_value) {
-    auto old_value = [&]() -> storage::v3::PropertyValue {
+    auto old_value = storage::v3::PropertyToTypedValue<TypedValue>([&]() -> storage::v3::PropertyValue {
       if (!old_values) {
         return std::forward<decltype(returned_old_value)>(returned_old_value);
       }
@@ -2177,10 +2182,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       }
 
       return {};
-    }();
-
+    }());
     context->trigger_context_collector->RegisterSetObjectProperty(
-        *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
+        *record, key, std::move(old_value), memgraph::storage::v3::PropertyToTypedValue<TypedValue>(new_value));
   };
 
   auto set_props = [&, record](auto properties) {
@@ -2218,7 +2222,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         auto key = context->db_accessor->NameToProperty(kv.first);
         auto old_value = PropsSetChecked(record, key, kv.second);
         if (should_register_change) {
-          register_set_property(std::move(old_value), key, kv.second);
+          register_set_property(std::move(old_value), key, storage::v3::TypedToPropertyValue(kv.second));
         }
       }
       break;
@@ -2232,8 +2236,8 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
   if (should_register_change && old_values) {
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
-      context->trigger_context_collector->RegisterRemovedObjectProperty(*record, property_id,
-                                                                        TypedValue(std::move(property_value)));
+      context->trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property_id, storage::v3::PropertyToTypedValue<TypedValue>(std::move(property_value)));
     }
   }
 }
@@ -2376,8 +2380,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     }
 
     if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
-                                                                       TypedValue(std::move(*maybe_old_value)));
+      context.trigger_context_collector->RegisterRemovedObjectProperty(
+          *record, property, storage::v3::PropertyToTypedValue<TypedValue>(std::move(*maybe_old_value)));
     }
   };
 
@@ -2841,7 +2845,7 @@ class AggregateCursor : public Cursor {
             // an exception was just thrown above
             // safe to assume a bool TypedValue
             if (comparison_result.ValueBool()) *value_it = input_value;
-          } catch (const TypedValueException &) {
+          } catch (const expr::TypedValueException &) {
             throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.", input_value.type(), value_it->type());
           }
           break;
@@ -2852,7 +2856,7 @@ class AggregateCursor : public Cursor {
           try {
             TypedValue comparison_result = input_value > *value_it;
             if (comparison_result.ValueBool()) *value_it = input_value;
-          } catch (const TypedValueException &) {
+          } catch (const expr::TypedValueException &) {
             throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.", input_value.type(), value_it->type());
           }
           break;
@@ -3802,7 +3806,7 @@ class CallProcedureCursor : public Cursor {
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on each invocation.
       auto *memory = context.evaluation_context.memory;
-      auto memory_limit = EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
+      auto memory_limit = expr::EvaluateMemoryLimit(&evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
                           &result_);

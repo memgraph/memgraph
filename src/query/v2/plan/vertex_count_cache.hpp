@@ -14,7 +14,8 @@
 
 #include <optional>
 
-#include "query/v2/typed_value.hpp"
+#include "query/v2/bindings/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/bound.hpp"
@@ -56,7 +57,7 @@ class VertexCountCache {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
     // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value);
+    TypedValue tv_value(storage::v3::PropertyToTypedValue<TypedValue>(value));
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
       value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
     return value_vertex_count.at(tv_value);
@@ -98,8 +99,8 @@ class VertexCountCache {
       const auto &maybe_upper = key.second;
       query::v2::TypedValue lower;
       query::v2::TypedValue upper;
-      if (maybe_lower) lower = TypedValue(maybe_lower->value());
-      if (maybe_upper) upper = TypedValue(maybe_upper->value());
+      if (maybe_lower) lower = storage::v3::PropertyToTypedValue<TypedValue>(maybe_lower->value());
+      if (maybe_upper) upper = storage::v3::PropertyToTypedValue<TypedValue>(maybe_upper->value());
       query::v2::TypedValue::Hash hash;
       return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
@@ -111,8 +112,8 @@ class VertexCountCache {
         if (maybe_bound_a && maybe_bound_b && maybe_bound_a->type() != maybe_bound_b->type()) return false;
         query::v2::TypedValue bound_a;
         query::v2::TypedValue bound_b;
-        if (maybe_bound_a) bound_a = TypedValue(maybe_bound_a->value());
-        if (maybe_bound_b) bound_b = TypedValue(maybe_bound_b->value());
+        if (maybe_bound_a) bound_a = storage::v3::PropertyToTypedValue<TypedValue>(maybe_bound_a->value());
+        if (maybe_bound_b) bound_b = storage::v3::PropertyToTypedValue<TypedValue>(maybe_bound_b->value());
         return query::v2::TypedValue::BoolEqual{}(bound_a, bound_b);
       };
       return bound_equal(a.first, b.first) && bound_equal(a.second, b.second);

@@ -17,6 +17,8 @@ add_subdirectory(query/v2)
 add_subdirectory(slk)
 add_subdirectory(rpc)
 add_subdirectory(auth)
+add_subdirectory(frontend)
+add_subdirectory(parser)
 
 if (MG_ENTERPRISE)
   add_subdirectory(audit)

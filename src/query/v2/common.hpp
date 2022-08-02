@@ -17,11 +17,13 @@
 #include <string>
 #include <string_view>
 
+#include "query/v2/bindings/symbol.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
-#include "query/v2/typed_value.hpp"
+#include "query/v2/path.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
@@ -87,7 +89,7 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::v3::Proper
 template <AccessorWithSetProperty T>
 storage::v3::PropertyValue PropsSetChecked(T *record, const storage::v3::PropertyId &key, const TypedValue &value) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::v3::PropertyValue(value));
+    auto maybe_old_value = record->SetProperty(key, storage::v3::TypedToPropertyValue(value));
     if (maybe_old_value.HasError()) {
       switch (maybe_old_value.GetError()) {
         case storage::v3::Error::SERIALIZATION_ERROR:
@@ -102,7 +104,7 @@ storage::v3::PropertyValue PropsSetChecked(T *record, const storage::v3::Propert
       }
     }
     return std::move(*maybe_old_value);
-  } catch (const TypedValueException &) {
+  } catch (const expr::TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
 }

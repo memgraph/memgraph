@@ -20,12 +20,13 @@
 #include <string_view>
 #include <type_traits>
 
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_impl.hpp"
 #include "query/v2/procedure/module.hpp"
-#include "query/v2/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
@@ -405,7 +406,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      properties.emplace(dba->PropertyToName(property.first), property.second);
+      properties.emplace(dba->PropertyToName(property.first),
+                         storage::v3::PropertyToTypedValue<TypedValue>(property.second));
     }
     return TypedValue(std::move(properties));
   };
@@ -881,7 +883,7 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   }
 }
 
-TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+TypedValue ToString2(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
@@ -1189,9 +1191,6 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
           "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
           fully_qualified_name);
     }
-    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
-    // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
-    const auto &module_ptr = (*maybe_found).first;
 
     const auto &func_cb = func.cb;
     mgp_memory memory{ctx.memory};
@@ -1293,7 +1292,8 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == kStartsWith) return StartsWith;
   if (function_name == "SUBSTRING") return Substring;
   if (function_name == "TOLOWER") return ToLower;
-  if (function_name == "TOSTRING") return ToString;
+  // TODO(kostasrim) fix function lookup here
+  if (function_name == "TOSTRING") return ToString2;
   if (function_name == "TOUPPER") return ToUpper;
   if (function_name == "TRIM") return Trim;
 

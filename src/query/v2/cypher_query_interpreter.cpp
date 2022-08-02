@@ -46,7 +46,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   auto hash = stripped_query.hash();
   auto accessor = cache->access();
   auto it = accessor.find(hash);
-  std::unique_ptr<frontend::opencypher::Parser> parser;
+  std::unique_ptr<memgraph::frontend::opencypher::Parser<>> parser;
 
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
@@ -63,11 +63,11 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
   if (it == accessor.end()) {
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+      parser = std::make_unique<memgraph::frontend::opencypher::Parser<>>(stripped_query.query());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
-      parser = std::make_unique<frontend::opencypher::Parser>(query_string);
+      parser = std::make_unique<memgraph::frontend::opencypher::Parser<>>(query_string);
 
       // If an exception was not thrown here, the stripper messed something
       // up.
@@ -76,8 +76,8 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
-    frontend::ParsingContext context{true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage);
+    expr::ParsingContext context{true};
+    memgraph::expr::CypherMainVisitor visitor(context, &ast_storage);
 
     visitor.visit(parser->tree());
 
@@ -119,7 +119,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
-  auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
+  auto symbol_table = expr::MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
