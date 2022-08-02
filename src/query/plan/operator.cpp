@@ -1912,7 +1912,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
             previous_[prev_vertex] = std::move(empty);
           }
 
-          previous_.at(prev_vertex).emplace_back(std::move(current_edge), direction);
+          previous_.at(prev_vertex).emplace_back(current_edge, direction);
         }
       }
 
