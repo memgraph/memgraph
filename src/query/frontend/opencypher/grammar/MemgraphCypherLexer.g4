@@ -66,6 +66,7 @@ IDENTIFIED          : I D E N T I F I E D ;
 IGNORE              : I G N O R E ;
 ISOLATION           : I S O L A T I O N ;
 KAFKA               : K A F K A ;
+LABELS              : L A B E L S ;
 LEVEL               : L E V E L ;
 LOAD                : L O A D ;
 LOCK                : L O C K ;
