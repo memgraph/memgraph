@@ -38,9 +38,9 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   server_addresses_.insert(address);
 
   while (true) {
-    size_t blocked_servers = BlockedServers();
+    const size_t blocked_servers = BlockedServers();
 
-    bool all_servers_blocked = blocked_servers == server_addresses_.size();
+    const bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
     if (all_servers_blocked) {
       return;
@@ -67,7 +67,7 @@ size_t SimulatorHandle::BlockedServers() {
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
 
-  size_t blocked_servers = BlockedServers();
+  const size_t blocked_servers = BlockedServers();
 
   if (blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all
@@ -100,7 +100,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
   if (config_.scramble_messages) {
     // scramble messages
     std::uniform_int_distribution<size_t> swap_distrib(0, in_flight_.size() - 1);
-    size_t swap_index = swap_distrib(rng_);
+    const size_t swap_index = swap_distrib(rng_);
     std::swap(in_flight_[swap_index], in_flight_.back());
   }
 
@@ -108,8 +108,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
   in_flight_.pop_back();
 
   std::uniform_int_distribution<int> drop_distrib(0, 99);
-  int drop_threshold = drop_distrib(rng_);
-  bool should_drop = drop_threshold < config_.drop_percent;
+  const int drop_threshold = drop_distrib(rng_);
+  const bool should_drop = drop_threshold < config_.drop_percent;
 
   if (should_drop) {
     stats_.dropped_messages++;
