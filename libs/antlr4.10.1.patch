@@ -1,0 +1,13 @@
+diff --git a/runtime/Cpp/runtime/CMakeLists.txt b/runtime/Cpp/runtime/CMakeLists.txt
+index baf46cac9..2e7756de8 100644
+--- a/runtime/Cpp/runtime/CMakeLists.txt
++++ b/runtime/Cpp/runtime/CMakeLists.txt
+@@ -134,7 +134,7 @@ set_target_properties(antlr4_static
+                                  ARCHIVE_OUTPUT_DIRECTORY ${LIB_OUTPUT_DIR}
+                                  COMPILE_FLAGS "${disabled_compile_warnings} ${extra_static_compile_flags}")
+
+-install(TARGETS antlr4_shared
++install(TARGETS antlr4_shared OPTIONAL
+         EXPORT antlr4-targets
+         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

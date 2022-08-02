@@ -21,8 +21,7 @@ namespace memgraph::query::v2 {
 CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
 ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::v3::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, utils::SpinLock *antlr_lock,
-                       const InterpreterConfig::Query &query_config) {
+                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
@@ -63,20 +62,16 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   };
 
   if (it == accessor.end()) {
-    {
-      std::unique_lock<utils::SpinLock> guard(*antlr_lock);
+    try {
+      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+    } catch (const SyntaxException &e) {
+      // There is a syntax exception in the stripped query. Re-run the parser
+      // on the original query to get an appropriate error messsage.
+      parser = std::make_unique<frontend::opencypher::Parser>(query_string);
 
-      try {
-        parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
-      } catch (const SyntaxException &e) {
-        // There is a syntax exception in the stripped query. Re-run the parser
-        // on the original query to get an appropriate error messsage.
-        parser = std::make_unique<frontend::opencypher::Parser>(query_string);
-
-        // If an exception was not thrown here, the stripper messed something
-        // up.
-        LOG_FATAL("The stripped query can't be parsed, but the original can.");
-      }
+      // If an exception was not thrown here, the stripper messed something
+      // up.
+      LOG_FATAL("The stripped query can't be parsed, but the original can.");
     }
 
     // Convert the ANTLR4 parse tree into an AST.
