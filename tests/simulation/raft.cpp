@@ -32,8 +32,40 @@ using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 
+class TestState {
+  std::map<int, int> state_;
+
+ public:
+  ReadResponse read(ReadRequest request) {
+    // TODO(tyler / gabor) implement
+  }
+
+  CasResponse apply(CasRequest request) {
+    // TODO(tyler / gabor) implement
+  }
+};
+
+struct Cas {
+  int key;
+  int old_value;
+  int new_value;
+};
+
+struct CasResponse {
+  bool success;
+  std::optional<int> last_value;
+};
+
+struct ReadRequest {
+  int key;
+};
+
+struct ReadResponse {
+  int value;
+};
+
 template <typename IoImpl>
-void RunRaft(Raft<IoImpl> server) {
+void RunRaft(Raft<IoImpl, TestState, Cas, CasResponse, ReadRequest, ReadResponse> server) {
   server.Run();
 }
 
@@ -63,6 +95,7 @@ void RunSimulation() {
   std::vector<Address> srv_2_peers = {srv_addr_1, srv_addr_3};
   std::vector<Address> srv_3_peers = {srv_addr_1, srv_addr_2};
 
+  // TODO(tyler / gabor) supply default TestState to Raft constructor
   Raft srv_1{std::move(srv_io_1), srv_1_peers};
   Raft srv_2{std::move(srv_io_2), srv_2_peers};
   Raft srv_3{std::move(srv_io_3), srv_3_peers};
@@ -87,6 +120,8 @@ void RunSimulation() {
     // send request
     ReplicationRequest cli_req;
     cli_req.opaque_data = std::vector<uint8_t>{1, 2, 3, 4};
+
+    // TODO(tyler / gabor) replace Replication* with Cas/Read
 
     std::cout << "client sending ReplicationRequest to Leader " << leader.last_known_port << std::endl;
     ResponseFuture<ReplicationResponse> response_future =
