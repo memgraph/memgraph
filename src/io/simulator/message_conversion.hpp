@@ -79,14 +79,18 @@ class OpaquePromiseTraitBase {
   virtual bool IsAwaited(void *ptr) const = 0;
   virtual void Fill(void *ptr, OpaqueMessage &&) const = 0;
   virtual void TimeOut(void *ptr) const = 0;
+
   virtual ~OpaquePromiseTraitBase() = default;
+  OpaquePromiseTraitBase() = default;
+  OpaquePromiseTraitBase(const OpaquePromiseTraitBase &) = delete;
+  OpaquePromiseTraitBase &operator=(const OpaquePromiseTraitBase &) = delete;
+  OpaquePromiseTraitBase(OpaquePromiseTraitBase &&old) = delete;
+  OpaquePromiseTraitBase &operator=(OpaquePromiseTraitBase &&) = delete;
 };
 
 template <typename T>
 class OpaquePromiseTrait : public OpaquePromiseTraitBase {
  public:
-  ~OpaquePromiseTrait() = default;
-
   const std::type_info *TypeInfo() const override { return &typeid(T); };
 
   bool IsAwaited(void *ptr) const override { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); };
