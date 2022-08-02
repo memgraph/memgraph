@@ -73,37 +73,54 @@ struct OpaqueMessage {
   }
 };
 
+class OpaquePromiseTraitBase {
+ public:
+  virtual const std::type_info *TypeInfo() const = 0;
+  virtual bool IsAwaited(void *ptr) const = 0;
+  virtual void Fill(void *ptr, OpaqueMessage &&) const = 0;
+  virtual void TimeOut(void *ptr) const = 0;
+  virtual ~OpaquePromiseTraitBase() = default;
+};
+
+template <typename T>
+class OpaquePromiseTrait : public OpaquePromiseTraitBase {
+ public:
+  ~OpaquePromiseTrait() = default;
+
+  const std::type_info *TypeInfo() const override { return &typeid(T); };
+
+  bool IsAwaited(void *ptr) const override { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); };
+
+  void Fill(void *ptr, OpaqueMessage &&opaque_message) const override {
+    T message = std::any_cast<T>(std::move(opaque_message.message));
+    auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
+                                                 .request_id = opaque_message.request_id,
+                                                 .from_address = opaque_message.from_address};
+    auto promise = static_cast<ResponsePromise<T> *>(ptr);
+    auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
+    unique_promise->Fill(std::move(response_envelope));
+  };
+
+  void TimeOut(void *ptr) const override {
+    auto promise = static_cast<ResponsePromise<T> *>(ptr);
+    auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
+    ResponseResult<T> result = TimedOut{};
+    unique_promise->Fill(std::move(result));
+  }
+};
+
 class OpaquePromise {
-  const std::type_info *ti_;
   void *ptr_;
-  std::function<void(void *)> dtor_;
-  std::function<bool(void *)> is_awaited_;
-  std::function<void(void *, OpaqueMessage)> fill_;
-  std::function<void(void *)> time_out_;
+  std::unique_ptr<OpaquePromiseTraitBase> trait_;
 
  public:
-  OpaquePromise(OpaquePromise &&old) noexcept
-      : ti_(old.ti_),
-        ptr_(old.ptr_),
-        dtor_(std::move(old.dtor_)),
-        is_awaited_(std::move(old.is_awaited_)),
-        fill_(std::move(old.fill_)),
-        time_out_(std::move(old.time_out_)) {
-    old.ptr_ = nullptr;
-  }
+  OpaquePromise(OpaquePromise &&old) noexcept : ptr_(old.ptr_), trait_(std::move(old.trait_)) { old.ptr_ = nullptr; }
 
   OpaquePromise &operator=(OpaquePromise &&old) noexcept {
     MG_ASSERT(this != &old);
-
     ptr_ = old.ptr_;
-    ti_ = old.ti_;
-    dtor_ = old.dtor_;
-    is_awaited_ = old.is_awaited_;
-    fill_ = old.fill_;
-    time_out_ = old.time_out_;
-
+    trait_ = std::move(old.trait_);
     old.ptr_ = nullptr;
-
     return *this;
   }
 
@@ -112,7 +129,7 @@ class OpaquePromise {
 
   template <typename T>
   std::unique_ptr<ResponsePromise<T>> Take() && {
-    MG_ASSERT(typeid(T) == *ti_);
+    MG_ASSERT(typeid(T) == *trait_->TypeInfo());
     MG_ASSERT(ptr_ != nullptr);
 
     auto ptr = static_cast<ResponsePromise<T> *>(ptr_);
@@ -124,47 +141,27 @@ class OpaquePromise {
 
   template <typename T>
   explicit OpaquePromise(std::unique_ptr<ResponsePromise<T>> promise)
-      : ti_(&typeid(T)),
-        ptr_(static_cast<void *>(promise.release())),
-        dtor_([](void *ptr) { static_cast<ResponsePromise<T> *>(ptr)->~ResponsePromise<T>(); }),
-        is_awaited_([](void *ptr) { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); }),
-        fill_([](void *this_ptr, OpaqueMessage opaque_message) {
-          T message = std::any_cast<T>(std::move(opaque_message.message));
-          auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
-                                                       .request_id = opaque_message.request_id,
-                                                       .from_address = opaque_message.from_address};
-          auto promise = static_cast<ResponsePromise<T> *>(this_ptr);
-          auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
-          unique_promise->Fill(std::move(response_envelope));
-        }),
-        time_out_([](void *ptr) {
-          auto promise = static_cast<ResponsePromise<T> *>(ptr);
-          auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
-          ResponseResult<T> result = TimedOut{};
-          unique_promise->Fill(std::move(result));
-        }) {}
+      : ptr_(static_cast<void *>(promise.release())), trait_(std::make_unique<OpaquePromiseTrait<T>>()) {}
 
   bool IsAwaited() {
     MG_ASSERT(ptr_ != nullptr);
-    return is_awaited_(ptr_);
+    return trait_->IsAwaited(ptr_);
   }
 
   void TimeOut() {
     MG_ASSERT(ptr_ != nullptr);
-    time_out_(ptr_);
+    trait_->TimeOut(ptr_);
     ptr_ = nullptr;
   }
 
   void Fill(OpaqueMessage &&opaque_message) {
     MG_ASSERT(ptr_ != nullptr);
-    fill_(ptr_, std::move(opaque_message));
+    trait_->Fill(ptr_, std::move(opaque_message));
     ptr_ = nullptr;
   }
 
   ~OpaquePromise() {
-    if (nullptr != ptr_) {
-      dtor_(ptr_);
-    }
+    MG_ASSERT(ptr_ == nullptr, "OpaquePromise destroyed without being explicitly timed out or filled");
   }
 };
 
