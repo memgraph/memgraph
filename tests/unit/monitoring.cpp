@@ -13,7 +13,6 @@
 #include <cstddef>
 #include <string>
 #include <thread>
-#include <tuple>
 #include <unordered_set>
 #include <vector>
 
@@ -70,12 +69,12 @@ class MonitoringServerTest : public ::testing::Test {
 
   std::string ServerAddress() const { return monitoring_server.GetEndpoint().address().to_string(); }
 
-  void StartLogging(std::vector<std::tuple<spdlog::level::level_enum, std::string, std::string>> messages) {
+  void StartLogging(std::vector<std::pair<spdlog::level::level_enum, std::string>> messages) {
     messages_ = std::move(messages);
     logging_.store(true, std::memory_order_relaxed);
     bg_thread_ = std::jthread([this]() {
       while (logging_.load(std::memory_order_relaxed)) {
-        for (const auto &[message_level, message_content, log_level] : messages_) {
+        for (const auto &[message_level, message_content] : messages_) {
           spdlog::log(message_level, message_content);
           spdlog::default_logger()->flush();
         }
@@ -98,7 +97,7 @@ class MonitoringServerTest : public ::testing::Test {
 
  private:
   std::jthread bg_thread_;
-  std::vector<std::tuple<spdlog::level::level_enum, std::string, std::string>> messages_;
+  std::vector<std::pair<spdlog::level::level_enum, std::string>> messages_;
   std::atomic<bool> logging_{false};
 };
 
@@ -189,11 +188,11 @@ TEST_F(MonitoringServerTest, Logging) {
   }
   Client client;
   client.Connect(ServerAddress(), ServerPort());
-  std::vector<std::tuple<spdlog::level::level_enum, std::string, std::string>> messages{
-      {spdlog::level::err, "Sending error message!", "error"},
-      {spdlog::level::warn, "Sending warn message!", "warning"},
-      {spdlog::level::info, "Sending info message!", "info"},
-      {spdlog::level::trace, "Sending trace message!", "trace"},
+  std::vector<std::pair<spdlog::level::level_enum, std::string>> messages{
+      {spdlog::level::err, "Sending error message!"},
+      {spdlog::level::warn, "Sending warn message!"},
+      {spdlog::level::info, "Sending info message!"},
+      {spdlog::level::trace, "Sending trace message!"},
   };
 
   StartLogging(messages);
@@ -208,9 +207,10 @@ TEST_F(MonitoringServerTest, Logging) {
     }
   }
   ASSERT_EQ(received_messages.size(), 4);
-  for (const auto &[message_level, message_content, log_level] : messages) {
-    EXPECT_TRUE(received_messages.contains(
-        fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n", log_level, message_content)));
+  for (const auto &[message_level, message_content] : messages) {
+    EXPECT_TRUE(
+        received_messages.contains(fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n",
+                                               spdlog::level::to_string_view(message_level), message_content)));
   }
 }
 
