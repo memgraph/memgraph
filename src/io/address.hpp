@@ -44,13 +44,15 @@ struct Address {
 
   /// unique_id is most dominant for ordering, then last_known_ip, then last_known_port
   bool operator<(const Address &other) const {
-    if (unique_id == other.unique_id) {
-      if (last_known_ip == other.last_known_ip) {
-        return last_known_port < other.last_known_port;
-      }
+    if (unique_id != other.unique_id) {
+      return unique_id < other.unique_id;
+    }
+
+    if (last_known_ip != other.last_known_ip) {
       return last_known_ip < other.last_known_ip;
     }
-    return unique_id < other.unique_id;
+
+    return last_known_port < other.last_known_port;
   }
 
   std::string ToString() const {

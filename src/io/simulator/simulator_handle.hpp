@@ -44,13 +44,15 @@ struct PromiseKey {
 
  public:
   bool operator<(const PromiseKey &other) const {
-    if (requester_address == other.requester_address) {
-      if (request_id == other.request_id) {
-        return replier_address < other.replier_address;
-      }
+    if (requester_address != other.requester_address) {
+      return requester_address < other.requester_address;
+    }
+
+    if (request_id != other.request_id) {
       return request_id < other.request_id;
     }
-    return requester_address < other.requester_address;
+
+    return replier_address < other.replier_address;
   }
 };
 
