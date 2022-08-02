@@ -195,7 +195,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
 
 void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      const TriggerContext &context, const AuthChecker *auth_checker) const {
+                      const TriggerContext &context, memgraph::auth::User *user, AuthChecker *auth_checker) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -215,6 +215,8 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;
+  ctx.user = user;
+  ctx.auth_checker = auth_checker;
 
   // Set up temporary memory for a single Pull. Initial memory comes from the
   // stack. 256 KiB should fit on the stack and should be more than enough for a

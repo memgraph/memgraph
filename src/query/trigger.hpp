@@ -39,8 +39,8 @@ struct Trigger {
                    const query::AuthChecker *auth_checker);
 
   void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context,
-               const AuthChecker *auth_checker) const;
+               std::atomic<bool> *is_shutting_down, const TriggerContext &context, memgraph::auth::User *user,
+               AuthChecker *auth_checker) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
