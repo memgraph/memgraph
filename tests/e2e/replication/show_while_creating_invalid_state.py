@@ -443,7 +443,6 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
 def test_async_replication_when_main_is_killed():
     # Goal of the test is to check that when main is randomly killed:
     # -the ASYNC replica always contains a valid subset of data of main.
-    # -the SYNC replica always contains the exact data that was in main.
     # We run the test 20 times, it should never fail.
 
     # 0/ Start main and replicas.
