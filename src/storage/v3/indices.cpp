@@ -270,7 +270,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   acc.insert(Entry{vertex, tx.start_timestamp});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
@@ -279,7 +279,8 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -416,7 +417,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
@@ -426,7 +427,8 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }

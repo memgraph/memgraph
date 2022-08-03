@@ -167,9 +167,10 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
       LabelPropertyIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items);
   try {
     spdlog::debug("Loading snapshot");
-    auto recovered_snapshot = durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-                                                       &storage_->epoch_history_, &storage_->name_id_mapper_,
-                                                       &storage_->edge_count_, storage_->config_.items);
+    auto recovered_snapshot = durability::RecoveredSnapshot{};
+
+    durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_, &storage_->epoch_history_,
+                             &storage_->name_id_mapper_, &storage_->edge_count_, storage_->config_.items);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost

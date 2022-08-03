@@ -13,24 +13,28 @@
 
 #include <limits>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_store.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::storage::v3 {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+  Vertex(Gid gid, Delta *delta) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Gid gid;
+  Gid Gid() const { return Gid::FromInt(keys.GetKey(0).ValueInt()); }
 
+  KeyStore keys;
   std::vector<LabelId> labels;
   PropertyStore properties;
 
@@ -46,10 +50,5 @@ struct Vertex {
 };
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
-
-inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
-inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
-inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
-inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
 
 }  // namespace memgraph::storage::v3

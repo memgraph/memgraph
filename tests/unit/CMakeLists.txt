@@ -363,5 +363,15 @@ add_unit_test(websocket.cpp)
 target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
 
 # Test storage-v3
+# Test utilities
+add_library(storage_v3_test_utils storage_v3_test_utils.cpp)
+target_link_libraries(storage_v3_test_utils mg-storage-v3)
+
 add_unit_test(storage_v3.cpp)
-target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
+target_link_libraries(${test_prefix}storage_v3 mg-storage-v3 storage_v3_test_utils)
+
+add_unit_test(storage_v3_property_store.cpp)
+target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
+
+add_unit_test(storage_v3_key_store.cpp)
+target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)

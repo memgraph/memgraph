@@ -8,6 +8,7 @@ set(storage_v3_src_files
     durability/wal.cpp
     edge_accessor.cpp
     indices.cpp
+    key_store.cpp
     property_store.cpp
     vertex_accessor.cpp
     storage.cpp)
