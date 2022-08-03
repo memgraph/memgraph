@@ -232,7 +232,7 @@ bool Storage::ReplicationClient::FinalizeTransactionReplication() {
   }
 
   if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask([this] { [[maybe_unused]] auto finalized = this->FinalizeTransactionReplicationInternal(); });
+    thread_pool_.AddTask([this] { static_cast<void>(this->FinalizeTransactionReplicationInternal()); });
     return true;
   } else {
     return FinalizeTransactionReplicationInternal();
