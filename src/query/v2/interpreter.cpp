@@ -21,7 +21,7 @@
 #include <limits>
 #include <optional>
 
-#include "frontend/ast/ast_visitor.hpp"
+#include "expr/ast/ast_visitor.hpp"
 #include "memory/memory_control.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/eval.hpp"

@@ -9,14 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "frontend/parsing.hpp"
+#include "expr/parsing.hpp"
 
 #include <cctype>
 #include <codecvt>
 #include <locale>
 #include <stdexcept>
 
-#include "frontend/exceptions.hpp"
+#include "expr/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 

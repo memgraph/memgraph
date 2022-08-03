@@ -23,10 +23,10 @@
 #include <variant>
 #include <vector>
 
-#include "frontend/ast.hpp"
-#include "frontend/ast/ast_visitor.hpp"
-#include "frontend/exceptions.hpp"
-#include "frontend/semantic/symbol_table.hpp"
+#include "expr/ast.hpp"
+#include "expr/ast/ast_visitor.hpp"
+#include "expr/exceptions.hpp"
+#include "expr/semantic/symbol_table.hpp"
 
 namespace memgraph::expr {
 namespace {

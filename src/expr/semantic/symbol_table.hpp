@@ -14,8 +14,8 @@
 #include <map>
 #include <string>
 
-#include "frontend/ast.hpp"
-#include "frontend/semantic/symbol.hpp"
+#include "expr/ast.hpp"
+#include "expr/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::expr {

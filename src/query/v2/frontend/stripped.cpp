@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "frontend/parsing.hpp"
+#include "expr/parsing.hpp"
 #include "parser/opencypher/generated/MemgraphCypher.h"
 #include "parser/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "parser/opencypher/generated/MemgraphCypherLexer.h"

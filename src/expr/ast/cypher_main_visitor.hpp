@@ -33,10 +33,10 @@
 
 #include <boost/preprocessor/cat.hpp>
 
-#include "frontend/ast.hpp"
-#include "frontend/ast/ast_visitor.hpp"
-#include "frontend/exceptions.hpp"
-#include "frontend/parsing.hpp"
+#include "expr/ast.hpp"
+#include "expr/ast/ast_visitor.hpp"
+#include "expr/exceptions.hpp"
+#include "expr/parsing.hpp"
 #include "parser/opencypher/generated/MemgraphCypher.h"
 #include "parser/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"

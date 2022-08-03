@@ -19,10 +19,10 @@
 #include <regex>
 #include <vector>
 
-#include "frontend/ast.hpp"
-#include "frontend/exceptions.hpp"
-#include "frontend/interpret/frame.hpp"
-#include "frontend/semantic/symbol_table.hpp"
+#include "expr/ast.hpp"
+#include "expr/exceptions.hpp"
+#include "expr/interpret/frame.hpp"
+#include "expr/semantic/symbol_table.hpp"
 #include "query/exceptions.hpp"
 #include "utils/exceptions.hpp"
 

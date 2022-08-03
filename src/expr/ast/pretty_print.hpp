@@ -14,7 +14,7 @@
 #include <iostream>
 #include <type_traits>
 
-#include "frontend/ast.hpp"
+#include "expr/ast.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 

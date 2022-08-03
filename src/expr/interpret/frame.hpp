@@ -13,7 +13,7 @@
 
 #include <vector>
 
-#include "frontend/semantic/symbol_table.hpp"
+#include "expr/semantic/symbol_table.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
