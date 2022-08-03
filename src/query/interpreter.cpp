@@ -1412,7 +1412,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
                                                          label_name, properties_stringified);
                 } else {
-                  static_assert(always_false_v<T>, "Missing type from variant visitor");
+                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                 }
               },
               error);
@@ -1453,7 +1453,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
                                                          label_name, properties_stringified);
                 } else {
-                  static_assert(always_false_v<T>, "Missing type from variant visitor");
+                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                 }
               },
               error);
@@ -2037,7 +2037,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "{} on properties {}.",
                           label_name, properties_stringified);
                     } else {
-                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
                   },
                   error);
@@ -2082,7 +2082,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "At least one SYNC replica has not confirmed the creation of the UNIQUE constraint: {}({}).",
                           label_name, properties_stringified));
                     } else {
-                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
                   },
                   error);
@@ -2147,7 +2147,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                                       "constraint  on label {} on properties {}.",
                                       label_name, properties_stringified));
                     } else {
-                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
                   },
                   error);
@@ -2182,7 +2182,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                                       "constraint on label {} on properties {}.",
                                       label_name, properties_stringified));
                     } else {
-                      static_assert(always_false_v<T>, "Missing type from variant visitor");
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
                   },
                   error);
@@ -2453,7 +2453,7 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
                 }
               }
             } else {
-              static_assert(always_false_v<T>, "Missing type from variant visitor");
+              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
             }
           },
           error);
@@ -2534,7 +2534,7 @@ void Interpreter::Commit() {
               }
             }
           } else {
-            static_assert(always_false_v<T>, "Missing type from variant visitor");
+            static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
           }
         },
         error);
