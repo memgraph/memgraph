@@ -413,18 +413,17 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   Value routing;
-  Value bookmarks;
-  Value db;
   if (!session.decoder_.ReadValue(&routing, Value::Type::Map)) {
     spdlog::trace("Couldn't read routing field!");
     return State::Close;
   }
 
+  Value bookmarks;
   if (!session.decoder_.ReadValue(&bookmarks, Value::Type::List)) {
     spdlog::trace("Couldn't read bookmarks field!");
     return State::Close;
   }
-
+  Value db;
   if (!session.decoder_.ReadValue(&db)) {
     spdlog::trace("Couldn't read db field!");
     return State::Close;
