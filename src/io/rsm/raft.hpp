@@ -44,6 +44,15 @@ using Time = uint64_t;
 using Duration = uint64_t;
 using RequestId = uint64_t;
 
+/// WriteResponse is returned to a client after
+/// their WriteRequest was entered in to the raft
+/// log and it reached consensus.
+///
+/// WriteValue is the result of applying the WriteRequest to
+/// ReplicatedState, and if the ReplicatedState::write
+/// method is deterministic, all replicas will
+/// have the same ReplicatedState after applying
+/// the submitted WriteRequest.
 template <typename WriteValue>
 struct WriteResponse {
   bool success;
@@ -58,6 +67,7 @@ struct ReadResponse {
   std::optional<Address> retry_leader;
 };
 
+// TODO(tyler) add docs
 template <typename WriteRequest>
 struct AppendRequest {
   Term term = 0;
@@ -198,8 +208,8 @@ class Raft {
 
       Duration receive_timeout = RandomTimeout(10000, 50000);
 
-      auto request_result = io_.template ReceiveWithTimeout<ReadRequest, AppendRequest, AppendResponse, WriteRequest,
-                                                            VoteRequest, VoteResponse>(receive_timeout);
+      auto request_result = io_.template ReceiveWithTimeout<ReadRequest, AppendRequest<WriteRequest>, AppendResponse,
+                                                            WriteRequest, VoteRequest, VoteResponse>(receive_timeout);
       if (request_result.HasError()) {
         continue;
       }
@@ -276,7 +286,7 @@ class Raft {
       Log("sending ", entries.size(), " entries to Follower ", address.last_known_port,
           " which are above its known index of ", index);
 
-      AppendRequest ar{
+      AppendRequest<WriteRequest> ar{
           .term = state_.term,
           .last_log_index = index,
           .last_log_term = previous_term_from_index,
@@ -444,8 +454,8 @@ class Raft {
   /////////////////////////////////////////////////////////////
 
   // Don't we need more stuff in this variant?
-  void Handle(std::variant<AppendRequest<WriteRequest>, AppendResponse, WriteRequest, VoteRequest, VoteResponse>
-                  &&message_variant,
+  void Handle(std::variant<ReadRequest, AppendRequest<WriteRequest>, AppendResponse, WriteRequest, VoteRequest,
+                           VoteResponse> &&message_variant,
               RequestId request_id, Address from_address) {
     // dispatch the message to a handler based on our role,
     // which can be specified in the Handle first argument,
