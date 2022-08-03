@@ -16,8 +16,6 @@
 namespace memgraph::communication::bolt {
 
 inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
-inline constexpr uint8_t kProtocol[4] = {0x00, 0x00, 0x03, 0x04};
-inline constexpr uint8_t kEmptyProtocol[4] = {0x00, 0x00, 0x00, 0x00};
 
 enum class Signature : uint8_t {
   Noop = 0x00,

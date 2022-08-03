@@ -15,6 +15,10 @@
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
 
+namespace {
+constexpr uint8_t kBoltV43Version[4] = {0x00, 0x00, 0x03, 0x04};
+constexpr uint8_t kEmptyBoltVersion[4] = {0x00, 0x00, 0x00, 0x00};
+}  // namespace
 namespace memgraph::communication::bolt {
 
 Client::Client(communication::ClientContext &context) : client_{&context} {}
@@ -30,28 +34,28 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
     throw ServerCommunicationException();
   }
 
-  if (!client_.Write(kProtocol, sizeof(kProtocol), true)) {
+  if (!client_.Write(kBoltV43Version, sizeof(kBoltV43Version), true)) {
     spdlog::error("Couldn't send protocol version!");
     throw ServerCommunicationException();
   }
 
   for (int i = 0; i < 3; ++i) {
-    if (!client_.Write(kEmptyProtocol, sizeof(kEmptyProtocol), i != 2)) {
+    if (!client_.Write(kEmptyBoltVersion, sizeof(kEmptyBoltVersion), i != 2)) {
       spdlog::error("Couldn't send protocol version!");
       throw ServerCommunicationException();
     }
   }
 
-  if (!client_.Read(sizeof(kProtocol))) {
+  if (!client_.Read(sizeof(kBoltV43Version))) {
     spdlog::error("Couldn't get negotiated protocol version!");
     throw ServerCommunicationException();
   }
 
-  if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
+  if (memcmp(kBoltV43Version, client_.GetData(), sizeof(kBoltV43Version)) != 0) {
     spdlog::error("Server negotiated unsupported protocol version!");
     throw ClientFatalException("The server negotiated an usupported protocol version!");
   }
-  client_.ShiftData(sizeof(kProtocol));
+  client_.ShiftData(sizeof(kBoltV43Version));
 
   if (!encoder_.MessageInit({{"user_agent", client_name},
                              {"scheme", "basic"},
