@@ -1406,9 +1406,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &data_definition_error = arg;
-                  MG_ASSERT(storage::IndexDefinitionError::EXISTANT_INDEX == data_definition_error,
+                  MG_ASSERT(storage::IndexDefinitionError::EXISTENT_INDEX == data_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
-                  index_notification.code = NotificationCode::EXISTANT_INDEX;
+                  index_notification.code = NotificationCode::EXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
                                                          label_name, properties_stringified);
                 } else {
@@ -1447,9 +1447,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &index_definition_error = arg;
-                  MG_ASSERT(storage::IndexDefinitionError::NONEXISTANT_INDEX == index_definition_error,
+                  MG_ASSERT(storage::IndexDefinitionError::NONEXISTENT_INDEX == index_definition_error,
                             "Unexpected error received. Workflow is incorrect.");
-                  index_notification.code = NotificationCode::NONEXISTANT_INDEX;
+                  index_notification.code = NotificationCode::NONEXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
                                                          label_name, properties_stringified);
                 } else {
@@ -2025,9 +2025,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           label_name, property_name);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       auto &data_definition_error = arg;
-                      MG_ASSERT(storage::ConstraintDefinitionError::EXISTANT_CONSTRAINT == data_definition_error,
+                      MG_ASSERT(storage::ConstraintDefinitionError::EXISTENT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
-                      constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                      constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
                       constraint_notification.title =
                           fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
                                       properties_stringified);
@@ -2098,7 +2098,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     "for unique constraints is exceeded.",
                     storage::kUniqueConstraintsMaxProperties);
               case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
-                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
                                 properties_stringified);
@@ -2135,9 +2135,9 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       auto &data_definition_error = arg;
-                      MG_ASSERT(storage::ConstraintDefinitionError::NONEXISTANT_CONSTRAINT == data_definition_error,
+                      MG_ASSERT(storage::ConstraintDefinitionError::NONEXISTENT_CONSTRAINT == data_definition_error,
                                 "Unexpected error received. Workflow is incorrect.");
-                      constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
+                      constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
                       constraint_notification.title =
                           fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,
                                       properties_stringified);
@@ -2201,7 +2201,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     storage::kUniqueConstraintsMaxProperties);
                 break;
               case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
-                constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
+                constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
                                 properties_stringified);

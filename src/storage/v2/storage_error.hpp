@@ -28,8 +28,8 @@ struct StorageDataManipulationError {
 };
 
 enum class IndexDefinitionError {
-  EXISTANT_INDEX,
-  NONEXISTANT_INDEX,
+  EXISTENT_INDEX,
+  NONEXISTENT_INDEX,
 };
 
 struct StorageIndexDefinitionError {
@@ -39,8 +39,8 @@ struct StorageIndexDefinitionError {
 };
 
 enum class ConstraintDefinitionError {
-  EXISTANT_CONSTRAINT,
-  NONEXISTANT_CONSTRAINT,
+  EXISTENT_CONSTRAINT,
+  NONEXISTENT_CONSTRAINT,
 };
 
 struct StorageExistenceConstraintDefinitionError {
