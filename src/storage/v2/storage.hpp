@@ -313,9 +313,8 @@ class Storage final {
     /// Returns void if the transaction has been committed.
     /// Returns `StorageDataManipulationError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In that
-    /// case of existence/unique constraint the transaction is automatically aborted. In that case of existence/unique
-    /// constraint the transaction is automatically aborted.
+    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
+    /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
     [[nodiscard]] utils::BasicResult<StorageDataManipulationError, void> Commit(
         std::optional<uint64_t> desired_commit_timestamp = {});
