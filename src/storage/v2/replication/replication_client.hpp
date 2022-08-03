@@ -103,7 +103,7 @@ class Storage::ReplicationClient {
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
 
-Rerturn whether the transaction could be finalized on the replication client or not.
+  // Return whether the transaction could be finalized on the replication client or not.
   [[nodiscard]] bool FinalizeTransactionReplication();
 
   // Transfer the snapshot file.
