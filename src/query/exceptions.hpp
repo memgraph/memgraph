@@ -188,6 +188,12 @@ class FreeMemoryModificationInMulticommandTxException : public QueryException {
       : QueryException("Free memory query not allowed in multicommand transactions.") {}
 };
 
+class ShowConfigModificationInMulticommandTxException : public QueryException {
+ public:
+  ShowConfigModificationInMulticommandTxException()
+      : QueryException("Show config query not allowed in multicommand transactions.") {}
+};
+
 class TriggerModificationInMulticommandTxException : public QueryException {
  public:
   TriggerModificationInMulticommandTxException()
