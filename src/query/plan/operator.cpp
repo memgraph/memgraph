@@ -38,6 +38,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -684,7 +685,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
       if (context.auth_checker &&
-          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+          (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.To().Labels(storage::View::OLD).GetValue()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.From().Labels(storage::View::OLD).GetValue())))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
@@ -699,7 +704,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker &&
-          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+          (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.To().Labels(storage::View::OLD).GetValue()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.From().Labels(storage::View::OLD).GetValue())))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
