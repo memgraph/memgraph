@@ -12,12 +12,15 @@
 #include <deque>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <thread>
 #include <vector>
 
+#include "io/address.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/simulator/simulator.hpp"
+#include "io/simulator/simulator_transport.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Io;
@@ -25,35 +28,23 @@ using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
 using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ReplicationRequest;
-using memgraph::io::rsm::ReplicationResponse;
+// using memgraph::io::rsm::ReplicationRequest;
+// using memgraph::io::rsm::ReplicationResponse;
 using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 
-class TestState {
-  std::map<int, int> state_;
-
- public:
-  ReadResponse read(ReadRequest request) {
-    // TODO(tyler / gabor) implement
-  }
-
-  CasResponse apply(CasRequest request) {
-    // TODO(tyler / gabor) implement
-  }
-};
-
-struct Cas {
+struct CasRequest {
   int key;
-  int old_value;
-  int new_value;
+  std::optional<int> old_value;
+  std::optional<int> new_value;
 };
 
 struct CasResponse {
   bool success;
   std::optional<int> last_value;
+  std::optional<Address> retry_leader;
 };
 
 struct ReadRequest {
@@ -62,10 +53,67 @@ struct ReadRequest {
 
 struct ReadResponse {
   int value;
+  std::optional<Address> retry_leader;
+};
+
+class TestState {
+  std::map<int, int> state_;
+
+ public:
+  ReadResponse read(ReadRequest request) {
+    ReadResponse ret;
+    ret.value = state_.at(request.key);
+    return ret;
+  }
+
+  CasResponse apply(CasRequest request) {
+    CasResponse ret;
+
+    // TODO(gabor) remove my annoying-ass comments
+    // Key exist
+    if (state_.find(request.key) != state_.end()) {
+      auto &val = state_[request.key];
+
+      /*
+       *   Delete
+       */
+      if (!request.new_value) {
+        ret.last_value = val;
+        ret.success = true;
+
+        state_.erase(state_.find(request.key));
+      }
+
+      /*
+       *   Update
+       */
+      // Does old_value match?
+      if (request.old_value == val) {
+        ret.last_value = val;
+        ret.success = true;
+
+        val = request.new_value.value();
+      } else {
+        ret.last_value = val;
+        ret.success = false;
+      }
+    }
+    /*
+     *   Create
+     */
+    else {
+      ret.last_value = std::nullopt;
+      ret.success = true;
+
+      state_[request.key] = request.new_value.value();
+    }
+
+    return ret;
+  }
 };
 
 template <typename IoImpl>
-void RunRaft(Raft<IoImpl, TestState, Cas, CasResponse, ReadRequest, ReadResponse> server) {
+void RunRaft(Raft<IoImpl, TestState, CasRequest, CasResponse, ReadRequest, ReadResponse> server) {
   server.Run();
 }
 
@@ -96,9 +144,10 @@ void RunSimulation() {
   std::vector<Address> srv_3_peers = {srv_addr_1, srv_addr_2};
 
   // TODO(tyler / gabor) supply default TestState to Raft constructor
-  Raft srv_1{std::move(srv_io_1), srv_1_peers};
-  Raft srv_2{std::move(srv_io_2), srv_2_peers};
-  Raft srv_3{std::move(srv_io_3), srv_3_peers};
+  using RaftClass = Raft<SimulatorTransport, TestState, CasRequest, CasResponse, ReadRequest, ReadResponse>;
+  RaftClass srv_1{std::move(srv_io_1), srv_1_peers, TestState{}};
+  RaftClass srv_2{std::move(srv_io_2), srv_2_peers, TestState{}};
+  RaftClass srv_3{std::move(srv_io_3), srv_3_peers, TestState{}};
 
   auto srv_thread_1 = std::jthread(RunRaft<SimulatorTransport>, std::move(srv_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_1);
@@ -118,25 +167,27 @@ void RunSimulation() {
 
   while (true) {
     // send request
-    ReplicationRequest cli_req;
-    cli_req.opaque_data = std::vector<uint8_t>{1, 2, 3, 4};
+    CasRequest cli_req;
+    cli_req.key = 0;
+    cli_req.old_value = std::nullopt;
+    cli_req.new_value = 12;
 
     // TODO(tyler / gabor) replace Replication* with Cas/Read
 
     std::cout << "client sending ReplicationRequest to Leader " << leader.last_known_port << std::endl;
-    ResponseFuture<ReplicationResponse> response_future =
-        cli_io.RequestWithTimeout<ReplicationRequest, ReplicationResponse>(leader, cli_req, 50000);
+    ResponseFuture<CasResponse> response_future =
+        cli_io.RequestWithTimeout<CasRequest, CasResponse>(leader, cli_req, 50000);
 
     // receive response
-    ResponseResult<ReplicationResponse> response_result = response_future.Wait();
+    ResponseResult<CasResponse> response_result = response_future.Wait();
 
     if (response_result.HasError()) {
       std::cout << "client timed out while trying to communicate with leader server " << std::endl;
       continue;
     }
 
-    ResponseEnvelope<ReplicationResponse> response_envelope = response_result.GetValue();
-    ReplicationResponse response = response_envelope.message;
+    ResponseEnvelope<CasResponse> response_envelope = response_result.GetValue();
+    CasResponse response = response_envelope.message;
 
     if (response.success) {
       success = true;

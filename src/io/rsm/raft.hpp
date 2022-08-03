@@ -164,10 +164,18 @@ concept Rsm = requires(T t, Write w)
 };
 */
 
+template <typename WriteRequest, typename ReadRequest, typename T, typename WriteResponseValue,
+          typename ReadResponseValue>
+concept Rsm = requires(T t, WriteRequest w, ReadRequest r) {
+  { t.read(r) } -> std::same_as<ReadResponseValue>;
+  { t.apply(w) } -> std::same_as<WriteResponseValue>;
+};
+
 template <typename IoImpl, typename ReplicatedState, typename WriteRequest, typename WriteResponseValue,
           typename ReadRequest, typename ReadResponseValue>
+requires Rsm<WriteRequest, ReadRequest, ReplicatedState, WriteResponseValue, ReadResponseValue>
 class Raft {
-  CommonState state_;
+  CommonState<WriteRequest> state_;
   Role role_ = Candidate{};
   Io<IoImpl> io_;
   std::vector<Address> peers_;
@@ -175,7 +183,7 @@ class Raft {
 
  public:
   Raft(Io<IoImpl> &&io, std::vector<Address> peers, ReplicatedState &&replicated_state)
-      : io_(std::move(io)), peers_(peers) replicated_state_(std::move(replicated_state)) {}
+      : io_(std::move(io)), peers_(peers), replicated_state_(std::move(replicated_state)) {}
 
   void Run() {
     Time last_cron = io_.Now();
@@ -233,12 +241,17 @@ class Raft {
     while (!leader.pending_client_requests.empty()) {
       const auto &front = leader.pending_client_requests.front();
       if (front.log_index <= state_.committed_log_size) {
-        Log("responding SUCCESS to client");
-        WriteResponse rr{
-            .success = true,
-            .retry_leader = std::nullopt,
-        };
-        io_.Send(front.address, front.request_id, std::move(rr));
+        const auto &write_request = state_.log[front.log_index].second;
+        WriteResponseValue write_response = replicated_state_.apply(write_request);
+        WriteResponse<WriteResponseValue> resp;
+        resp.success = true;
+        resp.write_value = write_response;
+        // Log("responding SUCCESS to client");
+        // WriteResponse rr{
+        //     .success = true,
+        //     .retry_leader = std::nullopt,
+        // };
+        io_.Send(front.address, front.request_id, std::move(resp));
         leader.pending_client_requests.pop_front();
       } else {
         break;
@@ -430,7 +443,9 @@ class Raft {
   /// message that has been received.
   /////////////////////////////////////////////////////////////
 
-  void Handle(std::variant<AppendRequest, AppendResponse, Write, VoteRequest, VoteResponse> &&message_variant,
+  // Don't we need more stuff in this variant?
+  void Handle(std::variant<AppendRequest<WriteRequest>, AppendResponse, WriteRequest, VoteRequest, VoteResponse>
+                  &&message_variant,
               RequestId request_id, Address from_address) {
     // dispatch the message to a handler based on our role,
     // which can be specified in the Handle first argument,
@@ -540,7 +555,8 @@ class Raft {
   }
 
   template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &role, AppendRequest &&req, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(AllRoles &role, AppendRequest<WriteRequest> &&req, RequestId request_id,
+                             Address from_address) {
     AppendResponse res{
         .success = false,
         .term = state_.term,
@@ -658,20 +674,43 @@ class Raft {
   /////////////////////////////////////////////////////////////
 
   // Leaders are able to immediately respond to the requester (with a ReadResponseValue) applied to the ReplicatedState
-  std::optional<Role> Handle(Leader &leader, ReadRequest &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(Leader &leader, ReadRequest &&req, RequestId request_id, Address from_address) {
     // TODO(tyler / gabor) implement
+
+    ReadResponse<ReadResponseValue> resp = replicated_state_.read(req);
+    io_.send(from_address, request_id, resp);
+
     return std::nullopt;
   }
 
   // Candidates should respond with a failure, similar to the Candidate + WriteRequest failure below
   std::optional<Role> Handle(Candidate &, ReadRequest &&req, RequestId request_id, Address from_address) {
     // TODO(tyler / gabor) implement
+
+    Log("received ReadRequest - not redirecting because no Leader is known");
+    auto res = ReadResponse<ReadResponseValue>{};
+
+    res.success = false;
+
+    Cron();
+
+    io_.Send(from_address, request_id, res);
+
     return std::nullopt;
   }
 
   // Leaders should respond with a redirection, similar to the Follower + WriteRequest response below
-  std::optional<Role> Handle(Follower &, ReadRequest &&req, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(Follower &follower, ReadRequest &&req, RequestId request_id, Address from_address) {
     // TODO(tyler / gabor) implement
+
+    auto res = ReadResponse<ReadResponseValue>{};
+
+    res.success = false;
+    Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
+    res.retry_leader = follower.leader_address;
+
+    io_.Send(from_address, request_id, res);
+
     return std::nullopt;
   }
 
@@ -681,7 +720,7 @@ class Raft {
   // server will reject the client’s request and supply information
   // about the most recent leader it has heard from.
   std::optional<Role> Handle(Follower &follower, WriteRequest &&req, RequestId request_id, Address from_address) {
-    auto res = WriteResponse{};
+    auto res = WriteResponse<WriteResponseValue>{};
 
     res.success = false;
     Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
@@ -694,7 +733,7 @@ class Raft {
 
   std::optional<Role> Handle(Candidate &, WriteRequest &&req, RequestId request_id, Address from_address) {
     Log("received WriteRequest - not redirecting because no Leader is known");
-    auto res = WriteResponse{};
+    auto res = WriteResponse<WriteResponseValue>{};
 
     res.success = false;
 
