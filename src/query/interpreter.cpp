@@ -77,7 +77,7 @@ extern const Event TriggersCreated;
 namespace memgraph::query {
 
 template <typename>
-inline constexpr bool always_false_v = false;
+constexpr auto kAlwaysFalse = false;
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
