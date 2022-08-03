@@ -204,6 +204,7 @@ const trie::Trie kKeywords = {"union",
                               "pulsar",
                               "service_url",
                               "version",
+                              "config",
                               "websocket"
                               "foreach"};
 

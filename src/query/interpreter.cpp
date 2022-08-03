@@ -795,6 +795,37 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
   }
 }
 
+Callback HandleConfigQuery() {
+  Callback callback;
+  callback.header = {"name", "default_value", "current_value", "description"};
+
+  callback.fn = [] {
+    std::vector<GFLAGS_NAMESPACE::CommandLineFlagInfo> flags;
+    GetAllFlags(&flags);
+
+    std::vector<std::vector<TypedValue>> results;
+
+    for (const auto &flag : flags) {
+      if (flag.hidden ||
+          // These flags are not defined with gflags macros but are specified in config/flags.yaml
+          flag.name == "help" || flag.name == "help_xml" || flag.name == "version") {
+        continue;
+      }
+
+      std::vector<TypedValue> current_fields;
+      current_fields.emplace_back(flag.name);
+      current_fields.emplace_back(flag.default_value);
+      current_fields.emplace_back(flag.current_value);
+      current_fields.emplace_back(flag.description);
+
+      results.emplace_back(std::move(current_fields));
+    }
+
+    return results;
+  };
+  return callback;
+}
+
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
   Frame frame(0);
   SymbolTable symbol_table;
@@ -1554,6 +1585,28 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
       RWType::NONE};
 }
 
+PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw ShowConfigModificationInMulticommandTxException();
+  }
+
+  auto callback = HandleConfigQuery();
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) [[unlikely]] {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   switch (event_type) {
     case TriggerQuery::EventType::ANY:
@@ -2288,6 +2341,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                             &*execution_db_accessor_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
