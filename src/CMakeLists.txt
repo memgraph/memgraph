@@ -33,13 +33,13 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
-    glue/communication.cpp
+    glue/v2/communication.cpp
     memgraph.cpp
-    glue/auth.cpp
+    glue/v2/auth.cpp
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings)
+    telemetry_lib mg-query-v2 mg-communication mg-memory mg-utils mg-auth mg-license mg-settings)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
   set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
@@ -124,7 +124,7 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # ----------------------------------------------------------------------------
 
 add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg-storage-v2)
+target_link_libraries(mg_import_csv mg-storage-v3)
 
 # Strip the executable in release build.
 if (lower_build_type STREQUAL "release")

@@ -37,18 +37,18 @@
 #include "communication/websocket/server.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
-#include "query/auth_checker.hpp"
-#include "query/discard_value_stream.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/interpreter.hpp"
-#include "query/plan/operator.hpp"
-#include "query/procedure/module.hpp"
-#include "query/procedure/py_module.hpp"
+#include "query/v2/auth_checker.hpp"
+#include "query/v2/discard_value_stream.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/interpreter.hpp"
+#include "query/v2/plan/operator.hpp"
+#include "query/v2/procedure/module.hpp"
+#include "query/v2/procedure/py_module.hpp"
 #include "requests/requests.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
-#include "storage/v2/view.hpp"
+#include "storage/v3/isolation_level.hpp"
+#include "storage/v3/storage.hpp"
+#include "storage/v3/view.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
@@ -83,10 +83,10 @@
 #include "communication/init.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
-#include "glue/communication.hpp"
+#include "glue/v2/communication.hpp"
 
 #include "auth/auth.hpp"
-#include "glue/auth.hpp"
+#include "glue/v2/auth.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "audit/log.hpp"
@@ -197,12 +197,12 @@ DEFINE_bool(storage_wal_enabled, false,
 DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
                         FLAG_IN_RANGE(1, 1000000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
+DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::v3::Config::Durability().wal_file_size_kibibytes,
                         "Minimum file size of each WAL file.",
                         FLAG_IN_RANGE(1, static_cast<unsigned long>(1000) * 1024));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
-                        memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
+                        memgraph::storage::v3::Config::Durability().wal_file_flush_every_n_tx,
                         "Issue a 'fsync' call after this amount of transactions are written to the "
                         "WAL file. Set to 1 for fully synchronous operation.",
                         FLAG_IN_RANGE(1, 1000000));
@@ -271,9 +271,9 @@ DEFINE_uint64(
 namespace {
 using namespace std::literals;
 inline constexpr std::array isolation_level_mappings{
-    std::pair{"SNAPSHOT_ISOLATION"sv, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION},
-    std::pair{"READ_COMMITTED"sv, memgraph::storage::IsolationLevel::READ_COMMITTED},
-    std::pair{"READ_UNCOMMITTED"sv, memgraph::storage::IsolationLevel::READ_UNCOMMITTED}};
+    std::pair{"SNAPSHOT_ISOLATION"sv, memgraph::storage::v3::IsolationLevel::SNAPSHOT_ISOLATION},
+    std::pair{"READ_COMMITTED"sv, memgraph::storage::v3::IsolationLevel::READ_COMMITTED},
+    std::pair{"READ_UNCOMMITTED"sv, memgraph::storage::v3::IsolationLevel::READ_UNCOMMITTED}};
 
 const std::string isolation_level_help_string =
     fmt::format("Default isolation level used for the transactions. Allowed values: {}",
@@ -302,9 +302,9 @@ DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_h
 });
 
 namespace {
-memgraph::storage::IsolationLevel ParseIsolationLevel() {
+memgraph::storage::v3::IsolationLevel ParseIsolationLevel() {
   const auto isolation_level =
-      StringToEnum<memgraph::storage::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
+      StringToEnum<memgraph::storage::v3::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
   MG_ASSERT(isolation_level, "Invalid isolation level");
   return *isolation_level;
 }
@@ -445,22 +445,22 @@ struct SessionData {
   // supplied.
 #if MG_ENTERPRISE
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::storage::v3::Storage *db, memgraph::query::v2::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
       : db(db), interpreter_context(interpreter_context), auth(auth), audit_log(audit_log) {}
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
+  memgraph::storage::v3::Storage *db;
+  memgraph::query::v2::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
 
 #else
 
-  SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
+  SessionData(memgraph::storage::v3::Storage *db, memgraph::query::v2::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
-  memgraph::storage::Storage *db;
-  memgraph::query::InterpreterContext *interpreter_context;
+  memgraph::storage::v3::Storage *db;
+  memgraph::query::v2::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
 #endif
@@ -471,7 +471,7 @@ inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
 DEFINE_string(auth_user_or_role_name_regex, default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
-class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
+class AuthQueryHandler final : public memgraph::query::v2::AuthQueryHandler {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::string name_regex_string_;
   std::regex name_regex_;
@@ -494,7 +494,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
     }
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     try {
       const auto [first_user, user_added] = std::invoke([&, this] {
@@ -506,18 +506,18 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll);
+        GrantPrivilege(username, memgraph::query::v2::kPrivilegesAll);
       }
 
       return user_added;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   bool DropUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     try {
       auto locked_auth = auth_->Lock();
@@ -525,42 +525,42 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       if (!user) return false;
       return locked_auth->RemoveUser(username);
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   void SetPassword(const std::string &username, const std::optional<std::string> &password) override {
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     try {
       auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(username);
       if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+        throw memgraph::query::v2::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
       user->UpdatePassword(password);
       locked_auth->SaveUser(*user);
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   bool CreateRole(const std::string &rolename) override {
     if (!std::regex_match(rolename, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid role name.");
     }
     try {
       auto locked_auth = auth_->Lock();
       return locked_auth->AddRole(rolename).has_value();
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   bool DropRole(const std::string &rolename) override {
     if (!std::regex_match(rolename, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid role name.");
     }
     try {
       auto locked_auth = auth_->Lock();
@@ -568,14 +568,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       if (!role) return false;
       return locked_auth->RemoveRole(rolename);
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
-  std::vector<memgraph::query::TypedValue> GetUsernames() override {
+  std::vector<memgraph::query::v2::TypedValue> GetUsernames() override {
     try {
       auto locked_auth = auth_->ReadLock();
-      std::vector<memgraph::query::TypedValue> usernames;
+      std::vector<memgraph::query::v2::TypedValue> usernames;
       const auto &users = locked_auth->AllUsers();
       usernames.reserve(users.size());
       for (const auto &user : users) {
@@ -583,14 +583,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       return usernames;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
-  std::vector<memgraph::query::TypedValue> GetRolenames() override {
+  std::vector<memgraph::query::v2::TypedValue> GetRolenames() override {
     try {
       auto locked_auth = auth_->ReadLock();
-      std::vector<memgraph::query::TypedValue> rolenames;
+      std::vector<memgraph::query::v2::TypedValue> rolenames;
       const auto &roles = locked_auth->AllRoles();
       rolenames.reserve(roles.size());
       for (const auto &role : roles) {
@@ -598,19 +598,19 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       return rolenames;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   std::optional<std::string> GetRolenameForUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     try {
       auto locked_auth = auth_->ReadLock();
       auto user = locked_auth->GetUser(username);
       if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+        throw memgraph::query::v2::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
 
       if (const auto *role = user->role(); role != nullptr) {
@@ -618,21 +618,21 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       return std::nullopt;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
-  std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override {
+  std::vector<memgraph::query::v2::TypedValue> GetUsernamesForRole(const std::string &rolename) override {
     if (!std::regex_match(rolename, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid role name.");
     }
     try {
       auto locked_auth = auth_->ReadLock();
       auto role = locked_auth->GetRole(rolename);
       if (!role) {
-        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+        throw memgraph::query::v2::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
       }
-      std::vector<memgraph::query::TypedValue> usernames;
+      std::vector<memgraph::query::v2::TypedValue> usernames;
       const auto &users = locked_auth->AllUsersForRole(rolename);
       usernames.reserve(users.size());
       for (const auto &user : users) {
@@ -640,71 +640,71 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       return usernames;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   void SetRole(const std::string &username, const std::string &rolename) override {
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     if (!std::regex_match(rolename, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid role name.");
     }
     try {
       auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(username);
       if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+        throw memgraph::query::v2::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       auto role = locked_auth->GetRole(rolename);
       if (!role) {
-        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
+        throw memgraph::query::v2::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
       }
       if (const auto *current_role = user->role(); current_role != nullptr) {
-        throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                                     current_role->rolename());
+        throw memgraph::query::v2::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
+                                                         current_role->rolename());
       }
       user->SetRole(*role);
       locked_auth->SaveUser(*user);
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   void ClearRole(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user name.");
     }
     try {
       auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(username);
       if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+        throw memgraph::query::v2::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
       user->ClearRole();
       locked_auth->SaveUser(*user);
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
-  std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
+  std::vector<std::vector<memgraph::query::v2::TypedValue>> GetPrivileges(const std::string &user_or_role) override {
     if (!std::regex_match(user_or_role, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user or role name.");
     }
     try {
       auto locked_auth = auth_->ReadLock();
-      std::vector<std::vector<memgraph::query::TypedValue>> grants;
+      std::vector<std::vector<memgraph::query::v2::TypedValue>> grants;
       auto user = locked_auth->GetUser(user_or_role);
       auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
-        throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+        throw memgraph::query::v2::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
       if (user) {
         const auto &permissions = user->GetPermissions();
-        for (const auto &privilege : memgraph::query::kPrivilegesAll) {
-          auto permission = memgraph::glue::PrivilegeToPermission(privilege);
+        for (const auto &privilege : memgraph::query::v2::kPrivilegesAll) {
+          auto permission = memgraph::glue::v2::PrivilegeToPermission(privilege);
           auto effective = permissions.Has(permission);
           if (permissions.Has(permission) != memgraph::auth::PermissionLevel::NEUTRAL) {
             std::vector<std::string> description;
@@ -722,15 +722,15 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                 description.emplace_back("DENIED TO ROLE");
               }
             }
-            grants.push_back({memgraph::query::TypedValue(memgraph::auth::PermissionToString(permission)),
-                              memgraph::query::TypedValue(memgraph::auth::PermissionLevelToString(effective)),
-                              memgraph::query::TypedValue(memgraph::utils::Join(description, ", "))});
+            grants.push_back({memgraph::query::v2::TypedValue(memgraph::auth::PermissionToString(permission)),
+                              memgraph::query::v2::TypedValue(memgraph::auth::PermissionLevelToString(effective)),
+                              memgraph::query::v2::TypedValue(memgraph::utils::Join(description, ", "))});
           }
         }
       } else {
         const auto &permissions = role->permissions();
-        for (const auto &privilege : memgraph::query::kPrivilegesAll) {
-          auto permission = memgraph::glue::PrivilegeToPermission(privilege);
+        for (const auto &privilege : memgraph::query::v2::kPrivilegesAll) {
+          auto permission = memgraph::glue::v2::PrivilegeToPermission(privilege);
           auto effective = permissions.Has(permission);
           if (effective != memgraph::auth::PermissionLevel::NEUTRAL) {
             std::string description;
@@ -739,20 +739,20 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
             } else if (effective == memgraph::auth::PermissionLevel::DENY) {
               description = "DENIED TO ROLE";
             }
-            grants.push_back({memgraph::query::TypedValue(memgraph::auth::PermissionToString(permission)),
-                              memgraph::query::TypedValue(memgraph::auth::PermissionLevelToString(effective)),
-                              memgraph::query::TypedValue(description)});
+            grants.push_back({memgraph::query::v2::TypedValue(memgraph::auth::PermissionToString(permission)),
+                              memgraph::query::v2::TypedValue(memgraph::auth::PermissionLevelToString(effective)),
+                              memgraph::query::v2::TypedValue(description)});
           }
         }
       }
       return grants;
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 
   void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
+                      const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges) override {
     EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
@@ -762,7 +762,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
+                     const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges) override {
     EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
@@ -772,7 +772,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
   void RevokePrivilege(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override {
+                       const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges) override {
     EditPermissions(user_or_role, privileges, [](auto *permissions, const auto &permission) {
       // TODO (mferencevic): should we first check that the
       // privilege is granted/denied/revoked before
@@ -784,21 +784,22 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
  private:
   template <class TEditFun>
   void EditPermissions(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, const TEditFun &edit_fun) {
+                       const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges,
+                       const TEditFun &edit_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+      throw memgraph::query::v2::QueryRuntimeException("Invalid user or role name.");
     }
     try {
       std::vector<memgraph::auth::Permission> permissions;
       permissions.reserve(privileges.size());
       for (const auto &privilege : privileges) {
-        permissions.push_back(memgraph::glue::PrivilegeToPermission(privilege));
+        permissions.push_back(memgraph::glue::v2::PrivilegeToPermission(privilege));
       }
       auto locked_auth = auth_->Lock();
       auto user = locked_auth->GetUser(user_or_role);
       auto role = locked_auth->GetRole(user_or_role);
       if (!user && !role) {
-        throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+        throw memgraph::query::v2::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
       }
       if (user) {
         for (const auto &permission : permissions) {
@@ -812,28 +813,28 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         locked_auth->SaveRole(*role);
       }
     } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
+      throw memgraph::query::v2::QueryRuntimeException(e.what());
     }
   }
 };
 
-class AuthChecker final : public memgraph::query::AuthChecker {
+class AuthChecker final : public memgraph::query::v2::AuthChecker {
  public:
   explicit AuthChecker(
       memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : auth_{auth} {}
 
   static bool IsUserAuthorized(const memgraph::auth::User &user,
-                               const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
+                               const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges) {
     const auto user_permissions = user.GetPermissions();
     return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
-      return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
+      return user_permissions.Has(memgraph::glue::v2::PrivilegeToPermission(privilege)) ==
              memgraph::auth::PermissionLevel::GRANT;
     });
   }
 
   bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const final {
+                        const std::vector<memgraph::query::v2::AuthQuery::Privilege> &privileges) const final {
     std::optional<memgraph::auth::User> maybe_user;
     {
       auto locked_auth = auth_->ReadLock();
@@ -880,8 +881,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
-    std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    std::map<std::string, memgraph::storage::v3::PropertyValue> params_pv;
+    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::v2::ToPropertyValue(kv.second));
     const std::string *username{nullptr};
     if (user_) {
       username = &user_->username();
@@ -889,7 +890,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #ifdef MG_ENTERPRISE
     if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv));
+                         memgraph::storage::v3::PropertyValue(params_pv));
     }
 #endif
     try {
@@ -902,7 +903,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       }
       return {result.headers, result.qid};
 
-    } catch (const memgraph::query::QueryException &e) {
+    } catch (const memgraph::query::v2::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
@@ -917,7 +918,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Discard(std::optional<int> n,
                                                                       std::optional<int> qid) override {
-    memgraph::query::DiscardValueResultStream stream;
+    memgraph::query::v2::DiscardValueResultStream stream;
     return PullResults(stream, n, qid);
   }
 
@@ -945,21 +946,21 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::ToBoltValue(kv.second, *db_, memgraph::storage::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, *db_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming summary.");
           }
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
       }
       return decoded_summary;
-    } catch (const memgraph::query::QueryException &e) {
+    } catch (const memgraph::query::v2::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
@@ -970,22 +971,22 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::storage::Storage *db) : encoder_(encoder), db_(db) {}
+    TypedValueResultStream(TEncoder *encoder, const memgraph::storage::v3::Storage *db) : encoder_(encoder), db_(db) {}
 
-    void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::ToBoltValue(v, *db_, memgraph::storage::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, *db_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::v3::Error::DELETED_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
               throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
+            case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
               throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
           }
         }
@@ -997,12 +998,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
    private:
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
-    const memgraph::storage::Storage *db_;
+    const memgraph::storage::v3::Storage *db_;
   };
 
   // NOTE: Needed only for ToBoltValue conversions
-  const memgraph::storage::Storage *db_;
-  memgraph::query::Interpreter interpreter_;
+  const memgraph::storage::v3::Storage *db_;
+  memgraph::query::v2::Interpreter interpreter_;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
   std::optional<memgraph::auth::User> user_;
 #ifdef MG_ENTERPRISE
@@ -1065,7 +1066,7 @@ int main(int argc, char **argv) {
   // Set program name, so Python can find its way to runtime libraries relative
   // to executable.
   Py_SetProgramName(program_name);
-  PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
+  PyImport_AppendInittab("_mgp", &memgraph::query::v2::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
   PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
@@ -1191,8 +1192,8 @@ int main(int argc, char **argv) {
 #endif
 
   // Main storage and execution engines initialization
-  memgraph::storage::Config db_config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
+  memgraph::storage::v3::Config db_config{
+      .gc = {.type = memgraph::storage::v3::Config::Gc::Type::PERIODIC,
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
       .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
       .durability = {.storage_directory = FLAGS_data_directory,
@@ -1200,8 +1201,7 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
-                     .restore_replicas_on_startup = FLAGS_storage_restore_replicas_on_startup},
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
@@ -1209,21 +1209,21 @@ int main(int argc, char **argv) {
           "In order to use write-ahead-logging you must enable "
           "periodic snapshots by setting the snapshot interval to a "
           "value larger than 0!");
-      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+      db_config.durability.snapshot_wal_mode = memgraph::storage::v3::Config::Durability::SnapshotWalMode::DISABLED;
     }
   } else {
     if (FLAGS_storage_wal_enabled) {
       db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+          memgraph::storage::v3::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     } else {
       db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
+          memgraph::storage::v3::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
     }
     db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
-  memgraph::storage::Storage db(db_config);
+  memgraph::storage::v3::Storage db(db_config);
 
-  memgraph::query::InterpreterContext interpreter_context{
+  memgraph::query::v2::InterpreterContext interpreter_context{
       &db,
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
@@ -1239,8 +1239,8 @@ int main(int argc, char **argv) {
   SessionData session_data{&db, &interpreter_context, &auth};
 #endif
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::v2::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
+  memgraph::query::v2::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
   AuthChecker auth_checker{&auth};
@@ -1251,7 +1251,7 @@ int main(int argc, char **argv) {
     // Triggers can execute query procedures, so we need to reload the modules first and then
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
-    auto dba = memgraph::query::DbAccessor{&storage_accessor};
+    auto dba = memgraph::query::v2::DbAccessor{&storage_accessor};
     interpreter_context.trigger_store.RestoreTriggers(
         &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
@@ -1292,7 +1292,7 @@ int main(int argc, char **argv) {
       return ret;
     });
     telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-      return memgraph::query::plan::CallProcedure::GetAndResetCounters();
+      return memgraph::query::v2::plan::CallProcedure::GetAndResetCounters();
     });
   }
 
@@ -1309,7 +1309,7 @@ int main(int argc, char **argv) {
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
-    memgraph::query::Shutdown(&interpreter_context);
+    memgraph::query::v2::Shutdown(&interpreter_context);
     websocket_server.Shutdown();
   };
 
@@ -1321,7 +1321,7 @@ int main(int argc, char **argv) {
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
 
-  memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+  memgraph::query::v2::procedure::gModuleRegistry.UnloadAllModules();
 
   Py_END_ALLOW_THREADS;
   // Shutdown Python
