@@ -2420,17 +2420,16 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto trigger_replicated_all_sync_replicas = true;
     auto maybe_commit_error = db_accessor.Commit();
     if (maybe_commit_error.HasError()) {
       const auto &storage_error = maybe_commit_error.GetError();
       const auto &error = storage_error.error;
 
       std::visit(
-          [&trigger, &db_accessor, &trigger_replicated_all_sync_replicas]<typename T>(T &&arg) {
+          [&trigger, &db_accessor, &all_triggers_replicated_on_sync_replicas]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-              trigger_replicated_all_sync_replicas = false;
+              all_triggers_replicated_on_sync_replicas = false;
               spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
                            trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
@@ -2459,8 +2458,6 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           },
           error);
     }
-    all_triggers_replicated_on_sync_replicas =
-        trigger_replicated_all_sync_replicas && all_triggers_replicated_on_sync_replicas;
   }
   return all_triggers_replicated_on_sync_replicas;
 }
