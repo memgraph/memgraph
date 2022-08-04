@@ -571,7 +571,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     # 3/ Kill an async replica.
     # 4/ Try to add some data to main.
     # 5/ Check the status of replicsa.
-    # 6/ Check that the data was added to main and remaining replica.
+    # 5/ Check the status of replicas.
 
     CONFIGURATION = {
         "async_replica1": {
