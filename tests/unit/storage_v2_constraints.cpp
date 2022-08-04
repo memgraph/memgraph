@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <variant>
 
 #include "storage/v2/storage.hpp"
 
@@ -80,8 +81,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure1) {
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageExistenceConstraintDefinitionError{ConstraintViolation{
-                                  ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
   }
   {
     auto acc = storage.Access();
@@ -107,8 +108,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsCreateFailure2) {
   {
     auto res = storage.CreateExistenceConstraint(label1, prop1);
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageExistenceConstraintDefinitionError{ConstraintViolation{
-                                  ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
   }
   {
     auto acc = storage.Access();
@@ -137,8 +138,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::EXISTENCE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
   }
 
   {
@@ -157,8 +158,8 @@ TEST_F(ConstraintsTest, ExistenceConstraintsViolationOnCommit) {
 
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::EXISTENCE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label1, std::set<PropertyId>{prop1}}));
   }
 
   {
@@ -239,8 +240,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure1) {
   {
     auto res = storage.CreateUniqueConstraint(label1, {prop1});
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageUniqueConstraintDefinitionError{ConstraintViolation{
-                                  ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
   }
 
   {
@@ -273,8 +274,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsCreateFailure2) {
   {
     auto res = storage.CreateUniqueConstraint(label1, {prop1});
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageUniqueConstraintDefinitionError{ConstraintViolation{
-                                  ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
   }
 
   {
@@ -458,8 +459,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit1) {
     ASSERT_NO_ERROR(vertex2.SetProperty(prop1, PropertyValue(1)));
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::UNIQUE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
   }
 }
 
@@ -500,8 +501,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit2) {
     ASSERT_NO_ERROR(acc2.Commit());
     auto res = acc3.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::UNIQUE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
   }
 }
 
@@ -545,12 +546,12 @@ TEST_F(ConstraintsTest, UniqueConstraintsViolationOnCommit3) {
 
     auto res = acc2.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::UNIQUE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
     res = acc3.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::UNIQUE,
-                                                                                label1, std::set<PropertyId>{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1}}));
   }
 }
 
@@ -620,8 +621,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsLabelAlteration) {
 
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{
-                                  ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}));
   }
 
   {
@@ -655,8 +656,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsLabelAlteration) {
 
     auto res = acc1.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{
-                                  ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}));
   }
 }
 
@@ -751,8 +752,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsMultipleProperties) {
     ASSERT_NO_ERROR(vertex2->SetProperty(prop2, PropertyValue(2)));
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{
-                                  ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1, prop2}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set<PropertyId>{prop1, prop2}}));
   }
 
   // Then change the second property of both vertex to null. Property values of
@@ -863,8 +864,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsInsertRemoveAbortInsert) {
 
     auto res = acc.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{ConstraintViolation{ConstraintViolation::Type::UNIQUE,
-                                                                                label1, std::set{prop1, prop2}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1, prop2}}));
   }
 }
 
@@ -903,8 +904,8 @@ TEST_F(ConstraintsTest, UniqueConstraintsDeleteVertexSetProperty) {
 
     auto res = acc1.Commit();
     ASSERT_TRUE(res.HasError());
-    EXPECT_EQ(res.GetError(), (StorageDataManipulationError{
-                                  ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}}));
+    EXPECT_EQ(std::get<ConstraintViolation>(res.GetError()),
+              (ConstraintViolation{ConstraintViolation::Type::UNIQUE, label1, std::set{prop1}}));
 
     ASSERT_NO_ERROR(acc2.Commit());
   }
