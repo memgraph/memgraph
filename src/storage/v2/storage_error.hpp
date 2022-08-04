@@ -27,10 +27,7 @@ struct StorageDataManipulationError {
   bool operator==(const StorageDataManipulationError &) const = default;
 };
 
-enum class IndexDefinitionError {
-  EXISTENT_INDEX,
-  NONEXISTENT_INDEX,
-};
+struct IndexDefinitionError {};
 
 struct StorageIndexDefinitionError {
   std::variant<IndexDefinitionError, ReplicationError> error;

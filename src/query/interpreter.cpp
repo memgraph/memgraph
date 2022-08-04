@@ -1406,8 +1406,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &data_definition_error = arg;
-                  MG_ASSERT(storage::IndexDefinitionError::EXISTENT_INDEX == data_definition_error,
-                            "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::EXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
                                                          label_name, properties_stringified);
@@ -1447,8 +1445,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
                   auto &index_definition_error = arg;
-                  MG_ASSERT(storage::IndexDefinitionError::NONEXISTENT_INDEX == index_definition_error,
-                            "Unexpected error received. Workflow is incorrect.");
                   index_notification.code = NotificationCode::NONEXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
                                                          label_name, properties_stringified);
