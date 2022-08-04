@@ -122,8 +122,9 @@ bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 
 class FineGrainedAccessHandler final {
  public:
-  FineGrainedAccessHandler(const FineGrainedAccessPermissions &labelPermissions = {},
-                           const FineGrainedAccessPermissions &edgeTypePermissions = {});
+  explicit FineGrainedAccessHandler(
+      const FineGrainedAccessPermissions &labelPermissions = FineGrainedAccessPermissions(),
+      const FineGrainedAccessPermissions &edgeTypePermissions = FineGrainedAccessPermissions());
 
   const FineGrainedAccessPermissions &label_permissions() const;
   FineGrainedAccessPermissions &label_permissions();
