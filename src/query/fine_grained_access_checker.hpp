@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include "auth/models.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
 class FineGrainedAccessChecker {
  public:
-  virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels) const = 0;
+  virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &label,
+                                      memgraph::query::DbAccessor *dba) const = 0;
 };
 }  // namespace memgraph::query

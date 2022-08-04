@@ -468,8 +468,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto user1 = User("test", "pw", perms);
-    auto user2 = User("Test", "pw", perms);
+    auto fine_grained_perms = FineGrainedAccessPermissions();
+    auto user1 = User("test", "pw", perms, fine_grained_perms);
+    auto user2 = User("Test", "pw", perms, fine_grained_perms);
     ASSERT_EQ(user1, user2);
     ASSERT_EQ(user1.username(), user2.username());
     ASSERT_EQ(user1.username(), "test");
@@ -485,8 +486,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto role1 = Role("role", perms);
-    auto role2 = Role("Role", perms);
+    auto fine_grained_perms = FineGrainedAccessPermissions();
+    auto role1 = Role("role", perms, fine_grained_perms);
+    auto role2 = Role("Role", perms, fine_grained_perms);
     ASSERT_EQ(role1, role2);
     ASSERT_EQ(role1.rolename(), role2.rolename());
     ASSERT_EQ(role1.rolename(), "role");
