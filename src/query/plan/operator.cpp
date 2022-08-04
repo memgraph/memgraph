@@ -38,6 +38,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -684,7 +685,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
       if (context.auth_checker &&
-          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+          (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.To().Labels(storage::View::OLD).GetValue()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.From().Labels(storage::View::OLD).GetValue())))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
@@ -699,7 +704,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker &&
-          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+          (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.To().Labels(storage::View::OLD).GetValue()) ||
+           !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                         edge.From().Labels(storage::View::OLD).GetValue())))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
@@ -822,8 +831,7 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
-                      const ExecutionContext &context) {
+                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -835,12 +843,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
@@ -848,12 +850,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -918,9 +914,8 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  using ExpandEdges =
-      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
-                                utils::NewDeleteResource(), std::declval<ExecutionContext>()));
+  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
+                                                self_.common_.edge_types, utils::NewDeleteResource()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -961,8 +956,7 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
+        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1043,11 +1037,7 @@ class ExpandVariableCursor : public Cursor {
       if (found_existing) continue;
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
-      if (context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor,
-                                                         current_edge.first.EdgeType()) ||
-          context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
-                                                       current_vertex.Labels(storage::View::NEW).GetValue()))
-        continue;
+
       AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
@@ -1064,7 +1054,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -2625,13 +2615,13 @@ namespace {
  * when there are */
 TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::MemoryResource *memory) {
   switch (element.op) {
-    case Aggregation::Op::COUNT:
-      return TypedValue(0, memory);
-    case Aggregation::Op::SUM:
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
       return TypedValue(memory);
+    case Aggregation::Op::COUNT:
+    case Aggregation::Op::SUM:
+      return TypedValue(0, memory);
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
@@ -2653,9 +2643,7 @@ class AggregateCursor : public Cursor {
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
-      // in case there is no input and no group_bys we need to return true
-      // just this once
-      if (aggregation_.empty() && self_.group_by_.empty()) {
+      if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_)

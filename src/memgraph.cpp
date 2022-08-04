@@ -1303,9 +1303,8 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
     auto dba = memgraph::query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
-                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
-                                                      interpreter_context.auth_checker);
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
