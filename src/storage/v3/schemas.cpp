@@ -9,14 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/schemas.hpp"
+#include "storage/v3/schemas.hpp"
 
 #include <unordered_map>
 #include <vector>
 
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs) {
   return lhs.property_id == rhs.property_id && lhs.type == rhs.type;
@@ -109,4 +109,4 @@ std::string SchemaTypeToString(const common::SchemaType type) {
   }
 }
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

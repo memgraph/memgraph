@@ -16,7 +16,6 @@
 #include <map>
 
 #include "storage/v2/mvcc.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -60,7 +59,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
     delta = vertex.delta;
     deleted = vertex.deleted;
-    has_label = VertexHasLabel(vertex, label);
+    has_label = utils::Contains(vertex.labels, label);
 
     size_t i = 0;
     for (const auto &property : properties) {
@@ -143,7 +142,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   Delta *delta;
   {
     std::lock_guard<utils::SpinLock> guard(vertex.lock);
-    has_label = VertexHasLabel(vertex, label);
+    has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
 
@@ -268,7 +267,7 @@ bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs)
 
 void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {
-    if (!VertexHasLabel(*vertex, label_props.first)) {
+    if (!utils::Contains(vertex->labels, label_props.first)) {
       continue;
     }
     auto values = ExtractPropertyValues(*vertex, label_props.second);
@@ -302,7 +301,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
     auto acc = constraint->second.access();
 
     for (const Vertex &vertex : vertices) {
-      if (vertex.deleted || !VertexHasLabel(vertex, label)) {
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
       auto values = ExtractPropertyValues(vertex, properties);
@@ -353,7 +352,7 @@ std::optional<ConstraintViolation> UniqueConstraints::Validate(const Vertex &ver
   for (const auto &[label_props, storage] : constraints_) {
     const auto &label = label_props.first;
     const auto &properties = label_props.second;
-    if (!VertexHasLabel(vertex, label)) {
+    if (!utils::Contains(vertex.labels, label)) {
       continue;
     }
 

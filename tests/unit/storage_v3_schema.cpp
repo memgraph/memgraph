@@ -19,23 +19,23 @@
 #include <vector>
 
 #include "common/types.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/schema_validator.hpp"
-#include "storage/v2/schemas.hpp"
-#include "storage/v2/storage.hpp"
-#include "storage/v2/temporal.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
+#include "storage/v3/storage.hpp"
+#include "storage/v3/temporal.hpp"
 
 using testing::Pair;
 using testing::UnorderedElementsAre;
 using SchemaType = memgraph::common::SchemaType;
 
-namespace memgraph::storage::tests {
+namespace memgraph::storage::v3::tests {
 
 class SchemaTest : public testing::Test {
  private:
-  memgraph::storage::NameIdMapper label_mapper_;
-  memgraph::storage::NameIdMapper property_mapper_;
+  NameIdMapper label_mapper_;
+  NameIdMapper property_mapper_;
 
  protected:
   LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(label_mapper_.NameToId(name)); }
@@ -161,8 +161,8 @@ class SchemaValidatorTest : public testing::Test {
   PropertyId NameToProperty(const std::string &name) { return PropertyId::FromUint(property_mapper_.NameToId(name)); }
 
  private:
-  memgraph::storage::NameIdMapper label_mapper_;
-  memgraph::storage::NameIdMapper property_mapper_;
+  NameIdMapper label_mapper_;
+  NameIdMapper property_mapper_;
 
  protected:
   Schemas schemas;
@@ -291,4 +291,4 @@ TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdateLabel) {
   }
   EXPECT_EQ(schema_validator.ValidateLabelUpdate(NameToLabel("test")), std::nullopt);
 }
-}  // namespace memgraph::storage::tests
+}  // namespace memgraph::storage::v3::tests

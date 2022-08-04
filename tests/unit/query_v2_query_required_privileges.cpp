@@ -12,14 +12,14 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "storage/v2/id_types.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/frontend/ast/ast_visitor.hpp"
+#include "query/v2/frontend/semantic/required_privileges.hpp"
+#include "storage/v3/id_types.hpp"
 
-#include "query_common.hpp"
+#include "query_v2_query_common.hpp"
 
-using namespace memgraph::query;
+using namespace memgraph::query::v2;
 
 class FakeDbAccessor {};
 
@@ -190,6 +190,11 @@ TEST_F(TestPrivilegeExtractor, SettingQuery) {
 TEST_F(TestPrivilegeExtractor, ShowVersion) {
   auto *query = storage.Create<VersionQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STATS));
+}
+
+TEST_F(TestPrivilegeExtractor, SchemaQuery) {
+  auto *query = storage.Create<SchemaQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::SCHEMA));
 }
 
 TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {

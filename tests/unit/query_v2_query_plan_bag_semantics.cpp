@@ -17,28 +17,28 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "query/context.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/plan/operator.hpp"
+#include "query/v2/context.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/plan/operator.hpp"
 
-#include "query_plan_common.hpp"
-#include "storage/v2/property_value.hpp"
+#include "query_v2_query_plan_common.hpp"
+#include "storage/v3/property_value.hpp"
 
-using namespace memgraph::query;
-using namespace memgraph::query::plan;
+using namespace memgraph::query::v2;
+using namespace memgraph::query::v2::plan;
 
-namespace memgraph::query::tests {
+namespace memgraph::query::v2::tests {
 
 class QueryPlanBagSemanticsTest : public testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_TRUE(db.CreateSchema(label, {storage::SchemaProperty{property, common::SchemaType::INT}}));
+    ASSERT_TRUE(db.CreateSchema(label, {storage::v3::SchemaProperty{property, common::SchemaType::INT}}));
   }
 
-  storage::Storage db;
-  const storage::LabelId label{db.NameToLabel("label")};
-  const storage::PropertyId property{db.NameToProperty("property")};
+  storage::v3::Storage db;
+  const storage::v3::LabelId label{db.NameToLabel("label")};
+  const storage::v3::PropertyId property{db.NameToProperty("property")};
 };
 
 TEST_F(QueryPlanBagSemanticsTest, Skip) {
@@ -54,20 +54,20 @@ TEST_F(QueryPlanBagSemanticsTest, Skip) {
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(2)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(3)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, PullAll(*skip, &context));
 
   for (int i = 0; i < 10; ++i) {
-    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i + 3)}}).HasValue());
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i + 3)}}).HasValue());
   }
   dba.AdvanceCommand();
   EXPECT_EQ(11, PullAll(*skip, &context));
@@ -86,20 +86,20 @@ TEST_F(QueryPlanBagSemanticsTest, Limit) {
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(0, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(1, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(2)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
 
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(3)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(3)}}).HasValue());
   dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
 
   for (int i = 0; i < 10; ++i) {
-    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(i + 3)}}).HasValue());
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i + 3)}}).HasValue());
   }
   dba.AdvanceCommand();
   EXPECT_EQ(2, PullAll(*skip, &context));
@@ -111,8 +111,8 @@ TEST_F(QueryPlanBagSemanticsTest, CreateLimit) {
   // in the end we need to have 3 vertices in the db
   auto storage_dba = db.Access();
   DbAccessor dba(&storage_dba);
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}}).HasValue());
-  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}}).HasValue());
+  ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(2)}}).HasValue());
   dba.AdvanceCommand();
 
   AstStorage storage;
@@ -122,14 +122,15 @@ TEST_F(QueryPlanBagSemanticsTest, CreateLimit) {
   NodeCreationInfo m;
   m.symbol = symbol_table.CreateSymbol("m", true);
   m.labels = {label};
-  std::get<std::vector<std::pair<storage::PropertyId, Expression *>>>(m.properties).emplace_back(property, LITERAL(3));
+  std::get<std::vector<std::pair<storage::v3::PropertyId, Expression *>>>(m.properties)
+      .emplace_back(property, LITERAL(3));
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(1, PullAll(*skip, &context));
   dba.AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba.Vertices(storage::View::OLD)));
+  EXPECT_EQ(3, CountIterable(dba.Vertices(storage::v3::View::OLD)));
 }
 
 TEST_F(QueryPlanBagSemanticsTest, OrderBy) {
@@ -141,33 +142,34 @@ TEST_F(QueryPlanBagSemanticsTest, OrderBy) {
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
-  auto Null = storage::PropertyValue();
-  std::vector<std::pair<Ordering, std::vector<storage::PropertyValue>>> orderable{
+  auto Null = storage::v3::PropertyValue();
+  std::vector<std::pair<Ordering, std::vector<storage::v3::PropertyValue>>> orderable{
       {Ordering::ASC,
-       {storage::PropertyValue(0), storage::PropertyValue(0), storage::PropertyValue(0.5), storage::PropertyValue(1),
-        storage::PropertyValue(2), storage::PropertyValue(12.6), storage::PropertyValue(42), Null, Null}},
+       {storage::v3::PropertyValue(0), storage::v3::PropertyValue(0), storage::v3::PropertyValue(0.5),
+        storage::v3::PropertyValue(1), storage::v3::PropertyValue(2), storage::v3::PropertyValue(12.6),
+        storage::v3::PropertyValue(42), Null, Null}},
       {Ordering::ASC,
-       {storage::PropertyValue(false), storage::PropertyValue(false), storage::PropertyValue(true),
-        storage::PropertyValue(true), Null, Null}},
+       {storage::v3::PropertyValue(false), storage::v3::PropertyValue(false), storage::v3::PropertyValue(true),
+        storage::v3::PropertyValue(true), Null, Null}},
       {Ordering::ASC,
-       {storage::PropertyValue("A"), storage::PropertyValue("B"), storage::PropertyValue("a"),
-        storage::PropertyValue("a"), storage::PropertyValue("aa"), storage::PropertyValue("ab"),
-        storage::PropertyValue("aba"), Null, Null}},
+       {storage::v3::PropertyValue("A"), storage::v3::PropertyValue("B"), storage::v3::PropertyValue("a"),
+        storage::v3::PropertyValue("a"), storage::v3::PropertyValue("aa"), storage::v3::PropertyValue("ab"),
+        storage::v3::PropertyValue("aba"), Null, Null}},
       {Ordering::DESC,
-       {Null, Null, storage::PropertyValue(33), storage::PropertyValue(33), storage::PropertyValue(32.5),
-        storage::PropertyValue(32), storage::PropertyValue(2.2), storage::PropertyValue(2.1),
-        storage::PropertyValue(0)}},
-      {Ordering::DESC, {Null, storage::PropertyValue(true), storage::PropertyValue(false)}},
-      {Ordering::DESC, {Null, storage::PropertyValue("zorro"), storage::PropertyValue("borro")}}};
+       {Null, Null, storage::v3::PropertyValue(33), storage::v3::PropertyValue(33), storage::v3::PropertyValue(32.5),
+        storage::v3::PropertyValue(32), storage::v3::PropertyValue(2.2), storage::v3::PropertyValue(2.1),
+        storage::v3::PropertyValue(0)}},
+      {Ordering::DESC, {Null, storage::v3::PropertyValue(true), storage::v3::PropertyValue(false)}},
+      {Ordering::DESC, {Null, storage::v3::PropertyValue("zorro"), storage::v3::PropertyValue("borro")}}};
 
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
     values.reserve(order_value_pair.second.size());
     for (const auto &v : order_value_pair.second) values.emplace_back(v);
     // empty database
-    for (auto vertex : dba.Vertices(storage::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+    for (auto vertex : dba.Vertices(storage::v3::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::v3::View::OLD)));
 
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
@@ -183,8 +185,8 @@ TEST_F(QueryPlanBagSemanticsTest, OrderBy) {
 
     // create the vertices
     for (const auto &value : shuffled) {
-      ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}})
-                      ->SetProperty(prop, storage::PropertyValue(value))
+      ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}})
+                      ->SetProperty(prop, storage::v3::PropertyValue(value))
                       .HasValue());
     }
     dba.AdvanceCommand();
@@ -221,9 +223,9 @@ TEST_F(QueryPlanBagSemanticsTest, OrderByMultiple) {
   for (int i = 0; i < N * N; ++i) prop_values.emplace_back(i % N, i / N);
   std::random_shuffle(prop_values.begin(), prop_values.end());
   for (const auto &pair : prop_values) {
-    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}});
-    ASSERT_TRUE(v.SetProperty(p1, storage::PropertyValue(pair.first)).HasValue());
-    ASSERT_TRUE(v.SetProperty(p2, storage::PropertyValue(pair.second)).HasValue());
+    auto v = *dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}});
+    ASSERT_TRUE(v.SetProperty(p1, storage::v3::PropertyValue(pair.first)).HasValue());
+    ASSERT_TRUE(v.SetProperty(p2, storage::v3::PropertyValue(pair.second)).HasValue());
   }
   dba.AdvanceCommand();
 
@@ -265,37 +267,37 @@ TEST_F(QueryPlanBagSemanticsTest, OrderByExceptions) {
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
-  std::vector<std::pair<storage::PropertyValue, storage::PropertyValue>> exception_pairs{
-      {storage::PropertyValue(42), storage::PropertyValue(true)},
-      {storage::PropertyValue(42), storage::PropertyValue("bla")},
-      {storage::PropertyValue(42),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)})},
-      {storage::PropertyValue(true), storage::PropertyValue("bla")},
-      {storage::PropertyValue(true),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(true)})},
-      {storage::PropertyValue("bla"),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue("bla")})},
+  std::vector<std::pair<storage::v3::PropertyValue, storage::v3::PropertyValue>> exception_pairs{
+      {storage::v3::PropertyValue(42), storage::v3::PropertyValue(true)},
+      {storage::v3::PropertyValue(42), storage::v3::PropertyValue("bla")},
+      {storage::v3::PropertyValue(42),
+       storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue(42)})},
+      {storage::v3::PropertyValue(true), storage::v3::PropertyValue("bla")},
+      {storage::v3::PropertyValue(true),
+       storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue(true)})},
+      {storage::v3::PropertyValue("bla"),
+       storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue("bla")})},
       // illegal comparisons of same-type values
-      {storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)}),
-       storage::PropertyValue(std::vector<storage::PropertyValue>{storage::PropertyValue(42)})}};
+      {storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue(42)}),
+       storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue(42)})}};
 
   for (const auto &pair : exception_pairs) {
     // empty database
-    for (auto vertex : dba.Vertices(storage::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
+    for (auto vertex : dba.Vertices(storage::v3::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::View::OLD)));
+    ASSERT_EQ(0, CountIterable(dba.Vertices(storage::v3::View::OLD)));
 
     // make two vertices, and set values
-    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(1)}})
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}})
                     ->SetProperty(prop, pair.first)
                     .HasValue());
-    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::PropertyValue(2)}})
+    ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(2)}})
                     ->SetProperty(prop, pair.second)
                     .HasValue());
     dba.AdvanceCommand();
-    ASSERT_EQ(2, CountIterable(dba.Vertices(storage::View::OLD)));
-    for (const auto &va : dba.Vertices(storage::View::OLD))
-      ASSERT_NE(va.GetProperty(storage::View::OLD, prop).GetValue().type(), storage::PropertyValue::Type::Null);
+    ASSERT_EQ(2, CountIterable(dba.Vertices(storage::v3::View::OLD)));
+    for (const auto &va : dba.Vertices(storage::v3::View::OLD))
+      ASSERT_NE(va.GetProperty(storage::v3::View::OLD, prop).GetValue().type(), storage::v3::PropertyValue::Type::Null);
 
     // order by and expect an exception
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -306,4 +308,4 @@ TEST_F(QueryPlanBagSemanticsTest, OrderByExceptions) {
     EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
   }
 }
-}  // namespace memgraph::query::tests
+}  // namespace memgraph::query::v2::tests

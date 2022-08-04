@@ -19,22 +19,23 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "communication/result_stream_faker.hpp"
-#include "query/interpreter.hpp"
-#include "storage/v2/storage.hpp"
+#include "query/v2/interpreter.hpp"
+#include "result_stream_faker.hpp"
+#include "storage/v3/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
 
-namespace memgraph::query::tests {
+namespace memgraph::query::v2::tests {
 
 class QueryExecution : public testing::Test {
  protected:
-  storage::Storage db;
-  std::optional<storage::Storage> db_;
+  storage::v3::Storage db;
+  std::optional<storage::v3::Storage> db_;
   std::optional<InterpreterContext> interpreter_context_;
   std::optional<Interpreter> interpreter_;
 
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() /
+                                       "MG_tests_unit_query_v2_query_plan_edge_cases"};
 
   void SetUp() {
     db_.emplace();
@@ -112,4 +113,4 @@ TEST_F(QueryExecution, EdgeUniquenessInOptional) {
                 .size(),
             3);
 }
-}  // namespace memgraph::query::tests
+}  // namespace memgraph::query::v2::tests

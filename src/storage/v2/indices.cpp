@@ -14,7 +14,6 @@
 
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/schema_validator.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -328,7 +327,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -346,8 +345,8 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor{current_vertex_,     self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_,      *self_->schema_validator_};
+      current_vertex_accessor_ =
+          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_};
       break;
     }
   }
@@ -355,15 +354,14 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
                                Transaction *transaction, Indices *indices, Constraints *constraints,
-                               Config::Items config, const SchemaValidator &schema_validator)
+                               Config::Items config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       transaction_(transaction),
       indices_(indices),
       constraints_(constraints),
-      config_(config),
-      schema_validator_(&schema_validator) {}
+      config_(config) {}
 
 void LabelIndex::RunGC() {
   for (auto &index_entry : index_) {
@@ -480,7 +478,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -519,8 +517,8 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_, *self_->schema_validator_);
+      current_vertex_accessor_ =
+          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_);
       break;
     }
   }
@@ -543,7 +541,7 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       Config::Items config, const SchemaValidator &schema_validator)
+                                       Config::Items config)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
@@ -553,8 +551,7 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
       transaction_(transaction),
       indices_(indices),
       constraints_(constraints),
-      config_(config),
-      schema_validator_(&schema_validator) {
+      config_(config) {
   // We have to fix the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an

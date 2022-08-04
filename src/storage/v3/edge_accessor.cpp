@@ -15,6 +15,7 @@
 
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -54,11 +55,11 @@ bool EdgeAccessor::IsVisible(const View view) const {
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const {
-  return VertexAccessor{from_vertex_, transaction_, indices_, constraints_, config_};
+  return {from_vertex_, transaction_, indices_, constraints_, config_, *schema_validator_};
 }
 
 VertexAccessor EdgeAccessor::ToVertex() const {
-  return VertexAccessor{to_vertex_, transaction_, indices_, constraints_, config_};
+  return {to_vertex_, transaction_, indices_, constraints_, config_, *schema_validator_};
 }
 
 Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {

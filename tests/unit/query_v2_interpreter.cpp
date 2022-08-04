@@ -15,20 +15,21 @@
 #include <filesystem>
 #include <unordered_set>
 
-#include "communication/bolt/v1/value.hpp"
-#include "communication/result_stream_faker.hpp"
-#include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "query/auth_checker.hpp"
-#include "query/config.hpp"
-#include "query/exceptions.hpp"
-#include "query/interpreter.hpp"
-#include "query/stream.hpp"
-#include "query/typed_value.hpp"
-#include "query_common.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/property_value.hpp"
+
+#include "communication/bolt/v1/value.hpp"
+#include "glue/v2/communication.hpp"
+#include "query/v2/auth_checker.hpp"
+#include "query/v2/config.hpp"
+#include "query/v2/exceptions.hpp"
+#include "query/v2/interpreter.hpp"
+#include "query/v2/stream.hpp"
+#include "query/v2/typed_value.hpp"
+#include "query_v2_query_common.hpp"
+#include "result_stream_faker.hpp"
+#include "storage/v3/isolation_level.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
 
@@ -48,13 +49,14 @@ auto StringToUnorderedSet(const std::string &element) {
 };
 
 struct InterpreterFaker {
-  InterpreterFaker(memgraph::storage::Storage *db, const memgraph::query::InterpreterConfig config,
+  InterpreterFaker(memgraph::storage::v3::Storage *db, const memgraph::query::v2::InterpreterConfig config,
                    const std::filesystem::path &data_directory)
       : interpreter_context(db, config, data_directory), interpreter(&interpreter_context) {
     interpreter_context.auth_checker = &auth_checker;
   }
 
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query,
+               const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
     ResultStreamFaker stream(interpreter_context.db);
 
     const auto [header, _, qid] = interpreter.Prepare(query, params, nullptr);
@@ -72,7 +74,8 @@ struct InterpreterFaker {
    *
    * Return the query stream.
    */
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query,
+                 const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
     auto prepare_result = Prepare(query, params);
 
     auto &stream = prepare_result.first;
@@ -82,9 +85,9 @@ struct InterpreterFaker {
     return std::move(stream);
   }
 
-  memgraph::query::AllowEverythingAuthChecker auth_checker;
-  memgraph::query::InterpreterContext interpreter_context;
-  memgraph::query::Interpreter interpreter;
+  memgraph::query::v2::AllowEverythingAuthChecker auth_checker;
+  memgraph::query::v2::InterpreterContext interpreter_context;
+  memgraph::query::v2::Interpreter interpreter;
 };
 
 }  // namespace
@@ -94,12 +97,13 @@ struct InterpreterFaker {
 
 class InterpreterTest : public ::testing::Test {
  protected:
-  memgraph::storage::Storage db_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter"};
+  memgraph::storage::v3::Storage db_;
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
 
   InterpreterFaker default_interpreter{&db_, {}, data_directory};
 
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query,
+               const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
     return default_interpreter.Prepare(query, params);
   }
 
@@ -107,7 +111,8 @@ class InterpreterTest : public ::testing::Test {
     default_interpreter.Pull(stream, n, qid);
   }
 
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query,
+                 const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
     return default_interpreter.Interpret(query, params);
   }
 };
@@ -197,8 +202,8 @@ TEST_F(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TEST_F(InterpreterTest, Parameters) {
   {
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue(10)},
-                                                   {"a b", memgraph::storage::PropertyValue(15)}});
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::v3::PropertyValue(10)},
+                                                   {"a b", memgraph::storage::v3::PropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -207,9 +212,9 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue(10)},
-                                                   {"a b", memgraph::storage::PropertyValue(15)},
-                                                   {"c", memgraph::storage::PropertyValue(10)}});
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::v3::PropertyValue(10)},
+                                                   {"a b", memgraph::storage::v3::PropertyValue(15)},
+                                                   {"c", memgraph::storage::v3::PropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -218,28 +223,29 @@ TEST_F(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue("da")},
-                                                   {"a b", memgraph::storage::PropertyValue("ne")}});
+    auto stream = Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::v3::PropertyValue("da")},
+                                                   {"a b", memgraph::storage::v3::PropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
   }
   {
     // Non-primitive literal.
-    auto stream =
-        Interpret("RETURN $2", {{"2", memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-                                          memgraph::storage::PropertyValue(5), memgraph::storage::PropertyValue(2),
-                                          memgraph::storage::PropertyValue(3)})}});
+    auto stream = Interpret(
+        "RETURN $2", {{"2", memgraph::storage::v3::PropertyValue(std::vector<memgraph::storage::v3::PropertyValue>{
+                                memgraph::storage::v3::PropertyValue(5), memgraph::storage::v3::PropertyValue(2),
+                                memgraph::storage::v3::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result =
+        memgraph::query::v2::test_common::ToIntList(memgraph::glue::v2::ToTypedValue(stream.GetResults()[0][0]));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue("da")},
-                                                  {"ab", memgraph::storage::PropertyValue("ne")}}),
-                 memgraph::query::UnprovidedParameterError);
+    ASSERT_THROW(Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::v3::PropertyValue("da")},
+                                                  {"ab", memgraph::storage::v3::PropertyValue("ne")}}),
+                 memgraph::query::v2::UnprovidedParameterError);
   }
 }
 
@@ -247,12 +253,12 @@ TEST_F(InterpreterTest, Parameters) {
 TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   {
     EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)"));
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(25);
+    std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
+    property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
+    property_map["age"] = memgraph::storage::v3::PropertyValue(25);
     auto stream =
         Interpret("CREATE (n:label $prop) RETURN n", {
-                                                         {"prop", memgraph::storage::PropertyValue(property_map)},
+                                                         {"prop", memgraph::storage::v3::PropertyValue(property_map)},
                                                      });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
@@ -264,13 +270,13 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   }
   {
     EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :Person(name STRING, age INTEGER)"));
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(25);
+    std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
+    property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
+    property_map["age"] = memgraph::storage::v3::PropertyValue(25);
     EXPECT_NO_THROW(Interpret("CREATE (:Person {name: 'test', age: 30})"));
     auto stream = Interpret("MATCH (m:Person) CREATE (n:Person $prop) RETURN n",
                             {
-                                {"prop", memgraph::storage::PropertyValue(property_map)},
+                                {"prop", memgraph::storage::v3::PropertyValue(property_map)},
                             });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
@@ -282,12 +288,12 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   }
   {
     EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["weight"] = memgraph::storage::PropertyValue(121);
+    std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
+    property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
+    property_map["weight"] = memgraph::storage::v3::PropertyValue(121);
     auto stream = Interpret("CREATE (:L1 {name: 'name1'})-[r:TO $prop]->(:L1 {name: 'name2'}) RETURN r",
                             {
-                                {"prop", memgraph::storage::PropertyValue(property_map)},
+                                {"prop", memgraph::storage::v3::PropertyValue(property_map)},
                             });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "r");
@@ -298,25 +304,25 @@ TEST_F(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(15);
+    std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
+    property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
+    property_map["age"] = memgraph::storage::v3::PropertyValue(15);
     ASSERT_THROW(Interpret("MATCH (n $prop) RETURN n",
                            {
-                               {"prop", memgraph::storage::PropertyValue(property_map)},
+                               {"prop", memgraph::storage::v3::PropertyValue(property_map)},
                            }),
-                 memgraph::query::SemanticException);
+                 memgraph::query::v2::SemanticException);
   }
   {
     EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L2(name STRING, age INTEGER)"));
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(15);
+    std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
+    property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
+    property_map["age"] = memgraph::storage::v3::PropertyValue(15);
     ASSERT_THROW(Interpret("MERGE (n:L2 $prop) RETURN n",
                            {
-                               {"prop", memgraph::storage::PropertyValue(property_map)},
+                               {"prop", memgraph::storage::v3::PropertyValue(property_map)},
                            }),
-                 memgraph::query::SemanticException);
+                 memgraph::query::v2::SemanticException);
   }
 }
 
@@ -331,26 +337,26 @@ TEST_F(InterpreterTest, Bfs) {
   const auto kReachable = "reachable";
   const auto kId = "id";
 
-  std::vector<std::vector<memgraph::query::VertexAccessor>> levels(kNumLevels);
+  std::vector<std::vector<memgraph::query::v2::VertexAccessor>> levels(kNumLevels);
   int id = 0;
 
   // Set up.
   {
     auto storage_dba = db_.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    memgraph::query::v2::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::v3::PropertyValue(id++)).HasValue());
       MG_ASSERT(
-          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::v3::PropertyValue(reachable)).HasValue());
       levels[level].push_back(node);
       return node;
     };
 
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
-      MG_ASSERT(
-          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+      MG_ASSERT(edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::v3::PropertyValue(reachable))
+                    .HasValue());
     };
 
     // Add source node.
@@ -497,45 +503,45 @@ TEST_F(InterpreterTest, ShortestPath) {
 
 TEST_F(InterpreterTest, CreateLabelIndexInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE INDEX ON :X"), memgraph::query::IndexInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X"), memgraph::query::v2::IndexInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateLabelPropertyIndexInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"), memgraph::query::IndexInMulticommandTxException);
+  ASSERT_THROW(Interpret("CREATE INDEX ON :X(y)"), memgraph::query::v2::IndexInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateExistenceConstraintInMulticommandTransaction) {
   Interpret("BEGIN");
   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a)"),
-               memgraph::query::ConstraintInMulticommandTxException);
+               memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, CreateUniqueConstraintInMulticommandTransaction) {
   Interpret("BEGIN");
   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE"),
-               memgraph::query::ConstraintInMulticommandTxException);
+               memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowIndexInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW INDEX INFO"), memgraph::query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW INDEX INFO"), memgraph::query::v2::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowConstraintInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW CONSTRAINT INFO"), memgraph::query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW CONSTRAINT INFO"), memgraph::query::v2::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW STORAGE INFO"), memgraph::query::InfoInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW STORAGE INFO"), memgraph::query::v2::InfoInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
@@ -546,20 +552,21 @@ TEST_F(InterpreterTest, ExistenceConstraintTest) {
   Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.b);");
   Interpret("CREATE (:A{a: 3, b:1})");
   Interpret("CREATE (:A{a: 3, b:2})");
-  ASSERT_THROW(Interpret("CREATE (:A {a: 12})"), memgraph::query::QueryException);
+  ASSERT_THROW(Interpret("CREATE (:A {a: 12})"), memgraph::query::v2::QueryException);
   Interpret("MATCH (n:A{a:3, b: 2}) SET n.b=5");
   Interpret("CREATE (:A{a:2, b: 3})");
   Interpret("MATCH (n:A{a:3, b: 1}) DETACH DELETE n");
   Interpret("CREATE (n:A{a:2, b: 3})");
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.c);"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.c);"),
+               memgraph::query::v2::QueryRuntimeException);
 }
 
 TEST_F(InterpreterTest, UniqueConstraintTest) {
   ASSERT_NO_THROW(Interpret("CREATE SCHEMA ON :A(a INTEGER);"));
 
   // Empty property list should result with syntax exception.
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::SyntaxException);
-  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
 
   // Too large list of properties should also result with syntax exception.
   {
@@ -572,26 +579,27 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
     stream << " IS UNIQUE;";
     std::string create_query = "CREATE CONSTRAINT" + stream.str();
     std::string drop_query = "DROP CONSTRAINT" + stream.str();
-    ASSERT_THROW(Interpret(create_query), memgraph::query::SyntaxException);
-    ASSERT_THROW(Interpret(drop_query), memgraph::query::SyntaxException);
+    ASSERT_THROW(Interpret(create_query), memgraph::query::v2::SyntaxException);
+    ASSERT_THROW(Interpret(drop_query), memgraph::query::v2::SyntaxException);
   }
 
   // Providing property list with duplicates results with syntax exception.
   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
-               memgraph::query::SyntaxException);
-  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"), memgraph::query::SyntaxException);
+               memgraph::query::v2::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b, n.a IS UNIQUE;"),
+               memgraph::query::v2::SyntaxException);
 
   // Commit of vertex should fail if a constraint is violated.
   Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
   Interpret("CREATE (:A{a:1, b:2})");
   Interpret("CREATE (:A{a:1, b:3})");
-  ASSERT_THROW(Interpret("CREATE (:A{a:1, b:2})"), memgraph::query::QueryException);
+  ASSERT_THROW(Interpret("CREATE (:A{a:1, b:2})"), memgraph::query::v2::QueryException);
 
   // Attempt to create a constraint should fail if it's violated.
   Interpret("CREATE (:A{a:1, c:2})");
   Interpret("CREATE (:A{a:1, c:2})");
   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT n.a, n.c IS UNIQUE;"),
-               memgraph::query::QueryRuntimeException);
+               memgraph::query::v2::QueryRuntimeException);
 
   Interpret("MATCH (n:A{a:2, b:2}) SET n.a=1");
   Interpret("CREATE (:A{a:2})");
@@ -716,7 +724,7 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream =
-      Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
+      Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
   std::vector<std::string> expected_rows{" * Produce {n}", " * Filter", " * ScanAll (n)", " * Once"};
@@ -731,7 +739,7 @@ TEST_F(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
-  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
@@ -801,7 +809,7 @@ TEST_F(InterpreterTest, ProfileQueryMultiplePulls) {
 
 TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"), memgraph::query::ProfileInMulticommandTxException);
+  ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"), memgraph::query::v2::ProfileInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
@@ -811,7 +819,7 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
   auto stream =
-      Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
+      Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
   std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll", "* Once"};
@@ -826,7 +834,7 @@ TEST_F(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
-  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
+  Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue("something else")}});
   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 }
@@ -860,10 +868,10 @@ TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
 TEST_F(InterpreterTest, Transactions) {
   auto &interpreter = default_interpreter.interpreter;
   {
-    ASSERT_THROW(interpreter.CommitTransaction(), memgraph::query::ExplicitTransactionUsageException);
-    ASSERT_THROW(interpreter.RollbackTransaction(), memgraph::query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter.CommitTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter.RollbackTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
     interpreter.BeginTransaction();
-    ASSERT_THROW(interpreter.BeginTransaction(), memgraph::query::ExplicitTransactionUsageException);
+    ASSERT_THROW(interpreter.BeginTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "2");
@@ -894,7 +902,7 @@ TEST_F(InterpreterTest, Qid) {
     interpreter.BeginTransaction();
     auto [stream, qid] = Prepare("RETURN 2");
     ASSERT_TRUE(qid);
-    ASSERT_THROW(Pull(&stream, {}, *qid + 1), memgraph::query::InvalidArgumentsException);
+    ASSERT_THROW(Pull(&stream, {}, *qid + 1), memgraph::query::v2::InvalidArgumentsException);
     interpreter.RollbackTransaction();
   }
   {
@@ -1496,40 +1504,41 @@ TEST_F(InterpreterTest, LoadCsvClauseNotification) {
 TEST_F(InterpreterTest, CreateSchemaMulticommandTransaction) {
   Interpret("BEGIN");
   ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)"),
-               memgraph::query::ConstraintInMulticommandTxException);
+               memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowSchemasMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW SCHEMAS"), memgraph::query::ConstraintInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW SCHEMAS"), memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, ShowSchemaMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("SHOW SCHEMA ON :label"), memgraph::query::ConstraintInMulticommandTxException);
+  ASSERT_THROW(Interpret("SHOW SCHEMA ON :label"), memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, DropSchemaMulticommandTransaction) {
   Interpret("BEGIN");
-  ASSERT_THROW(Interpret("DROP SCHEMA ON :label"), memgraph::query::ConstraintInMulticommandTxException);
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label"), memgraph::query::v2::ConstraintInMulticommandTxException);
   Interpret("ROLLBACK");
 }
 
 TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
   // Empty schema type map should result with syntax exception.
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::query::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
 
   // Duplicate properties are should also cause an exception
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"), memgraph::query::SemanticException);
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name INTEGER);"), memgraph::query::SemanticException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"), memgraph::query::v2::SemanticException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name INTEGER);"),
+               memgraph::query::v2::SemanticException);
 
   {
     // Cannot create same schema twice
     Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
-    ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING);"), memgraph::query::QueryException);
+    ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING);"), memgraph::query::v2::QueryException);
   }
   // Show schema
   {
@@ -1588,9 +1597,9 @@ TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
 TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
   Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
   // Wrong syntax for dropping schema.
-  ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::query::SyntaxException);
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
   // Cannot drop non existant schema.
-  ASSERT_THROW(Interpret("DROP SCHEMA ON :label1;"), memgraph::query::QueryException);
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label1;"), memgraph::query::v2::QueryException);
 
   // Create Schema and Drop
   auto get_number_of_schemas = [this]() {

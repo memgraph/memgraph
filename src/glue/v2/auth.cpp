@@ -9,54 +9,56 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "glue/auth.hpp"
+#include "glue/v2/auth.hpp"
 
-namespace memgraph::glue {
+namespace memgraph::glue::v2 {
 
-auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
+auth::Permission PrivilegeToPermission(query::v2::AuthQuery::Privilege privilege) {
   switch (privilege) {
-    case query::AuthQuery::Privilege::MATCH:
+    case query::v2::AuthQuery::Privilege::MATCH:
       return auth::Permission::MATCH;
-    case query::AuthQuery::Privilege::CREATE:
+    case query::v2::AuthQuery::Privilege::CREATE:
       return auth::Permission::CREATE;
-    case query::AuthQuery::Privilege::MERGE:
+    case query::v2::AuthQuery::Privilege::MERGE:
       return auth::Permission::MERGE;
-    case query::AuthQuery::Privilege::DELETE:
+    case query::v2::AuthQuery::Privilege::DELETE:
       return auth::Permission::DELETE;
-    case query::AuthQuery::Privilege::SET:
+    case query::v2::AuthQuery::Privilege::SET:
       return auth::Permission::SET;
-    case query::AuthQuery::Privilege::REMOVE:
+    case query::v2::AuthQuery::Privilege::REMOVE:
       return auth::Permission::REMOVE;
-    case query::AuthQuery::Privilege::INDEX:
+    case query::v2::AuthQuery::Privilege::INDEX:
       return auth::Permission::INDEX;
-    case query::AuthQuery::Privilege::STATS:
+    case query::v2::AuthQuery::Privilege::STATS:
       return auth::Permission::STATS;
-    case query::AuthQuery::Privilege::CONSTRAINT:
+    case query::v2::AuthQuery::Privilege::CONSTRAINT:
       return auth::Permission::CONSTRAINT;
-    case query::AuthQuery::Privilege::DUMP:
+    case query::v2::AuthQuery::Privilege::DUMP:
       return auth::Permission::DUMP;
-    case query::AuthQuery::Privilege::REPLICATION:
+    case query::v2::AuthQuery::Privilege::REPLICATION:
       return auth::Permission::REPLICATION;
-    case query::AuthQuery::Privilege::DURABILITY:
+    case query::v2::AuthQuery::Privilege::DURABILITY:
       return auth::Permission::DURABILITY;
-    case query::AuthQuery::Privilege::READ_FILE:
+    case query::v2::AuthQuery::Privilege::READ_FILE:
       return auth::Permission::READ_FILE;
-    case query::AuthQuery::Privilege::FREE_MEMORY:
+    case query::v2::AuthQuery::Privilege::FREE_MEMORY:
       return auth::Permission::FREE_MEMORY;
-    case query::AuthQuery::Privilege::TRIGGER:
+    case query::v2::AuthQuery::Privilege::TRIGGER:
       return auth::Permission::TRIGGER;
-    case query::AuthQuery::Privilege::CONFIG:
+    case query::v2::AuthQuery::Privilege::CONFIG:
       return auth::Permission::CONFIG;
-    case query::AuthQuery::Privilege::AUTH:
+    case query::v2::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
-    case query::AuthQuery::Privilege::STREAM:
+    case query::v2::AuthQuery::Privilege::STREAM:
       return auth::Permission::STREAM;
-    case query::AuthQuery::Privilege::MODULE_READ:
+    case query::v2::AuthQuery::Privilege::MODULE_READ:
       return auth::Permission::MODULE_READ;
-    case query::AuthQuery::Privilege::MODULE_WRITE:
+    case query::v2::AuthQuery::Privilege::MODULE_WRITE:
       return auth::Permission::MODULE_WRITE;
-    case query::AuthQuery::Privilege::WEBSOCKET:
+    case query::v2::AuthQuery::Privilege::WEBSOCKET:
       return auth::Permission::WEBSOCKET;
+    case query::v2::AuthQuery::Privilege::SCHEMA:
+      return auth::Permission::SCHEMA;
   }
 }
-}  // namespace memgraph::glue
+}  // namespace memgraph::glue::v2

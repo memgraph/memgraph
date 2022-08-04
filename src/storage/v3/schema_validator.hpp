@@ -14,12 +14,12 @@
 #include <optional>
 #include <variant>
 
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
-#include "storage/v2/schemas.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
+#include "storage/v3/schemas.hpp"
 
-namespace memgraph::storage {
+namespace memgraph::storage::v3 {
 
 struct SchemaViolation {
   enum class ValidationStatus : uint8_t {
@@ -60,10 +60,10 @@ class SchemaValidator {
   [[nodiscard]] std::optional<SchemaViolation> ValidateLabelUpdate(LabelId label) const;
 
  private:
-  storage::Schemas &schemas_;
+  Schemas &schemas_;
 };
 
 template <typename TValue>
 using ResultSchema = utils::BasicResult<std::variant<SchemaViolation, Error>, TValue>;
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::storage::v3

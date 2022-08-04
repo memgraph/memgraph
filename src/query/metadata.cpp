@@ -38,8 +38,6 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "CreateIndex"sv;
     case NotificationCode::CREATE_STREAM:
       return "CreateStream"sv;
-    case NotificationCode::CREATE_SCHEMA:
-      return "CreateSchema"sv;
     case NotificationCode::CHECK_STREAM:
       return "CheckStream"sv;
     case NotificationCode::CREATE_TRIGGER:
@@ -50,8 +48,6 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "DropReplica"sv;
     case NotificationCode::DROP_INDEX:
       return "DropIndex"sv;
-    case NotificationCode::DROP_SCHEMA:
-      return "DropSchema"sv;
     case NotificationCode::DROP_STREAM:
       return "DropStream"sv;
     case NotificationCode::DROP_TRIGGER:
@@ -72,10 +68,6 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "ReplicaPortWarning"sv;
     case NotificationCode::SET_REPLICA:
       return "SetReplica"sv;
-    case NotificationCode::SHOW_SCHEMA:
-      return "ShowSchema"sv;
-    case NotificationCode::SHOW_SCHEMAS:
-      return "ShowSchemas"sv;
     case NotificationCode::START_STREAM:
       return "StartStream"sv;
     case NotificationCode::START_ALL_STREAMS:
