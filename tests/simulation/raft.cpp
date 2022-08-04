@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <deque>
 #include <iostream>
 #include <map>
@@ -23,10 +24,12 @@
 #include "io/simulator/simulator_transport.hpp"
 
 using memgraph::io::Address;
+using memgraph::io::Duration;
 using memgraph::io::Io;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
+using memgraph::io::Time;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
@@ -124,8 +127,8 @@ void RunSimulation() {
       .perform_timeouts = true,
       .scramble_messages = true,
       .rng_seed = 0,
-      .start_time = 256 * 1024,
-      .abort_time = 8 * 1024 * 1024,
+      .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
+      .abort_time = Time::min() + std::chrono::microseconds{8 * 1024 * 1024},
   };
 
   auto simulator = Simulator(config);
@@ -184,10 +187,10 @@ void RunSimulation() {
 
     std::cout << "client sending CasRequest to Leader " << leader.last_known_port << std::endl;
     ResponseFuture<WriteResponse<CasResponse>> cas_response_future =
-        cli_io.RequestWithTimeout<WriteRequest<CasRequest>, WriteResponse<CasResponse>>(leader, cli_req, 50000);
+        cli_io.Request<WriteRequest<CasRequest>, WriteResponse<CasResponse>>(leader, cli_req);
 
     // receive cas_response
-    ResponseResult<WriteResponse<CasResponse>> cas_response_result = cas_response_future.Wait();
+    ResponseResult<WriteResponse<CasResponse>> cas_response_result = std::move(cas_response_future).Wait();
 
     if (cas_response_result.HasError()) {
       std::cout << "client timed out while trying to communicate with leader server " << std::endl;
@@ -233,10 +236,10 @@ void RunSimulation() {
 
     std::cout << "client sending GetRequest to Leader " << leader.last_known_port << std::endl;
     ResponseFuture<ReadResponse<GetResponse>> get_response_future =
-        cli_io.RequestWithTimeout<ReadRequest<GetRequest>, ReadResponse<GetResponse>>(leader, read_req, 50000);
+        cli_io.Request<ReadRequest<GetRequest>, ReadResponse<GetResponse>>(leader, read_req);
 
     // receive response
-    ResponseResult<ReadResponse<GetResponse>> get_response_result = get_response_future.Wait();
+    ResponseResult<ReadResponse<GetResponse>> get_response_result = std::move(get_response_future).Wait();
 
     if (get_response_result.HasError()) {
       std::cout << "client timed out while trying to communicate with leader server " << std::endl;
