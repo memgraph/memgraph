@@ -29,10 +29,12 @@
 namespace memgraph::io::rsm {
 
 using memgraph::io::Address;
+using memgraph::io::Duration;
 using memgraph::io::Io;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
+using memgraph::io::Time;
 using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
@@ -40,8 +42,6 @@ using memgraph::io::simulator::SimulatorTransport;
 
 using Term = uint64_t;
 using LogIndex = uint64_t;
-using Time = uint64_t;
-using Duration = uint64_t;
 using RequestId = uint64_t;
 
 template <typename WriteOperation>
@@ -132,14 +132,14 @@ struct PendingClientRequest {
 struct Leader {
   std::map<Address, FollowerTracker> followers;
   std::deque<PendingClientRequest> pending_client_requests;
-  Time last_broadcast = 0;
+  Time last_broadcast = Time::min();
 
   void Print() { std::cout << "\tLeader   \t"; }
 };
 
 struct Candidate {
   std::map<Address, LogIndex> successful_votes;
-  Time election_began = 0;
+  Time election_began = Time::min();
   std::set<Address> outstanding_votes;
 
   void Print() { std::cout << "\tCandidate\t"; }
@@ -275,7 +275,7 @@ class Raft {
       const auto &front = leader.pending_client_requests.front();
       if (front.log_index <= state_.committed_log_size) {
         const auto &write_request = state_.log[front.log_index].second;
-        WriteResponseValue write_return = replicated_state_.apply(write_request);
+        WriteResponseValue write_return = replicated_state_.Apply(write_request);
         WriteResponse<WriteResponseValue> resp;
         resp.success = true;
         resp.write_return = write_return;
@@ -327,8 +327,22 @@ class Raft {
   // Raft paper - 5.2
   // Raft uses randomized election timeouts to ensure that split votes are rare and that they are resolved quickly
   Duration RandomTimeout(Duration min, Duration max) {
-    std::uniform_int_distribution time_distrib(min, max);
-    return io_.Rand(time_distrib);
+    auto min_micros = std::chrono::duration_cast<std::chrono::milliseconds>(min).count();
+    auto max_micros = std::chrono::duration_cast<std::chrono::milliseconds>(max).count();
+
+    std::uniform_int_distribution time_distrib(min_micros, max_micros);
+
+    auto rand_micros = io_.Rand(time_distrib);
+
+    return std::chrono::microseconds{rand_micros};
+  }
+
+  Duration RandomTimeout(int min_micros, int max_micros) {
+    std::uniform_int_distribution time_distrib(min_micros, max_micros);
+
+    int rand_micros = io_.Rand(time_distrib);
+
+    return std::chrono::microseconds{rand_micros};
   }
 
   Term PreviousTermFromIndex(LogIndex index) {
@@ -368,7 +382,9 @@ class Raft {
     const Time now = io_.Now();
     const Term term = state_.term;
 
-    std::cout << '\t' << now << "\t" << term << "\t" << io_.GetAddress().last_known_port;
+    auto now_micros = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+
+    std::cout << '\t' << now_micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
 
     std::visit([&](auto &&role) { role.Print(); }, role_);
 
@@ -404,10 +420,11 @@ class Raft {
   std::optional<Role> Cron(Candidate &candidate) {
     const auto now = io_.Now();
     const Duration election_timeout = RandomTimeout(100000, 200000);
+    auto election_timeout_us = std::chrono::duration_cast<std::chrono::milliseconds>(election_timeout).count();
 
     if (now - candidate.election_began > election_timeout) {
       state_.term++;
-      Log("becoming Candidate for term ", state_.term, " after leader timeout of ", election_timeout,
+      Log("becoming Candidate for term ", state_.term, " after leader timeout of ", election_timeout_us,
           " elapsed since last election attempt");
 
       const VoteRequest request{
@@ -713,7 +730,7 @@ class Raft {
 
     ReadOperation read_operation = req.operation;
 
-    ReadResponseValue read_return = replicated_state_.read(read_operation);
+    ReadResponseValue read_return = replicated_state_.Read(read_operation);
 
     ReadResponse<ReadResponseValue> resp{
         .success = true,

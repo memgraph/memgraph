@@ -15,8 +15,6 @@
 #include <string>
 #include <vector>
 
-// header
-
 namespace memgraph::tests::simulation {
 
 struct Vertex {

@@ -25,9 +25,9 @@ function(add_simulation_test test_cpp san)
   add_dependencies(memgraph__simulation ${target_name})
 endfunction(add_simulation_test)
 
-add_simulation_test(future.cpp thread)
-
 add_simulation_test(basic_request.cpp address)
+
+add_simulation_test(raft.cpp address)
 
 add_simulation_test(trial_query_storage/query_storage_test.cpp address)
 
