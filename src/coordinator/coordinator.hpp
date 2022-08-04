@@ -20,8 +20,27 @@
 namespace memgraph::coordinator {
 
 using Address = memgraph::io::Address;
-using Io = memgraph::io::Io;
 using SimT = memgraph::io::simulator::SimulatorTransport;
+
+struct HlcRequest {
+  Hlc last_shard_map_version;
+};
+
+struct HlcResponse {
+  Hlc new_hlc;
+  std::optional<ShardMap> fresher_shard_map;
+};
+
+struct AllocateHlcBatchRequest {
+  Hlc low;
+  Hlc high;
+};
+
+struct AllocateHlcBatchResponse {
+  bool success;
+  Hlc low;
+  Hlc high;
+};
 
 struct SplitShardRequest {
   Hlc previous_shard_map_version;
@@ -49,43 +68,53 @@ struct DeregisterStorageEngineResponse {
   bool success;
 };
 
-struct HlcRequest {
-  Hlc last_shard_map_version;
-};
+using WriteRequests = std::variant<AllocateHlcBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
+                                   DeregisterStorageEngineRequest>;
+using WriteResponses = std::variant<AllocateHlcBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
+                                    DeregisterStorageEngineResponse>;
 
-struct HlcResponse {
-  Hlc new_hlc;
-  std::optional<ShardMap> fresher_shard_map;
-};
+using ReadRequests = std::variant<HlcRequest>;
+using ReadResponses = std::variant<HlcResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
-  Io<SimT> io_;
 
-  /// This splits the shard
-  void Handle(SplitShardRequest &split_shard_request, Address from_addr) {
+  WriteResponses Apply(AllocateHlcBatchRequest &&ahr) {
+    AllocateHlcBatchResponse res{};
+
+    return res;
+  }
+
+  /// This splits the shard immediately beneath the provided
+  /// split key, keeping the assigned peers identical for now,
+  /// but letting them be gradually migrated over time.
+  WriteResponses Apply(SplitShardRequest &&split_shard_request) {
+    SplitShardResponse res{};
+
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
       // TODO reply with failure
     }
+
+    return res;
   }
 
-  void Handle(RegisterStorageEngineRequest &register_storage_engine_request, Address from_addr) {}
+  WriteResponses Apply(RegisterStorageEngineRequest &&register_storage_engine_request) {
+    RegisterStorageEngineResponse res{};
+
+    return res;
+  }
+
+  WriteResponses Apply(DeregisterStorageEngineRequest &&register_storage_engine_request) {
+    DeregisterStorageEngineResponse res{};
+
+    return res;
+  }
 
  public:
-  void Run() {
-    while (!io_.ShouldShutDown()) {
-      std::cout << "[Coordinator] Is receiving..." << std::endl;
-      auto request_result =
-          io_.Receive<SplitShardRequest, RegisterStorageEngineRequest, DeregisterStorageEngineRequest, HlcRequest>();
-      if (request_result.HasError()) {
-        std::cout << "[Coordinator] Error, continue" << std::endl;
-        continue;
-      }
+  ReadResponses Read(ReadRequests requests) { return HlcResponse{}; }
 
-      auto request_envelope = request_result.GetValue();
-      // TODO std::visit to determine whether to handle shard split, registration etc... (see raft.hpp Run / Handle
-      // methods in T0941)
-    }
+  WriteResponses Apply(WriteRequests requests) {
+    return std::visit([&](auto &&requests) { return Apply(requests); }, std::move(requests));
   }
 };
 
