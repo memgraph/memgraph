@@ -368,11 +368,49 @@ class SubgraphDbAccessor final {
  public:
   explicit SubgraphDbAccessor(query::DbAccessor *db_accessor) : db_accessor_(db_accessor) {}
 
+  storage::PropertyId NameToProperty(const std::string_view name) { return db_accessor_->NameToProperty(name); }
+
+  storage::LabelId NameToLabel(const std::string_view name) { return db_accessor_->NameToLabel(name); }
+
+  storage::EdgeTypeId NameToEdgeType(const std::string_view name) { return db_accessor_->NameToEdgeType(name); }
+
   const std::string &PropertyToName(storage::PropertyId prop) const { return db_accessor_->PropertyToName(prop); }
 
   const std::string &LabelToName(storage::LabelId label) const { return db_accessor_->LabelToName(label); }
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return db_accessor_->EdgeTypeToName(type); }
+
+  storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
+    auto result = db_accessor_->RemoveEdge(edge);
+    // todo antoniofilipovic remove edge from subgraph
+    return result;
+  }
+
+  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
+                                           const storage::EdgeTypeId &edge_type) {
+    auto result = db_accessor_->InsertEdge(from, to, edge_type);
+    // todo antoniofilipovic add edge to subgraph
+    return result;
+  }
+
+  storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
+      VertexAccessor *vertex_accessor) {
+    auto result = db_accessor_->DetachRemoveVertex(vertex_accessor);
+    // todo antoniofilipovic remove vertex and edges from subgraph
+    return result;
+  }
+
+  storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
+    auto result = db_accessor_->RemoveVertex(vertex_accessor);
+    // todo antoniofilipovic remove vertex from subgraph
+    return result;
+  }
+
+  VertexAccessor InsertVertex() {
+    auto result = db_accessor_->InsertVertex();
+    // todo antoniofilipovic add vertex to subgraph
+    return result;
+  }
 };
 
 class SubgraphVertexAccessor final {
