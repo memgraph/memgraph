@@ -44,7 +44,6 @@ using memgraph::storage::PropertyValue;
 namespace memgraph::tests::simulation {
 
 using ShardRsmKey = std::vector<PropertyValue>;
-;
 
 struct StorageWriteRequest {
   ShardRsmKey key;
@@ -66,6 +65,8 @@ struct StorageGetResponse {
 
 class StorageRsm {
   std::map<ShardRsmKey, int> state_;
+  ShardRsmKey minimum_key_;
+  std::optional<ShardRsmKey> maximum_key_{std::nullopt};
 
  public:
   StorageGetResponse read(StorageGetRequest request) {
