@@ -79,6 +79,12 @@ using ReadResponses = std::variant<HlcResponse>;
 class Coordinator {
   ShardMap shard_map_;
 
+  ReadResponses Read(HlcRequest &&hlc_request) {
+    HlcResponse res{};
+
+    return res;
+  }
+
   WriteResponses Apply(AllocateHlcBatchRequest &&ahr) {
     AllocateHlcBatchResponse res{};
 
@@ -111,7 +117,9 @@ class Coordinator {
   }
 
  public:
-  ReadResponses Read(ReadRequests requests) { return HlcResponse{}; }
+  ReadResponses Read(ReadRequests requests) {
+    return std::visit([&](auto &&requests) { return Read(requests); }, std::move(requests));
+  }
 
   WriteResponses Apply(WriteRequests requests) {
     return std::visit([&](auto &&requests) { return Apply(requests); }, std::move(requests));
