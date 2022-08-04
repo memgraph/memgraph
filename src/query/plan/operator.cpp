@@ -407,7 +407,7 @@ class ScanAllCursor : public Cursor {
     }
 
 #ifdef MG_ENTERPRISE
-    if (context.fine_grained_access_checker && !FindNextNode(context)) {
+    if (context.fine_grained_access_checker && !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -417,7 +417,7 @@ class ScanAllCursor : public Cursor {
     return true;
   }
 
-  bool FindNextNode(const ExecutionContext &context) {
+  bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
       if (context.fine_grained_access_checker->IsUserAuthorizedLabels(
               (*vertices_it_.value()).Labels(memgraph::storage::View::NEW).GetValue(), context.db_accessor)) {
