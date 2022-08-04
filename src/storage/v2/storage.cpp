@@ -963,7 +963,7 @@ utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit
   is_transaction_active_ = false;
 
   if (!could_replicate_all_sync_replicas) {
-    return StorageDataManipulationError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+    return StorageDataManipulationError{ReplicationError{}};
   }
 
   return {};
@@ -1180,7 +1180,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     return {};
   }
 
-  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
@@ -1199,7 +1199,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
     return {};
   }
 
-  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
@@ -1218,7 +1218,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     return {};
   }
 
-  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
@@ -1239,7 +1239,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
     return {};
   }
 
-  return StorageIndexDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 IndicesInfo Storage::ListAllIndices() const {
@@ -1268,7 +1268,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::Cre
     return {};
   }
 
-  return StorageExistenceConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageExistenceConstraintDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropExistenceConstraint(
@@ -1287,7 +1287,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropE
     return {};
   }
 
-  return StorageExistenceConstraintDroppingError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageExistenceConstraintDroppingError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
@@ -1311,7 +1311,7 @@ Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &prope
     return UniqueConstraints::CreationStatus::SUCCESS;
   }
 
-  return StorageUniqueConstraintDefinitionError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
 }
 
 utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
@@ -1332,7 +1332,7 @@ Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &propert
     return UniqueConstraints::DeletionStatus::SUCCESS;
   }
 
-  return StorageUniqueConstraintDroppingError{ReplicationError::UNABLE_TO_SYNC_REPLICATE};
+  return StorageUniqueConstraintDroppingError{ReplicationError{}};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {

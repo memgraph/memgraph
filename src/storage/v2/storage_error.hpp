@@ -17,51 +17,25 @@
 
 namespace memgraph::storage {
 
-enum class ReplicationError {
-  UNABLE_TO_SYNC_REPLICATE,
-};
+struct ReplicationError {};
 
-struct StorageDataManipulationError {
-  std::variant<ConstraintViolation, ReplicationError> error;
-
-  bool operator==(const StorageDataManipulationError &) const = default;
-};
+using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError>;
 
 struct IndexDefinitionError {};
-
-struct StorageIndexDefinitionError {
-  std::variant<IndexDefinitionError, ReplicationError> error;
-
-  bool operator==(const StorageIndexDefinitionError &) const = default;
-};
+using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError>;
 
 enum class ConstraintDefinitionError {
-  EXISTENT_CONSTRAINT,
+  EXISTENT_CONSTRAINT,  //#NoCommit remove, not needed
   NONEXISTENT_CONSTRAINT,
 };
 
-struct StorageExistenceConstraintDefinitionError {
-  std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError> error;
+using StorageExistenceConstraintDefinitionError =
+    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;
 
-  bool operator==(const StorageExistenceConstraintDefinitionError &) const = default;
-};
+using StorageExistenceConstraintDroppingError = std::variant<ConstraintDefinitionError, ReplicationError>;
 
-struct StorageExistenceConstraintDroppingError {
-  std::variant<ConstraintDefinitionError, ReplicationError> error;
+using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ReplicationError>;
 
-  bool operator==(const StorageExistenceConstraintDroppingError &) const = default;
-};
-
-struct StorageUniqueConstraintDefinitionError {
-  std::variant<ConstraintViolation, ReplicationError> error;
-
-  bool operator==(const StorageUniqueConstraintDefinitionError &) const = default;
-};
-
-struct StorageUniqueConstraintDroppingError {
-  std::variant<ReplicationError> error;
-
-  bool operator==(const StorageUniqueConstraintDroppingError &) const = default;
-};
+using StorageUniqueConstraintDroppingError = std::variant<ReplicationError>;
 
 }  // namespace memgraph::storage

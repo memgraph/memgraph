@@ -1393,8 +1393,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
-          const auto &storage_error = maybe_index_error.GetError();
-          const auto &error = storage_error.error;
+          const auto &error = maybe_index_error.GetError();
           std::visit(
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
@@ -1405,7 +1404,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   "on properties {}.",
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
-                  auto &data_definition_error = arg;
                   index_notification.code = NotificationCode::EXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
                                                          label_name, properties_stringified);
@@ -1433,8 +1431,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
-          const auto &storage_error = maybe_index_error.GetError();
-          const auto &error = storage_error.error;
+          const auto &error = maybe_index_error.GetError();
           std::visit(
               [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
                 using ErrorType = std::remove_cvref_t<T>;
@@ -1444,7 +1441,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
                                   "on properties {}.",
                                   label_name, properties_stringified));
                 } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
-                  auto &index_definition_error = arg;
                   index_notification.code = NotificationCode::NONEXISTENT_INDEX;
                   index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
                                                          label_name, properties_stringified);
@@ -2005,8 +2001,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
 
             if (maybe_constraint_error.HasError()) {
-              const auto &storage_error = maybe_constraint_error.GetError();
-              const auto &error = storage_error.error;
+              const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [&interpreter_context, &label_name, &properties_stringified,
                    &constraint_notification]<typename T>(T &&arg) {
@@ -2056,8 +2051,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set);
             if (maybe_constraint_error.HasError()) {
-              const auto &storage_error = maybe_constraint_error.GetError();
-              const auto &error = storage_error.error;
+              const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [&interpreter_context, &label_name, &properties_stringified]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
@@ -2124,8 +2118,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties = std::move(properties)](Notification &constraint_notification) {
             auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0]);
             if (maybe_constraint_error.HasError()) {
-              const auto &storage_error = maybe_constraint_error.GetError();
-              const auto &error = storage_error.error;
+              const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
@@ -2167,8 +2160,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      property_set = std::move(property_set)](Notification &constraint_notification) {
             auto maybe_constraint_error = interpreter_context->db->DropUniqueConstraint(label, property_set);
             if (maybe_constraint_error.HasError()) {
-              const auto &storage_error = maybe_constraint_error.GetError();
-              const auto &error = storage_error.error;
+              const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [&label_name, &properties_stringified]<typename T>(T &&) {
                     using ErrorType = std::remove_cvref_t<T>;
@@ -2418,8 +2410,7 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
 
     auto maybe_commit_error = db_accessor.Commit();
     if (maybe_commit_error.HasError()) {
-      const auto &storage_error = maybe_commit_error.GetError();
-      const auto &error = storage_error.error;
+      const auto &error = maybe_commit_error.GetError();
 
       std::visit(
           [&trigger, &db_accessor, &all_triggers_replicated_on_sync_replicas]<typename T>(T &&arg) {
@@ -2500,8 +2491,7 @@ void Interpreter::Commit() {
 
   auto maybe_commit_error = db_accessor_->Commit();
   if (maybe_commit_error.HasError()) {
-    const auto &storage_error = maybe_commit_error.GetError();
-    const auto &error = storage_error.error;
+    const auto &error = maybe_commit_error.GetError();
 
     std::visit(
         [&execution_db_accessor = execution_db_accessor_,
