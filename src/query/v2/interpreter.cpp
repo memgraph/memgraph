@@ -878,6 +878,102 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
   }
 }
 
+Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interpreter_context,
+                           std::vector<Notification> *notifications) {
+  Callback callback;
+  switch (schema_query->action_) {
+    case SchemaQuery::Action::SHOW_SCHEMAS: {
+      callback.header = {"label", "primary_key"};
+      callback.fn = [interpreter_context]() {
+        auto *db = interpreter_context->db;
+        auto schemas_info = db->ListAllSchemas();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(schemas_info.schemas.size());
+
+        for (const auto &[label_id, schema_types] : schemas_info.schemas) {
+          std::vector<TypedValue> schema_info_row;
+          schema_info_row.reserve(3);
+
+          schema_info_row.emplace_back(db->LabelToName(label_id));
+          std::vector<std::string> primary_key_properties;
+          primary_key_properties.reserve(schema_types.size());
+          std::transform(schema_types.begin(), schema_types.end(), std::back_inserter(primary_key_properties),
+                         [&db](const auto &schema_type) {
+                           return db->PropertyToName(schema_type.property_id) +
+                                  "::" + storage::v3::SchemaTypeToString(schema_type.type);
+                         });
+
+          schema_info_row.emplace_back(utils::Join(primary_key_properties, ", "));
+          results.push_back(std::move(schema_info_row));
+        }
+        return results;
+      };
+      return callback;
+    }
+    case SchemaQuery::Action::SHOW_SCHEMA: {
+      callback.header = {"property_name", "property_type"};
+      callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(primary_label.name);
+        const auto *schema = db->GetSchema(label);
+        std::vector<std::vector<TypedValue>> results;
+        if (schema) {
+          for (const auto &schema_property : schema->second) {
+            std::vector<TypedValue> schema_info_row;
+            schema_info_row.reserve(2);
+            schema_info_row.emplace_back(db->PropertyToName(schema_property.property_id));
+            schema_info_row.emplace_back(storage::v3::SchemaTypeToString(schema_property.type));
+            results.push_back(std::move(schema_info_row));
+          }
+          return results;
+        }
+        throw QueryException(fmt::format("Schema on label :{} not found!", primary_label.name));
+      };
+      return callback;
+    }
+    case SchemaQuery::Action::CREATE_SCHEMA: {
+      auto schema_type_map = schema_query->schema_type_map_;
+      if (schema_query->schema_type_map_.empty()) {
+        throw SyntaxException("One or more types have to be defined in schema definition.");
+      }
+      callback.fn = [interpreter_context, primary_label = schema_query->label_,
+                     schema_type_map = std::move(schema_type_map)]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(primary_label.name);
+        std::vector<storage::v3::SchemaProperty> schemas_types;
+        schemas_types.reserve(schema_type_map.size());
+        for (const auto &schema_type : schema_type_map) {
+          auto property_id = db->NameToProperty(schema_type.first.name);
+          schemas_types.push_back({property_id, schema_type.second});
+        }
+        if (!db->CreateSchema(label, schemas_types)) {
+          throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
+        }
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CREATE_SCHEMA,
+                                  fmt::format("Create schema on label :{}", schema_query->label_.name));
+      return callback;
+    }
+    case SchemaQuery::Action::DROP_SCHEMA: {
+      callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
+        auto *db = interpreter_context->db;
+        const auto label = db->NameToLabel(primary_label.name);
+
+        if (!db->DropSchema(label)) {
+          throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
+        }
+
+        return std::vector<std::vector<TypedValue>>{};
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::DROP_SCHEMA,
+                                  fmt::format("Dropped schema on label :{}", schema_query->label_.name));
+      return callback;
+    }
+  }
+  return callback;
+}
+
 // Struct for lazy pulling from a vector
 struct PullPlanVector {
   explicit PullPlanVector(std::vector<std::vector<TypedValue>> values) : values_(std::move(values)) {}
@@ -2075,6 +2171,32 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
+PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                 InterpreterContext *interpreter_context, std::vector<Notification> *notifications) {
+  if (in_explicit_transaction) {
+    throw ConstraintInMulticommandTxException();
+  }
+  auto *schema_query = utils::Downcast<SchemaQuery>(parsed_query.query);
+  MG_ASSERT(schema_query);
+  auto callback = HandleSchemaQuery(schema_query, interpreter_context, notifications);
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return action;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 void Interpreter::BeginTransaction() {
   const auto prepared_query = PrepareTransactionQuery("BEGIN");
   prepared_query.query_handler(nullptr, {});
@@ -2208,6 +2330,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
+    } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
+      prepared_query = PrepareSchemaQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
+                                          &query_execution->notifications);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

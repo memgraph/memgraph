@@ -46,10 +46,10 @@ memgraphCypherKeyword : cypherKeyword
                       | DROP
                       | DUMP
                       | EXECUTE
-                      | FOR
-                      | FOREACH
                       | FREE
                       | FROM
+                      | FOR
+                      | FOREACH
                       | GLOBAL
                       | GRANT
                       | HEADER
@@ -76,6 +76,8 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | QUOTE
+                      | SCHEMA
+                      | SCHEMAS
                       | SESSION
                       | SETTING
                       | SETTINGS
@@ -122,6 +124,7 @@ query : cypherQuery
       | streamQuery
       | settingQuery
       | versionQuery
+      | schemaQuery
       ;
 
 authQuery : createRole
@@ -192,6 +195,12 @@ settingQuery : setSetting
              | showSettings
              ;
 
+schemaQuery : showSchema
+            | showSchemas
+            | createSchema
+            | dropSchema
+            ;
+
 loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
@@ -254,6 +263,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | SCHEMA
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
@@ -373,3 +383,17 @@ showSetting : SHOW DATABASE SETTING settingName ;
 showSettings : SHOW DATABASE SETTINGS ;
 
 versionQuery : SHOW VERSION ;
+
+showSchema : SHOW SCHEMA ON ':' labelName ;
+
+showSchemas : SHOW SCHEMAS ;
+
+propertyType : symbolicName ;
+
+propertyKeyTypePair : propertyKeyName propertyType ;
+
+schemaPropertyMap : '(' propertyKeyTypePair ( ',' propertyKeyTypePair )* ')' ;
+
+createSchema : CREATE SCHEMA ON ':' labelName schemaPropertyMap ;
+
+dropSchema : DROP SCHEMA ON ':' labelName ;

@@ -1631,6 +1631,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     if (ctx->MODULE_READ()) return AuthQuery::Privilege::MODULE_READ;
     if (ctx->MODULE_WRITE()) return AuthQuery::Privilege::MODULE_WRITE;
     if (ctx->WEBSOCKET()) return AuthQuery::Privilege::WEBSOCKET;
+    if (ctx->SCHEMA()) return AuthQuery::Privilege::SCHEMA;
     LOG_FATAL("Should not get here - unknown privilege!");
   }
 
@@ -2870,6 +2871,108 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     }
 
     return for_each;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitPropertyType(MemgraphCypher::PropertyTypeContext *ctx) override {
+    MG_ASSERT(ctx->symbolicName());
+    const auto property_type = utils::ToLowerCase(std::any_cast<std::string>(ctx->symbolicName()->accept(this)));
+    if (property_type == "bool") {
+      return common::SchemaType::BOOL;
+    }
+    if (property_type == "string") {
+      return common::SchemaType::STRING;
+    }
+    if (property_type == "integer") {
+      return common::SchemaType::INT;
+    }
+    if (property_type == "date") {
+      return common::SchemaType::DATE;
+    }
+    if (property_type == "duration") {
+      return common::SchemaType::DURATION;
+    }
+    if (property_type == "localdatetime") {
+      return common::SchemaType::LOCALDATETIME;
+    }
+    if (property_type == "localtime") {
+      return common::SchemaType::LOCALTIME;
+    }
+    throw SyntaxException("Property type must be one of the supported types!");
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitSchemaPropertyMap(MemgraphCypher::SchemaPropertyMapContext *ctx) override {
+    std::vector<std::pair<PropertyIx, common::SchemaType>> schema_property_map;
+    for (auto *property_key_pair : ctx->propertyKeyTypePair()) {
+      auto key = std::any_cast<PropertyIx>(property_key_pair->propertyKeyName()->accept(this));
+      auto type = std::any_cast<common::SchemaType>(property_key_pair->propertyType()->accept(this));
+      if (std::ranges::find_if(schema_property_map, [&key](const auto &elem) { return elem.first == key; }) !=
+          schema_property_map.end()) {
+        throw SemanticException("Same property name can't appear twice in a schema map.");
+      }
+      schema_property_map.emplace_back(key, type);
+    }
+    return schema_property_map;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitSchemaQuery(MemgraphCypher::SchemaQueryContext *ctx) override {
+    MG_ASSERT(ctx->children.size() == 1, "SchemaQuery should have exactly one child!");
+    auto *schema_query = std::any_cast<SchemaQuery *>(ctx->children[0]->accept(this));
+    query_ = schema_query;
+    return schema_query;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitShowSchema(MemgraphCypher::ShowSchemaContext *ctx) override {
+    auto *schema_query = storage_->Create<SchemaQuery>();
+    schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMA;
+    schema_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+    query_ = schema_query;
+    return schema_query;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitShowSchemas(MemgraphCypher::ShowSchemasContext *ctx) override {
+    auto *schema_query = storage_->Create<SchemaQuery>();
+    schema_query->action_ = SchemaQuery::Action::SHOW_SCHEMAS;
+    query_ = schema_query;
+    return schema_query;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitCreateSchema(MemgraphCypher::CreateSchemaContext *ctx) override {
+    auto *schema_query = storage_->Create<SchemaQuery>();
+    schema_query->action_ = SchemaQuery::Action::CREATE_SCHEMA;
+    schema_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+    schema_query->schema_type_map_ =
+        std::any_cast<std::vector<std::pair<PropertyIx, common::SchemaType>>>(ctx->schemaPropertyMap()->accept(this));
+    query_ = schema_query;
+    return schema_query;
+  }
+
+  /**
+   * @return Schema*
+   */
+  antlrcpp::Any visitDropSchema(MemgraphCypher::DropSchemaContext *ctx) override {
+    auto *schema_query = storage_->Create<SchemaQuery>();
+    schema_query->action_ = SchemaQuery::Action::DROP_SCHEMA;
+    schema_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+    query_ = schema_query;
+    return schema_query;
   }
 
  public:

@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "query/v2/bindings/symbol.hpp"
 #include "query/v2/bindings/typed_value.hpp"
@@ -26,8 +27,12 @@
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/result.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query::v2 {
 
@@ -83,27 +88,79 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::v3::Proper
   { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::Result<storage::v3::PropertyValue>>;
 };
 
+inline void HandleSchemaViolation(const storage::v3::SchemaViolation &schema_violation, const DbAccessor &dba) {
+  switch (schema_violation.status) {
+    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY: {
+      throw SchemaViolationException(
+          fmt::format("Primary key {} not defined on label :{}",
+                      storage::v3::SchemaTypeToString(schema_violation.violated_schema_property->type),
+                      dba.LabelToName(schema_violation.label)));
+    }
+    case storage::v3::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+      throw SchemaViolationException(
+          fmt::format("Label :{} is not a primary label", dba.LabelToName(schema_violation.label)));
+    }
+    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
+      throw SchemaViolationException(
+          fmt::format("Wrong type of property {} in schema :{}, should be of type {}",
+                      *schema_violation.violated_property_value, dba.LabelToName(schema_violation.label),
+                      storage::v3::SchemaTypeToString(schema_violation.violated_schema_property->type)));
+    }
+    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
+      throw SchemaViolationException(fmt::format("Updating of primary key {} on schema :{} not supported",
+                                                 *schema_violation.violated_property_value,
+                                                 dba.LabelToName(schema_violation.label)));
+    }
+    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL: {
+      throw SchemaViolationException(fmt::format("Cannot add or remove label :{} since it is a primary label",
+                                                 dba.LabelToName(schema_violation.label)));
+    }
+    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY: {
+      throw SchemaViolationException(
+          fmt::format("Cannot create vertex with secondary label :{}", dba.LabelToName(schema_violation.label)));
+    }
+  }
+}
+
+inline void HandleErrorOnPropertyUpdate(const storage::v3::Error error) {
+  switch (error) {
+    case storage::v3::Error::SERIALIZATION_ERROR:
+      throw TransactionSerializationException();
+    case storage::v3::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to set properties on a deleted object.");
+    case storage::v3::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
+    case storage::v3::Error::VERTEX_HAS_EDGES:
+    case storage::v3::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Unexpected error when setting a property.");
+  }
+}
+
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::v3::PropertyValue PropsSetChecked(T *record, const storage::v3::PropertyId &key, const TypedValue &value) {
+storage::v3::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::v3::PropertyId &key,
+                                           const TypedValue &value) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::v3::TypedToPropertyValue(value));
-    if (maybe_old_value.HasError()) {
-      switch (maybe_old_value.GetError()) {
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set properties on a deleted object.");
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a property.");
+    if constexpr (std::is_same_v<T, VertexAccessor>) {
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, storage::v3::TypedToPropertyValue(value));
+      if (maybe_old_value.HasError()) {
+        std::visit(utils::Overloaded{[](const storage::v3::Error error) { HandleErrorOnPropertyUpdate(error); },
+                                     [&dba](const storage::v3::SchemaViolation &schema_violation) {
+                                       HandleSchemaViolation(schema_violation, dba);
+                                     }},
+                   maybe_old_value.GetError());
       }
+      return std::move(*maybe_old_value);
+    } else {
+      // No validation on edge properties
+      const auto maybe_old_value = record->SetProperty(key, storage::v3::TypedToPropertyValue(value));
+      if (maybe_old_value.HasError()) {
+        HandleErrorOnPropertyUpdate(maybe_old_value.GetError());
+      }
+      return std::move(*maybe_old_value);
     }
-    return std::move(*maybe_old_value);
   } catch (const expr::TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
