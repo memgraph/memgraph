@@ -106,6 +106,7 @@ import_external_library(antlr4 STATIC
              -DWITH_LIBCXX=OFF # because of debian bug
              -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
              -DCMAKE_CXX_STANDARD=20
+             -DANTLR_BUILD_CPP_TESTS=OFF
   BUILD_COMMAND $(MAKE) antlr4_static
   INSTALL_COMMAND $(MAKE) install)
 

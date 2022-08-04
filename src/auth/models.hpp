@@ -92,8 +92,8 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class FineGrainedAccessPermissions final {
  public:
-  FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
-                               const std::unordered_set<std::string> &denies = {});
+  explicit FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
+                                        const std::unordered_set<std::string> &denies = {});
 
   PermissionLevel Has(const std::string &permission) const;
 

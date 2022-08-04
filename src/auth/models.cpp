@@ -277,7 +277,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     throw AuthException("Couldn't load permissions data!");
   }
 
-  return {data["grants"], data["denies"]};
+  return FineGrainedAccessPermissions(data["grants"], data["denies"]);
 }
 
 const std::unordered_set<std::string> &FineGrainedAccessPermissions::grants() const { return grants_; }
@@ -446,7 +446,7 @@ FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const 
                    role_->fine_grained_access_handler().label_permissions().denies().end(),
                    std::inserter(resultDenies, resultDenies.begin()));
 
-    return {resultGrants, resultDenies};
+    return FineGrainedAccessPermissions({resultGrants, resultDenies});
   }
   return fine_grained_access_handler_.label_permissions();
 }
@@ -469,7 +469,7 @@ FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() con
                    role_->fine_grained_access_handler().edge_type_permissions().denies().end(),
                    std::inserter(resultDenies, resultDenies.begin()));
 
-    return {resultGrants, resultDenies};
+    return FineGrainedAccessPermissions({resultGrants, resultDenies});
   }
   return fine_grained_access_handler_.edge_type_permissions();
 }
