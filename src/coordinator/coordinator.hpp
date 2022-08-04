@@ -78,7 +78,22 @@ using ReadResponses = std::variant<HlcResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
+  /// The highest reserved timestamp / highest allocated timestamp
+  /// is a way for minimizing communication involved in query engines
+  /// reserving Hlc's for their transaction processing.
+  /// Periodically, the coordinator will allocate a batch of timestamps
+  /// and this will need to go over consensus. From that point forward,
+  /// each timestamp in that batch can be given out to "readers" who issue
+  /// HlcRequest without blocking on consensus first. But if
+  /// highest_allocated_timestamp_ approaches highest_reserved_timestamp_,
+  /// it is time to allocate another batch, so that we can keep guaranteeing
+  /// forward progress.
+  /// Any time a coordinator becomes a new leader, it will need to issue
+  /// a new AllocateHlcBatchRequest to create a pool of IDs to allocate.
+  uint64_t highest_allocated_timestamp_;
+  uint64_t highest_reserved_timestamp_;
 
+  /// Increment our
   ReadResponses Read(HlcRequest &&hlc_request) {
     HlcResponse res{};
 
@@ -101,17 +116,27 @@ class Coordinator {
       // TODO reply with failure
     }
 
+    // TODO apply split
+
     return res;
   }
 
+  /// This adds the provided storage engine to the standby storage engine pool,
+  /// which can be used to rebalance storage over time.
   WriteResponses Apply(RegisterStorageEngineRequest &&register_storage_engine_request) {
     RegisterStorageEngineResponse res{};
 
+    // TODO
+
     return res;
   }
 
+  /// This begins the process of draining the provided storage engine from all raft
+  /// clusters that it might be participating in.
   WriteResponses Apply(DeregisterStorageEngineRequest &&register_storage_engine_request) {
     DeregisterStorageEngineResponse res{};
+
+    // TODO
 
     return res;
   }
