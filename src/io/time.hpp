@@ -11,16 +11,11 @@
 
 #pragma once
 
-/// Replicated State Machine-related code.
-namespace memgraph::io::rsm {
+#include <chrono>
 
-/*
-template <typename T>
-concept ReplicatedStateMachine = true;
-requires(T a, uint8_t *ptr, size_t len) {
-  { a.Serialize() } -> std::same_as<std::vector<uint8_t>>;
-  { T::Deserialize(ptr, len) } -> std::same_as<T>;
-};
-*/
+namespace memgraph::io {
 
-};
+using Duration = std::chrono::microseconds;
+using Time = std::chrono::time_point<std::chrono::local_t, Duration>;
+
+}  // namespace memgraph::io

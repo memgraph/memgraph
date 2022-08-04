@@ -13,8 +13,10 @@
 
 #include <compare>
 
+#include <fmt/format.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 namespace memgraph::io {
 struct Address {
@@ -36,15 +38,26 @@ struct Address {
   }
 
   bool operator==(const Address &other) const {
-    return (last_known_ip == other.last_known_ip) && (last_known_port == other.last_known_port);
+    return (unique_id == other.unique_id) && (last_known_ip == other.last_known_ip) &&
+           (last_known_port == other.last_known_port);
   }
 
+  /// unique_id is most dominant for ordering, then last_known_ip, then last_known_port
   bool operator<(const Address &other) const {
-    if (last_known_ip == other.last_known_ip) {
-      return last_known_port < other.last_known_port;
-    } else {
+    if (unique_id != other.unique_id) {
+      return unique_id < other.unique_id;
+    }
+
+    if (last_known_ip != other.last_known_ip) {
       return last_known_ip < other.last_known_ip;
     }
+
+    return last_known_port < other.last_known_port;
+  }
+
+  std::string ToString() const {
+    return fmt::format("Address {{ unique_id: {}, last_known_ip: {}, last_known_port: {} }}",
+                       boost::uuids::to_string(unique_id), last_known_ip.to_string(), last_known_port);
   }
 };
 };  // namespace memgraph::io

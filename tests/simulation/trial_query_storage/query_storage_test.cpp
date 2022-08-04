@@ -26,7 +26,7 @@ using memgraph::io::simulator::SimulatorTransport;
 void run_server(Io<SimulatorTransport> io) {
   while (!io.ShouldShutDown()) {
     std::cout << "[STORAGE] Is receiving..." << std::endl;
-    auto request_result = io.ReceiveWithTimeout<ScanVerticesRequest>(100000);
+    auto request_result = io.Receive<ScanVerticesRequest>();
     if (request_result.HasError()) {
       std::cout << "[STORAGE] Error, continue" << std::endl;
       continue;
@@ -78,9 +78,8 @@ int main() {
 
   auto req = ScanVerticesRequest{2, std::nullopt};
 
-  auto res_f = cli_io.RequestWithTimeout<ScanVerticesRequest, VerticesResponse>(srv_addr, req, 1000);
-  auto res_rez = res_f.Wait();
-  // MG_ASSERT(res_rez.HasError());
+  auto res_f = cli_io.Request<ScanVerticesRequest, VerticesResponse>(srv_addr, req);
+  auto res_rez = std::move(res_f).Wait();
   simulator.ShutDown();
   return 0;
 }

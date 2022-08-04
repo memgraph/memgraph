@@ -12,20 +12,21 @@
 #include <string>
 #include <thread>
 
+#include "gtest/gtest.h"
+
 #include "io/future.hpp"
-#include "utils/logging.hpp"
 
 using namespace memgraph::io;
 
 void Fill(Promise<std::string> promise_1) { promise_1.Fill("success"); }
 
 void Wait(Future<std::string> future_1, Promise<std::string> promise_2) {
-  std::string result_1 = future_1.Wait();
-  MG_ASSERT(result_1 == "success");
+  std::string result_1 = std::move(future_1).Wait();
+  EXPECT_TRUE(result_1 == "success");
   promise_2.Fill("it worked");
 }
 
-int main() {
+TEST(Future, BasicLifecycle) {
   std::atomic_bool waiting = false;
 
   std::function<bool()> notifier = [&] {
@@ -49,8 +50,6 @@ int main() {
   t1.join();
   t2.join();
 
-  std::string result_2 = future_2.Wait();
-  MG_ASSERT(result_2 == "it worked");
-
-  return 0;
+  std::string result_2 = std::move(future_2).Wait();
+  EXPECT_TRUE(result_2 == "it worked");
 }

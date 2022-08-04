@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <random>
 
 #include "io/address.hpp"
 #include "io/simulator/simulator_config.hpp"
@@ -20,7 +21,7 @@
 
 namespace memgraph::io::simulator {
 class Simulator {
-  std::mt19937 rng_{};
+  std::mt19937 rng_;
   std::shared_ptr<SimulatorHandle> simulator_handle_;
 
  public:
@@ -30,9 +31,9 @@ class Simulator {
   void ShutDown() { simulator_handle_->ShutDown(); }
 
   Io<SimulatorTransport> Register(Address address) {
-    std::uniform_int_distribution<uint64_t> seed_distrib{};
+    std::uniform_int_distribution<uint64_t> seed_distrib;
     uint64_t seed = seed_distrib(rng_);
-    return Io(SimulatorTransport(simulator_handle_, address, seed), address);
+    return Io{SimulatorTransport{simulator_handle_, address, seed}, address};
   }
 
   void IncrementServerCountAndWaitForQuiescentState(Address address) {

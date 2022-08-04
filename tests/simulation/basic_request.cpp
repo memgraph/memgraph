@@ -30,11 +30,11 @@ struct CounterResponse {
 };
 
 void run_server(Io<SimulatorTransport> io) {
-  uint64_t highest_seen;
+  uint64_t highest_seen = 0;
 
   while (!io.ShouldShutDown()) {
     std::cout << "[SERVER] Is receiving..." << std::endl;
-    auto request_result = io.ReceiveWithTimeout<CounterRequest>(100000);
+    auto request_result = io.Receive<CounterRequest>();
     if (request_result.HasError()) {
       std::cout << "[SERVER] Error, continue" << std::endl;
       continue;
@@ -71,8 +71,8 @@ int main() {
     // send request
     CounterRequest cli_req;
     cli_req.proposal = i;
-    auto res_f = cli_io.RequestWithTimeout<CounterRequest, CounterResponse>(srv_addr, cli_req, 1000);
-    auto res_rez = res_f.Wait();
+    auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
+    auto res_rez = std::move(res_f).Wait();
     if (!res_rez.HasError()) {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();
