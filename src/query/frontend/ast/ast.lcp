@@ -2665,5 +2665,13 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+  (lcp:define-class show-config-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:pop-namespace) ;; namespace query
 (lcp:pop-namespace) ;; namespace memgraph
