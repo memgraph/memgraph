@@ -1395,7 +1395,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (maybe_index_error.HasError()) {
           const auto &error = maybe_index_error.GetError();
           std::visit(
-              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                   EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
@@ -1433,7 +1433,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
         if (maybe_index_error.HasError()) {
           const auto &error = maybe_index_error.GetError();
           std::visit(
-              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&arg) {
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
                 using ErrorType = std::remove_cvref_t<T>;
                 if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
                   throw ReplicationException(
@@ -2117,7 +2117,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                  [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
@@ -2527,16 +2527,10 @@ void Interpreter::Commit() {
   // This means the ordered execution of after commit triggers are not guaranteed.
   auto all_triggers_confirmed_by_all_sync_replicas = true;
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
-    interpreter_context_->after_commit_trigger_pool.AddTask(
-        [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
-         user_transaction = std::shared_ptr(std::move(db_accessor_)),
-         &all_triggers_confirmed_by_all_sync_replicas]() mutable {
-          all_triggers_confirmed_by_all_sync_replicas =
-              RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
-                                      std::move(trigger_context));
-          user_transaction->FinalizeTransaction();
-          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
-        });
+    all_triggers_confirmed_by_all_sync_replicas = RunTriggersIndividually(
+        interpreter_context_->trigger_store.AfterCommitTriggers(), interpreter_context_, std::move(*trigger_context));
+    db_accessor_->FinalizeTransaction();
+    SPDLOG_DEBUG("Finished executing after commit triggers");
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
