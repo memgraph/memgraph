@@ -845,7 +845,9 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
     if (context.auth_checker) {
       (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
+        return !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+               !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                             edge.From().Labels(storage::View::OLD).GetValue());
       });
     }
 
@@ -858,7 +860,9 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
     if (context.auth_checker) {
       (void)std::remove_if(edges.begin(), edges.end(), [&context](const auto &edge) {
-        return context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType());
+        return !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+               !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                             edge.To().Labels(storage::View::OLD).GetValue());
       });
     }
 
@@ -1051,12 +1055,7 @@ class ExpandVariableCursor : public Cursor {
       if (found_existing) continue;
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
-      if (context.auth_checker &&
-          (context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor,
-                                                          current_edge.first.EdgeType()) ||
-           context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
-                                                        current_vertex.Labels(storage::View::NEW).GetValue())))
-        continue;
+
       AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
@@ -1218,6 +1217,11 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
+            if (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+                !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                              edge.To().Labels(storage::View::OLD).GetValue())) {
+              continue;
+            }
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1235,6 +1239,11 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
+            if (!context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()) ||
+                !context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                              edge.From().Labels(storage::View::OLD).GetValue())) {
+              continue;
+            }
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1329,9 +1338,14 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame](EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
+
+      if (!context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                        vertex.Labels(storage::View::OLD).GetValue()) ||
+          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+        return;
 
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
@@ -1485,9 +1499,16 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 const TypedValue &total_weight, int64_t depth) {
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &context](
+                           const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
+                           int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
+
+      if (!context.auth_checker->IsUserAuthorizedLabels(context.user, context.db_accessor,
+                                                        vertex.Labels(storage::View::OLD).GetValue()) ||
+          !context.auth_checker->IsUserAuthorizedEdgeType(context.user, context.db_accessor, edge.EdgeType()))
+        return;
+
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
