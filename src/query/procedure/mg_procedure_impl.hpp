@@ -32,6 +32,7 @@
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
+#include "utils/variant_helpers.hpp"
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = memgraph::utils::MemoryResource`, but that's
@@ -571,22 +572,30 @@ struct mgp_func_result {
 };
 
 struct mgp_graph {
-  memgraph::query::DbAccessor *impl;
+  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
   memgraph::storage::View view;
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
-  memgraph::query::Graph *subgraph;
 
   // memgraph:::query::Graph *subraph;
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx, nullptr};
+    return mgp_graph{&acc, view, &ctx};
   }
 
   static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr, nullptr};
+    return mgp_graph{&acc, view, nullptr};
+  }
+
+  static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
   }
 };
 
@@ -618,8 +627,18 @@ struct mgp_properties_iterator {
   mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, memgraph::utils::MemoryResource *memory)
       : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
-      current.emplace(memgraph::utils::pmr::string(graph->impl->PropertyToName(current_it->first), memory),
-                      mgp_value(current_it->second, memory));
+      auto visitor =
+          std::visit(memgraph::utils::Overloaded{
+                         [this, memory](const memgraph::query::DbAccessor *impl) {
+                           return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
+                         },
+                         [](const memgraph::query::SubgraphDbAccessor *impl) -> memgraph::utils::pmr::string {
+                           throw std::logic_error{"cannot process this"};
+                         },
+                     },
+                     graph->impl);
+
+      current.emplace(visitor, mgp_value(current_it->second, memory));
       property.name = current->first.c_str();
       property.value = &current->second;
     }
@@ -677,7 +696,16 @@ struct mgp_vertices_iterator {
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
+      : memory(memory),
+        graph(graph),
+        vertices(std::visit(memgraph::utils::Overloaded{
+                                [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
+                                [](memgraph::query::SubgraphDbAccessor *impl) -> memgraph::query::VerticesIterable {
+                                  throw std::logic_error{"cannot process this"};
+                                },
+                            },
+                            graph->impl)),
+        current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);
     }
@@ -687,7 +715,7 @@ struct mgp_vertices_iterator {
 
   memgraph::utils::MemoryResource *memory;
   mgp_graph *graph;
-  decltype(graph->impl->Vertices(graph->view)) vertices;
+  memgraph::query::VerticesIterable vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
 };

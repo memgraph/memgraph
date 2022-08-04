@@ -189,37 +189,37 @@ inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.F
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
-class DbAccessor final {
-  storage::Storage::Accessor *accessor_;
+class VerticesIterable final {
+  storage::VerticesIterable iterable_;
 
-  class VerticesIterable final {
-    storage::VerticesIterable iterable_;
+ public:
+  class Iterator final {
+    storage::VerticesIterable::Iterator it_;
 
    public:
-    class Iterator final {
-      storage::VerticesIterable::Iterator it_;
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
 
-     public:
-      explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    VertexAccessor operator*() const { return VertexAccessor(*it_); }
 
-      VertexAccessor operator*() const { return VertexAccessor(*it_); }
+    Iterator &operator++() {
+      ++it_;
+      return *this;
+    }
 
-      Iterator &operator++() {
-        ++it_;
-        return *this;
-      }
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
 
-      bool operator==(const Iterator &other) const { return it_ == other.it_; }
-
-      bool operator!=(const Iterator &other) const { return !(other == *this); }
-    };
-
-    explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
-
-    Iterator begin() { return Iterator(iterable_.begin()); }
-
-    Iterator end() { return Iterator(iterable_.end()); }
+    bool operator!=(const Iterator &other) const { return !(other == *this); }
   };
+
+  explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
+
+  Iterator begin() { return Iterator(iterable_.begin()); }
+
+  Iterator end() { return Iterator(iterable_.end()); }
+};
+
+class DbAccessor final {
+  storage::Storage::Accessor *accessor_;
 
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
@@ -360,6 +360,24 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+};
+
+class SubgraphDbAccessor final {
+  DbAccessor *db_accessor_;
+
+ public:
+  explicit SubgraphDbAccessor(query::DbAccessor *db_accessor) : db_accessor_(db_accessor) {}
+
+  const std::string &PropertyToName(storage::PropertyId prop) const { return db_accessor_->PropertyToName(prop); }
+
+  const std::string &LabelToName(storage::LabelId label) const { return db_accessor_->LabelToName(label); }
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return db_accessor_->EdgeTypeToName(type); }
+};
+
+class SubgraphVertexAccessor final {
+ public:
+  query::VertexAccessor impl_;
 };
 
 }  // namespace memgraph::query
