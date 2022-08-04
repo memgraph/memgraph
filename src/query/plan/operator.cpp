@@ -29,6 +29,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
@@ -405,9 +406,26 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
+#ifdef MG_ENTERPRISE
+    FilterNodes(context.fine_grained_access_checker, context.db_accessor);
+    if (vertices_it_.value() == vertices_.value().end()) return false;
+#endif
+
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
     return true;
+  }
+
+  void FilterNodes(const FineGrainedAccessChecker *fine_grained_access_checker, DbAccessor *db_accessor) {
+    if (!fine_grained_access_checker) return;
+    while (vertices_it_.value() != vertices_.value().end()) {
+      VertexAccessor vertex = *vertices_it_.value();
+      auto vertex_labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
+      if (fine_grained_access_checker->IsUserAuthorizedLabels(vertex_labels, db_accessor)) {
+        break;
+      }
+      ++vertices_it_.value();
+    }
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
