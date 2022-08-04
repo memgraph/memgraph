@@ -480,6 +480,7 @@ def test_async_replication_when_main_is_killed():
         for index in range(50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
             if random.randint(0, 100) > 95:
+                main_killed = f"Main was killed at index={index}"
                 interactive_mg_runner.kill(CONFIGURATION, "main")
                 break
 
@@ -497,10 +498,10 @@ def test_async_replication_when_main_is_killed():
 
         QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
         res_from_async_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica"].query(QUERY_TO_CHECK)[0][0]
-        assert res_from_async_replica == sorted(res_from_async_replica)
+        assert res_from_async_replica == sorted(res_from_async_replica), main_killed
         total_sum = sum(res_from_async_replica)
         expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
-        assert total_sum == expected_sum
+        assert total_sum == expected_sum, main_killed
 
         data_directory_main.cleanup()
         data_directory_replica.cleanup()
@@ -549,13 +550,14 @@ def test_sync_replication_when_main_is_killed():
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
             last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
             if random.randint(0, 100) > 95:
+                main_killed = f"Main was killed at index={index}"
                 interactive_mg_runner.kill(CONFIGURATION, "main")
                 break
 
         # 3/
         # The SYNC replica should have exactly the same data than main.
         res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
-        assert last_result_from_main == res_from_sync_replica
+        assert last_result_from_main == res_from_sync_replica, main_killed
 
         data_directory_main.cleanup()
         data_directory_replica.cleanup()
