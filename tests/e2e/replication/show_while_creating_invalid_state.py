@@ -570,8 +570,8 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     # 2/ Add some nodes to main and check it is propagated to the async_replicas.
     # 3/ Kill an async replica.
     # 4/ Try to add some data to main.
-    # 5/ Check the status of replicsa.
     # 5/ Check the status of replicas.
+    # 6/ Check that the data was added to main and remaining replica.
 
     CONFIGURATION = {
         "async_replica1": {
@@ -748,7 +748,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     # 2/ Add some indexes to main and check it is propagated to the async_replicas.
     # 3/ Kill an async replica.
     # 4/ Try to add some more indexes to main.
-    # 5/ Check the status of replicsa.
+    # 5/ Check the status of replicas.
     # 6/ Check that the indexes were added to main and remaining replica.
 
     CONFIGURATION = {
