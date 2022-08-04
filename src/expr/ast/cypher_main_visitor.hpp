@@ -51,7 +51,7 @@ const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
 }  // namespace
 
-namespace memgraph::query::v2 {
+namespace INJECT_NAMESPACE_NAME {
 namespace {
 using antlropencypher::MemgraphCypher;
 
@@ -212,7 +212,7 @@ std::string_view ToString(const PulsarConfigKey key) {
   }
 }
 }  // namespace
-}  // namespace memgraph::query::v2
+}  // namespace INJECT_NAMESPACE_NAME
 
 namespace memgraph::expr {
 
