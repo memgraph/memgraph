@@ -41,7 +41,7 @@ using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::PropertyValue;
 
-namespace memgraph::tests::simulation {
+namespace memgraph::io::rsm {
 
 using ShardRsmKey = std::vector<PropertyValue>;
 
@@ -69,7 +69,7 @@ class StorageRsm {
   std::optional<ShardRsmKey> maximum_key_{std::nullopt};
 
  public:
-  StorageGetResponse read(StorageGetRequest request) {
+  StorageGetResponse Read(StorageGetRequest request) {
     StorageGetResponse ret;
     if (state_.contains(request.key)) {
       ret.value = state_[request.key];
@@ -77,7 +77,7 @@ class StorageRsm {
     return ret;
   }
 
-  StorageWriteResponse apply(StorageWriteRequest request) {
+  StorageWriteResponse Apply(StorageWriteRequest request) {
     StorageWriteResponse ret;
 
     // Key exist
@@ -121,4 +121,4 @@ class StorageRsm {
   }
 };
 
-}  // namespace memgraph::tests::simulation
+}  // namespace memgraph::io::rsm
