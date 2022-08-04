@@ -2015,9 +2015,6 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "existing node violates it.",
                           label_name, property_name);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
-                      auto &data_definition_error = arg;
-                      MG_ASSERT(storage::ConstraintDefinitionError::EXISTENT_CONSTRAINT == data_definition_error,
-                                "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
                       constraint_notification.title =
                           fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
@@ -2123,9 +2120,6 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                   [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
-                      auto &data_definition_error = arg;
-                      MG_ASSERT(storage::ConstraintDefinitionError::NONEXISTENT_CONSTRAINT == data_definition_error,
-                                "Unexpected error received. Workflow is incorrect.");
                       constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
                       constraint_notification.title =
                           fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,

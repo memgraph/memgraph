@@ -24,10 +24,7 @@ using StorageDataManipulationError = std::variant<ConstraintViolation, Replicati
 struct IndexDefinitionError {};
 using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError>;
 
-enum class ConstraintDefinitionError {
-  EXISTENT_CONSTRAINT,  //#NoCommit remove, not needed
-  NONEXISTENT_CONSTRAINT,
-};
+struct ConstraintDefinitionError {};
 
 using StorageExistenceConstraintDefinitionError =
     std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;

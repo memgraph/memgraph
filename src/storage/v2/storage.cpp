@@ -1255,7 +1255,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::Cre
     return StorageExistenceConstraintDefinitionError{ret.GetError()};
   }
   if (!ret.GetValue()) {
-    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError::EXISTENT_CONSTRAINT};
+    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
   }
 
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
@@ -1275,7 +1275,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropE
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
-    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError::NONEXISTENT_CONSTRAINT};
+    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
