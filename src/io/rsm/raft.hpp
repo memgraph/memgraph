@@ -184,11 +184,11 @@ concept Rsm = requires(T t, Write w)
 };
 */
 
-template <typename WriteRequest, typename ReadOperation, typename T, typename WriteResponseValue,
+template <typename WriteOperation, typename ReadOperation, typename ReplicatedState, typename WriteResponseValue,
           typename ReadResponseValue>
-concept Rsm = requires(T t, WriteRequest w, ReadOperation r) {
-  { t.read(r) } -> std::same_as<ReadResponseValue>;
-  { t.apply(w) } -> std::same_as<WriteResponseValue>;
+concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r) {
+  { state.read(r) } -> std::same_as<ReadResponseValue>;
+  { state.apply(w) } -> std::same_as<WriteResponseValue>;
 };
 
 /// Parameter           Purpose
@@ -205,7 +205,7 @@ concept Rsm = requires(T t, WriteRequest w, ReadOperation r) {
 ///                     without going through consensus first
 template <typename IoImpl, typename ReplicatedState, typename WriteOperation, typename WriteResponseValue,
           typename ReadOperation, typename ReadResponseValue>
-// requires Rsm<WriteRequest<WriteOperation>, ReadOperation, ReplicatedState, WriteResponseValue, ReadResponseValue>
+requires Rsm<WriteOperation, ReadOperation, ReplicatedState, WriteResponseValue, ReadResponseValue>
 class Raft {
   CommonState<WriteOperation> state_;
   Role role_ = Candidate{};
