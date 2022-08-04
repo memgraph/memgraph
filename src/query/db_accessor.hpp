@@ -411,6 +411,16 @@ class SubgraphDbAccessor final {
     // todo antoniofilipovic add vertex to subgraph
     return result;
   }
+
+  VerticesIterable Vertices(storage::View view) {
+    // todo antoniofilipovic change to get vertices from subgraph
+    return db_accessor_->Vertices(view);
+  }
+
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
+    // todo antoniofilipovic change to get vertex from subgraph
+    return db_accessor_->FindVertex(gid, view);
+  }
 };
 
 class SubgraphVertexAccessor final {

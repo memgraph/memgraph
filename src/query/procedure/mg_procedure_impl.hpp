@@ -698,13 +698,11 @@ struct mgp_vertices_iterator {
   mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory),
         graph(graph),
-        vertices(std::visit(memgraph::utils::Overloaded{
-                                [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
-                                [](memgraph::query::SubgraphDbAccessor *impl) -> memgraph::query::VerticesIterable {
-                                  throw std::logic_error{"cannot process this"};
-                                },
-                            },
-                            graph->impl)),
+        vertices(
+            std::visit(memgraph::utils::Overloaded{
+                           [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
+                           [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); }},
+                       graph->impl)),
         current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);

@@ -2169,17 +2169,16 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = std::visit(
-            memgraph::utils::Overloaded{
-                [graph, id](memgraph::query::DbAccessor *impl) {
-                  return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
-                },
-                [graph,
-                 id](memgraph::query::SubgraphDbAccessor *impl) -> std::optional<memgraph::query::VertexAccessor> {
-                  throw std::logic_error{"cannot process this"};
-                },
-            },
-            graph->impl);
+        auto maybe_vertex =
+            std::visit(memgraph::utils::Overloaded{
+                           [graph, id](memgraph::query::DbAccessor *impl) {
+                             return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
+                           },
+                           [graph, id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
+                           },
+                       },
+                       graph->impl);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
