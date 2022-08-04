@@ -10,12 +10,15 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <cstdint>
 
-namespace memgraph::storage::replication {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+#include "auth/models.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "storage/v2/id_types.hpp"
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
-
-enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, CAN_BE_INVALID };
-}  // namespace memgraph::storage::replication
+namespace memgraph::query {
+class FineGrainedAccessChecker {
+ public:
+  virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &label,
+                                      memgraph::query::DbAccessor *dba) const = 0;
+};
+}  // namespace memgraph::query

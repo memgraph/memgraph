@@ -29,6 +29,7 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -45,6 +46,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -185,6 +187,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
       auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
                                       {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
@@ -259,15 +262,15 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   storage::Storage *db_;
 };
 
-class LabelChecker final : public memgraph::query::LabelChecker {
+class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
  public:
-  explicit LabelChecker(memgraph::auth::User *user) : user_{user} {}
+  explicit FineGrainedAccessChecker(memgraph::auth::User *user) : user_{user} {}
 
-  bool IsUserAuthorized(const std::vector<memgraph::storage::LabelId> &labels,
-                        memgraph::query::DbAccessor *dba) const final {
-    auto labelPermissions = user_->GetLabelPermissions();
+  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels,
+                              memgraph::query::DbAccessor *dba) const final {
+    auto labelPermissions = user_->GetFineGrainedAccessPermissions();
 
-    return std::any_of(labels.begin(), labels.end(), [labelPermissions, dba](const auto label) {
+    return std::any_of(labels.begin(), labels.end(), [&labelPermissions, &dba](const auto label) {
       return labelPermissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
     });
   }
@@ -275,6 +278,9 @@ class LabelChecker final : public memgraph::query::LabelChecker {
  private:
   memgraph::auth::User *user_;
 };
+
+/// returns false if the replication role can't be set
+/// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
                          DbAccessor *db_accessor) {
@@ -296,7 +302,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
   std::vector<std::string> labels = auth_query->labels_;
-  // std::vector<storage::LabelId> labels = NamesToLabels(labels, db_accessor);
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -309,11 +314,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
       AuthQuery::Action::SHOW_ROLE_FOR_USER};
 
-  // if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
-  //   throw utils::BasicException(
-  //       utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-  //       features"));
-  // }
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
+  }
 
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
@@ -327,7 +331,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll, {});
+          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -959,7 +963,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
     memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-    ctx_.label_checker = new LabelChecker{user};
+    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
@@ -1209,7 +1213,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -1277,7 +1281,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
@@ -1293,8 +1297,9 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, dba);
   auto rw_type_checker = plan::ReadWriteTypeChecker();
-  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
   auto optional_username = StringPointerToOptional(username);
+
+  rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
                        std::move(parsed_query.required_privileges),
@@ -1596,8 +1601,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
         interpreter_context->trigger_store.AddTrigger(
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner),
-            interpreter_context->auth_checker);
+            dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
         return {};
       }};
 }
@@ -2153,8 +2157,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query = ParseQuery(query_string, params, &interpreter_context_->ast_cache,
-                                          &interpreter_context_->antlr_lock, interpreter_context_->config.query);
+    ParsedQuery parsed_query =
+        ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.

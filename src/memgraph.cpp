@@ -217,6 +217,11 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_restore_replicas_on_startup, true,
+            "Controls replicas should be restored automatically.");  // TODO(42jeremy) this must be removed once T0835
+                                                                     // is implemented.
+
 // Streams flags
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(
@@ -822,19 +827,16 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-
         for (const auto &label : labels) {
-          edit_fun(&user->labelPermissions(), label);
+          edit_fun(&user->fine_grained_access_permissions(), label);
         }
-
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
-
         for (const auto &label : labels) {
-          edit_fun(&role->labelPermissions(), label);
+          edit_fun(&user->fine_grained_access_permissions(), label);
         }
 
         locked_auth->SaveRole(*role);
@@ -1228,7 +1230,8 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
+                     .restore_replicas_on_startup = FLAGS_storage_restore_replicas_on_startup},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
@@ -1279,9 +1282,8 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
     auto dba = memgraph::query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
-                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
-                                                      interpreter_context.auth_checker);
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.

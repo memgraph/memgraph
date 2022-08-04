@@ -15,6 +15,7 @@ import pytest
 import time
 
 from common import execute_and_fetch_all
+from mg_utils import mg_sleep_and_assert
 
 
 @pytest.mark.parametrize(
@@ -41,14 +42,14 @@ def test_show_replicas(connection):
         "state",
     }
     actual_column_names = {x.name for x in cursor.description}
-    assert expected_column_names == actual_column_names
+    assert actual_column_names == expected_column_names
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
     }
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
 
 def test_show_replicas_while_inserting_data(connection):
@@ -72,18 +73,17 @@ def test_show_replicas_while_inserting_data(connection):
         "state",
     }
     actual_column_names = {x.name for x in cursor.description}
-    assert expected_column_names == actual_column_names
+    assert actual_column_names == expected_column_names
 
     expected_data = {
         ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
         ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
     }
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
     # 1/
     execute_and_fetch_all(cursor, "CREATE (n1:Number {name: 'forty_two', value:42});")
-    time.sleep(1)
 
     # 2/
     expected_data = {
@@ -91,18 +91,20 @@ def test_show_replicas_while_inserting_data(connection):
         ("replica_2", "127.0.0.1:10002", "sync", 4, 0, "ready"),
         ("replica_3", "127.0.0.1:10003", "async", 4, 0, "ready"),
     }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    print("actual_data=" + str(actual_data))
-    print("expected_data=" + str(expected_data))
-    assert expected_data == actual_data
+
+    def retrieve_data():
+        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    assert actual_data == expected_data
 
     # 3/
     res = execute_and_fetch_all(cursor, "MATCH (node) return node;")
-    assert 1 == len(res)
+    assert len(res) == 1
 
     # 4/
     actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert expected_data == actual_data
+    assert actual_data == expected_data
 
 
 if __name__ == "__main__":

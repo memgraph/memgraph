@@ -115,7 +115,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     auto operators = ExtractOperators(all_children, allowed_operators);
 
     for (auto *expression : _expressions) {
-      expressions.push_back(expression->accept(this));
+      expressions.push_back(std::any_cast<Expression *>(expression->accept(this)));
     }
 
     Expression *first_operand = expressions[0];
@@ -131,7 +131,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     DMG_ASSERT(_expression, "can't happen");
     auto operators = ExtractOperators(all_children, allowed_operators);
 
-    Expression *expression = _expression->accept(this);
+    Expression *expression = std::any_cast<Expression *>(_expression->accept(this));
     for (int i = (int)operators.size() - 1; i >= 0; --i) {
       expression = CreateUnaryOperatorByToken(operators[i], expression);
     }
@@ -482,6 +482,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) override;
+
+  /**
+   * @return AuthQuery::LabelList
+   */
+  antlrcpp::Any visitLabelList(MemgraphCypher::LabelListContext *ctx) override;
 
   /**
    * @return AuthQuery*
