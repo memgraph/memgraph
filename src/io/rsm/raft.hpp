@@ -187,8 +187,8 @@ concept Rsm = requires(T t, Write w)
 template <typename WriteOperation, typename ReadOperation, typename ReplicatedState, typename WriteResponseValue,
           typename ReadResponseValue>
 concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r) {
-  { state.read(r) } -> std::same_as<ReadResponseValue>;
-  { state.apply(w) } -> std::same_as<WriteResponseValue>;
+  { state.Read(r) } -> std::same_as<ReadResponseValue>;
+  { state.Apply(w) } -> std::same_as<WriteResponseValue>;
 };
 
 /// Parameter           Purpose
