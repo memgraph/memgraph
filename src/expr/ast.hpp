@@ -11,12 +11,12 @@
 #pragma once
 
 #ifdef STORAGE_AST
-#include "storage/ast/ast.hpp"
+#include STORAGE_AST
 namespace memgraph::expr {
 using namespace memgraph::query::strorage::v2::ast;
 }
 #elif defined QUERY_ENGINE_AST
-#include "query/v2/frontend/ast/ast.hpp"
+#include QUERY_ENGINE_AST
 namespace memgraph::expr {
 using namespace memgraph::query::v2;
 }

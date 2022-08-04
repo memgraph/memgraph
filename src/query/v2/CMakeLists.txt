@@ -32,7 +32,8 @@ set(mg_query_v2_sources
     stream/sources.cpp
     stream/common.cpp
     trigger.cpp
-    trigger_context.cpp)
+    trigger_context.cpp
+    bindings/typed_value.hpp)
 
 find_package(Boost REQUIRED)
 
