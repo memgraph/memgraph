@@ -21,25 +21,34 @@
 #include "io/address.hpp"
 #include "io/rsm/coordinator_rsm.hpp"
 #include "io/rsm/raft.hpp"
+#include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
 
 using memgraph::coordinator::Coordinator;
-using memgraph::coordinator::CoordinatorRsm;
 using memgraph::io::Address;
 using memgraph::io::Io;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
-using memgraph::io::ResponseResult;
+using memgraph::io::rsm::CoordinatorRsm;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
+using memgraph::io::rsm::StorageGetRequest;
+using memgraph::io::rsm::StorageGetResponse;
+using memgraph::io::rsm::StorageRsm;
+using memgraph::io::rsm::StorageWriteRequest;
+using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+
+using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
+using ConcreteStorageRsm = Raft<SimulatorTransport, StorageRsm, StorageWriteRequest, StorageWriteResponse,
+                                StorageGetRequest, StorageGetResponse>;
 
 int main() {
   SimulatorConfig config{
@@ -55,24 +64,68 @@ int main() {
 
   auto simulator = Simulator(config);
 
-  auto cli_addr = Address::TestAddress(1);
-  auto srv_addr_1 = Address::TestAddress(2);
-  auto srv_addr_2 = Address::TestAddress(3);
-  auto srv_addr_3 = Address::TestAddress(4);
+  Io<SimulatorTransport> cli_io = simulator.RegisterNew();
 
-  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
-  Io<SimulatorTransport> srv_io_1 = simulator.Register(srv_addr_1);
-  Io<SimulatorTransport> srv_io_2 = simulator.Register(srv_addr_2);
-  Io<SimulatorTransport> srv_io_3 = simulator.Register(srv_addr_3);
+  // spin up coordinators
 
-  std::vector<Address> srv_1_peers = {srv_addr_2, srv_addr_3};
-  std::vector<Address> srv_2_peers = {srv_addr_1, srv_addr_3};
-  std::vector<Address> srv_3_peers = {srv_addr_1, srv_addr_2};
+  Io<SimulatorTransport> c_io_1 = simulator.RegisterNew();
+  Io<SimulatorTransport> c_io_2 = simulator.RegisterNew();
+  Io<SimulatorTransport> c_io_3 = simulator.RegisterNew();
 
-  using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-  ConcreteCoordinatorRsm srv_1{std::move(srv_io_1), srv_1_peers, Coordinator{}};
-  ConcreteCoordinatorRsm srv_2{std::move(srv_io_2), srv_2_peers, Coordinator{}};
-  ConcreteCoordinatorRsm srv_3{std::move(srv_io_3), srv_3_peers, Coordinator{}};
+  Address c_addrs[] = {c_io_1.GetAddress(), c_io_2.GetAddress(), c_io_3.GetAddress()};
+
+  std::vector<Address> c_1_peers = {c_addrs[1], c_addrs[2]};
+  std::vector<Address> c_2_peers = {c_addrs[0], c_addrs[2]};
+  std::vector<Address> c_3_peers = {c_addrs[0], c_addrs[1]};
+
+  ConcreteCoordinatorRsm c_1{std::move(c_io_1), c_1_peers, Coordinator{}};
+  ConcreteCoordinatorRsm c_2{std::move(c_io_2), c_2_peers, Coordinator{}};
+  ConcreteCoordinatorRsm c_3{std::move(c_io_3), c_3_peers, Coordinator{}};
+
+  auto c_thread_1 = std::jthread([c_1]() mutable { c_1.Run(); });
+  simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[0]);
+
+  /*
+    auto c_thread_2 = std::jthread(RunRaft< Coordinator>, std::move(c_2));
+    simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[1]);
+
+    auto c_thread_3 = std::jthread(RunRaft<Coordinator>, std::move(c_3));
+    simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[2]);
+    */
+
+  // spin up shard A
+
+  Io<SimulatorTransport> a_io_1 = simulator.RegisterNew();
+  Io<SimulatorTransport> a_io_2 = simulator.RegisterNew();
+  Io<SimulatorTransport> a_io_3 = simulator.RegisterNew();
+
+  Address a_addrs[] = {a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress()};
+
+  std::vector<Address> a_1_peers = {a_addrs[1], a_addrs[2]};
+  std::vector<Address> a_2_peers = {a_addrs[0], a_addrs[2]};
+  std::vector<Address> a_3_peers = {a_addrs[0], a_addrs[1]};
+
+  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, StorageRsm{}};
+  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, StorageRsm{}};
+  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, StorageRsm{}};
+
+  // spin up shard B
+
+  Io<SimulatorTransport> b_io_1 = simulator.RegisterNew();
+  Io<SimulatorTransport> b_io_2 = simulator.RegisterNew();
+  Io<SimulatorTransport> b_io_3 = simulator.RegisterNew();
+
+  Address b_addrs[] = {b_io_1.GetAddress(), b_io_2.GetAddress(), b_io_3.GetAddress()};
+
+  std::vector<Address> b_1_peers = {b_addrs[1], b_addrs[2]};
+  std::vector<Address> b_2_peers = {b_addrs[0], b_addrs[2]};
+  std::vector<Address> b_3_peers = {b_addrs[0], b_addrs[1]};
+
+  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, StorageRsm{}};
+  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, StorageRsm{}};
+  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, StorageRsm{}};
+
+  std::cout << "beginning test after servers have become quiescent" << std::endl;
 
   return 0;
 }
