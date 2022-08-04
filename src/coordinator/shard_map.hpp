@@ -16,6 +16,7 @@
 
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
+#include "storage/v3/property_value.hpp"
 
 namespace memgraph::coordinator {
 
@@ -32,7 +33,7 @@ struct AddressAndStatus {
   Status status;
 };
 
-using CompoundKey = std::vector<memgraph::storage::PropertyValue>;
+using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<CompoundKey, Shard>;
 
