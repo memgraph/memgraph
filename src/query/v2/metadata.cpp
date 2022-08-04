@@ -72,10 +72,6 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "ReplicaPortWarning"sv;
     case NotificationCode::SET_REPLICA:
       return "SetReplica"sv;
-    case NotificationCode::SHOW_SCHEMA:
-      return "ShowSchema"sv;
-    case NotificationCode::SHOW_SCHEMAS:
-      return "ShowSchemas"sv;
     case NotificationCode::START_STREAM:
       return "StartStream"sv;
     case NotificationCode::START_ALL_STREAMS:
