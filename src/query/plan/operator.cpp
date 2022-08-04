@@ -407,8 +407,9 @@ class ScanAllCursor : public Cursor {
     }
 
 #ifdef MG_ENTERPRISE
-    FilterNodes(context.fine_grained_access_checker, context.db_accessor);
-    if (vertices_it_.value() == vertices_.value().end()) return false;
+    if (context.fine_grained_access_checker && !FindNextNode(context)) {
+      return false;
+    }
 #endif
 
     frame[output_symbol_] = *vertices_it_.value();
@@ -416,16 +417,16 @@ class ScanAllCursor : public Cursor {
     return true;
   }
 
-  void FilterNodes(const FineGrainedAccessChecker *fine_grained_access_checker, DbAccessor *db_accessor) {
-    if (!fine_grained_access_checker) return;
+  bool FindNextNode(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      VertexAccessor vertex = *vertices_it_.value();
-      auto vertex_labels = vertex.Labels(memgraph::storage::View::NEW).GetValue();
-      if (fine_grained_access_checker->IsUserAuthorizedLabels(vertex_labels, db_accessor)) {
-        break;
+      if (context.fine_grained_access_checker->IsUserAuthorizedLabels(
+              (*vertices_it_.value()).Labels(memgraph::storage::View::NEW).GetValue(), context.db_accessor)) {
+        return true;
       }
       ++vertices_it_.value();
     }
+
+    return false;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
