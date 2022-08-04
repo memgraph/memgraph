@@ -19,6 +19,6 @@ namespace memgraph::query {
 class FineGrainedAccessChecker {
  public:
   virtual bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &label,
-                                      memgraph::query::DbAccessor *dba) const = 0;
+                                      const memgraph::query::DbAccessor *dba) const = 0;
 };
 }  // namespace memgraph::query
