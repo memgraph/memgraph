@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <unordered_set>
+
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "coordinator/shard_map.hpp"
 #include "io/simulator/simulator.hpp"
@@ -85,7 +87,11 @@ using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
 using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
 
 class Coordinator {
+  using StandbySotrageEnginePool = std::unordered_set<Address>;
+
   ShardMap shard_map_;
+  StandbySotrageEnginePool storage_engine_pool_;
+
   /// The highest reserved timestamp / highest allocated timestamp
   /// is a way for minimizing communication involved in query engines
   /// reserving Hlc's for their transaction processing.
@@ -129,9 +135,10 @@ class Coordinator {
 
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
       // TODO reply with failure
+      res.success = false;
+    } else {
+      // TODO apply split
     }
-
-    // TODO apply split
 
     return res;
   }
@@ -140,8 +147,10 @@ class Coordinator {
   /// which can be used to rebalance storage over time.
   WriteResponses Apply(RegisterStorageEngineRequest &&register_storage_engine_request) {
     RegisterStorageEngineResponse res{};
-
     // TODO
+    const Address &address = register_storage_engine_request.address;
+    storage_engine_pool_.insert(address);
+    res.success = true;
 
     return res;
   }
@@ -150,8 +159,10 @@ class Coordinator {
   /// clusters that it might be participating in.
   WriteResponses Apply(DeregisterStorageEngineRequest &&register_storage_engine_request) {
     DeregisterStorageEngineResponse res{};
-
     // TODO
+    const Address &address = register_storage_engine_request.address;
+    storage_engine_pool_.erase(address);
+    res.success = true;
 
     return res;
   }
