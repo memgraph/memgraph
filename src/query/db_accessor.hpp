@@ -418,7 +418,7 @@ class SubgraphDbAccessor final {
   }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
-    // todo antoniofilipovic change to get vertex from subgraph
+    // todo antoniofilipovic change to return SubgraphVertexAccessor && add check that vertex exists in subgraph
     return db_accessor_->FindVertex(gid, view);
   }
 };
@@ -426,6 +426,45 @@ class SubgraphDbAccessor final {
 class SubgraphVertexAccessor final {
  public:
   query::VertexAccessor impl_;
+
+  explicit SubgraphVertexAccessor(query::VertexAccessor impl) : impl_(impl) {}
+
+  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
+    static_assert(noexcept(impl_ == v.impl_));
+    return impl_ == v.impl_;
+  }
+
+  auto InEdges(storage::View view) const {
+    // todo antoniofilipovic add filtering here
+    return impl_.InEdges(view);
+  }
+
+  auto OutEdges(storage::View view) const {
+    // todo antoniofilipovic add filtering here
+    return impl_.OutEdges(view);
+  }
+
+  auto Labels(storage::View view) const { return impl_.Labels(view); }
+
+  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+
+  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
+    return impl_.HasLabel(view, label);
+  }
+
+  auto Properties(storage::View view) const { return impl_.Properties(view); }
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+    return impl_.GetProperty(view, key);
+  }
+
+  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    return impl_.SetProperty(key, value);
+  }
 };
 
 }  // namespace memgraph::query
