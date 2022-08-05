@@ -31,6 +31,14 @@ struct HlcResponse {
   std::optional<ShardMap> fresher_shard_map;
 };
 
+struct GetShardMapRequest {
+  // No state
+};
+
+struct GetShardMapResponse {
+  ShardMap shard_map;
+};
+
 struct AllocateHlcBatchRequest {
   Hlc low;
   Hlc high;
@@ -73,8 +81,8 @@ using WriteRequests = std::variant<AllocateHlcBatchRequest, SplitShardRequest, R
 using WriteResponses = std::variant<AllocateHlcBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
                                     DeregisterStorageEngineResponse>;
 
-using ReadRequests = std::variant<HlcRequest>;
-using ReadResponses = std::variant<HlcResponse>;
+using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
+using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
@@ -96,6 +104,13 @@ class Coordinator {
   /// Increment our
   ReadResponses Read(HlcRequest &&hlc_request) {
     HlcResponse res{};
+
+    return res;
+  }
+
+  GetShardMapResponse Read(GetShardMapRequest &&get_shard_map_request) {
+    GetShardMapResponse res;
+    res.shard_map = shard_map_;
 
     return res;
   }
