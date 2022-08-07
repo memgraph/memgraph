@@ -79,8 +79,10 @@ class StorageRsm {
 
   // The key is not located in this shard
   bool IsKeyInRange(const ShardRsmKey &key) {
-    MG_ASSERT(maximum_key_);
-    return (key >= minimum_key_ && key <= maximum_key_);
+    if (maximum_key_) [[likely]] {
+      return (key >= minimum_key_ && key <= maximum_key_);
+    }
+    return key >= minimum_key_;
   }
 
  public:
@@ -103,6 +105,7 @@ class StorageRsm {
   StorageWriteResponse Apply(StorageWriteRequest request) {
     StorageWriteResponse ret;
 
+    // Key is outside the prohibited range
     if (IsKeyInRange(request.key)) {
       ret.latest_known_shard_map_version = shard_map_version_;
       ret.shard_rsm_success = false;
