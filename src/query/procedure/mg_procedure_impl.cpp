@@ -2335,11 +2335,23 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
-    const auto result = std::visit(
-        memgraph::utils::Overloaded{
-            [vertex](memgraph::query::DbAccessor *impl) { return impl->DetachRemoveVertex(&vertex->impl); },
-            [vertex](memgraph::query::SubgraphDbAccessor *impl) { return impl->DetachRemoveVertex(&vertex->impl); }},
-        graph->impl);
+    const auto result =
+        std::visit(memgraph::utils::Overloaded{
+                       [vertex](memgraph::query::DbAccessor *impl) {
+                         if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
+                           throw std::logic_error{"Wrong type"};
+                         }
+                         return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
+                       },
+                       [vertex](memgraph::query::SubgraphDbAccessor *impl) {
+                         // todo antoniofilipovic change this, it is wrong here since it needs to be
+                         // SubgraphVertexAccessor
+                         if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
+                           throw std::logic_error{"Wrong type"};
+                         }
+                         return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
+                       }},
+                   graph->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -2388,13 +2400,27 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         }
         auto edge = std::visit(memgraph::utils::Overloaded{
                                    [from, to, type](memgraph::query::DbAccessor *impl) {
-                                     return impl->InsertEdge(&from->impl, &to->impl, impl->NameToEdgeType(type.name));
+                                     if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
+                                         std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
+                                       throw std::logic_error{"Both vertices must be of VertexAccessorType"};
+                                     }
+                                     return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
+                                                             &std::get<memgraph::query::VertexAccessor>(to->impl),
+                                                             impl->NameToEdgeType(type.name));
                                    },
                                    [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
-                                     return impl->InsertEdge(&from->impl, &to->impl, impl->NameToEdgeType(type.name));
-                                   },
-                               },
+                                     // todo antoniofilipovic change this, it is wrong here since it needs to be
+                                     // SubgraphVertexAccessor
+                                     if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
+                                         std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
+                                       throw std::logic_error{"Wrong type"};
+                                     }
+                                     return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
+                                                             &std::get<memgraph::query::VertexAccessor>(to->impl),
+                                                             impl->NameToEdgeType(type.name));
+                                   }},
                                graph->impl);
+
         if (edge.HasError()) {
           switch (edge.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
