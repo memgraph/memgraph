@@ -2744,11 +2744,9 @@ class AggregateCursor : public Cursor {
     auto *mem = aggregation_.get_allocator().GetMemoryResource();
     utils::pmr::vector<TypedValue> group_by(mem);
     group_by.reserve(self_.group_by_.size());
-    // todo fico remove: every group by has one AggregationValue in the end
     for (Expression *expression : self_.group_by_) {
       group_by.emplace_back(expression->Accept(*evaluator));
     }
-    // todo fico remove:this get's probably current grouped by value
     auto &agg_value = aggregation_.try_emplace(std::move(group_by), mem).first->second;
     EnsureInitialized(frame, &agg_value);
     Update(evaluator, &agg_value);
@@ -2780,10 +2778,6 @@ class AggregateCursor : public Cursor {
                "Expected as much AggregationValue.counts_ as there are "
                "aggregations.");
 
-    // we iterate over counts, values and aggregation info at the same time
-    // todo fico remove: now when we have aggregation value, we can get how many values we aggregated till now
-    // which is stored in counts_ varaible. agg_value->values_.begin() always returns pointer to our aggregation method
-    // so we can emplace back new element
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
