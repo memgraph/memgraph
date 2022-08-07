@@ -181,17 +181,6 @@ class BaseEncoder {
     for (auto &i : path.indices) WriteInt(i);
   }
 
-  void WriteGraph(const Graph &graph) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
-    WriteRAW(utils::UnderlyingCast(Signature::Path));  // todo fico, fix
-    WriteTypeSize(graph.vertices.size(), MarkerList);
-    for (auto &v : graph.vertices) WriteVertex(v);
-    WriteTypeSize(graph.edges.size(), MarkerList);
-    for (auto &e : graph.edges) WriteEdge(e);
-    WriteTypeSize(graph.indices.size(), MarkerList);
-    for (auto &i : graph.indices) WriteInt(i);
-  }
-
   void WriteDate(const utils::Date &date) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Date));
@@ -269,9 +258,6 @@ class BaseEncoder {
         break;
       case Value::Type::Duration:
         WriteDuration(value.ValueDuration());
-        break;
-      case Value::Type::Graph:
-        WriteGraph(value.ValueGraph());
         break;
     }
   }

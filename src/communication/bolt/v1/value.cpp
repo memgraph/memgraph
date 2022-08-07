@@ -54,7 +54,6 @@ DEF_GETTER_BY_REF(Date, utils::Date, date_v)
 DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
 DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
 DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
-DEF_GETTER_BY_REF(Graph, Graph, graph_v)
 
 #undef DEF_GETTER_BY_REF
 
@@ -104,8 +103,6 @@ Value::Value(const Value &other) : type_(other.type_) {
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       return;
-    case Type::Graph:
-      throw ValueException();
   }
 }
 
@@ -160,9 +157,6 @@ Value &Value::operator=(const Value &other) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
-      case Type::Graph:
-        new (&graph_v) Graph(other.graph_v);
-        return *this;
     }
   }
   return *this;
@@ -213,9 +207,6 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       break;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
-      break;
-    case Type::Graph:
-      new (&graph_v) Graph(std::move(other.graph_v));
       break;
   }
 
@@ -275,9 +266,6 @@ Value &Value::operator=(Value &&other) noexcept {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
-      case Type::Graph:
-        new (&graph_v) Graph(std::move(other.graph_v));
-        break;
     }
 
     // reset the type of other
@@ -335,9 +323,6 @@ Value::~Value() {
       return;
     case Type::Duration:
       duration_v.~Duration();
-      return;
-    case Type::Graph:
-      graph_v.~Graph();
       return;
   }
 }
@@ -439,8 +424,6 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << value.ValueLocalDateTime();
     case Value::Type::Duration:
       return os << value.ValueDuration();
-    case Value::Type::Graph:
-      throw ValueException("Not supported for Graph");
   }
 }
 
@@ -476,8 +459,6 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "local_date_time";
     case Value::Type::Duration:
       return os << "duration";
-    case Value::Type::Graph:
-      throw ValueException("error");
   }
 }
 }  // namespace memgraph::communication::bolt
