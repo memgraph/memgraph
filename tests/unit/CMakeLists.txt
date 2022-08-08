@@ -84,9 +84,9 @@ target_link_libraries(${test_prefix}plan_pretty_print mg-query)
 add_unit_test(query_cost_estimator.cpp)
 target_link_libraries(${test_prefix}query_cost_estimator mg-query)
 
-add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
-
+# TODO Fix later on
+# add_unit_test(query_dump.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
+# target_link_libraries(${test_prefix}query_dump mg-communication mg-query)
 add_unit_test(query_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_expression_evaluator mg-query)
 
@@ -318,6 +318,50 @@ target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
+# Test mg-storage-v3
+add_library(storage_v3_test_utils storage_v3_test_utils.cpp)
+target_link_libraries(storage_v3_test_utils mg-storage-v3)
+
+add_unit_test(storage_v3.cpp)
+target_link_libraries(${test_prefix}storage_v3 mg-storage-v3 storage_v3_test_utils)
+
+add_unit_test(storage_v3_schema.cpp)
+target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
+
+add_unit_test(storage_v3_property_store.cpp)
+target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
+
+add_unit_test(storage_v3_key_store.cpp)
+target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
+
+# Test mg-query-v3
+add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
+target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)
+
+add_unit_test(query_v2_query_plan_accumulate_aggregate.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_accumulate_aggregate mg-query-v2)
+
+add_unit_test(query_v2_query_plan_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_create_set_remove_delete mg-query-v2)
+
+add_unit_test(query_v2_query_plan_bag_semantics.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query-v2)
+
+add_unit_test(query_v2_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_edge_cases mg-communication mg-query-v2)
+
+add_unit_test(query_v2_query_plan_v2_create_set_remove_delete.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_v2_create_set_remove_delete mg-query-v2)
+
+add_unit_test(query_v2_query_plan_match_filter_return.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_match_filter_return mg-query-v2)
+
+add_unit_test(query_v2_cypher_main_visitor.cpp)
+target_link_libraries(${test_prefix}query_v2_cypher_main_visitor mg-query-v2)
+
+add_unit_test(query_v2_query_required_privileges.cpp)
+target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-v2)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
@@ -361,17 +405,3 @@ find_package(Boost REQUIRED)
 
 add_unit_test(websocket.cpp)
 target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
-
-# Test storage-v3
-# Test utilities
-add_library(storage_v3_test_utils storage_v3_test_utils.cpp)
-target_link_libraries(storage_v3_test_utils mg-storage-v3)
-
-add_unit_test(storage_v3.cpp)
-target_link_libraries(${test_prefix}storage_v3 mg-storage-v3 storage_v3_test_utils)
-
-add_unit_test(storage_v3_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
-
-add_unit_test(storage_v3_key_store.cpp)
-target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)

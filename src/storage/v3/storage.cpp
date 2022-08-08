@@ -15,9 +15,11 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <variant>
 
 #include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v3/constraints.hpp"
@@ -27,6 +29,7 @@
 #include "storage/v3/durability/snapshot.hpp"
 #include "storage/v3/durability/wal.hpp"
 #include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
@@ -36,10 +39,12 @@
 #include "storage/v3/replication/rpc.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
@@ -55,9 +60,9 @@ inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config) {
+                            Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, view);
+    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, schema_validator, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -70,14 +75,14 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_)) {}
+                                 self->indices_, self_->constraints_, self->config_, *self->schema_validator_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_);
+                               self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_);
   return *this;
 }
 
@@ -301,7 +306,8 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Storage::Storage(Config config)
-    : indices_(&constraints_, config.items),
+    : schema_validator_(schemas_),
+      indices_(&constraints_, config.items, schema_validator_),
       isolation_level_(config.transaction.isolation_level),
       config_(config),
       snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
@@ -465,7 +471,8 @@ Storage::Accessor::~Accessor() {
   FinalizeTransaction();
 }
 
-VertexAccessor Storage::Accessor::CreateVertex() {
+// TODO Remove when import csv is fixed
+[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
   OOMExceptionEnabler oom_exception;
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
@@ -475,9 +482,11 @@ VertexAccessor Storage::Accessor::CreateVertex() {
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
-  return {&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {
+      &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
 }
 
+// TODO Remove when replication is fixed
 VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   OOMExceptionEnabler oom_exception;
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
@@ -494,7 +503,42 @@ VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
-  return {&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  return {
+      &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
+}
+
+ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
+    LabelId primary_label, const std::vector<LabelId> &labels,
+    const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
+  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
+  if (maybe_schema_violation) {
+    return {std::move(*maybe_schema_violation)};
+  }
+  OOMExceptionEnabler oom_exception;
+  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto acc = storage_->vertices_.access();
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta, primary_label}});
+  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+  delta->prev.Set(&it->vertex);
+
+  auto va = VertexAccessor{
+      &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
+  for (const auto label : labels) {
+    const auto maybe_error = va.AddLabel(label);
+    if (maybe_error.HasError()) {
+      return {maybe_error.GetError()};
+    }
+  }
+  // Set properties
+  for (auto [property_id, property_value] : properties) {
+    const auto maybe_error = va.SetProperty(property_id, property_value);
+    if (maybe_error.HasError()) {
+      return {maybe_error.GetError()};
+    }
+  }
+  return va;
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
@@ -502,8 +546,7 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) 
   auto it = acc.find(std::vector{PropertyValue{gid.AsInt()}});
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                view);
-  return {};
+                                storage_->schema_validator_, view);
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -526,7 +569,7 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
   vertex_ptr->deleted = true;
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_,
-                                            config_, true);
+                                            config_, storage_->schema_validator_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
@@ -556,7 +599,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &storage_->indices_,
-                   &storage_->constraints_, config_);
+                   &storage_->constraints_, config_, storage_->schema_validator_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -570,7 +613,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &storage_->indices_, &storage_->constraints_,
-                   config_);
+                   config_, storage_->schema_validator_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -596,7 +639,8 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Stor
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(
-      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_, true},
+      VertexAccessor{vertex_ptr, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                     storage_->schema_validator_, true},
       std::move(deleted_edges));
 }
 
@@ -656,7 +700,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+                      &storage_->constraints_, config_, storage_->schema_validator_);
 }
 
 Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
@@ -724,7 +768,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &storage_->indices_,
-                      &storage_->constraints_, config_);
+                      &storage_->constraints_, config_, storage_->schema_validator_);
 }
 
 Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *edge) {
@@ -808,7 +852,8 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_,
-                                          &storage_->indices_, &storage_->constraints_, config_, true);
+                                          &storage_->indices_, &storage_->constraints_, config_,
+                                          storage_->schema_validator_, true);
 }
 
 const std::string &Storage::Accessor::LabelToName(LabelId label) const { return storage_->LabelToName(label); }
@@ -821,11 +866,11 @@ const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const
   return storage_->EdgeTypeToName(edge_type);
 }
 
-LabelId Storage::Accessor::NameToLabel(const std::string_view &name) { return storage_->NameToLabel(name); }
+LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
 
-PropertyId Storage::Accessor::NameToProperty(const std::string_view &name) { return storage_->NameToProperty(name); }
+PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { return storage_->NameToEdgeType(name); }
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
@@ -852,11 +897,11 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return {*validation_result};
       }
     }
 
-    // Result of validating the vertex against unqiue constraints. It has to be
+    // Result of validating the vertex against unique constraints. It has to be
     // declared outside of the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
     std::optional<ConstraintViolation> unique_constraint_violation;
@@ -937,7 +982,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return {*unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;
@@ -1130,13 +1175,13 @@ const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-LabelId Storage::NameToLabel(const std::string_view &name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
 
-PropertyId Storage::NameToProperty(const std::string_view &name) {
+PropertyId Storage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
+EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
@@ -1238,10 +1283,28 @@ UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+const SchemaValidator &Storage::Accessor::GetSchemaValidator() const { return storage_->schema_validator_; }
+
 ConstraintsInfo Storage::ListAllConstraints() const {
   std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
   return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
 }
+
+SchemasInfo Storage::ListAllSchemas() const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return {schemas_.ListSchemas()};
+}
+
+const Schemas::Schema *Storage::GetSchema(const LabelId primary_label) const {
+  std::shared_lock<utils::RWLock> storage_guard_(main_lock_);
+  return schemas_.GetSchema(primary_label);
+}
+
+bool Storage::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types) {
+  return schemas_.CreateSchema(primary_label, schemas_types);
+}
+
+bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
 
 StorageInfo Storage::GetInfo() const {
   auto vertex_count = vertices_.size();
@@ -1259,21 +1322,22 @@ VerticesIterable Storage::Accessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property, View view) {
-  return VerticesIterable(storage_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt,
-                                                                           view, &transaction_));
+  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
+      label, property, std::nullopt, std::nullopt, view, &transaction_, storage_->schema_validator_));
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                              View view) {
   return VerticesIterable(storage_->indices_.label_property_index.Vertices(
-      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
+      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
+      storage_->schema_validator_));
 }
 
 VerticesIterable Storage::Accessor::Vertices(LabelId label, PropertyId property,
                                              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return VerticesIterable(
-      storage_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
+  return VerticesIterable(storage_->indices_.label_property_index.Vertices(
+      label, property, lower_bound, upper_bound, view, &transaction_, storage_->schema_validator_));
 }
 
 Transaction Storage::CreateTransaction(IsolationLevel isolation_level) {
@@ -1805,8 +1869,8 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   // Create snapshot.
   durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
                              config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, uuid_, epoch_id_, epoch_history_,
-                             &file_retainer_);
+                             &indices_, &constraints_, config_.items, schema_validator_, uuid_, epoch_id_,
+                             epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);

@@ -52,6 +52,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/variant_helpers.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -174,45 +175,58 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, const Node
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
+VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, Frame *frame,
+                                            ExecutionContext &context) {
   auto &dba = *context.db_accessor;
-  auto new_node = dba.InsertVertex();
-  context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-  for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
-    if (maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set a label on a deleted node.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a label.");
-      }
-    }
-    context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
-  }
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::v3::View::NEW);
-  // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
-  // when we update PropertyValue with custom allocator.
+
+  std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> properties;
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+    properties.reserve(node_info_properties->size());
     for (const auto &[key, value_expression] : *node_info_properties) {
-      PropsSetChecked(&new_node, key, value_expression->Accept(evaluator));
+      properties.emplace_back(key, storage::v3::PropertyValue(value_expression->Accept(evaluator)));
     }
   } else {
-    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
-    for (const auto &[key, value] : property_map.ValueMap()) {
+    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties)).ValueMap();
+    properties.reserve(property_map.size());
+
+    for (const auto &[key, value] : property_map) {
       auto property_id = dba.NameToProperty(key);
-      PropsSetChecked(&new_node, property_id, value);
+      properties.emplace_back(property_id, value);
     }
   }
 
-  (*frame)[node_info.symbol] = new_node;
+  if (node_info.labels.empty()) {
+    throw QueryRuntimeException("Primary label must be defined!");
+  }
+  const auto primary_label = node_info.labels[0];
+  std::vector<storage::v3::LabelId> secondary_labels(node_info.labels.begin() + 1, node_info.labels.end());
+  auto maybe_new_node = dba.InsertVertexAndValidate(primary_label, secondary_labels, properties);
+  if (maybe_new_node.HasError()) {
+    std::visit(utils::Overloaded{[&dba](const storage::v3::SchemaViolation &schema_violation) {
+                                   HandleSchemaViolation(schema_violation, dba);
+                                 },
+                                 [](const storage::v3::Error error) {
+                                   switch (error) {
+                                     case storage::v3::Error::SERIALIZATION_ERROR:
+                                       throw TransactionSerializationException();
+                                     case storage::v3::Error::DELETED_OBJECT:
+                                       throw QueryRuntimeException("Trying to set a label on a deleted node.");
+                                     case storage::v3::Error::VERTEX_HAS_EDGES:
+                                     case storage::v3::Error::PROPERTIES_DISABLED:
+                                     case storage::v3::Error::NONEXISTENT_OBJECT:
+                                       throw QueryRuntimeException("Unexpected error when setting a label.");
+                                   }
+                                 }},
+               maybe_new_node.GetError());
+  }
+
+  context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
+
+  (*frame)[node_info.symbol] = *maybe_new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
 
@@ -237,7 +251,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
 
   if (input_cursor_->Pull(frame, context)) {
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    auto created_vertex = CreateLocalVertexAtomically(self_.node_info_, &frame, context);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -286,13 +300,13 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
     auto &edge = *maybe_edge;
     if (const auto *properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
       for (const auto &[key, value_expression] : *properties) {
-        PropsSetChecked(&edge, key, value_expression->Accept(*evaluator));
+        PropsSetChecked(&edge, *dba, key, value_expression->Accept(*evaluator));
       }
     } else {
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
         auto property_id = dba->NameToProperty(key);
-        PropsSetChecked(&edge, property_id, value);
+        PropsSetChecked(&edge, *dba, property_id, value);
       }
     }
 
@@ -368,13 +382,12 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
-  } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
-    }
-    return created_vertex;
   }
+  auto &created_vertex = CreateLocalVertexAtomically(self_.node_info_, &frame, context);
+  if (context.trigger_context_collector) {
+    context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+  }
+  return created_vertex;
 }
 
 template <class TVerticesFun>
@@ -2050,7 +2063,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
-      auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueVertex(), *context.db_accessor, self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2060,7 +2073,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       break;
     }
     case TypedValue::Type::Edge: {
-      auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
+      auto old_value = PropsSetChecked(&lhs.ValueEdge(), *context.db_accessor, self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
         // rhs cannot be moved because it was created with the allocator that is only valid during current pull
@@ -2216,7 +2229,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.ValueMap()) {
         auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, key, kv.second);
+        auto old_value = PropsSetChecked(record, *context->db_accessor, key, kv.second);
         if (should_register_change) {
           register_set_property(std::move(old_value), key, kv.second);
         }
@@ -2300,22 +2313,31 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   // Skip setting labels on Null (can occur in optional match).
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+
+  auto &dba = *context.db_accessor;
   auto &vertex = vertex_value.ValueVertex();
-  for (auto label : self_.labels_) {
-    auto maybe_value = vertex.AddLabel(label);
+  for (const auto label : self_.labels_) {
+    auto maybe_value = vertex.AddLabelAndValidate(label);
     if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set a label on a deleted node.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a label.");
-      }
+      std::visit(utils::Overloaded{[](const storage::v3::Error error) {
+                                     switch (error) {
+                                       case storage::v3::Error::SERIALIZATION_ERROR:
+                                         throw TransactionSerializationException();
+                                       case storage::v3::Error::DELETED_OBJECT:
+                                         throw QueryRuntimeException("Trying to set a label on a deleted node.");
+                                       case storage::v3::Error::VERTEX_HAS_EDGES:
+                                       case storage::v3::Error::PROPERTIES_DISABLED:
+                                       case storage::v3::Error::NONEXISTENT_OBJECT:
+                                         throw QueryRuntimeException("Unexpected error when setting a label.");
+                                     }
+                                   },
+                                   [&dba](const storage::v3::SchemaViolation schema_violation) {
+                                     HandleSchemaViolation(schema_violation, dba);
+                                   }},
+                 maybe_value.GetError());
     }
 
+    context.execution_stats[ExecutionStats::Key::CREATED_LABELS]++;
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
@@ -2358,26 +2380,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
-    auto maybe_old_value = record->RemoveProperty(property);
-    if (maybe_old_value.HasError()) {
-      switch (maybe_old_value.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException(
-              "Can't remove property because properties on edges are "
-              "disabled.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when removing property.");
-      }
-    }
+    auto old_value = PropsSetChecked(record, *context.db_accessor, property, TypedValue{});
 
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterRemovedObjectProperty(*record, property,
-                                                                       TypedValue(std::move(*maybe_old_value)));
+                                                                       TypedValue(std::move(old_value)));
     }
   };
 
@@ -2431,18 +2438,25 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    auto maybe_value = vertex.RemoveLabel(label);
+    auto maybe_value = vertex.RemoveLabelAndValidate(label);
     if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to remove labels from a deleted node.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when removing labels from a node.");
-      }
+      std::visit(
+          utils::Overloaded{[](const storage::v3::Error error) {
+                              switch (error) {
+                                case storage::v3::Error::SERIALIZATION_ERROR:
+                                  throw TransactionSerializationException();
+                                case storage::v3::Error::DELETED_OBJECT:
+                                  throw QueryRuntimeException("Trying to remove labels from a deleted node.");
+                                case storage::v3::Error::VERTEX_HAS_EDGES:
+                                case storage::v3::Error::PROPERTIES_DISABLED:
+                                case storage::v3::Error::NONEXISTENT_OBJECT:
+                                  throw QueryRuntimeException("Unexpected error when removing labels from a node.");
+                              }
+                            },
+                            [&context](const storage::v3::SchemaViolation &schema_violation) {
+                              HandleSchemaViolation(schema_violation, *context.db_accessor);
+                            }},
+          maybe_value.GetError());
     }
 
     context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;

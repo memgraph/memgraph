@@ -11,6 +11,8 @@ set(storage_v3_src_files
     key_store.cpp
     property_store.cpp
     vertex_accessor.cpp
+    schemas.cpp
+    schema_validator.cpp
     storage.cpp)
 
 # #### Replication #####

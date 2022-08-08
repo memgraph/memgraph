@@ -630,8 +630,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     VerticesSkipList *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
-                    Indices *indices, Constraints *constraints, Config::Items items, const std::string &uuid,
-                    const std::string_view epoch_id, const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                    Indices *indices, Constraints *constraints, Config::Items items,
+                    const SchemaValidator &schema_validator, const std::string &uuid, const std::string_view epoch_id,
+                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
@@ -715,8 +716,9 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // type and invalid from/to pointers because we don't know them here,
       // but that isn't an issue because we won't use that part of the API
       // here.
-      auto ea =
-          EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints, items};
+      // TODO(jbajic) Fix snapshot with new schema rules
+      auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints,
+                             items,    schema_validator};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -744,7 +746,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &lgo_vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&lgo_vertex.vertex, transaction, indices, constraints, items, View::OLD);
+      auto va = VertexAccessor::Create(&lgo_vertex.vertex, transaction, indices, constraints, items, schema_validator,
+                                       View::OLD);
       if (!va) continue;
 
       // Get vertex data.
