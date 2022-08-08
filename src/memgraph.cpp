@@ -914,7 +914,7 @@ class AuthChecker final : public memgraph::query::AuthChecker {
  private:
   bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const std::vector<memgraph::storage::LabelId> &labels) const final {
-    return std::any_of(labels.begin(), labels.end(), [dba, user](const auto label) {
+    return std::all_of(labels.begin(), labels.end(), [dba, user](const auto label) {
       return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label)) ==
              memgraph::auth::PermissionLevel::GRANT;
     });
