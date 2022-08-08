@@ -110,6 +110,17 @@ class Coordinator {
   /// Increment our
   ReadResponses Read(HlcRequest &&hlc_request) {
     HlcResponse res{};
+    shard_map_.UpdateShardMapVersion();
+
+    res.new_hlc = shard_map_.GetHlc();
+
+    // TODO(gabor) Once the walclock update is implemented, this
+    // comparison should also be updated
+    if (hlc_request.last_shard_map_version.logical_id == res.new_hlc.logical_id) {
+      res.fresher_shard_map = shard_map_;
+    } else {
+      res.fresher_shard_map = {};
+    }
 
     return res;
   }
@@ -117,7 +128,6 @@ class Coordinator {
   GetShardMapResponse Read(GetShardMapRequest &&get_shard_map_request) {
     GetShardMapResponse res;
     res.shard_map = shard_map_;
-
     return res;
   }
 

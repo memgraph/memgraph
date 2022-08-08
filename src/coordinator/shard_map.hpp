@@ -44,7 +44,46 @@ struct ShardMap {
   Hlc shard_map_version;
   std::map<Label, Shards> shards;
 
+  // TODO(gabor) later we will want to update the wallclock time with
+  // the given Io<impl>'s time as well. This function should just be
+  // replaced with operator== since it is already overloaded for Hlc
+  // objects.
+  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
+
  public:
+  // TODO(gabor) later we will want to update the wallclock time with
+  // the given Io<impl>'s time as well
+  void UpdateShardMapVersion() noexcept { ++shard_map_version.logical_id; }
+
+  Hlc GetHlc() const noexcept { return shard_map_version; }
+
+  bool SplitShard(Hlc previous_shard_map_version, Label label, CompoundKey key) {
+    if (CompareShardMapVersions(previous_shard_map_version, shard_map_version)) {
+      MG_ASSERT(shards.contains(label));
+      auto &shards_in_map = shards[label];
+      MG_ASSERT(!shards_in_map.contains(key));
+
+      // Finding the Shard that the new CompoundKey should map to.
+      Shard shard_to_map_to;
+      auto &prev_key = (*shards_in_map.begin()).first;
+
+      for (auto iter = std::next(shards_in_map.begin()); iter != shards_in_map.end(); ++iter) {
+        const auto &current_key = (*iter).first;
+        if (key > prev_key && key < current_key) {
+          shard_to_map_to = shards_in_map[prev_key];
+        }
+
+        prev_key = (*iter).first;
+      }
+
+      // Apply the split
+      shards_in_map[key] = shard_to_map_to;
+      return true;
+    }
+
+    return false;
+  }
+
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
   Shard GetShardForKey(Label label, CompoundKey key);
