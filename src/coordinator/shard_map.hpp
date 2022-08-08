@@ -33,6 +33,8 @@ struct AddressAndStatus {
   Status status;
 };
 
+using memgraph::io::Address;
+
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<CompoundKey, Shard>;
@@ -65,7 +67,7 @@ struct ShardMap {
 
       // Finding the Shard that the new CompoundKey should map to.
       Shard shard_to_map_to;
-      auto &prev_key = (*shards_in_map.begin()).first;
+      CompoundKey prev_key = ((*shards_in_map.begin()).first);
 
       for (auto iter = std::next(shards_in_map.begin()); iter != shards_in_map.end(); ++iter) {
         const auto &current_key = (*iter).first;
@@ -82,6 +84,10 @@ struct ShardMap {
     }
 
     return false;
+  }
+
+  void AddServer(Address server_address) {
+    // Find a random place for the server to plug in
   }
 
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
