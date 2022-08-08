@@ -1306,7 +1306,7 @@ class TypedValueT {
         edge_v.~EdgeAccessor();
         break;
       case Type::Path:
-        path_v.~Path();
+        path_v.~PathT();
         break;
       case Type::Date:
       case Type::LocalTime:

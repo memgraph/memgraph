@@ -41,8 +41,9 @@
 #include <utility>
 #include <vector>
 
+#include "query/v2/bindings/pretty_print.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/ast/pretty_print.hpp"
 #include "storage/v3/id_types.hpp"
 #include "utils/string.hpp"
 
@@ -66,13 +67,13 @@ auto ToIntMap(const TypedValue &t) {
 
 std::string ToString(Expression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  expr::PrintExpression(expr, &ss);
   return ss.str();
 }
 
 std::string ToString(NamedExpression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  expr::PrintExpression(expr, &ss);
   return ss.str();
 }
 

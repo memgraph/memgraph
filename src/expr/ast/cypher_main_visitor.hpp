@@ -117,7 +117,7 @@ void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) 
   const auto key = static_cast<uint8_t>(enum_key);
   if (!memory.contains(key)) {
     if constexpr (required) {
-      throw SemanticException("Config {} is required.", ToString(enum_key));
+      throw memgraph::expr::SemanticException("Config {} is required.", ToString(enum_key));
     } else {
       return;
     }
@@ -184,7 +184,7 @@ void MapCommonStreamConfigs(auto &memory, StreamQuery &stream_query) {
 void ThrowIfExists(const auto &map, const EnumUint8 auto &enum_key) {
   const auto key = static_cast<uint8_t>(enum_key);
   if (map.contains(key)) {
-    throw SemanticException("{} defined multiple times in the query", ToString(enum_key));
+    throw memgraph::expr::SemanticException("{} defined multiple times in the query", ToString(enum_key));
   }
 }
 
@@ -195,7 +195,7 @@ void GetTopicNames(auto &destination, MemgraphCypher::TopicNamesContext *topic_n
     destination = TopicNamesFromSymbols(visitor, symbolic_topic_names_ctx->symbolicNameWithDotsAndMinus());
   } else {
     if (!topic_names_ctx->literal()->StringLiteral()) {
-      throw SemanticException("Topic names should be defined as a string literal or as symbolic names");
+      throw memgraph::expr::SemanticException("Topic names should be defined as a string literal or as symbolic names");
     }
     destination = std::any_cast<Expression *>(topic_names_ctx->accept(&visitor));
   }
@@ -348,7 +348,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         has_union = true;
       }
       if (has_union && has_union_all) {
-        throw SemanticException("Invalid combination of UNION and UNION ALL.");
+        throw memgraph::expr::SemanticException("Invalid combination of UNION and UNION ALL.");
       }
       cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
     }
@@ -438,7 +438,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     for (const auto &var_ctx : ctx->constraintPropertyList()->variable()) {
       auto var_name = std::any_cast<std::string>(var_ctx->symbolicName()->accept(this));
       if (var_name != node_name) {
-        throw SemanticException("All constraint variable should reference node '{}'", node_name);
+        throw memgraph::expr::SemanticException("All constraint variable should reference node '{}'", node_name);
       }
     }
     for (const auto &prop_lookup : ctx->constraintPropertyList()->propertyLookup()) {
@@ -463,11 +463,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     query_ = constraint_query;
     return query_;
   }
-
-  /**
-   * @return AuthQuery*
-   */
-  antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override;
 
   /**
    * @return DumpQuery*
@@ -496,7 +491,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
     if (ctx->MAIN()) {
       if (ctx->WITH() || ctx->PORT()) {
-        throw SemanticException("Main can't set a port!");
+        throw memgraph::expr::SemanticException("Main can't set a port!");
       }
       replication_query->role_ = ReplicationQuery::ReplicationRole::MAIN;
     } else if (ctx->REPLICA()) {
@@ -505,7 +500,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         if (ctx->port->numberLiteral() && ctx->port->numberLiteral()->integerLiteral()) {
           replication_query->port_ = std::any_cast<Expression *>(ctx->port->accept(this));
         } else {
-          throw SyntaxException("Port must be an integer literal!");
+          throw memgraph::expr::SyntaxException("Port must be an integer literal!");
         }
       }
     }
@@ -535,7 +530,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     }
 
     if (!ctx->socketAddress()->literal()->StringLiteral()) {
-      throw SemanticException("Socket address should be a string literal!");
+      throw memgraph::expr::SemanticException("Socket address should be a string literal!");
     } else {
       replication_query->socket_address_ = std::any_cast<Expression *>(ctx->socketAddress()->accept(this));
     }
@@ -572,7 +567,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     } else if (ctx->UNLOCK()) {
       lock_query->action_ = LockPathQuery::Action::UNLOCK_PATH;
     } else {
-      throw SyntaxException("Expected LOCK or UNLOCK");
+      throw memgraph::expr::SyntaxException("Expected LOCK or UNLOCK");
     }
 
     query_ = lock_query;
@@ -590,7 +585,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     if (ctx->csvFile()->literal()->StringLiteral()) {
       load_csv->file_ = std::any_cast<Expression *>(ctx->csvFile()->accept(this));
     } else {
-      throw SemanticException("CSV file path should be a string literal");
+      throw memgraph::expr::SemanticException("CSV file path should be a string literal");
     }
 
     // handle header options
@@ -607,7 +602,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       if (ctx->delimiter()->literal()->StringLiteral()) {
         load_csv->delimiter_ = std::any_cast<Expression *>(ctx->delimiter()->accept(this));
       } else {
-        throw SemanticException("Delimiter should be a string literal");
+        throw memgraph::expr::SemanticException("Delimiter should be a string literal");
       }
     }
 
@@ -616,7 +611,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       if (ctx->quote()->literal()->StringLiteral()) {
         load_csv->quote_ = std::any_cast<Expression *>(ctx->quote()->accept(this));
       } else {
-        throw SemanticException("Quote should be a string literal");
+        throw memgraph::expr::SemanticException("Quote should be a string literal");
       }
     }
 
@@ -868,7 +863,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     MG_ASSERT(ctx->BOOTSTRAP_SERVERS());
     ThrowIfExists(memory_, KafkaConfigKey::BOOTSTRAP_SERVERS);
     if (!ctx->bootstrapServers->StringLiteral()) {
-      throw SemanticException("Bootstrap servers should be a string!");
+      throw memgraph::expr::SemanticException("Bootstrap servers should be a string!");
     }
 
     const auto bootstrap_servers_key = static_cast<uint8_t>(KafkaConfigKey::BOOTSTRAP_SERVERS);
@@ -894,7 +889,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     MG_ASSERT(ctx->SERVICE_URL());
     ThrowIfExists(memory_, PulsarConfigKey::SERVICE_URL);
     if (!ctx->serviceUrl->StringLiteral()) {
-      throw SemanticException("Service URL must be a string!");
+      throw memgraph::expr::SemanticException("Service URL must be a string!");
     }
     const auto service_url_key = static_cast<uint8_t>(PulsarConfigKey::SERVICE_URL);
     memory_[service_url_key] = std::any_cast<Expression *>(ctx->serviceUrl->accept(this));
@@ -937,7 +932,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     if (ctx->BATCH_INTERVAL()) {
       ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_INTERVAL);
       if (!ctx->batchInterval->numberLiteral() || !ctx->batchInterval->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Batch interval must be an integer literal!");
+        throw memgraph::expr::SemanticException("Batch interval must be an integer literal!");
       }
       const auto batch_interval_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_INTERVAL);
       memory_[batch_interval_key] = std::any_cast<Expression *>(ctx->batchInterval->accept(this));
@@ -947,7 +942,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     MG_ASSERT(ctx->BATCH_SIZE());
     ThrowIfExists(memory_, CommonStreamConfigKey::BATCH_SIZE);
     if (!ctx->batchSize->numberLiteral() || !ctx->batchSize->numberLiteral()->integerLiteral()) {
-      throw SemanticException("Batch size must be an integer literal!");
+      throw memgraph::expr::SemanticException("Batch size must be an integer literal!");
     }
     const auto batch_size_key = static_cast<uint8_t>(CommonStreamConfigKey::BATCH_SIZE);
     memory_[batch_size_key] = std::any_cast<Expression *>(ctx->batchSize->accept(this));
@@ -973,16 +968,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
     if (ctx->BATCH_LIMIT()) {
       if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Batch limit should be an integer literal!");
+        throw memgraph::expr::SemanticException("Batch limit should be an integer literal!");
       }
       stream_query->batch_limit_ = std::any_cast<Expression *>(ctx->batchLimit->accept(this));
     }
     if (ctx->TIMEOUT()) {
       if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Timeout should be an integer literal!");
+        throw memgraph::expr::SemanticException("Timeout should be an integer literal!");
       }
       if (!ctx->BATCH_LIMIT()) {
-        throw SemanticException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
+        throw memgraph::expr::SemanticException("Parameter TIMEOUT can only be defined if BATCH_LIMIT is defined");
       }
       stream_query->timeout_ = std::any_cast<Expression *>(ctx->timeout->accept(this));
     }
@@ -1038,13 +1033,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
     if (ctx->BATCH_LIMIT()) {
       if (!ctx->batchLimit->numberLiteral() || !ctx->batchLimit->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Batch limit should be an integer literal!");
+        throw memgraph::expr::SemanticException("Batch limit should be an integer literal!");
       }
       stream_query->batch_limit_ = std::any_cast<Expression *>(ctx->batchLimit->accept(this));
     }
     if (ctx->TIMEOUT()) {
       if (!ctx->timeout->numberLiteral() || !ctx->timeout->numberLiteral()->integerLiteral()) {
-        throw SemanticException("Timeout should be an integer literal!");
+        throw memgraph::expr::SemanticException("Timeout should be an integer literal!");
       }
       stream_query->timeout_ = std::any_cast<Expression *>(ctx->timeout->accept(this));
     }
@@ -1069,11 +1064,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     setting_query->action_ = SettingQuery::Action::SET_SETTING;
 
     if (!ctx->settingName()->literal()->StringLiteral()) {
-      throw SemanticException("Setting name should be a string literal");
+      throw memgraph::expr::SemanticException("Setting name should be a string literal");
     }
 
     if (!ctx->settingValue()->literal()->StringLiteral()) {
-      throw SemanticException("Setting value should be a string literal");
+      throw memgraph::expr::SemanticException("Setting value should be a string literal");
     }
 
     setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
@@ -1092,7 +1087,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     setting_query->action_ = SettingQuery::Action::SHOW_SETTING;
 
     if (!ctx->settingName()->literal()->StringLiteral()) {
-      throw SemanticException("Setting name should be a string literal");
+      throw memgraph::expr::SemanticException("Setting name should be a string literal");
     }
 
     setting_query->setting_name_ = std::any_cast<Expression *>(ctx->settingName()->accept(this));
@@ -1160,7 +1155,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
     auto check_write_procedure = [&calls_write_procedure](const std::string_view clause) {
       if (calls_write_procedure) {
-        throw SemanticException(
+        throw memgraph::expr::SemanticException(
             "{} can't be put after calling a writeable procedure, only RETURN clause can be put after.", clause);
       }
     };
@@ -1181,25 +1176,25 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       if (utils::IsSubtype(clause_type, Unwind::kType)) {
         check_write_procedure("UNWIND");
         if (has_update || has_return) {
-          throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
+          throw memgraph::expr::SemanticException("UNWIND can't be put after RETURN clause or after an update.");
         }
       } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
         if (has_load_csv) {
-          throw SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
+          throw memgraph::expr::SemanticException("Can't have multiple LOAD CSV clauses in a single query.");
         }
         check_write_procedure("LOAD CSV");
         if (has_return) {
-          throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+          throw memgraph::expr::SemanticException("LOAD CSV can't be put after RETURN clause.");
         }
         has_load_csv = true;
       } else if (auto *match = utils::Downcast<Match>(clause)) {
         if (has_update || has_return) {
-          throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
+          throw memgraph::expr::SemanticException("MATCH can't be put after RETURN clause or after an update.");
         }
         if (match->optional_) {
           has_optional_match = true;
         } else if (has_optional_match) {
-          throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
+          throw memgraph::expr::SemanticException("MATCH can't be put after OPTIONAL MATCH.");
         }
         check_write_procedure("MATCH");
       } else if (utils::IsSubtype(clause_type, Create::kType) || utils::IsSubtype(clause_type, Delete::kType) ||
@@ -1210,19 +1205,19 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
                  utils::IsSubtype(clause_type, RemoveLabels::kType) || utils::IsSubtype(clause_type, Merge::kType) ||
                  utils::IsSubtype(clause_type, Foreach::kType)) {
         if (has_return) {
-          throw SemanticException("Update clause can't be used after RETURN.");
+          throw memgraph::expr::SemanticException("Update clause can't be used after RETURN.");
         }
         check_write_procedure("Update clause");
         has_update = true;
         has_any_update = true;
       } else if (utils::IsSubtype(clause_type, Return::kType)) {
         if (has_return) {
-          throw SemanticException("There can only be one RETURN in a clause.");
+          throw memgraph::expr::SemanticException("There can only be one RETURN in a clause.");
         }
         has_return = true;
       } else if (utils::IsSubtype(clause_type, With::kType)) {
         if (has_return) {
-          throw SemanticException("RETURN can't be put before WITH.");
+          throw memgraph::expr::SemanticException("RETURN can't be put before WITH.");
         }
         check_write_procedure("WITH");
         has_update = has_return = has_optional_match = false;
@@ -1232,11 +1227,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     }
     bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
     if (!has_update && !has_return && !is_standalone_call_procedure) {
-      throw SemanticException("Query should either create or update something, or return results!");
+      throw memgraph::expr::SemanticException("Query should either create or update something, or return results!");
     }
 
     if (has_any_update && calls_write_procedure) {
-      throw SemanticException("Write procedures cannot be used in queries that contains any update clauses!");
+      throw memgraph::expr::SemanticException(
+          "Write procedures cannot be used in queries that contains any update clauses!");
     }
     // Construct unique names for anonymous identifiers;
     int id = 1;
@@ -1428,6 +1424,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
+  antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override {
+    MG_ASSERT(ctx->children.size() == 1, "AuthQuery should have exactly one child!");
+    auto *auth_query = std::any_cast<AuthQuery *>(ctx->children[0]->accept(this));
+    query_ = auth_query;
+    return auth_query;
+  }
+
+  /**
+   * @return AuthQuery*
+   */
   antlrcpp::Any visitCreateRole(MemgraphCypher::CreateRoleContext *ctx) override {
     AuthQuery *auth = storage_->Create<AuthQuery>();
     auth->action_ = AuthQuery::Action::CREATE_ROLE;
@@ -1491,7 +1497,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
     if (ctx->password) {
       if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
-        throw SyntaxException("Password should be a string literal or null.");
+        throw memgraph::expr::SyntaxException("Password should be a string literal or null.");
       }
       auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
     }
@@ -1506,7 +1512,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     auth->action_ = AuthQuery::Action::SET_PASSWORD;
     auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
     if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
-      throw SyntaxException("Password should be a string literal or null.");
+      throw memgraph::expr::SyntaxException("Password should be a string literal or null.");
     }
     auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
     return auth;
@@ -1722,7 +1728,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       users_identifiers.insert(named_expr->name_);
     } else {
       if (in_with_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
-        throw SemanticException("Only variables can be non-aliased in WITH.");
+        throw memgraph::expr::SemanticException("Only variables can be non-aliased in WITH.");
       }
       named_expr->name_ = std::string(ctx->getText());
       named_expr->token_position_ = ctx->expression()->getStart()->getTokenIndex();
@@ -1808,7 +1814,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()[i]->accept(this));
       auto *value = std::any_cast<Expression *>(ctx->expression()[i]->accept(this));
       if (!map.insert({key, value}).second) {
-        throw SemanticException("Same key can't appear twice in a map literal.");
+        throw memgraph::expr::SemanticException("Same key can't appear twice in a map literal.");
       }
     }
     return map;
@@ -1962,7 +1968,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     auto relationshipLambdas = relationshipDetail->relationshipLambda();
     if (variableExpansion) {
       if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-        throw SemanticException(
+        throw memgraph::expr::SemanticException(
             "Variable for total weight is allowed only with weighted shortest "
             "path expansion.");
       auto visit_lambda = [this](auto *lambda) {
@@ -1985,7 +1991,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       switch (relationshipLambdas.size()) {
         case 0:
           if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-            throw SemanticException(
+            throw memgraph::expr::SemanticException(
                 "Lambda for calculating weights is mandatory with weighted "
                 "shortest path expansion.");
           // In variable expansion inner variables are mandatory.
@@ -2008,16 +2014,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
           break;
         case 2:
           if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-            throw SemanticException("Only one filter lambda can be supplied.");
+            throw memgraph::expr::SemanticException("Only one filter lambda can be supplied.");
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           visit_total_weight();
           edge->filter_lambda_ = visit_lambda(relationshipLambdas[1]);
           break;
         default:
-          throw SemanticException("Only one filter lambda can be supplied.");
+          throw memgraph::expr::SemanticException("Only one filter lambda can be supplied.");
       }
     } else if (!relationshipLambdas.empty()) {
-      throw SemanticException("Filter lambda is only allowed in variable length expansion.");
+      throw memgraph::expr::SemanticException("Filter lambda is only allowed in variable length expansion.");
     }
 
     auto properties = relationshipDetail->properties();
@@ -2034,7 +2040,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         break;
       }
       default:
-        throw SemanticException("Only one property map can be supplied for edge.");
+        throw memgraph::expr::SemanticException("Only one property map can be supplied for edge.");
     }
 
     return edge;
@@ -2105,7 +2111,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       upper = std::any_cast<Expression *>(ctx->expression()[1]->accept(this));
     }
     if (lower && edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-      throw SemanticException("Lower bound is not allowed in weighted shortest path expansion.");
+      throw memgraph::expr::SemanticException("Lower bound is not allowed in weighted shortest path expansion.");
 
     return std::make_tuple(edge_type, lower, upper);
   }
@@ -2288,10 +2294,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         regex_match->string_expr_ = expression;
         regex_match->regex_ = std::any_cast<Expression *>(op->expression3b()->accept(this));
         expression = regex_match;
-      }
-      DLOG_FATAL("Not Supported");
-      /*
-      else {
+      } else {
         std::string function_name;
         if (op->STARTS() && op->WITH()) {
           function_name = kStartsWith;
@@ -2306,7 +2309,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         std::vector<Expression *> args = {expression, expression2};
         expression = static_cast<Expression *>(storage_->Create<Function>(function_name, args));
       }
-      */
     }
     return expression;
   }
@@ -2334,7 +2336,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         expression = storage_->Create<SubscriptOperator>(
             expression, std::any_cast<Expression *>(list_op->expression()[0]->accept(this)));
       } else if (!list_op->lower_bound && !list_op->upper_bound) {
-        throw SemanticException("List slicing operator requires at least one bound.");
+        throw memgraph::expr::SemanticException("List slicing operator requires at least one bound.");
       } else {
         Expression *lower_bound_ast =
             list_op->lower_bound ? std::any_cast<Expression *>(list_op->lower_bound->accept(this)) : nullptr;
@@ -2417,7 +2419,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
           std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
       auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
       if (!ctx->filterExpression()->where()) {
-        throw SyntaxException("ALL(...) requires a WHERE predicate.");
+        throw memgraph::expr::SyntaxException("ALL(...) requires a WHERE predicate.");
       }
       auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
       return static_cast<Expression *>(storage_->Create<All>(ident, list_expr, where));
@@ -2426,7 +2428,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
           std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
       auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
       if (!ctx->filterExpression()->where()) {
-        throw SyntaxException("SINGLE(...) requires a WHERE predicate.");
+        throw memgraph::expr::SyntaxException("SINGLE(...) requires a WHERE predicate.");
       }
       auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
       return static_cast<Expression *>(storage_->Create<Single>(ident, list_expr, where));
@@ -2435,7 +2437,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
           std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
       auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
       if (!ctx->filterExpression()->where()) {
-        throw SyntaxException("ANY(...) requires a WHERE predicate.");
+        throw memgraph::expr::SyntaxException("ANY(...) requires a WHERE predicate.");
       }
       auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
       return static_cast<Expression *>(storage_->Create<Any>(ident, list_expr, where));
@@ -2444,7 +2446,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
           std::any_cast<std::string>(ctx->filterExpression()->idInColl()->variable()->accept(this)));
       auto *list_expr = std::any_cast<Expression *>(ctx->filterExpression()->idInColl()->expression()->accept(this));
       if (!ctx->filterExpression()->where()) {
-        throw SyntaxException("NONE(...) requires a WHERE predicate.");
+        throw memgraph::expr::SyntaxException("NONE(...) requires a WHERE predicate.");
       }
       auto *where = std::any_cast<Where *>(ctx->filterExpression()->where()->accept(this));
       return static_cast<Expression *>(storage_->Create<None>(ident, list_expr, where));
@@ -2900,7 +2902,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     if (property_type == "localtime") {
       return common::SchemaType::LOCALTIME;
     }
-    throw SyntaxException("Property type must be one of the supported types!");
+    throw memgraph::expr::SyntaxException("Property type must be one of the supported types!");
   }
 
   /**
@@ -2913,7 +2915,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       auto type = std::any_cast<common::SchemaType>(property_key_pair->propertyType()->accept(this));
       if (std::ranges::find_if(schema_property_map, [&key](const auto &elem) { return elem.first == key; }) !=
           schema_property_map.end()) {
-        throw SemanticException("Same property name can't appear twice in a schema map.");
+        throw memgraph::expr::SemanticException("Same property name can't appear twice in a schema map.");
       }
       schema_property_map.emplace_back(key, type);
     }
