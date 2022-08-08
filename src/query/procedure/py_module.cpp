@@ -2065,7 +2065,9 @@ PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const mgp_log_level level)
     return nullptr;
   }
 
-  mgp_log(level, out);
+  if (RaiseExceptionFromErrorCode(mgp_log(level, out))) {
+    return nullptr;
+  }
 
   Py_RETURN_NONE;
 }

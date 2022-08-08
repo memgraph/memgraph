@@ -1394,7 +1394,7 @@ enum mgp_error mgp_proc_add_result(struct mgp_proc *proc, const char *name, stru
 enum mgp_error mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name, struct mgp_type *type);
 
 /// Log a message on a certain level.
-void mgp_log(enum mgp_log_level log_level, const char *output);
+enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 ///@}
 
 /// @name Execution
