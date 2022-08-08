@@ -2381,10 +2381,9 @@ void Interpreter::Abort() {
 }
 
 namespace {
-bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
+void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, InterpreterContext *interpreter_context,
                              TriggerContext trigger_context) {
   // Run the triggers
-  auto all_triggers_replicated_on_sync_replicas = true;
   for (const auto &trigger : triggers.access()) {
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
@@ -2407,10 +2406,9 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       const auto &error = maybe_commit_error.GetError();
 
       std::visit(
-          [&trigger, &db_accessor, &all_triggers_replicated_on_sync_replicas]<typename T>(T &&arg) {
+          [&trigger, &db_accessor]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
-              all_triggers_replicated_on_sync_replicas = false;
               spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
                            trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
@@ -2440,7 +2438,6 @@ bool RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
           error);
     }
   }
-  return all_triggers_replicated_on_sync_replicas;
 }
 }  // namespace
 
@@ -2525,20 +2522,20 @@ void Interpreter::Commit() {
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
   // waiting for commiting or one of them just started commiting its changes.
   // This means the ordered execution of after commit triggers are not guaranteed.
-  auto all_triggers_confirmed_by_all_sync_replicas = true;
   if (trigger_context && interpreter_context_->trigger_store.AfterCommitTriggers().size() > 0) {
-    all_triggers_confirmed_by_all_sync_replicas = RunTriggersIndividually(
-        interpreter_context_->trigger_store.AfterCommitTriggers(), interpreter_context_, std::move(*trigger_context));
-    db_accessor_->FinalizeTransaction();
-    SPDLOG_DEBUG("Finished executing after commit triggers");
+    interpreter_context_->after_commit_trigger_pool.AddTask(
+        [trigger_context = std::move(*trigger_context), interpreter_context = this->interpreter_context_,
+         user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
+          RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
+                                  std::move(trigger_context));
+          user_transaction->FinalizeTransaction();
+          SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+        });
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
   if (!commit_confirmed_by_all_sync_repplicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
-  }
-  if (!all_triggers_confirmed_by_all_sync_replicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed execution of the trigger AFTER COMMIT");
   }
 }
 
