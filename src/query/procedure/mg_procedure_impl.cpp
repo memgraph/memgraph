@@ -2280,14 +2280,29 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
                     "should have been set to std::nullopt");
           return nullptr;
         }
-        if (++it->current_it == it->vertices.end()) {
-          it->current_v = std::nullopt;
-          return nullptr;
-        }
+
         memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
-        clean_up.Disable();
-        return &*it->current_v;
+        auto *checker = it->graph->ctx->fine_grained_access_checker;
+
+        while (++it->current_it != it->vertices.end()) {
+          it->current_v.emplace(*it->current_it, it->graph, it->memory);
+
+          if (!it->current_v.has_value()) {
+            break;
+          }
+
+          auto labels = it->current_v.value().impl.Labels(it->graph->view);
+          if (!labels.HasValue()) {
+            break;
+          }
+
+          if (checker->IsUserAuthorizedLabels(labels.GetValue(), it->graph->ctx->db_accessor)) {
+            clean_up.Disable();
+            return &*it->current_v;
+          }
+        }
+
+        return nullptr;
       },
       result);
 }
