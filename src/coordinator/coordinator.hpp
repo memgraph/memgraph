@@ -144,10 +144,10 @@ class Coordinator {
     SplitShardResponse res{};
 
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
-      // TODO reply with failure
       res.success = false;
     } else {
-      // TODO apply split
+      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label,
+                                          split_shard_request.split_key);
     }
 
     return res;
