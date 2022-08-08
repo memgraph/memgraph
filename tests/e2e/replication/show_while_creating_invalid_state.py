@@ -61,8 +61,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
 }
 
-BEFORE_OR_AFTER = ["BEFORE", "AFTER"]
-
 
 def test_show_replicas(connection):
     # Goal of this test is to check the SHOW REPLICAS command.
@@ -919,8 +917,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
-def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(before_or_after):
+def test_trigger_on_create_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -956,10 +953,10 @@ def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(befo
     interactive_mg_runner.start_all(CONFIGURATION)
 
     # 1/
-    QUERY_CREATE_TRIGGER = f"""
+    QUERY_CREATE_TRIGGER = """
         CREATE TRIGGER exampleTrigger
-        ON CREATE {before_or_after} COMMIT EXECUTE
-        CREATE (p:Number {{name:'Node_created_by_trigger'}});
+        ON CREATE BEFORE COMMIT EXECUTE
+        CREATE (p:Number {name:'Node_created_by_trigger'});
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
@@ -1019,8 +1016,7 @@ def test_trigger_on_create_before_or_after_commit_with_offline_sync_replica(befo
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
-def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(before_or_after):
+def test_trigger_on_update_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1055,12 +1051,11 @@ def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(befo
 
     # 0/
     interactive_mg_runner.start_all(CONFIGURATION)
-
     # 1/
-    QUERY_CREATE_TRIGGER = f"""
+    QUERY_CREATE_TRIGGER = """
         CREATE TRIGGER exampleTrigger
-        ON UPDATE {before_or_after} COMMIT EXECUTE
-        CREATE (p:Number {{name:'Node_created_by_trigger'}});
+        ON UPDATE BEFORE COMMIT EXECUTE
+        CREATE (p:Number {name:'Node_created_by_trigger'});
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
@@ -1125,8 +1120,7 @@ def test_trigger_on_update_before_or_after_commit_with_offline_sync_replica(befo
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
-def test_trigger_on_delete_before_or_after_commit_with_offline_sync_replica(before_or_after):
+def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1163,10 +1157,10 @@ def test_trigger_on_delete_before_or_after_commit_with_offline_sync_replica(befo
     interactive_mg_runner.start_all(CONFIGURATION)
 
     # 1/
-    QUERY_CREATE_TRIGGER = f"""
+    QUERY_CREATE_TRIGGER = """
         CREATE TRIGGER exampleTrigger
-        ON DELETE {before_or_after} COMMIT EXECUTE
-        CREATE (p:Number {{name:'Node_created_by_trigger'}});
+        ON DELETE BEFORE COMMIT EXECUTE
+        CREATE (p:Number {name:'Node_created_by_trigger'});
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
@@ -1341,8 +1335,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-@pytest.mark.parametrize("before_or_after", BEFORE_OR_AFTER)
-def test_triggers_on_create_before_or_after_commit_with_offline_sync_replica(before_or_after):
+def test_triggers_on_create_before_commit_with_offline_sync_replica():
     # 0/ Start all.
     # 1/ Create the two triggers
     # 2/ Create a node. We expect three nodes.
@@ -1378,15 +1371,15 @@ def test_triggers_on_create_before_or_after_commit_with_offline_sync_replica(bef
     interactive_mg_runner.start_all(CONFIGURATION)
 
     # 1/
-    QUERY_CREATE_TRIGGER_FIRST = f"""
+    QUERY_CREATE_TRIGGER_FIRST = """
         CREATE TRIGGER exampleTriggerFirst
-        ON CREATE {before_or_after} COMMIT EXECUTE
-        CREATE (p:Number {{name:'Node_created_by_trigger_first'}});
+        ON CREATE BEFORE COMMIT EXECUTE
+        CREATE (p:Number {name:'Node_created_by_trigger_first'});
     """
-    QUERY_CREATE_TRIGGER_SECOND = f"""
+    QUERY_CREATE_TRIGGER_SECOND = """
         CREATE TRIGGER exampleTriggerSecond
-        ON CREATE {before_or_after} COMMIT EXECUTE
-        CREATE (p:Number {{name:'Node_created_by_trigger_second'}});
+        ON CREATE BEFORE COMMIT EXECUTE
+        CREATE (p:Number {name:'Node_created_by_trigger_second'});
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_FIRST)
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_SECOND)
