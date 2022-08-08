@@ -111,7 +111,7 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return Iterable(it->second.access(), label, view, transaction, indices_, constraints_, config_);
+    return {it->second.access(), label, view, transaction, indices_, constraints_, config_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -216,8 +216,8 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return Iterable(it->second.access(), label, property, lower_bound, upper_bound, view, transaction, indices_,
-                    constraints_, config_);
+    return {it->second.access(), label,    property,     lower_bound, upper_bound, view,
+            transaction,         indices_, constraints_, config_};
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
