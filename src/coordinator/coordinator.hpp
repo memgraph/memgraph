@@ -90,7 +90,7 @@ class Coordinator {
   using StandbySotrageEnginePool = std::unordered_set<Address>;
 
   ShardMap shard_map_;
-  StandbySotrageEnginePool storage_engine_pool_;
+  // StandbySotrageEnginePool storage_engine_pool_;
 
   /// The highest reserved timestamp / highest allocated timestamp
   /// is a way for minimizing communication involved in query engines
@@ -148,9 +148,9 @@ class Coordinator {
   WriteResponses Apply(RegisterStorageEngineRequest &&register_storage_engine_request) {
     RegisterStorageEngineResponse res{};
     // TODO
-    const Address &address = register_storage_engine_request.address;
-    storage_engine_pool_.insert(address);
-    res.success = true;
+    // const Address &address = register_storage_engine_request.address;
+    // storage_engine_pool_.insert(address);
+    // res.success = true;
 
     return res;
   }
@@ -160,9 +160,9 @@ class Coordinator {
   WriteResponses Apply(DeregisterStorageEngineRequest &&register_storage_engine_request) {
     DeregisterStorageEngineResponse res{};
     // TODO
-    const Address &address = register_storage_engine_request.address;
-    storage_engine_pool_.erase(address);
-    res.success = true;
+    // const Address &address = register_storage_engine_request.address;
+    // storage_engine_pool_.erase(address);
+    // res.success = true;
 
     return res;
   }
