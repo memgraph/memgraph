@@ -260,10 +260,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   storage::Storage *db_;
 };
-<<<<<<< HEAD
-
-=======
->>>>>>> f625f2c21aa50af6005b9cce5fd3d52a083e6e20
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
@@ -286,7 +282,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
-  std::vector<std::string> edgeTypes = auth_query->edgetypes_;
+  std::vector<std::string> edgeTypes = auth_query->edge_types_;
   std::vector<std::string> labels = auth_query->labels_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
@@ -1200,7 +1196,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -1268,7 +1264,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
@@ -1588,8 +1584,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
         interpreter_context->trigger_store.AddTrigger(
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner),
-            interpreter_context->auth_checker);
+            dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
         return {};
       }};
 }
@@ -2145,8 +2140,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query = ParseQuery(query_string, params, &interpreter_context_->ast_cache,
-                                          &interpreter_context_->antlr_lock, interpreter_context_->config.query);
+    ParsedQuery parsed_query =
+        ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.

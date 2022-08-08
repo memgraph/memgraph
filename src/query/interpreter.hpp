@@ -100,7 +100,7 @@ class AuthQueryHandler {
   virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual memgraph::auth::User *GetUser(const std::string &username) = 0;
+  virtual std::unique_ptr<memgraph::auth::User> GetUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,

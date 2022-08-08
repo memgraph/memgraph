@@ -19,24 +19,41 @@ class AuthChecker {
   virtual bool IsUserAuthorized(const std::optional<std::string> &username,
                                 const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
 
-  virtual bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  virtual bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+                      const VertexAccessor &vertex, const memgraph::storage::View &view) const = 0;
+
+  virtual bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+                      const EdgeAccessor &edge) const = 0;
+
+ private:
+  virtual bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                                       const std::vector<memgraph::storage::LabelId> &labels) const = 0;
 
-  virtual bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  virtual bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                                         const memgraph::storage::EdgeTypeId &edgeType) const = 0;
 };
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+              const EdgeAccessor &edge) const override {
+    return true;
+  }
+
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
+              const memgraph::storage::View &view) const override {
+    return true;
+  };
+
   bool IsUserAuthorized(const std::optional<std::string> &username,
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override {
     return true;
   }
-  bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const std::vector<memgraph::storage::LabelId> &labels) const override {
     return true;
   };
 
-  bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                                 const memgraph::storage::EdgeTypeId &edgeType) const override {
     return true;
   };
