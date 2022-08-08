@@ -234,6 +234,7 @@ class ReplicationException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   explicit ReplicationException(const std::string &message)
-      : utils::BasicException("{} Check the status of the replicas using 'SHOW REPLICA' query.", message) {}
+      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICA' query.",
+                              message) {}
 };
 }  // namespace memgraph::query
