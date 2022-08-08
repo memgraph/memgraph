@@ -1275,11 +1275,15 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
       if (privilege->EDGE_TYPES()) {
-        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+        auth->edgetypes_ = std::any_cast<std::vector<std::string>>(privilege->edgeTypeList()->accept(this));
       } else if (privilege->LABELS()) {
-        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
       } else {
+<<<<<<< HEAD
         auth->privileges_.push_back(privilege->accept(this));
+=======
+        auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
+>>>>>>> f625f2c21aa50af6005b9cce5fd3d52a083e6e20
       }
     }
   } else {
@@ -1299,11 +1303,11 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
       if (privilege->EDGE_TYPES()) {
-        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+        auth->edgetypes_ = std::any_cast<std::vector<std::string>>(privilege->edgeTypeList()->accept(this));
       } else if (privilege->LABELS()) {
-        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
       } else {
-        auth->privileges_.push_back(privilege->accept(this));
+        auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
       }
     }
   } else {
@@ -1323,11 +1327,11 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
       if (privilege->EDGE_TYPES()) {
-        auth->edgetypes_ = privilege->edgeTypeList()->accept(this).as<std::vector<std::string>>();
+        auth->edgetypes_ = std::any_cast<std::vector<std::string>>(privilege->edgeTypeList()->accept(this));
       } else if (privilege->LABELS()) {
-        auth->labels_ = privilege->labelList()->accept(this).as<std::vector<std::string>>();
+        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
       } else {
-        auth->privileges_.push_back(privilege->accept(this));
+        auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
       }
     }
   } else {
@@ -1341,7 +1345,7 @@ antlrcpp::Any CypherMainVisitor::visitLabelList(MemgraphCypher::LabelListContext
   std::vector<std::string> labels;
   if (ctx->listOfLabels()) {
     for (auto *label : ctx->listOfLabels()->label()) {
-      labels.push_back(label->symbolicName()->accept(this).as<std::string>());
+      labels.push_back(std::any_cast<std::string>(label->symbolicName()->accept(this)));
     }
   } else {
     labels.emplace_back("*");
@@ -1357,7 +1361,7 @@ antlrcpp::Any CypherMainVisitor::visitEdgeTypeList(MemgraphCypher::EdgeTypeListC
   std::vector<std::string> edgeTypes;
   if (ctx->listOfEdgeTypes()) {
     for (auto *edgeType : ctx->listOfEdgeTypes()->edgeType()) {
-      edgeTypes.push_back(edgeType->symbolicName()->accept(this).as<std::string>());
+      edgeTypes.push_back(std::any_cast<std::string>(edgeType->symbolicName()->accept(this)));
     }
   } else {
     edgeTypes.emplace_back("*");
