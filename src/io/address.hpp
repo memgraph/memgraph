@@ -37,10 +37,7 @@ struct Address {
     return ret;
   }
 
-  bool operator==(const Address &other) const {
-    return (unique_id == other.unique_id) && (last_known_ip == other.last_known_ip) &&
-           (last_known_port == other.last_known_port);
-  }
+  bool operator==(const Address &other) const = default;
 
   /// unique_id is most dominant for ordering, then last_known_ip, then last_known_port
   bool operator<(const Address &other) const {
