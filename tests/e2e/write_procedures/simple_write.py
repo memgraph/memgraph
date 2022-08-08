@@ -195,7 +195,7 @@ def test_graph_mutability(connection):
 
 def test_log_message(connection):
     cursor = connection.cursor()
-    success = execute_and_fetch_all(cursor, "CALL read.create_vertex() YIELD success RETURN success")[0][0]
+    success = execute_and_fetch_all(cursor, f"CALL read.log_message('message') YIELD success RETURN success")[0][0]
     assert (success) is True
 
 
