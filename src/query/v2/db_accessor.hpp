@@ -12,6 +12,7 @@
 #pragma once
 
 #include <optional>
+#include <vector>
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
@@ -23,7 +24,7 @@
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
-// very well on Centos because OpenSSL version avaialable
+// very well on Centos because OpenSSL version available
 // on Centos 7 include  libkrb5 which has brilliant macros
 // called TRUE and FALSE. For more detailed explanation go
 // to memgraph.cpp.
@@ -34,6 +35,8 @@
 // simply undefine those macros as we're sure that libkrb5
 // won't and can't be used anywhere in the query engine.
 #include "storage/v3/storage.hpp"
+#include "utils/logging.hpp"
+#include "utils/result.hpp"
 
 #undef FALSE
 #undef TRUE
@@ -51,7 +54,6 @@ class EdgeAccessor final {
  public:
   storage::v3::EdgeAccessor impl_;
 
- public:
   explicit EdgeAccessor(storage::v3::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
   bool IsVisible(storage::v3::View view) const { return impl_.IsVisible(view); }
@@ -99,16 +101,25 @@ class VertexAccessor final {
 
   static EdgeAccessor MakeEdgeAccessor(const storage::v3::EdgeAccessor impl) { return EdgeAccessor(impl); }
 
- public:
   explicit VertexAccessor(storage::v3::VertexAccessor impl) : impl_(impl) {}
 
   bool IsVisible(storage::v3::View view) const { return impl_.IsVisible(view); }
 
   auto Labels(storage::v3::View view) const { return impl_.Labels(view); }
 
+  auto PrimaryLabel(storage::v3::View view) const { return impl_.PrimaryLabel(view); }
+
   storage::v3::Result<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabel(label); }
 
+  storage::v3::ResultSchema<bool> AddLabelAndValidate(storage::v3::LabelId label) {
+    return impl_.AddLabelAndValidate(label);
+  }
+
   storage::v3::Result<bool> RemoveLabel(storage::v3::LabelId label) { return impl_.RemoveLabel(label); }
+
+  storage::v3::ResultSchema<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
+    return impl_.RemoveLabelAndValidate(label);
+  }
 
   storage::v3::Result<bool> HasLabel(storage::v3::View view, storage::v3::LabelId label) const {
     return impl_.HasLabel(label, view);
@@ -126,8 +137,13 @@ class VertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 
-  storage::v3::Result<storage::v3::PropertyValue> RemoveProperty(storage::v3::PropertyId key) {
-    return SetProperty(key, storage::v3::PropertyValue());
+  storage::v3::ResultSchema<storage::v3::PropertyValue> SetPropertyAndValidate(
+      storage::v3::PropertyId key, const storage::v3::PropertyValue &value) {
+    return impl_.SetPropertyAndValidate(key, value);
+  }
+
+  storage::v3::ResultSchema<storage::v3::PropertyValue> RemovePropertyAndValidate(storage::v3::PropertyId key) {
+    return SetPropertyAndValidate(key, storage::v3::PropertyValue{});
   }
 
   storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> ClearProperties() {
@@ -254,7 +270,18 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  // TODO Remove when query modules have been fixed
+  [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+
+  storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
+      const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
+      const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
+    auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(primary_label, labels, properties);
+    if (maybe_vertex_acc.HasError()) {
+      return {std::move(maybe_vertex_acc.GetError())};
+    }
+    return VertexAccessor{maybe_vertex_acc.GetValue()};
+  }
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
@@ -312,7 +339,7 @@ class DbAccessor final {
       return std::optional<VertexAccessor>{};
     }
 
-    return std::make_optional<VertexAccessor>(*value);
+    return {std::make_optional<VertexAccessor>(*value)};
   }
 
   storage::v3::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
@@ -361,6 +388,10 @@ class DbAccessor final {
   storage::v3::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::v3::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  const storage::v3::SchemaValidator &GetSchemaValidator() const { return accessor_->GetSchemaValidator(); }
+
+  storage::v3::SchemasInfo ListAllSchemas() const { return accessor_->ListAllSchemas(); }
 };
 
 }  // namespace memgraph::query::v2
