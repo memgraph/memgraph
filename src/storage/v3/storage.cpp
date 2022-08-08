@@ -518,7 +518,16 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta, primary_label}});
+
+  // Extract key properties
+  std::vector<PropertyValue> primary_properties;
+  for (auto [property_id, property_value] : properties) {
+    if (storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      primary_properties.push_back(property_value);
+    }
+  }
+
+  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta, primary_label, primary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
@@ -533,9 +542,11 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
   }
   // Set properties
   for (auto [property_id, property_value] : properties) {
-    const auto maybe_error = va.SetProperty(property_id, property_value);
-    if (maybe_error.HasError()) {
-      return {maybe_error.GetError()};
+    if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      const auto maybe_error = va.SetProperty(property_id, property_value);
+      if (maybe_error.HasError()) {
+        return {maybe_error.GetError()};
+      }
     }
   }
   return va;

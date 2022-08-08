@@ -28,8 +28,9 @@
 namespace memgraph::storage::v3 {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta, LabelId primary_label)
-      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
+  // TODO Remove Gid
+  Vertex(Gid /*gid*/, Delta *delta, LabelId primary_label, std::vector<PropertyValue> primary_properties)
+      : primary_label{primary_label}, keys{primary_properties}, deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
