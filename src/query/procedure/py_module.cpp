@@ -2092,6 +2092,10 @@ PyObject *PyLoggerLogTrace(PyLogger *self, PyObject *args) {
   return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_TRACE);
 }
 
+PyObject *PyLoggerLogDebug(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_DEBUG);
+}
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLoggerMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
@@ -2105,6 +2109,8 @@ static PyMethodDef PyLoggerMethods[] = {
      "Logs a message with level CRITICAL on this logger."},
     {"trace", reinterpret_cast<PyCFunction>(PyLoggerLogTrace), METH_VARARGS,
      "Logs a message with level TRACE on this logger."},
+    {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
+     "Logs a message with level DEBUG on this logger."},
     {nullptr},
 };
 
