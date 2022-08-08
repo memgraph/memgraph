@@ -260,6 +260,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   storage::Storage *db_;
 };
+
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
