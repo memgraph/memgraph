@@ -253,8 +253,8 @@ void RunSimulation() {
   std::vector<Address> server_addrs{srv_addr_1, srv_addr_2, srv_addr_3};
   Address leader = server_addrs[0];
 
-  RsmClient<Io<SimulatorTransport>, CasRequest, CasResponse, GetRequest, GetResponse> client(
-      std::move(cli_io), std::move(leader), std::move(server_addrs));
+  RsmClient<Io<SimulatorTransport>, CasRequest, CasResponse, GetRequest, GetResponse> client(cli_io, leader,
+                                                                                             server_addrs);
 
   const int key = 0;
   std::optional<int> last_known_value;
