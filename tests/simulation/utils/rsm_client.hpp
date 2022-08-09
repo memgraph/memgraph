@@ -87,6 +87,7 @@ class RsmClient {
     read_req.operation = req;
 
     std::cout << "client sending GetRequest to Leader " << leader_.last_known_port << std::endl;
+
     ResponseFuture<ReadResponse<ReadResponseT>> get_response_future =
         io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
 
