@@ -13,7 +13,6 @@
             [jepsen.memgraph [basic :as basic]
                              [bank :as bank]
                              [large :as large]
-                             [sequential :as sequential]
                              [support :as s]
                              [nemesis :as nemesis]
                              [edn :as e]]))
@@ -22,7 +21,6 @@
   "A map of workload names to functions that can take opts and construct
    workloads."
    {:bank       bank/workload
-    ;; :sequential sequential/workload (T0532-MG)
     :large      large/workload})
 
 (def nemesis-configuration

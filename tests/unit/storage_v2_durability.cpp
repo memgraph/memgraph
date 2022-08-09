@@ -74,10 +74,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et2 = store->NameToEdgeType("base_et2");
 
     // Create label index.
-    ASSERT_TRUE(store->CreateIndex(label_unindexed));
+    ASSERT_FALSE(store->CreateIndex(label_unindexed).HasError());
 
     // Create label+property index.
-    ASSERT_TRUE(store->CreateIndex(label_indexed, property_id));
+    ASSERT_FALSE(store->CreateIndex(label_indexed, property_id).HasError());
 
     // Create existence constraint.
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unindexed, property_id).HasError());
@@ -138,10 +138,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et4 = store->NameToEdgeType("extended_et4");
 
     // Create label index.
-    ASSERT_TRUE(store->CreateIndex(label_unused));
+    ASSERT_FALSE(store->CreateIndex(label_unused).HasError());
 
     // Create label+property index.
-    ASSERT_TRUE(store->CreateIndex(label_indexed, property_count));
+    ASSERT_FALSE(store->CreateIndex(label_indexed, property_count).HasError());
 
     // Create existence constraint.
     ASSERT_FALSE(store->CreateExistenceConstraint(label_unused, property_count).HasError());
@@ -1433,17 +1433,17 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     CreateExtendedDataset(&store);
     auto indices = store.ListAllIndices();
     for (const auto &index : indices.label) {
-      ASSERT_TRUE(store.DropIndex(index));
+      ASSERT_FALSE(store.DropIndex(index).HasError());
     }
     for (const auto &index : indices.label_property) {
-      ASSERT_TRUE(store.DropIndex(index.first, index.second));
+      ASSERT_FALSE(store.DropIndex(index.first, index.second).HasError());
     }
     auto constraints = store.ListAllConstraints();
     for (const auto &constraint : constraints.existence) {
-      ASSERT_TRUE(store.DropExistenceConstraint(constraint.first, constraint.second));
+      ASSERT_FALSE(store.DropExistenceConstraint(constraint.first, constraint.second).HasError());
     }
     for (const auto &constraint : constraints.unique) {
-      ASSERT_EQ(store.DropUniqueConstraint(constraint.first, constraint.second),
+      ASSERT_EQ(store.DropUniqueConstraint(constraint.first, constraint.second).GetValue(),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     }
     auto acc = store.Access();
