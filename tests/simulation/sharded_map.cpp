@@ -261,12 +261,12 @@ int main() {
 
     bool cas_succeeded = write_res.shard_rsm_success;
 
-    if (cas_succeeded) {
-      last_known_value = i;
-    } else {
-      last_known_value = cas_response.last_value;
-      continue;
-    }
+    // if (cas_succeeded) {
+    //   last_known_value = i;
+    // } else {
+    //   last_known_value = cas_response.last_value;
+    //   continue;
+    // }
 
     // ... write_res.
 
