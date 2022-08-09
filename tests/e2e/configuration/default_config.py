@@ -121,7 +121,6 @@ startup_config_dict = {
         "false",
         "Controls whether the storage recovers persisted data on startup.",
     ),
-    "storage_restore_replicas_on_startup": ("true", "true", "Controls replicas should be restored automatically."),
     "storage_snapshot_interval_sec": (
         "0",
         "300",
