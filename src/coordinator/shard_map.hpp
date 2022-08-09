@@ -97,7 +97,7 @@ struct ShardMap {
 
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
-  Shard GetShardForKey(Label label, CompoundKey key);
+  Shard GetShardForKey(Label label, CompoundKey key) { return shards.at(label).at(key); }
 };
 
 }  // namespace memgraph::coordinator
