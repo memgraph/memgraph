@@ -63,7 +63,7 @@ class TestState {
   std::map<int, int> state_;
 
  public:
-  GetResponse read(GetRequest request) {
+  GetResponse Read(GetRequest request) {
     GetResponse ret;
     if (state_.contains(request.key)) {
       ret.value = state_[request.key];
@@ -71,7 +71,7 @@ class TestState {
     return ret;
   }
 
-  CasResponse apply(CasRequest request) {
+  CasResponse Apply(CasRequest request) {
     CasResponse ret;
 
     // Key exist
