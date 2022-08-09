@@ -90,6 +90,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   Shards shards2;
   shards2[cm2] = shard2;
 
+  shards[label1] = shards1;
   shards[label2] = shards2;
 
   return sm1;
@@ -258,6 +259,11 @@ int main() {
       continue;
     }
 
+    if (!read_res_opt.value().success) {
+      std::cout << "Not successful." << std::endl;
+      continue;
+    }
+
     std::cout << "Before" << std::endl;
     auto read_res = read_res_opt.value();
     std::cout << "After" << std::endl;
@@ -276,7 +282,12 @@ int main() {
     client_shard_map = res.fresher_shard_map.value();
     std::cout << "After2" << std::endl;
 
-    auto target_shard = client_shard_map.GetShardForKey("label1", cm_k);
+    // TODO(gabor) check somewhere in the call chain if the entries are actually valid
+    for (auto &[key, val] : client_shard_map.GetShards()) {
+      std::cout << "key: " << key << std::endl;
+    }
+
+    auto target_shard = client_shard_map.GetShardForKey(std::string("label1"), cm_k);
 
     // Determine which shard to send the requests to
     auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);
