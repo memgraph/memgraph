@@ -1,0 +1,36 @@
+#!/bin/sh
+
+project_folder=$(git rev-parse --show-toplevel)
+if git rev-parse --verify HEAD >/dev/null 2>&1
+then
+	against=HEAD
+else
+	# Initial commit: diff against an empty tree object
+	against=$(git hash-object -t tree /dev/null)
+fi
+
+# Redirect output to stderr.
+exec 1>&2
+
+tmpdir=$(mktemp -d repo-XXXXXXXX)
+trap "rm -rf $tmpdir" EXIT INT
+
+modified_files=$(git diff --cached --name-only --diff-filter=AM $against | sed -nE "/.*\.(cpp|cc|cxx|c|h|hpp)$/p")
+FAIL=0
+for file in $modified_files; do
+  echo "Checking $file..."
+
+  cp $project_folder/.clang-format $project_folder/.clang-tidy $tmpdir
+
+  git checkout-index --prefix="$tmpdir/" -- $file
+
+  # Do not break header checker
+  echo "Running header checker..."
+  $project_folder/tools/header-checker.py $tmpdir/$file $file --amend-year
+  CODE=$?
+  if [ $CODE -ne 0 ]; then
+    FAIL=1
+  fi
+done;
+
+return ${FAIL}
