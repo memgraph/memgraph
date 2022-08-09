@@ -89,13 +89,16 @@ class StorageRsm {
   StorageGetResponse Read(StorageGetRequest request) {
     StorageGetResponse ret;
 
-    if (IsKeyInRange(request.key)) {
+    if (!IsKeyInRange(request.key)) {
+      std::cout << "ONE" << std::endl;
       ret.latest_known_shard_map_version = shard_map_version_;
       ret.shard_rsm_success = false;
     } else if (state_.contains(request.key)) {
+      std::cout << "TWO" << std::endl;
       ret.value = state_[request.key];
       ret.shard_rsm_success = true;
     } else {
+      std::cout << "THREE" << std::endl;
       ret.shard_rsm_success = false;
       ret.value = std::nullopt;
     }
@@ -106,13 +109,15 @@ class StorageRsm {
     StorageWriteResponse ret;
 
     // Key is outside the prohibited range
-    if (IsKeyInRange(request.key)) {
+    if (!IsKeyInRange(request.key)) {
       ret.latest_known_shard_map_version = shard_map_version_;
       ret.shard_rsm_success = false;
+      std::cout << "WRITE 0" << std::endl;
     }
     // Key exist
     else if (state_.contains(request.key)) {
       auto &val = state_[request.key];
+      std::cout << "WRITE 1" << std::endl;
 
       /*
        *   Delete
@@ -121,6 +126,7 @@ class StorageRsm {
         ret.shard_rsm_success = true;
         ret.last_value = val;
         state_.erase(state_.find(request.key));
+        std::cout << "WRITE 2" << std::endl;
       }
 
       /*
@@ -132,9 +138,12 @@ class StorageRsm {
         ret.shard_rsm_success = true;
 
         val = request.value.value();
+        std::cout << "WRITE 3" << std::endl;
+
       } else {
         ret.last_value = val;
         ret.shard_rsm_success = false;
+        std::cout << "WRITE 4" << std::endl;
       }
     }
     /*
@@ -145,8 +154,10 @@ class StorageRsm {
       ret.shard_rsm_success = true;
 
       state_.emplace(request.key, std::move(request.value).value());
+      std::cout << "WRITE 5" << std::endl;
     }
 
+    std::cout << "WRITE ret" << std::endl;
     return ret;
   }
 };

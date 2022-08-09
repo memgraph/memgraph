@@ -87,8 +87,6 @@ using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
 using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
 
 class Coordinator {
-  using StandbySotrageEnginePool = std::unordered_set<Address>;
-
   ShardMap shard_map_;
   /// The highest reserved timestamp / highest allocated timestamp
   /// is a way for minimizing communication involved in query engines
@@ -108,17 +106,16 @@ class Coordinator {
   /// Increment our
   ReadResponses Read(HlcRequest &&hlc_request) {
     HlcResponse res{};
-    shard_map_.UpdateShardMapVersion();
 
-    res.new_hlc = shard_map_.GetHlc();
+    auto hlc_shard_map = shard_map_.GetHlc();
 
-    // TODO(gabor) Once the walclock update is implemented, this
-    // comparison should also be updated
-    if (hlc_request.last_shard_map_version.logical_id == res.new_hlc.logical_id) {
-      res.fresher_shard_map = shard_map_;
-    } else {
-      res.fresher_shard_map = {};
-    }
+    MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
+
+    res.new_hlc = shard_map_.UpdateShardMapVersion();
+
+    res.fresher_shard_map = hlc_request.last_shard_map_version.logical_id < hlc_shard_map.logical_id
+                                ? std::make_optional(shard_map_)
+                                : std::nullopt;
 
     return res;
   }
@@ -173,6 +170,8 @@ class Coordinator {
   }
 
  public:
+  explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
+
   ReadResponses Read(ReadRequests requests) {
     return std::visit([&](auto &&requests) { return Read(requests); }, std::move(requests));
   }
