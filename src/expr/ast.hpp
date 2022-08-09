@@ -10,16 +10,16 @@
 // licenses/APL.txt.
 #pragma once
 
-#ifdef STORAGE_AST
-#include STORAGE_AST
-namespace memgraph::expr {
-using namespace memgraph::query::strorage::v2::ast;
-}
-#elif defined QUERY_ENGINE_AST
-#include QUERY_ENGINE_AST
-namespace memgraph::expr {
-using namespace memgraph::query::v2;
-}
-#else
-#error AST type isn't defined!
+#ifndef MG_AST_INCLUDE_PATH
+#error Missing AST include path
 #endif
+
+#ifndef MG_INJECTED_NAMESPACE_NAME
+#error Missing AST namespace
+#endif
+
+#include MG_AST_INCLUDE_PATH
+
+namespace memgraph::expr {
+using namespace MG_INJECTED_NAMESPACE_NAME;
+}

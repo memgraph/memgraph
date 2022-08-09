@@ -13,11 +13,7 @@
 
 #include "utils/visitor.hpp"
 
-#ifndef INJECT_NAMESPACE_NAME
-#error Missing namespace injection
-#endif
-
-namespace INJECT_NAMESPACE_NAME {
+namespace MG_INJECTED_NAMESPACE_NAME {
 
 // Forward declares for Tree visitors.
 class CypherQuery;
@@ -135,4 +131,4 @@ class QueryVisitor : public utils::Visitor<TResult, CypherQuery, ExplainQuery, P
                                            FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
                                            StreamQuery, SettingQuery, VersionQuery, SchemaQuery> {};
 
-}  // namespace INJECT_NAMESPACE_NAME
+}  // namespace MG_INJECTED_NAMESPACE_NAME

@@ -12,5 +12,5 @@
 /// @file
 #pragma once
 
-#define QUERY_ENGINE_AST "query/v2/frontend/ast/ast.hpp"
-#define INJECT_NAMESPACE_NAME memgraph::query::v2
+#define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"
+#define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2

@@ -13,10 +13,8 @@
 
 #include "query/v2/bindings/bindings.hpp"
 
-#define INJECT_NAMESPACE_NAME memgraph::query::v2
-
 #include "expr/ast/cypher_main_visitor.hpp"
 
 namespace memgraph::query::v2 {
 using CypherMainVisitor = memgraph::expr::CypherMainVisitor;
-} // namespace memgraph::query::v2
+}  // namespace memgraph::query::v2
