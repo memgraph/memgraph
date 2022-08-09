@@ -127,6 +127,9 @@ class ReplicationQueryHandler {
     std::string socket_address;
     ReplicationQuery::SyncMode sync_mode;
     std::optional<double> timeout;
+    uint64_t current_timestamp_of_replica;
+    uint64_t current_number_of_timestamp_behind_master;
+    ReplicationQuery::ReplicaState state;
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -137,7 +140,7 @@ class ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RegisterReplica(const std::string &name, const std::string &socket_address,
-                               const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                               ReplicationQuery::SyncMode sync_mode,
                                const std::chrono::seconds replica_check_frequency) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
@@ -170,13 +173,6 @@ struct InterpreterContext {
 
   storage::Storage *db;
 
-  // ANTLR has singleton instance that is shared between threads. It is
-  // protected by locks inside of ANTLR. Unfortunately, they are not protected
-  // in a very good way. Once we have ANTLR version without race conditions we
-  // can remove this lock. This will probably never happen since ANTLR
-  // developers introduce more bugs in each version. Fortunately, we have
-  // cache so this lock probably won't impact performance much...
-  utils::SpinLock antlr_lock;
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
 

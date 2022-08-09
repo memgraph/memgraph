@@ -67,6 +67,12 @@ cpp<#
     ((success :bool)
      (current-commit-timestamp :uint64_t))))
 
+(lcp:define-rpc timestamp
+  (:request ())
+  (:response
+    ((success :bool)
+     (current-commit-timestamp :uint64_t))))
+
 (lcp:pop-namespace) ;; replication
 (lcp:pop-namespace) ;; storage
 (lcp:pop-namespace) ;; memgraph

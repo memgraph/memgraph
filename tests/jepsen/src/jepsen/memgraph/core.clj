@@ -13,7 +13,6 @@
             [jepsen.memgraph [basic :as basic]
                              [bank :as bank]
                              [large :as large]
-                             [sequential :as sequential]
                              [support :as s]
                              [nemesis :as nemesis]
                              [edn :as e]]))
@@ -22,7 +21,6 @@
   "A map of workload names to functions that can take opts and construct
    workloads."
    {:bank       bank/workload
-    ;; :sequential sequential/workload (T0532-MG)
     :large      large/workload})
 
 (def nemesis-configuration
@@ -129,13 +127,7 @@
         :replication-mode
         (str "Invalid node configuration. "
              "Every replication node requires "
-             ":replication-mode to be defined."))
-      (throw-if-key-missing-in-any
-        (filter #(= (:replication-mode %) :sync) replica-nodes-configs)
-        :timeout
-        (str "Invalid node confiruation. "
-             "Every SYNC replication node requires "
-             ":timeout to be defined."))))
+             ":replication-mode to be defined."))))
 
   (map (fn [node-config] (resolve-all-node-hostnames
           (merge

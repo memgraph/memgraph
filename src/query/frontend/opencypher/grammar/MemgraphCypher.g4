@@ -122,6 +122,7 @@ query : cypherQuery
       | streamQuery
       | settingQuery
       | versionQuery
+      | showConfigQuery
       ;
 
 authQuery : createRole
@@ -276,7 +277,6 @@ replicaName : symbolicName ;
 socketAddress : literal ;
 
 registerReplica : REGISTER REPLICA replicaName ( SYNC | ASYNC )
-                ( WITH TIMEOUT timeout=literal ) ?
                 TO socketAddress ;
 
 dropReplica : DROP REPLICA replicaName ;
@@ -351,7 +351,7 @@ pulsarCreateStream : CREATE PULSAR STREAM streamName ( pulsarCreateStreamConfig 
 
 dropStream : DROP STREAM streamName ;
 
-startStream : START STREAM streamName ;
+startStream : START STREAM streamName ( BATCH_LIMIT batchLimit=literal ) ? ( TIMEOUT timeout=literal ) ? ;
 
 startAllStreams : START ALL STREAMS ;
 
@@ -372,5 +372,7 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;

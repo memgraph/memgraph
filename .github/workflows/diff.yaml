@@ -1,4 +1,7 @@
 name: Diff
+concurrency:
+  group: ${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -67,6 +70,11 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+        # This is also needed if we want do to comparison against other branches
+        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      - name: Fetch all history for all tags and branches
+        run: git fetch
+
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
           # Activate toolchain.
@@ -107,12 +115,22 @@ jobs:
           name: "Code coverage"
           path: tools/github/generated/code_coverage.tar.gz
 
+      - name: Set base branch
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
+
+      - name: Set base branch # if we manually dispatch or push to master
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
+
       - name: Run clang-tidy
         run: |
           source /opt/toolchain-v4/activate
 
           # Restrict clang-tidy results only to the modified parts
-          git diff -U0 master... -- src ':!*.hpp' | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
+          git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build | tee ./build/clang_tidy_output.txt
 
           # Fail if any warning is reported
           ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null

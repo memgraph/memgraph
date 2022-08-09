@@ -103,7 +103,8 @@ class Storage::ReplicationClient {
   // StartTransactionReplication, stream is created.
   void IfStreamingTransaction(const std::function<void(ReplicaStream &handler)> &callback);
 
-  void FinalizeTransactionReplication();
+  // Return whether the transaction could be finalized on the replication client or not.
+  [[nodiscard]] bool FinalizeTransactionReplication();
 
   // Transfer the snapshot file.
   // @param path Path of the snapshot file.
@@ -120,12 +121,12 @@ class Storage::ReplicationClient {
 
   auto Mode() const { return mode_; }
 
-  auto Timeout() const { return timeout_; }
-
   const auto &Endpoint() const { return rpc_client_->Endpoint(); }
 
+  Storage::TimestampInfo GetTimestampInfo();
+
  private:
-  void FinalizeTransactionReplicationInternal();
+  [[nodiscard]] bool FinalizeTransactionReplicationInternal();
 
   void RecoverReplica(uint64_t replica_commit);
 
@@ -155,30 +156,6 @@ class Storage::ReplicationClient {
 
   std::optional<ReplicaStream> replica_stream_;
   replication::ReplicationMode mode_{replication::ReplicationMode::SYNC};
-
-  // Dispatcher class for timeout tasks
-  struct TimeoutDispatcher {
-    explicit TimeoutDispatcher(){};
-
-    void WaitForTaskToFinish();
-
-    void StartTimeoutTask(double timeout);
-
-    // If the Timeout task should continue waiting
-    std::atomic<bool> active{false};
-
-    std::mutex main_lock;
-    std::condition_variable main_cv;
-
-   private:
-    // if the Timeout task finished executing
-    bool finished{true};
-
-    utils::ThreadPool timeout_pool{1};
-  };
-
-  std::optional<double> timeout_;
-  std::optional<TimeoutDispatcher> timeout_dispatcher_;
 
   utils::SpinLock client_lock_;
   // This thread pool is used for background tasks so we don't

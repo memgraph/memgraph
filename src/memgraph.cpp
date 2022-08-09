@@ -164,8 +164,6 @@ DEFINE_string(bolt_server_name_for_init, "",
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_string(log_link_basename, "", "Basename used for symlink creation to the last log file.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
               "less available RAM it will log a warning. Set to 0 to "
@@ -349,7 +347,8 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                         });
 
 // Logging flags
-DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_HIDDEN_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 
 namespace {
@@ -429,9 +428,9 @@ void AddLoggerSink(spdlog::sink_ptr new_sink) {
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(license_key, "", "License key for Memgraph Enterprise.");
+DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(organization_name, "", "Organization name.");
+DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
@@ -901,6 +900,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
       throw memgraph::communication::bolt::ClientError(e.what());
+    } catch (const memgraph::query::ReplicationException &e) {
+      throw memgraph::communication::bolt::ClientError(e.what());
     }
   }
 
@@ -1195,7 +1196,8 @@ int main(int argc, char **argv) {
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
-                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit},
+                     .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
+                     .restore_replicas_on_startup = true},
       .transaction = {.isolation_level = ParseIsolationLevel()}};
   if (FLAGS_storage_snapshot_interval_sec == 0) {
     if (FLAGS_storage_wal_enabled) {
@@ -1246,9 +1248,8 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = interpreter_context.db->Access();
     auto dba = memgraph::query::DbAccessor{&storage_accessor};
-    interpreter_context.trigger_store.RestoreTriggers(&interpreter_context.ast_cache, &dba,
-                                                      &interpreter_context.antlr_lock, interpreter_context.config.query,
-                                                      interpreter_context.auth_checker);
+    interpreter_context.trigger_store.RestoreTriggers(
+        &interpreter_context.ast_cache, &dba, interpreter_context.config.query, interpreter_context.auth_checker);
   }
 
   // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.

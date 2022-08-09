@@ -18,12 +18,11 @@ from pathlib import Path
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner
+import interactive_mg_runner
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
-MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -51,37 +50,26 @@ def run(args):
             continue
         log.info("%s STARTED.", workload_name)
         # Setup.
-        mg_instances = {}
-
         @atexit.register
         def cleanup():
-            for mg_instance in mg_instances.values():
-                mg_instance.stop()
+            interactive_mg_runner.stop_all()
 
-        for name, config in workload["cluster"].items():
-            use_ssl = False
-            if "ssl" in config:
-                use_ssl = bool(config["ssl"])
-                config.pop("ssl")
-            mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl)
-            mg_instances[name] = mg_instance
-            log_file_path = os.path.join(BUILD_DIR, "logs", config["log_file"])
-            binary_args = config["args"] + ["--log-file", log_file_path]
+        if "cluster" in workload:
+            procdir = ""
             if "proc" in workload:
-                procdir = "--query-modules-directory=" + os.path.join(BUILD_DIR, workload["proc"])
-                binary_args.append(procdir)
-            mg_instance.start(args=binary_args)
-            for query in config.get("setup_queries", []):
-                mg_instance.query(query)
+                procdir = os.path.join(BUILD_DIR, workload["proc"])
+            interactive_mg_runner.start_all(workload["cluster"], procdir)
+
         # Test.
         mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
         subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
         # Validation.
-        for name, config in workload["cluster"].items():
-            for validation in config.get("validation_queries", []):
-                mg_instance = mg_instances[name]
-                data = mg_instance.query(validation["query"])[0][0]
-                assert data == validation["expected"]
+        if "cluster" in workload:
+            for name, config in workload["cluster"].items():
+                for validation in config.get("validation_queries", []):
+                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                    data = mg_instance.query(validation["query"])[0][0]
+                    assert data == validation["expected"]
         cleanup()
         log.info("%s PASSED.", workload_name)
 
