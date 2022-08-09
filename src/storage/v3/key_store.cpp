@@ -18,7 +18,7 @@
 
 namespace memgraph::storage::v3 {
 
-KeyStore::KeyStore(const std::vector<PropertyValue> &key_values) {
+KeyStore::KeyStore(const PrimaryKey &key_values) {
   for (auto i = 0; i < key_values.size(); ++i) {
     MG_ASSERT(!key_values[i].IsNull());
     store_.SetProperty(PropertyId::FromInt(i), key_values[i]);
@@ -27,9 +27,9 @@ KeyStore::KeyStore(const std::vector<PropertyValue> &key_values) {
 
 PropertyValue KeyStore::GetKey(const size_t index) const { return store_.GetProperty(PropertyId::FromUint(index)); }
 
-std::vector<PropertyValue> KeyStore::Keys() const {
+PrimaryKey KeyStore::Keys() const {
   auto keys_map = store_.Properties();
-  std::vector<PropertyValue> keys;
+  PrimaryKey keys;
   keys.reserve(keys_map.size());
   std::ranges::transform(
       keys_map, std::back_inserter(keys),

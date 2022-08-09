@@ -28,33 +28,17 @@
 namespace memgraph::storage::v3 {
 
 struct Vertex {
-  // TODO Remove Gid
-  Vertex(Gid /*gid*/, Delta *delta, LabelId primary_label, std::vector<PropertyValue> primary_properties)
+  Vertex(Delta *delta, LabelId primary_label, std::vector<PropertyValue> primary_properties)
       : primary_label{primary_label}, keys{primary_properties}, deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  // TODO remove this when import replication is solved
-  Vertex(Gid gid, LabelId primary_label)
-      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
+  Vertex(LabelId primary_label, std::vector<PropertyValue> primary_properties)
+      : primary_label{primary_label}, keys(primary_properties), deleted(false) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
-
-  // TODO remove this when import csv is solved
-  Vertex(Gid gid, Delta *delta) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
-  // TODO remove this when import replication is solved
-  explicit Vertex(Gid gid) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
-  Gid Gid() const { return Gid::FromInt(keys.GetKey(0).ValueInt()); }
 
   LabelId primary_label;
   KeyStore keys;

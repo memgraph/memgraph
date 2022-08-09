@@ -30,6 +30,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -228,16 +229,12 @@ class Storage final {
 
     ~Accessor();
 
-    VertexAccessor CreateVertex();
-
-    VertexAccessor CreateVertex(Gid gid);
-
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         LabelId primary_label, const std::vector<LabelId> &labels,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
-    std::optional<VertexAccessor> FindVertex(Gid gid, View view);
+    std::optional<VertexAccessor> FindVertex(LabelId primary_label, std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
@@ -558,11 +555,11 @@ class Storage final {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<std::map<LabelId, std::list<PrimaryKey>>, utils::SpinLock> deleted_vertices_;
 
   // Vertices that are logically deleted and removed from indices and now wait
   // to be removed from the main storage.
-  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
+  std::map<LabelId, std::list<std::pair<uint64_t, PrimaryKey>>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.

@@ -19,6 +19,7 @@
 
 #include "query/v2/exceptions.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 
@@ -188,9 +189,8 @@ class VertexAccessor final {
 
   storage::v3::Result<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
-
-  storage::v3::Gid Gid() const noexcept { return impl_.Gid(); }
+  // TODO Remove Gid
+  int64_t CypherId() const { return 1; }
 
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
@@ -241,8 +241,9 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  std::optional<VertexAccessor> FindVertex(storage::v3::Gid gid, storage::v3::View view) {
-    auto maybe_vertex = accessor_->FindVertex(gid, view);
+  std::optional<VertexAccessor> FindVertex(storage::v3::LabelId primary_label, storage::v3::PrimaryKey &primary_key,
+                                           storage::v3::View view) {
+    auto maybe_vertex = accessor_->FindVertex(primary_label, primary_key, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
@@ -271,7 +272,7 @@ class DbAccessor final {
   }
 
   // TODO Remove when query modules have been fixed
-  [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
+  // [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,

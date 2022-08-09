@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -31,6 +32,7 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/replication/config.hpp"
@@ -56,6 +58,14 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+void InsertVertexPKIntoMap(auto &container, const LabelId primary_label, const PrimaryKey &primary_key) {
+  if (container.contains(primary_label)) {
+    container[primary_label].push_back(primary_key);
+  } else {
+    container[primary_label] = {primary_key};
+  }
+}
 }  // namespace
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
@@ -475,50 +485,50 @@ Storage::Accessor::~Accessor() {
 }
 
 // TODO Remove when import csv is fixed
-[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  // TODO(antaljanosbenjamin): handle keys and schema
-  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&it->vertex);
-  return {&it->vertex,
-          &transaction_,
-          &storage_->indices_,
-          &storage_->constraints_,
-          config_,
-          storage_->schema_validator_,
-          storage_->schemas_};
-}
+// [[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
+//   OOMExceptionEnabler oom_exception;
+//   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+//   auto acc = storage_->vertices_.access();
+//   auto *delta = CreateDeleteObjectDelta(&transaction_);
+//   // TODO(antaljanosbenjamin): handle keys and schema
+//   auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
+//   MG_ASSERT(inserted, "The vertex must be inserted here!");
+//   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+//   delta->prev.Set(&it->vertex);
+//   return {&it->vertex,
+//           &transaction_,
+//           &storage_->indices_,
+//           &storage_->constraints_,
+//           config_,
+//           storage_->schema_validator_,
+//           storage_->schemas_};
+// }
 
 // TODO Remove when replication is fixed
-VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  // NOTE: When we update the next `vertex_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
-  auto acc = storage_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{gid, delta}});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&it->vertex);
-  return {&it->vertex,
-          &transaction_,
-          &storage_->indices_,
-          &storage_->constraints_,
-          config_,
-          storage_->schema_validator_,
-          storage_->schemas_};
-}
+// VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
+//   OOMExceptionEnabler oom_exception;
+//   // NOTE: When we update the next `vertex_id_` here we perform a RMW
+//   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
+//   // because this function is only called from the replication delta applier
+//   // that runs single-threadedly and while this instance is set-up to apply
+//   // threads (it is the replica), it is guaranteed that no other writes are
+//   // possible.
+//   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
+//                              std::memory_order_release);
+//   auto acc = storage_->vertices_.access();
+//   auto *delta = CreateDeleteObjectDelta(&transaction_);
+//   auto [it, inserted] = acc.insert({Vertex{gid, delta}});
+//   MG_ASSERT(inserted, "The vertex must be inserted here!");
+//   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+//   delta->prev.Set(&it->vertex);
+//   return {&it->vertex,
+//           &transaction_,
+//           &storage_->indices_,
+//           &storage_->constraints_,
+//           config_,
+//           storage_->schema_validator_,
+//           storage_->schemas_};
+// }
 
 ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
@@ -528,7 +538,6 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
 
@@ -540,7 +549,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     }
   }
 
-  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta, primary_label, primary_properties}});
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
@@ -570,9 +579,11 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
   return va;
 }
 
-std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
+std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId /*primary_label*/,
+                                                            std::vector<PropertyValue> primary_key, View view) {
   auto acc = storage_->vertices_.access();
-  auto it = acc.find(std::vector{PropertyValue{gid.AsInt()}});
+  // Later on use label space
+  auto it = acc.find(primary_key);
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                 storage_->schema_validator_, storage_->schemas_, view);
@@ -1025,7 +1036,7 @@ void Storage::Accessor::Abort() {
   // We collect vertices and edges we've created here and then splice them into
   // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
   // by one and acquiring lock every time.
-  std::list<Gid> my_deleted_vertices;
+  std::map<LabelId, std::list<PrimaryKey>> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
   for (const auto &delta : transaction_.deltas) {
@@ -1101,7 +1112,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              my_deleted_vertices.push_back(vertex->Gid());
+              InsertVertexPKIntoMap(my_deleted_vertices, vertex->primary_label, vertex->keys.Keys());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1175,8 +1186,17 @@ void Storage::Accessor::Abort() {
       engine_guard.unlock();
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
-    storage_->deleted_vertices_.WithLock(
-        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
+    storage_->deleted_vertices_.WithLock([&](auto &deleted_vertices) {
+      // Go over each of labels in
+      for (auto &[primary_label, my_deleted_vertices_pk] : my_deleted_vertices) {
+        if (deleted_vertices.contains(primary_label)) {
+          deleted_vertices[primary_label].splice(deleted_vertices[primary_label].begin(), my_deleted_vertices_pk);
+        } else {
+          deleted_vertices[primary_label] = {my_deleted_vertices_pk};
+        }
+      }
+      // deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices);
+    });
     storage_->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
@@ -1440,7 +1460,7 @@ void Storage::CollectGarbage() {
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
+  std::map<LabelId, std::list<PrimaryKey>> current_deleted_vertices;
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
@@ -1512,7 +1532,7 @@ void Storage::CollectGarbage() {
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              current_deleted_vertices.push_back(vertex->Gid());
+              InsertVertexPKIntoMap(current_deleted_vertices, vertex->primary_label, vertex->keys.Keys());
             }
             break;
           }
@@ -1608,8 +1628,13 @@ void Storage::CollectGarbage() {
       }
       garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
     });
-    for (auto vertex : current_deleted_vertices) {
-      garbage_vertices_.emplace_back(mark_timestamp, vertex);
+    for (auto &[primary_label, primary_keys] : current_deleted_vertices) {
+      if (!garbage_vertices_.contains(primary_label)) {
+        garbage_vertices_[primary_label] = {};
+      }
+      for (auto &pk : primary_keys) {
+        garbage_vertices_[primary_label].emplace_back(mark_timestamp, pk);
+      }
     }
   }
 
@@ -1630,18 +1655,32 @@ void Storage::CollectGarbage() {
     if constexpr (force) {
       // if force is set to true, then we have unique_lock and no transactions are active
       // so we can clean all of the deleted vertices
-      std::vector<PropertyValue> key(1);
       while (!garbage_vertices_.empty()) {
-        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
+        // TODO Get back on the strategy of cleaning
+        auto it = garbage_vertices_.begin();
+        int random = rand() % garbage_vertices_.size();
+        std::advance(it, random);
+
+        auto key = it->second.front().second;
         MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-        garbage_vertices_.pop_front();
+        it->second.pop_front();
+        if (it->second.empty()) {
+          garbage_vertices_.erase(it);
+        }
       }
     } else {
-      std::vector<PropertyValue> key(1);
-      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
-        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-        garbage_vertices_.pop_front();
+      while (!garbage_vertices_.empty()) {
+        auto it = garbage_vertices_.begin();
+        int random = rand() % garbage_vertices_.size();
+        std::advance(it, random);
+        if (it->second.front().first < oldest_active_start_timestamp) {
+          auto key = it->second.front().second;
+          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+          it->second.pop_front();
+          if (it->second.empty()) {
+            garbage_vertices_.erase(it);
+          }
+        }
       }
     }
   }

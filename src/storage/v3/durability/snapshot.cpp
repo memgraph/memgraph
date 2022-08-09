@@ -300,48 +300,48 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
       }
 
       // Insert vertex.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (i > 0 && *gid <= last_vertex_gid) {
-        throw RecoveryFailure("Invalid snapshot data!");
-      }
-      last_vertex_gid = *gid;
-      spdlog::debug("Recovering vertex {}.", *gid);
-      auto [it, inserted] = vertex_acc.insert({Vertex{Gid::FromUint(*gid), nullptr}});
-      if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
+      // auto gid = snapshot.ReadUint();
+      // if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+      // if (i > 0 && *gid <= last_vertex_gid) {
+      //   throw RecoveryFailure("Invalid snapshot data!");
+      // }
+      // last_vertex_gid = *gid;
+      // spdlog::debug("Recovering vertex {}.", *gid);
+      // auto [it, inserted] = vertex_acc.insert({Vertex{Gid::FromUint(*gid), nullptr}});
+      // if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
 
       // Recover labels.
-      spdlog::trace("Recovering labels for vertex {}.", *gid);
-      {
-        auto labels_size = snapshot.ReadUint();
-        if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
-        auto &labels = it->vertex.labels;
-        labels.reserve(*labels_size);
-        for (uint64_t j = 0; j < *labels_size; ++j) {
-          auto label = snapshot.ReadUint();
-          if (!label) throw RecoveryFailure("Invalid snapshot data!");
-          SPDLOG_TRACE("Recovered label \"{}\" for vertex {}.", name_id_mapper->IdToName(snapshot_id_map.at(*label)),
-                       *gid);
-          labels.emplace_back(get_label_from_id(*label));
-        }
-      }
+      // spdlog::trace("Recovering labels for vertex {}.", *gid);
+      // {
+      //   auto labels_size = snapshot.ReadUint();
+      //   if (!labels_size) throw RecoveryFailure("Invalid snapshot data!");
+      //   auto &labels = it->vertex.labels;
+      //   labels.reserve(*labels_size);
+      //   for (uint64_t j = 0; j < *labels_size; ++j) {
+      //     auto label = snapshot.ReadUint();
+      //     if (!label) throw RecoveryFailure("Invalid snapshot data!");
+      //     SPDLOG_TRACE("Recovered label \"{}\" for vertex {}.", name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+      //                  *gid);
+      //     labels.emplace_back(get_label_from_id(*label));
+      //   }
+      // }
 
       // Recover properties.
-      spdlog::trace("Recovering properties for vertex {}.", *gid);
-      {
-        auto props_size = snapshot.ReadUint();
-        if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
-        auto &props = it->vertex.properties;
-        for (uint64_t j = 0; j < *props_size; ++j) {
-          auto key = snapshot.ReadUint();
-          if (!key) throw RecoveryFailure("Invalid snapshot data!");
-          auto value = snapshot.ReadPropertyValue();
-          if (!value) throw RecoveryFailure("Invalid snapshot data!");
-          SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
-                       name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
-          props.SetProperty(get_property_from_id(*key), *value);
-        }
-      }
+      // spdlog::trace("Recovering properties for vertex {}.", *gid);
+      // {
+      //   auto props_size = snapshot.ReadUint();
+      //   if (!props_size) throw RecoveryFailure("Invalid snapshot data!");
+      //   auto &props = it->vertex.properties;
+      //   for (uint64_t j = 0; j < *props_size; ++j) {
+      //     auto key = snapshot.ReadUint();
+      //     if (!key) throw RecoveryFailure("Invalid snapshot data!");
+      //     auto value = snapshot.ReadPropertyValue();
+      //     if (!value) throw RecoveryFailure("Invalid snapshot data!");
+      //     SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
+      //                  name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
+      //     props.SetProperty(get_property_from_id(*key), *value);
+      //   }
+      // }
 
       // Skip in edges.
       {
@@ -381,11 +381,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
         if (!marker || *marker != Marker::SECTION_VERTEX) throw RecoveryFailure("Invalid snapshot data!");
       }
 
-      spdlog::trace("Recovering connectivity for vertex {}.", vertex.Gid().AsUint());
+      // spdlog::trace("Recovering connectivity for vertex {}.", vertex.Gid().AsUint());
       // Check vertex.
-      auto gid = snapshot.ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid snapshot data!");
-      if (gid != vertex.Gid().AsUint()) throw RecoveryFailure("Invalid snapshot data!");
+      // auto gid = snapshot.ReadUint();
+      // if (!gid) throw RecoveryFailure("Invalid snapshot data!");
+      // if (gid != vertex.Gid().AsUint()) throw RecoveryFailure("Invalid snapshot data!");
 
       // Skip labels.
       {
@@ -411,7 +411,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
 
       // Recover in edges.
       {
-        spdlog::trace("Recovering inbound edges for vertex {}.", vertex.Gid().AsUint());
+        // TODO Fix Gid
+        spdlog::trace("Recovering inbound edges for vertex {}.", 1);
         auto in_size = snapshot.ReadUint();
         if (!in_size) throw RecoveryFailure("Invalid snapshot data!");
         vertex.in_edges.reserve(*in_size);
@@ -439,15 +440,17 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
               edge_ref = EdgeRef(&*edge);
             }
           }
+          // TODO Fix Gid
           SPDLOG_TRACE("Recovered inbound edge {} with label \"{}\" from vertex {}.", *edge_gid,
-                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), from_vertex->vertex.Gid().AsUint());
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), 1);
           vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &from_vertex->vertex, edge_ref);
         }
       }
 
       // Recover out edges.
       {
-        spdlog::trace("Recovering outbound edges for vertex {}.", vertex.Gid().AsUint());
+        // TODO Fix Gid
+        spdlog::trace("Recovering outbound edges for vertex {}.", 1);
         auto out_size = snapshot.ReadUint();
         if (!out_size) throw RecoveryFailure("Invalid snapshot data!");
         vertex.out_edges.reserve(*out_size);
@@ -475,8 +478,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
               edge_ref = EdgeRef(&*edge);
             }
           }
+          // TODO Fix Gid
           SPDLOG_TRACE("Recovered outbound edge {} with label \"{}\" to vertex {}.", *edge_gid,
-                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), to_vertex->vertex.Gid().AsUint());
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), 1);
           vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &to_vertex->vertex, edge_ref);
         }
         // Increment edge count. We only increment the count here because the
@@ -766,7 +770,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // Store the vertex.
       {
         snapshot.WriteMarker(Marker::SECTION_VERTEX);
-        snapshot.WriteUint(lgo_vertex.vertex.Gid().AsUint());
+        // TODO Fix Gid
+        snapshot.WriteUint(1);
         const auto &labels = maybe_labels.GetValue();
         snapshot.WriteUint(labels.size());
         for (const auto &item : labels) {
@@ -780,16 +785,17 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         }
         const auto &in_edges = maybe_in_edges.GetValue();
         snapshot.WriteUint(in_edges.size());
+        // TODO Disabled serialization for vertices
         for (const auto &item : in_edges) {
           snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+          snapshot.WriteUint(1);
           write_mapping(item.EdgeType());
         }
         const auto &out_edges = maybe_out_edges.GetValue();
         snapshot.WriteUint(out_edges.size());
         for (const auto &item : out_edges) {
           snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+          snapshot.WriteUint(1);
           write_mapping(item.EdgeType());
         }
       }
