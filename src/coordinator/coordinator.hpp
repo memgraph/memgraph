@@ -107,15 +107,20 @@ class Coordinator {
   ReadResponses Read(HlcRequest &&hlc_request) {
     HlcResponse res{};
 
+    std::cout << "HlcRequest->HlcResponse" << std::endl;
+
     auto hlc_shard_map = shard_map_.GetHlc();
 
     MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
 
     res.new_hlc = shard_map_.UpdateShardMapVersion();
 
-    res.fresher_shard_map = hlc_request.last_shard_map_version.logical_id < hlc_shard_map.logical_id
-                                ? std::make_optional(shard_map_)
-                                : std::nullopt;
+    // res.fresher_shard_map = hlc_request.last_shard_map_version.logical_id < hlc_shard_map.logical_id
+    //                             ? std::make_optional(shard_map_)
+    //                             : std::nullopt;
+
+    // Allways return fresher shard_map for now.
+    res.fresher_shard_map = std::make_optional(shard_map_);
 
     return res;
   }
