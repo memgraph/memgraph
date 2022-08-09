@@ -76,6 +76,7 @@ class AllVerticesIterable final {
   Constraints *constraints_;
   Config::Items config_;
   const SchemaValidator *schema_validator_;
+  const Schemas *schemas_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -97,14 +98,15 @@ class AllVerticesIterable final {
 
   AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
                       Indices *indices, Constraints *constraints, Config::Items config,
-                      SchemaValidator *schema_validator)
+                      const SchemaValidator &schema_validator, const Schemas &schemas)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_(schema_validator) {}
+        schema_validator_{&schema_validator},
+        schemas_{&schemas} {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
@@ -240,7 +242,7 @@ class Storage final {
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
                                                   &storage_->indices_, &storage_->constraints_, storage_->config_.items,
-                                                  &storage_->schema_validator_));
+                                                  storage_->schema_validator_, storage_->schemas_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);

@@ -19,6 +19,7 @@
 #include "storage/v3/config.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
@@ -75,7 +76,8 @@ class LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator);
+             Indices *indices, Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
+             const Schemas &schemas);
 
     class Iterator {
      public:
@@ -109,13 +111,15 @@ class LabelIndex {
     Constraints *constraints_;
     Config::Items config_;
     const SchemaValidator *schema_validator_;
+    const Schemas *schemas_;
   };
 
   /// Returns an self with vertices visible from the given transaction.
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return {it->second.access(), label, view, transaction, indices_, constraints_, config_, *schema_validator_};
+    return {it->second.access(), label,    view, transaction, indices_, constraints_, config_,
+            *schema_validator_,  *schemas_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -134,6 +138,7 @@ class LabelIndex {
   Constraints *constraints_;
   Config::Items config_;
   const SchemaValidator *schema_validator_;
+  const Schemas *schemas_;
 };
 
 class LabelPropertyIndex {
@@ -152,8 +157,12 @@ class LabelPropertyIndex {
 
  public:
   LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config,
-                     const SchemaValidator &schema_validator)
-      : indices_(indices), constraints_(constraints), config_(config), schema_validator_{&schema_validator} {}
+                     const SchemaValidator &schema_validator, const Schemas &schemas)
+      : indices_(indices),
+        constraints_(constraints),
+        config_(config),
+        schema_validator_{&schema_validator},
+        schemas_{&schemas} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -177,7 +186,8 @@ class LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator);
+             Indices *indices, Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
+             const Schemas &schemas);
 
     class Iterator {
      public:
@@ -215,16 +225,17 @@ class LabelPropertyIndex {
     Constraints *constraints_;
     Config::Items config_;
     const SchemaValidator *schema_validator_;
+    const Schemas *schemas_;
   };
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-                    const SchemaValidator &schema_validator_) {
+                    const SchemaValidator &schema_validator, const Schemas &schemas) {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
     return {it->second.access(), label,    property,     lower_bound, upper_bound,      view,
-            transaction,         indices_, constraints_, config_,     schema_validator_};
+            transaction,         indices_, constraints_, config_,     schema_validator, schemas};
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
@@ -254,12 +265,14 @@ class LabelPropertyIndex {
   Constraints *constraints_;
   Config::Items config_;
   const SchemaValidator *schema_validator_;
+  const Schemas *schemas_;
 };
 
 struct Indices {
-  Indices(Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator)
+  Indices(Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
+          const Schemas &schemas)
       : label_index(this, constraints, config, schema_validator),
-        label_property_index(this, constraints, config, schema_validator) {}
+        label_property_index(this, constraints, config, schema_validator, schemas) {}
 
   // Disable copy and move because members hold pointer to `this`.
   Indices(const Indices &) = delete;
