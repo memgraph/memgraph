@@ -16,6 +16,7 @@
 #include "auth/exceptions.hpp"
 #include "utils/cast.hpp"
 #include "utils/license.hpp"
+#include "utils/logging.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 
@@ -184,27 +185,41 @@ bool operator==(const Permissions &first, const Permissions &second) {
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
 const std::string ASTERISK = "*";
+const std::pair<std::string, LabelPermission> DENY_ALL = {ASTERISK, memgraph::auth::LabelPermission::READ};
+const std::pair<std::string, LabelPermission> GRANT_ALL = {ASTERISK, memgraph::auth::LabelPermission::CREATE_DELETE};
 
-FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants,
-                                                           const std::unordered_set<std::string> &denies)
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_map<std::string, ushort> &grants,
+                                                           const std::unordered_map<std::string, ushort> &denies)
     : grants_(grants), denies_(denies) {}
 
-PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission) const {
-  if ((denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) || denies_.find(permission) != denies_.end()) {
+PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission, LabelPermission label_permission) {
+  if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
     return PermissionLevel::DENY;
   }
 
-  if ((grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) || grants_.find(permission) != denies_.end()) {
+  if ((grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end())) {
     return PermissionLevel::GRANT;
   }
 
-  return PermissionLevel::NEUTRAL;
+  auto grants_permission = PermissionLevel::DENY;
+  auto denies_permission = PermissionLevel::GRANT;
+
+  if (denies_.find(permission) != denies_.end() && denies_[permission] & label_permission) {
+    denies_permission = PermissionLevel::DENY;
+  }
+
+  if (grants_.find(permission) != grants_.end() && grants_[permission] & label_permission) {
+    grants_permission = PermissionLevel::GRANT;
+  }
+
+  return denies_permission >= grants_permission ? denies_permission : grants_permission;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission) {
+void FineGrainedAccessPermissions::Grant(const std::string &permission, LabelPermission label_permission) {
   if (permission == ASTERISK) {
+    MG_ASSERT(label_permission == LabelPermission::CREATE_DELETE);
     grants_.clear();
-    grants_.insert(permission);
+    grants_[permission] = LabelPermission::CREATE_DELETE | LabelPermission::EDIT | LabelPermission::READ;
 
     return;
   }
@@ -220,7 +235,15 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission) {
   }
 
   if (grants_.find(permission) == grants_.end()) {
-    grants_.insert(permission);
+    ushort perm = 0;
+    auto u_label_perm = static_cast<ushort>(label_permission);
+
+    while (u_label_perm != 0) {
+      perm |= u_label_perm;
+      u_label_perm >>= (ushort)1;
+    }
+
+    grants_[permission] = perm;
   }
 }
 
@@ -244,10 +267,11 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   }
 }
 
-void FineGrainedAccessPermissions::Deny(const std::string &permission) {
+void FineGrainedAccessPermissions::Deny(const std::string &permission, LabelPermission label_permission) {
   if (permission == ASTERISK) {
+    MG_ASSERT(label_permission == LabelPermission::READ);
     denies_.clear();
-    denies_.insert(permission);
+    denies_[permission] = LabelPermission::CREATE_DELETE | LabelPermission::EDIT | LabelPermission::READ;
 
     return;
   }
@@ -263,7 +287,15 @@ void FineGrainedAccessPermissions::Deny(const std::string &permission) {
   }
 
   if (denies_.find(permission) == denies_.end()) {
-    denies_.insert(permission);
+    ushort perm = 0;
+    auto u_label_perm = static_cast<ushort>(label_permission);
+
+    while (u_label_perm <= (ushort)4) {
+      perm |= u_label_perm;
+      u_label_perm <<= (ushort)1;
+    }
+
+    denies_[permission] = perm;
   }
 }
 
@@ -282,8 +314,8 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   return FineGrainedAccessPermissions(data["grants"], data["denies"]);
 }
 
-const std::unordered_set<std::string> &FineGrainedAccessPermissions::grants() const { return grants_; }
-const std::unordered_set<std::string> &FineGrainedAccessPermissions::denies() const { return denies_; }
+const std::unordered_map<std::string, ushort> &FineGrainedAccessPermissions::grants() const { return grants_; }
+const std::unordered_map<std::string, ushort> &FineGrainedAccessPermissions::denies() const { return denies_; }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.grants() == second.grants() && first.denies() == second.denies();
@@ -393,14 +425,14 @@ Permissions User::GetPermissions() const {
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessPermissions() const {
   if (role_) {
-    std::unordered_set<std::string> resultGrants;
+    std::unordered_map<std::string, ushort> resultGrants;
 
     std::set_union(fine_grained_access_permissions_.grants().begin(), fine_grained_access_permissions_.grants().end(),
                    role_->fine_grained_access_permissions().grants().begin(),
                    role_->fine_grained_access_permissions().grants().end(),
                    std::inserter(resultGrants, resultGrants.begin()));
 
-    std::unordered_set<std::string> resultDenies;
+    std::unordered_map<std::string, ushort> resultDenies;
 
     std::set_union(fine_grained_access_permissions_.denies().begin(), fine_grained_access_permissions_.denies().end(),
                    role_->fine_grained_access_permissions().denies().begin(),

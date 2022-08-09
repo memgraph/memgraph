@@ -10,7 +10,7 @@
 
 #include <optional>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 
 #include <json/json.hpp>
 
@@ -43,15 +43,27 @@ enum class Permission : uint64_t {
 };
 // clang-format on
 
+// clang-format off
+enum class LabelPermission : ushort {
+  READ          = 1,
+  EDIT          = 1U << 1U,
+  CREATE_DELETE = 1U << 2U
+};
+// clang-format on
+
+inline ushort operator|(LabelPermission a, LabelPermission b) {
+  return static_cast<ushort>(a) | static_cast<ushort>(b);
+}
+
+inline ushort operator|(ushort a, LabelPermission b) { return a | static_cast<ushort>(b); }
+
+inline bool operator&(ushort a, LabelPermission b) { return (a & static_cast<ushort>(b)) != (ushort)0; }
+
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
 
 // Class that indicates what permission level the user/role has.
-enum class PermissionLevel {
-  GRANT,
-  NEUTRAL,
-  DENY,
-};
+enum class PermissionLevel : short { DENY, GRANT, NEUTRAL };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
@@ -91,28 +103,28 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
-                                        const std::unordered_set<std::string> &denies = {});
+  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, ushort> &grants = {},
+                                        const std::unordered_map<std::string, ushort> &denies = {});
 
-  PermissionLevel Has(const std::string &permission) const;
+  PermissionLevel Has(const std::string &permission, LabelPermission label_permission);
 
-  void Grant(const std::string &permission);
+  void Grant(const std::string &permission, LabelPermission label_permission);
 
   void Revoke(const std::string &permission);
 
-  void Deny(const std::string &permission);
+  void Deny(const std::string &permission, LabelPermission label_permission);
 
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_set<std::string> &grants() const;
-  const std::unordered_set<std::string> &denies() const;
+  const std::unordered_map<std::string, ushort> &grants() const;
+  const std::unordered_map<std::string, ushort> &denies() const;
 
  private:
-  std::unordered_set<std::string> grants_{};
-  std::unordered_set<std::string> denies_{};
+  std::unordered_map<std::string, ushort> grants_{};
+  std::unordered_map<std::string, ushort> denies_{};
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);

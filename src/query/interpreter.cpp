@@ -270,7 +270,8 @@ class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccess
     auto labelPermissions = user_->GetFineGrainedAccessPermissions();
 
     return std::any_of(labels.begin(), labels.end(), [&labelPermissions, dba](const auto label) {
-      return labelPermissions.Has(dba->LabelToName(label)) == memgraph::auth::PermissionLevel::GRANT;
+      return labelPermissions.Has(dba->LabelToName(label), memgraph::auth::LabelPermission::READ) ==
+             memgraph::auth::PermissionLevel::GRANT;
     });
   }
 
