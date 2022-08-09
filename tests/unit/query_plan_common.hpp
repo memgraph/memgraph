@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 
+#include "auth/models.hpp"
+#include "query/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -37,6 +39,19 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  return context;
+}
+
+ExecutionContext MakeContextWithUserAndAuthChecker(const AstStorage &storage, const SymbolTable &symbol_table,
+                                                   memgraph::query::DbAccessor *dba, const memgraph::auth::User user,
+                                                   AuthChecker *auth_checker) {
+  ExecutionContext context{dba};
+  context.symbol_table = symbol_table;
+  context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
+  context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.user = std::make_unique<memgraph::auth::User>(user);
+  context.auth_checker = auth_checker;
+
   return context;
 }
 
