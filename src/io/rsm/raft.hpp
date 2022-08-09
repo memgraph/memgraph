@@ -30,14 +30,9 @@ namespace memgraph::io::rsm {
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::Io;
-using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
 using memgraph::io::Time;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
 
 using Term = uint64_t;
 using LogIndex = uint64_t;
@@ -141,7 +136,7 @@ struct Leader {
   std::deque<PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
-  void Print() { std::cout << "\tLeader   \t"; }
+  static void Print() { std::cout << "\tLeader   \t"; }
 };
 
 struct Candidate {
@@ -149,14 +144,14 @@ struct Candidate {
   Time election_began = Time::min();
   std::set<Address> outstanding_votes;
 
-  void Print() { std::cout << "\tCandidate\t"; }
+  static void Print() { std::cout << "\tCandidate\t"; }
 };
 
 struct Follower {
   Time last_received_append_entries_timestamp;
   Address leader_address;
 
-  void Print() { std::cout << "\tFollower \t"; }
+  static void Print() { std::cout << "\tFollower \t"; }
 };
 
 using Role = std::variant<Candidate, Leader, Follower>;
@@ -570,14 +565,14 @@ class Raft {
             .next_index = committed_log_size,
             .confirmed_contiguous_index = committed_log_size,
         };
-        followers.insert({address, std::move(follower)});
+        followers.insert({address, follower});
       }
       for (const auto &address : candidate.outstanding_votes) {
         FollowerTracker follower{
             .next_index = state_.log.size(),
             .confirmed_contiguous_index = 0,
         };
-        followers.insert({address, std::move(follower)});
+        followers.insert({address, follower});
       }
 
       Log("becoming Leader at term ", state_.term);
@@ -594,7 +589,7 @@ class Raft {
   }
 
   template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, VoteResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(AllRoles &, VoteResponse &&, RequestId, Address) {
     Log("non-Candidate received VoteResponse");
     return std::nullopt;
   }
@@ -686,7 +681,7 @@ class Raft {
     return std::nullopt;
   }
 
-  std::optional<Role> Handle(Leader &leader, AppendResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(Leader &leader, AppendResponse &&res, RequestId, Address from_address) {
     if (res.term != state_.term) {
     } else if (!leader.followers.contains(from_address)) {
       Log("received AppendResponse from unknown Follower");
@@ -709,7 +704,7 @@ class Raft {
   }
 
   template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, AppendResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(AllRoles &, AppendResponse &&, RequestId, Address) {
     // we used to be the leader, and are getting old delayed responses
     return std::nullopt;
   }
@@ -719,8 +714,7 @@ class Raft {
   /////////////////////////////////////////////////////////////
 
   // Leaders are able to immediately respond to the requester (with a ReadResponseValue) applied to the ReplicatedState
-  std::optional<Role> Handle(Leader &leader, ReadRequest<ReadOperation> &&req, RequestId request_id,
-                             Address from_address) {
+  std::optional<Role> Handle(Leader &, ReadRequest<ReadOperation> &&req, RequestId request_id, Address from_address) {
     Log("handling ReadOperation");
     ReadOperation read_operation = req.operation;
 
@@ -738,8 +732,7 @@ class Raft {
   }
 
   // Candidates should respond with a failure, similar to the Candidate + WriteRequest failure below
-  std::optional<Role> Handle(Candidate &, ReadRequest<ReadOperation> &&req, RequestId request_id,
-                             Address from_address) {
+  std::optional<Role> Handle(Candidate &, ReadRequest<ReadOperation> &&, RequestId request_id, Address from_address) {
     Log("received ReadOperation - not redirecting because no Leader is known");
     auto res = ReadResponse<ReadResponseValue>{};
 
@@ -753,7 +746,7 @@ class Raft {
   }
 
   // Followers should respond with a redirection, similar to the Follower + WriteRequest response below
-  std::optional<Role> Handle(Follower &follower, ReadRequest<ReadOperation> &&req, RequestId request_id,
+  std::optional<Role> Handle(Follower &follower, ReadRequest<ReadOperation> &&, RequestId request_id,
                              Address from_address) {
     auto res = ReadResponse<ReadResponseValue>{};
 
@@ -771,7 +764,7 @@ class Raft {
   // server. If the client’s first choice is not the leader, that
   // server will reject the client’s request and supply information
   // about the most recent leader it has heard from.
-  std::optional<Role> Handle(Follower &follower, WriteRequest<WriteOperation> &&req, RequestId request_id,
+  std::optional<Role> Handle(Follower &follower, WriteRequest<WriteOperation> &&, RequestId request_id,
                              Address from_address) {
     auto res = WriteResponse<WriteResponseValue>{};
 
@@ -784,8 +777,7 @@ class Raft {
     return std::nullopt;
   }
 
-  std::optional<Role> Handle(Candidate &, WriteRequest<WriteOperation> &&req, RequestId request_id,
-                             Address from_address) {
+  std::optional<Role> Handle(Candidate &, WriteRequest<WriteOperation> &&, RequestId request_id, Address from_address) {
     Log("received WriteRequest - not redirecting because no Leader is known");
     auto res = WriteResponse<WriteResponseValue>{};
 
