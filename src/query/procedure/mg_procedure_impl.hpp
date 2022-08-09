@@ -673,31 +673,7 @@ struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
-    memgraph::utils::OnScopeExit clean_up([this] { this->current_v = std::nullopt; });
-    auto *checker = graph->ctx->fine_grained_access_checker;
-
-    while (current_it != vertices.end()) {
-      current_v.emplace(*current_it, graph, memory);
-
-      if (!current_v.has_value()) {
-        break;
-      }
-
-      auto labels = current_v.value().impl.Labels(graph->view);
-      if (!labels.HasValue()) {
-        break;
-      }
-
-      if (checker->IsUserAuthorizedLabels(labels.GetValue(), graph->ctx->db_accessor)) {
-        clean_up.Disable();
-        break;
-      }
-
-      ++current_it;
-    }
-  }
+  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
 
   memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
 

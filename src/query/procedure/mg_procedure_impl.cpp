@@ -2250,6 +2250,42 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   });
 }
 
+#ifdef MG_ENTERPRISE
+namespace {
+void NextPermitted(mgp_vertices_iterator *it) {
+  const auto *checker = it->graph->ctx->fine_grained_access_checker;
+
+  if (!checker) {
+    return;
+  }
+
+  while (it->current_it != it->vertices.end()) {
+    auto labels = (*it->current_it).impl_.Labels(it->graph->view);
+    if (!labels.HasValue()) {
+      break;
+    }
+
+    if (checker->IsUserAuthorizedLabels(labels.GetValue(), it->graph->ctx->db_accessor)) {
+      break;
+    }
+
+    ++it->current_it;
+  }
+};
+}  // namespace
+#endif
+
+/// @throw anything VerticesIterable may throw
+mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
+    : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
+#ifdef MG_ENTERPRISE
+  NextPermitted(this);
+#endif
+  if (current_it != vertices.end()) {
+    current_v.emplace(*current_it, graph, memory);
+  }
+}
+
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { DeleteRawMgpObject(it); }
 
 mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
@@ -2281,28 +2317,19 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
           return nullptr;
         }
 
-        memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        auto *checker = it->graph->ctx->fine_grained_access_checker;
-
-        while (++it->current_it != it->vertices.end()) {
-          it->current_v.emplace(*it->current_it, it->graph, it->memory);
-
-          if (!it->current_v.has_value()) {
-            break;
-          }
-
-          auto labels = it->current_v.value().impl.Labels(it->graph->view);
-          if (!labels.HasValue()) {
-            break;
-          }
-
-          if (checker->IsUserAuthorizedLabels(labels.GetValue(), it->graph->ctx->db_accessor)) {
-            clean_up.Disable();
-            return &*it->current_v;
-          }
+        ++it->current_it;
+#ifdef MG_ENTERPRISE
+        NextPermitted(it);
+#endif
+        if (it->current_it == it->vertices.end()) {
+          it->current_v = std::nullopt;
+          return nullptr;
         }
 
-        return nullptr;
+        memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
+        it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
+        clean_up.Disable();
+        return &*it->current_v;
       },
       result);
 }
