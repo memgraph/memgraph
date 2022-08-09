@@ -52,15 +52,15 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "DropStream"sv;
     case NotificationCode::DROP_TRIGGER:
       return "DropTrigger"sv;
-    case NotificationCode::EXISTANT_CONSTRAINT:
+    case NotificationCode::EXISTENT_CONSTRAINT:
       return "ConstraintAlreadyExists"sv;
-    case NotificationCode::EXISTANT_INDEX:
+    case NotificationCode::EXISTENT_INDEX:
       return "IndexAlreadyExists"sv;
     case NotificationCode::LOAD_CSV_TIP:
       return "LoadCSVTip"sv;
-    case NotificationCode::NONEXISTANT_INDEX:
+    case NotificationCode::NONEXISTENT_INDEX:
       return "IndexDoesNotExist"sv;
-    case NotificationCode::NONEXISTANT_CONSTRAINT:
+    case NotificationCode::NONEXISTENT_CONSTRAINT:
       return "ConstraintDoesNotExist"sv;
     case NotificationCode::REGISTER_REPLICA:
       return "RegisterReplica"sv;

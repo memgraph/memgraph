@@ -78,7 +78,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
 
   {
     auto acc = storage.Access();
@@ -163,7 +163,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
 
   {
     auto acc = storage.Access();
@@ -171,14 +171,14 @@ TEST_F(IndexTest, LabelIndexDrop) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
-  EXPECT_TRUE(storage.DropIndex(label1));
+  EXPECT_FALSE(storage.DropIndex(label1).HasError());
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelIndexExists(label1));
   }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
-  EXPECT_FALSE(storage.DropIndex(label1));
+  EXPECT_TRUE(storage.DropIndex(label1).HasError());
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelIndexExists(label1));
@@ -194,7 +194,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
     ASSERT_NO_ERROR(acc.Commit());
   }
 
-  EXPECT_TRUE(storage.CreateIndex(label1));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
   {
     auto acc = storage.Access();
     EXPECT_TRUE(acc.LabelIndexExists(label1));
@@ -227,8 +227,8 @@ TEST_F(IndexTest, LabelIndexBasic) {
   // 3. Remove Label1 from odd numbered vertices, and add it to even numbered
   //    vertices.
   // 4. Delete even numbered vertices.
-  EXPECT_TRUE(storage.CreateIndex(label1));
-  EXPECT_TRUE(storage.CreateIndex(label2));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
+  EXPECT_FALSE(storage.CreateIndex(label2).HasError());
 
   auto acc = storage.Access();
   EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1, label2));
@@ -292,8 +292,8 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
   // By removing labels and adding them again we create duplicate entries for
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
-  EXPECT_TRUE(storage.CreateIndex(label1));
-  EXPECT_TRUE(storage.CreateIndex(label2));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
+  EXPECT_FALSE(storage.CreateIndex(label2).HasError());
 
   {
     auto acc = storage.Access();
@@ -329,8 +329,8 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
-  EXPECT_TRUE(storage.CreateIndex(label1));
-  EXPECT_TRUE(storage.CreateIndex(label2));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
+  EXPECT_FALSE(storage.CreateIndex(label2).HasError());
 
   auto acc_before = storage.Access();
   auto acc = storage.Access();
@@ -356,8 +356,8 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexCountEstimate) {
-  EXPECT_TRUE(storage.CreateIndex(label1));
-  EXPECT_TRUE(storage.CreateIndex(label2));
+  EXPECT_FALSE(storage.CreateIndex(label1).HasError());
+  EXPECT_FALSE(storage.CreateIndex(label2).HasError());
 
   auto acc = storage.Access();
   for (int i = 0; i < 20; ++i) {
@@ -372,7 +372,7 @@ TEST_F(IndexTest, LabelIndexCountEstimate) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
-  EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_id).HasError());
   {
     auto acc = storage.Access();
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label1, prop_id));
@@ -382,10 +382,10 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
-  EXPECT_FALSE(storage.CreateIndex(label1, prop_id));
+  EXPECT_TRUE(storage.CreateIndex(label1, prop_id).HasError());
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label1, prop_id)));
 
-  EXPECT_TRUE(storage.CreateIndex(label2, prop_id));
+  EXPECT_FALSE(storage.CreateIndex(label2, prop_id).HasError());
   {
     auto acc = storage.Access();
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label2, prop_id));
@@ -393,15 +393,15 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_THAT(storage.ListAllIndices().label_property,
               UnorderedElementsAre(std::make_pair(label1, prop_id), std::make_pair(label2, prop_id)));
 
-  EXPECT_TRUE(storage.DropIndex(label1, prop_id));
+  EXPECT_FALSE(storage.DropIndex(label1, prop_id).HasError());
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label2, prop_id)));
-  EXPECT_FALSE(storage.DropIndex(label1, prop_id));
+  EXPECT_TRUE(storage.DropIndex(label1, prop_id).HasError());
 
-  EXPECT_TRUE(storage.DropIndex(label2, prop_id));
+  EXPECT_FALSE(storage.DropIndex(label2, prop_id).HasError());
   {
     auto acc = storage.Access();
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
@@ -416,8 +416,8 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexBasic) {
-  storage.CreateIndex(label1, prop_val);
-  storage.CreateIndex(label2, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
+  EXPECT_FALSE(storage.CreateIndex(label2, prop_val).HasError());
 
   auto acc = storage.Access();
   EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
@@ -476,7 +476,7 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
-  storage.CreateIndex(label1, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
   {
     auto acc = storage.Access();
     for (int i = 0; i < 5; ++i) {
@@ -511,7 +511,7 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
-  storage.CreateIndex(label1, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
 
   auto acc_before = storage.Access();
   auto acc = storage.Access();
@@ -545,7 +545,7 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
   // We also have a mix of doubles and integers to verify that they are sorted
   // properly.
 
-  storage.CreateIndex(label1, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
 
   {
     auto acc = storage.Access();
@@ -603,7 +603,7 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
-  storage.CreateIndex(label1, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
 
   auto acc = storage.Access();
   for (int i = 1; i <= 10; ++i) {
@@ -625,7 +625,7 @@ TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
 }
 
 TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
-  storage.CreateIndex(label1, prop_val);
+  EXPECT_FALSE(storage.CreateIndex(label1, prop_val).HasError());
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
                              TemporalData{TemporalType::LocalDateTime, 20}};

@@ -222,23 +222,24 @@ void Storage::ReplicationClient::IfStreamingTransaction(const std::function<void
   }
 }
 
-void Storage::ReplicationClient::FinalizeTransactionReplication() {
+bool Storage::ReplicationClient::FinalizeTransactionReplication() {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
   if (replica_state_ != replication::ReplicaState::REPLICATING) {
-    return;
+    return false;
   }
 
   if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask([this] { this->FinalizeTransactionReplicationInternal(); });
+    thread_pool_.AddTask([this] { static_cast<void>(this->FinalizeTransactionReplicationInternal()); });
+    return true;
   } else {
-    FinalizeTransactionReplicationInternal();
+    return FinalizeTransactionReplicationInternal();
   }
 }
 
-void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
+bool Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
   MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
   try {
     auto response = replica_stream_->Finalize();
@@ -249,6 +250,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
     } else {
       replica_state_.store(replication::ReplicaState::READY);
+      return true;
     }
   } catch (const rpc::RpcFailedException &) {
     replica_stream_.reset();
@@ -258,6 +260,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
     }
     HandleRpcFailure();
   }
+  return false;
 }
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
