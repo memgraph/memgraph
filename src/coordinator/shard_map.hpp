@@ -55,7 +55,10 @@ struct ShardMap {
  public:
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
-  void UpdateShardMapVersion() noexcept { ++shard_map_version.logical_id; }
+  Hlc UpdateShardMapVersion() noexcept {
+    ++shard_map_version.logical_id;
+    return shard_map_version;
+  }
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
@@ -89,6 +92,8 @@ struct ShardMap {
   void AddServer(Address server_address) {
     // Find a random place for the server to plug in
   }
+
+  std::map<Label, Shards> &GetShards() noexcept { return shards; }
 
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
