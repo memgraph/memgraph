@@ -37,19 +37,19 @@ struct Address {
     return ret;
   }
 
-  bool operator==(const Address &other) const = default;
+  friend bool operator==(const Address &lhs, const Address &rhs) = default;
 
   /// unique_id is most dominant for ordering, then last_known_ip, then last_known_port
-  bool operator<(const Address &other) const {
-    if (unique_id != other.unique_id) {
-      return unique_id < other.unique_id;
+  friend bool operator<(const Address &lhs, const Address &rhs) {
+    if (lhs.unique_id != rhs.unique_id) {
+      return lhs.unique_id < rhs.unique_id;
     }
 
-    if (last_known_ip != other.last_known_ip) {
-      return last_known_ip < other.last_known_ip;
+    if (lhs.last_known_ip != rhs.last_known_ip) {
+      return lhs.last_known_ip < rhs.last_known_ip;
     }
 
-    return last_known_port < other.last_known_port;
+    return lhs.last_known_port < rhs.last_known_port;
   }
 
   std::string ToString() const {

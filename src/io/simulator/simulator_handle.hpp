@@ -43,16 +43,16 @@ struct PromiseKey {
   Address replier_address;
 
  public:
-  bool operator<(const PromiseKey &other) const {
-    if (requester_address != other.requester_address) {
-      return requester_address < other.requester_address;
+  friend bool operator<(const PromiseKey &lhs, const PromiseKey &rhs) {
+    if (lhs.requester_address != rhs.requester_address) {
+      return lhs.requester_address < rhs.requester_address;
     }
 
-    if (request_id != other.request_id) {
-      return request_id < other.request_id;
+    if (lhs.request_id != rhs.request_id) {
+      return lhs.request_id < rhs.request_id;
     }
 
-    return replier_address < other.replier_address;
+    return lhs.replier_address < rhs.replier_address;
   }
 };
 
