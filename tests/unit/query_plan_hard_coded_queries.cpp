@@ -18,15 +18,13 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "query/v2/context.hpp"
-#include "query/v2/exceptions.hpp"
-#include "query/v2/plan/operator.hpp"
-#include "query_v2_query_plan_common.hpp"
-#include "storage/v3/property_value.hpp"
-#include "storage/v3/schemas.hpp"
+#include "query/context.hpp"
+#include "query/exceptions.hpp"
+#include "query/plan/operator.hpp"
+#include "query_plan_common.hpp"
 
-using namespace memgraph::query::v2;
-using namespace memgraph::query::v2::plan;
+using namespace memgraph::query;
+using namespace memgraph::query::plan;
 using test_common::ToIntList;
 using test_common::ToIntMap;
 using testing::UnorderedElementsAre;
@@ -35,17 +33,12 @@ namespace memgraph::query::v2::tests {
 
 class QueryPlanHardCodedQueriesTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    ASSERT_TRUE(
-        db_v3.CreateSchema(schema_label, {storage::v3::SchemaProperty{schema_property, common::SchemaType::INT}}));
-  }
+  void SetUp() override {}
 
-  storage::v3::Storage db_v3;
-  const storage::v3::LabelId schema_label{db_v3.NameToLabel("label")};
-  const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
+  memgraph::storage::Storage db_v2;
 };
 
-TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
+TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v2) {
   /*
   INDEXES:
     CREATE INDEX ON :Node(platformId);
@@ -67,40 +60,36 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     ScanAllByLabelPropertyValue (n :Node {platformId})
     Once
   */
-  auto label_node = db_v3.NameToLabel("Node");
-  auto property_node_platformId = db_v3.NameToProperty("platformId");
+  auto label_node = db_v2.NameToLabel("Node");
+  auto property_node_platformId = db_v2.NameToProperty("platformId");
 
-  auto label_permission = db_v3.NameToLabel("Permission");
+  auto label_permission = db_v2.NameToLabel("Permission");
 
-  auto label_identity = db_v3.NameToLabel("Idendity");
-  auto property_identity_email = db_v3.NameToProperty("email");
+  auto label_identity = db_v2.NameToLabel("Idendity");
+  auto property_identity_email = db_v2.NameToProperty("email");
 
-  storage::v3::EdgeTypeId edge_is_for_node{db_v3.NameToEdgeType("IS_FOR_NODE")};
-  storage::v3::EdgeTypeId edge_is_for_identity{db_v3.NameToEdgeType("IS_FOR_IDENTITY")};
+  storage::EdgeTypeId edge_is_for_node{db_v2.NameToEdgeType("IS_FOR_NODE")};
+  storage::EdgeTypeId edge_is_for_identity{db_v2.NameToEdgeType("IS_FOR_IDENTITY")};
 
   {  // Inserting data
-    auto storage_dba = db_v3.Access();
+    auto storage_dba = db_v2.Access();
     DbAccessor dba(&storage_dba);
 
-    auto property_index = 0;
-    auto vertex_node = *dba.InsertVertexAndValidate(schema_label, {},
-                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    auto vertex_node = dba.InsertVertex();
     ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
-    ASSERT_TRUE(vertex_node.SetProperty(property_node_platformId, storage::v3::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ"))
-                    .HasValue());
+    ASSERT_TRUE(
+        vertex_node.SetProperty(property_node_platformId, storage::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ")).HasValue());
 
-    auto vertex_permission = *dba.InsertVertexAndValidate(
-        schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    auto vertex_permission = dba.InsertVertex();
     ASSERT_TRUE(vertex_permission.AddLabel(label_permission).HasValue());
 
     auto edge_permission_to_node = dba.InsertEdge(&vertex_permission, &vertex_node, edge_is_for_node);
     ASSERT_TRUE(edge_permission_to_node.HasValue());
 
-    auto vertex_identity = *dba.InsertVertexAndValidate(
-        schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    auto vertex_identity = dba.InsertVertex();
     ASSERT_TRUE(vertex_identity.AddLabel(label_identity).HasValue());
-    ASSERT_TRUE(vertex_identity.SetProperty(property_identity_email, storage::v3::PropertyValue("rrr@clientdrive.com"))
-                    .HasValue());
+    ASSERT_TRUE(
+        vertex_identity.SetProperty(property_identity_email, storage::PropertyValue("rrr@clientdrive.com")).HasValue());
 
     auto edge_permission_to_identity = dba.InsertEdge(&vertex_permission, &vertex_identity, edge_is_for_identity);
     ASSERT_TRUE(edge_permission_to_identity.HasValue());
@@ -109,11 +98,11 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
   }
 
   // INDEX CREATION
-  db_v3.CreateIndex(label_node, property_node_platformId);
-  db_v3.CreateIndex(label_permission);
-  db_v3.CreateIndex(label_identity, property_identity_email);
+  db_v2.CreateIndex(label_node, property_node_platformId);
+  db_v2.CreateIndex(label_permission);
+  db_v2.CreateIndex(label_identity, property_identity_email);
 
-  auto storage_dba = db_v3.Access();
+  auto storage_dba = db_v2.Access();
   DbAccessor dba(&storage_dba);
   AstStorage storage;
   SymbolTable symbol_table;
@@ -156,7 +145,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
 
   // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
   auto expand_1 = MakeExpand(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
-                             {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                             {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::View::OLD);
   {
     /*
     Checking temporary result from:
@@ -198,7 +187,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
 
   // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
   auto expand_2 = MakeExpand(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
-                             {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                             {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::View::OLD);
   {
     /*
     Checking temporary result from:

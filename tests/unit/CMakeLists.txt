@@ -156,6 +156,9 @@ target_link_libraries(${test_prefix}query_profile mg-query)
 add_unit_test(query_required_privileges.cpp)
 target_link_libraries(${test_prefix}query_required_privileges mg-query)
 
+add_unit_test(query_plan_hard_coded_queries.cpp)
+target_link_libraries(${test_prefix}query_plan_hard_coded_queries mg-query)
+
 add_unit_test(query_semantic.cpp)
 target_link_libraries(${test_prefix}query_semantic mg-query)
 
