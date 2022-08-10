@@ -11,11 +11,19 @@
 #pragma once
 
 #ifndef MG_AST_INCLUDE_PATH
+#ifdef MG_CLANG_TIDY_CHECK
+#define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
+#else
 #error Missing AST include path
+#endif
 #endif
 
 #ifndef MG_INJECTED_NAMESPACE_NAME
+#ifdef MG_CLANG_TIDY_CHECK
+#define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2  // NOLINT(cppcoreguidelines-macro-usage)
+#else
 #error Missing AST namespace
+#endif
 #endif
 
 #include MG_AST_INCLUDE_PATH

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "expr/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 
 #pragma once
@@ -78,7 +79,7 @@ template <typename TypedValue>
 storage::v3::PropertyValue TypedToPropertyValue(const TypedValue &value) {
   switch (value.type()) {
     case TypedValue::Type::Null:
-      return storage::v3::PropertyValue();
+      return storage::v3::PropertyValue{};
     case TypedValue::Type::Bool:
       return storage::v3::PropertyValue(value.ValueBool());
     case TypedValue::Type::Int:

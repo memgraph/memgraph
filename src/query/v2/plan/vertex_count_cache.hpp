@@ -57,7 +57,7 @@ class VertexCountCache {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
     // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(storage::v3::PropertyToTypedValue<TypedValue>(value));
+    auto tv_value(storage::v3::PropertyToTypedValue<TypedValue>(value));
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
       value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
     return value_vertex_count.at(tv_value);

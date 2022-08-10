@@ -13,7 +13,7 @@
 
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
-#include "query/v2/bindings/symbol_generator.hpp"
+#include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/config.hpp"
 #include "query/v2/frontend/semantic/required_privileges.hpp"
 #include "query/v2/frontend/stripped.hpp"

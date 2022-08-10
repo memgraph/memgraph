@@ -20,7 +20,6 @@
 
 namespace memgraph::expr {
 namespace detail {
-namespace {
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
   static_assert(!std::is_convertible<T, Expression *>::value,
@@ -31,13 +30,13 @@ void PrintObject(std::ostream *out, const T &arg) {
   *out << arg;
 }
 
-void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
+inline void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
 
-void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
+inline void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
 
-void PrintObject(std::ostream *out, Expression *expr);
+inline void PrintObject(std::ostream *out, Expression *expr);
 
-void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
+inline void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
 
 // void PrintObject(std::ostream *out, const storage::v3::PropertyValue &value) {
 //   switch (value.type()) {
@@ -111,8 +110,6 @@ void PrintOperator(std::ostream *out, const std::string &name, const Ts &...args
   *out << "(" << name;
   PrintOperatorArgs(out, args...);
 }
-}  // namespace
-
 }  // namespace detail
 
 class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
@@ -121,7 +118,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   // Unary operators
 #define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
-  void Visit(OP_NODE &op) { detail::PrintOperator(out_, OP_STR, op.expression_); }
+  void Visit(OP_NODE &op) override { detail::PrintOperator(out_, OP_STR, op.expression_); }
 
   UNARY_OPERATOR_VISIT(NotOperator, "Not");
   UNARY_OPERATOR_VISIT(UnaryPlusOperator, "+");
@@ -132,7 +129,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   // Binary operators
 #define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
-  void Visit(OP_NODE &op) { detail::PrintOperator(out_, OP_STR, op.expression1_, op.expression2_); }
+  void Visit(OP_NODE &op) override { detail::PrintOperator(out_, OP_STR, op.expression1_, op.expression2_); }
 
   BINARY_OPERATOR_VISIT(OrOperator, "Or");
   BINARY_OPERATOR_VISIT(XorOperator, "Xor");
@@ -154,17 +151,17 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 #undef BINARY_OPERATOR_VISIT
 
   // Other
-  void Visit(ListSlicingOperator &op) {
+  void Visit(ListSlicingOperator &op) override {
     detail::PrintOperator(out_, "ListSlicing", op.list_, op.lower_bound_, op.upper_bound_);
   }
 
-  void Visit(IfOperator &op) {
+  void Visit(IfOperator &op) override {
     detail::PrintOperator(out_, "If", op.condition_, op.then_expression_, op.else_expression_);
   }
 
-  void Visit(ListLiteral &op) { detail::PrintOperator(out_, "ListLiteral", op.elements_); }
+  void Visit(ListLiteral &op) override { detail::PrintOperator(out_, "ListLiteral", op.elements_); }
 
-  void Visit(MapLiteral &op) {
+  void Visit(MapLiteral &op) override {
     std::map<std::string, Expression *> map;
     for (const auto &kv : op.elements_) {
       map[kv.first.name] = kv.second;
@@ -172,58 +169,58 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
     detail::PrintObject(out_, map);
   }
 
-  void Visit(LabelsTest &op) { detail::PrintOperator(out_, "LabelsTest", op.expression_); }
+  void Visit(LabelsTest &op) override { detail::PrintOperator(out_, "LabelsTest", op.expression_); }
 
-  void Visit(Aggregation &op) { detail::PrintOperator(out_, "Aggregation", op.op_); }
+  void Visit(Aggregation &op) override { detail::PrintOperator(out_, "Aggregation", op.op_); }
 
-  void Visit(Function &op) { detail::PrintOperator(out_, "Function", op.function_name_, op.arguments_); }
+  void Visit(Function &op) override { detail::PrintOperator(out_, "Function", op.function_name_, op.arguments_); }
 
-  void Visit(Reduce &op) {
+  void Visit(Reduce &op) override {
     detail::PrintOperator(out_, "Reduce", op.accumulator_, op.initializer_, op.identifier_, op.list_, op.expression_);
   }
 
-  void Visit(Coalesce &op) { detail::PrintOperator(out_, "Coalesce", op.expressions_); }
+  void Visit(Coalesce &op) override { detail::PrintOperator(out_, "Coalesce", op.expressions_); }
 
-  void Visit(Extract &op) { detail::PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_); }
+  void Visit(Extract &op) override { detail::PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_); }
 
-  void Visit(All &op) {
+  void Visit(All &op) override {
     detail::PrintOperator(out_, "All", op.identifier_, op.list_expression_, op.where_->expression_);
   }
 
-  void Visit(Single &op) {
+  void Visit(Single &op) override {
     detail::PrintOperator(out_, "Single", op.identifier_, op.list_expression_, op.where_->expression_);
   }
 
-  void Visit(Any &op) {
+  void Visit(Any &op) override {
     detail::PrintOperator(out_, "Any", op.identifier_, op.list_expression_, op.where_->expression_);
   }
 
-  void Visit(None &op) {
+  void Visit(None &op) override {
     detail::PrintOperator(out_, "None", op.identifier_, op.list_expression_, op.where_->expression_);
   }
 
-  void Visit(Identifier &op) { detail::PrintOperator(out_, "Identifier", op.name_); }
+  void Visit(Identifier &op) override { detail::PrintOperator(out_, "Identifier", op.name_); }
 
-  void Visit(PrimitiveLiteral &op) {
+  void Visit(PrimitiveLiteral &op) override {
     // PrintObject(out_, op.value_);
   }
 
-  void Visit(PropertyLookup &op) { detail::PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name); }
+  void Visit(PropertyLookup &op) override {
+    detail::PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);
+  }
 
-  void Visit(ParameterLookup &op) { detail::PrintOperator(out_, "ParameterLookup", op.token_position_); }
+  void Visit(ParameterLookup &op) override { detail::PrintOperator(out_, "ParameterLookup", op.token_position_); }
 
-  void Visit(NamedExpression &op) { detail::PrintOperator(out_, "NamedExpression", op.name_, op.expression_); }
+  void Visit(NamedExpression &op) override { detail::PrintOperator(out_, "NamedExpression", op.name_, op.expression_); }
 
-  void Visit(RegexMatch &op) { detail::PrintOperator(out_, "=~", op.string_expr_, op.regex_); }
+  void Visit(RegexMatch &op) override { detail::PrintOperator(out_, "=~", op.string_expr_, op.regex_); }
 
  private:
   std::ostream *out_;
 };
 
 namespace detail {
-namespace {
-
-void PrintObject(std::ostream *out, Expression *expr) {
+inline void PrintObject(std::ostream *out, Expression *expr) {
   if (expr) {
     ExpressionPrettyPrinter printer{out};
     expr->Accept(printer);
@@ -231,7 +228,6 @@ void PrintObject(std::ostream *out, Expression *expr) {
     *out << "<null>";
   }
 }
-}  // namespace
 }  // namespace detail
 
 inline void PrintExpression(Expression *expr, std::ostream *out) {

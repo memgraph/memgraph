@@ -14,7 +14,3 @@
 #include "query/v2/bindings/bindings.hpp"
 
 #include "expr/semantic/symbol_generator.hpp"
-
-namespace memgraph::query::v2 {
-using memgraph::expr::SymbolGenerator;
-} // namespace memgraph::query::v2

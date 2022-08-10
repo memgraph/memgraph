@@ -610,6 +610,7 @@ class TypedValueT {
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member) \
   TypedValueT &operator=(type_param &&other) {                                   \
     if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
@@ -775,6 +776,7 @@ class TypedValueT {
 
   // TODO consider adding getters for primitives by value (and not by ref)
 
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
   type_param &Value##type_enum() {                                                               \
     if (type_ != Type::type_enum)                                                                \
@@ -877,10 +879,11 @@ class TypedValueT {
   friend TypedValueT operator^(const TypedValueT &a, const TypedValueT &b) {
     EnsureLogicallyOk(a, b, "logical XOR");
     // at this point we only have null and bool
-    if (a.IsNull() || b.IsNull())
+    if (a.IsNull() || b.IsNull()) {
       return TypedValueT(a.GetMemoryResource());
-    else
-      return TypedValueT(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.GetMemoryResource());
+    }
+
+    return TypedValueT(static_cast<bool>(a.ValueBool() ^ b.ValueBool()), a.GetMemoryResource());
   }
 
   // comparison operators
@@ -1007,9 +1010,8 @@ class TypedValueT {
     if (a.IsString() || b.IsString()) {
       if (a.type() != b.type()) {
         throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
-      } else {
-        return TypedValueT(a.ValueString() < b.ValueString(), a.GetMemoryResource());
       }
+      return TypedValueT(a.ValueString() < b.ValueString(), a.GetMemoryResource());
     }
 
     if (IsTemporalType(a.type()) || IsTemporalType(b.type())) {
@@ -1038,9 +1040,8 @@ class TypedValueT {
     // at this point we only have int and double
     if (a.IsDouble() || b.IsDouble()) {
       return TypedValueT(ToDouble(a) < ToDouble(b), a.GetMemoryResource());
-    } else {
-      return TypedValueT(a.ValueInt() < b.ValueInt(), a.GetMemoryResource());
     }
+    return TypedValueT(a.ValueInt() < b.ValueInt(), a.GetMemoryResource());
   }
 
   /**
@@ -1194,10 +1195,11 @@ class TypedValueT {
     // at this point we only have int and double
     if (a.IsDouble() || b.IsDouble()) {
       return TypedValueT(ToDouble(a) / ToDouble(b), a.GetMemoryResource());
-    } else {
-      if (b.ValueInt() == 0LL) throw TypedValueException("Division by zero");
-      return TypedValueT(a.ValueInt() / b.ValueInt(), a.GetMemoryResource());
     }
+    if (b.ValueInt() == 0LL) {
+      throw TypedValueException("Division by zero");
+    }
+    return TypedValueT(a.ValueInt() / b.ValueInt(), a.GetMemoryResource());
   }
 
   /**
@@ -1216,9 +1218,8 @@ class TypedValueT {
     // at this point we only have int and double
     if (a.IsDouble() || b.IsDouble()) {
       return TypedValueT(ToDouble(a) * ToDouble(b), a.GetMemoryResource());
-    } else {
-      return TypedValueT(a.ValueInt() * b.ValueInt(), a.GetMemoryResource());
     }
+    return TypedValueT(a.ValueInt() * b.ValueInt(), a.GetMemoryResource());
   }
 
   /**
@@ -1237,10 +1238,11 @@ class TypedValueT {
     // at this point we only have int and double
     if (a.IsDouble() || b.IsDouble()) {
       return TypedValueT(static_cast<double>(fmod(ToDouble(a), ToDouble(b))), a.GetMemoryResource());
-    } else {
-      if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
-      return TypedValueT(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
     }
+    if (b.ValueInt() == 0LL) {
+      throw TypedValueException("Mod with zero");
+    }
+    return TypedValueT(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
   }
 
   /** Output the TypedValueT::Type value as a string */

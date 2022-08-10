@@ -2250,7 +2250,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     // register removed properties
     for (auto &[property_id, property_value] : *old_values) {
       context->trigger_context_collector->RegisterRemovedObjectProperty(
-          *record, property_id, storage::v3::PropertyToTypedValue<TypedValue>(std::move(property_value)));
+          *record, property_id, storage::v3::PropertyToTypedValue<TypedValue>(property_value));
     }
   }
 }

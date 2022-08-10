@@ -757,7 +757,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   ConvFunction conv_;
 };
 
-namespace {
 /// A helper function for evaluating an expression that's an int.
 ///
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
@@ -784,6 +783,5 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionEvaluator *eval, Expression 
     throw ExpressionRuntimeException("Memory limit overflow.");
   return limit * memory_scale;
 }
-}  // namespace
 
 }  // namespace memgraph::expr

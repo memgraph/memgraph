@@ -26,7 +26,7 @@
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/frame.hpp"
-#include "query/v2/bindings/symbol_generator.hpp"
+#include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/common.hpp"
 #include "query/v2/constants.hpp"

@@ -883,7 +883,7 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   }
 }
 
-TypedValue ToString2(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, String, Number, Bool>>("toString", args, nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
@@ -1293,7 +1293,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "SUBSTRING") return Substring;
   if (function_name == "TOLOWER") return ToLower;
   // TODO(kostasrim) fix function lookup here
-  if (function_name == "TOSTRING") return ToString2;
+  if (function_name == "TOSTRING") return ToString;
   if (function_name == "TOUPPER") return ToUpper;
   if (function_name == "TRIM") return Trim;
 

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/v2/cypher_query_interpreter.hpp"
+#include "query/v2/bindings/symbol_generator.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_bool(query_cost_planner, true, "Use the cost-estimating query planner.");

@@ -29,8 +29,8 @@
 #include "expr/semantic/symbol_table.hpp"
 
 namespace memgraph::expr {
-namespace {
-std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
+namespace detail {
+inline std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
     const std::vector<Identifier *> &predefined_identifiers) {
   std::unordered_map<std::string, Identifier *> identifier_map;
   for (const auto &identifier : predefined_identifiers) {
@@ -39,7 +39,7 @@ std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
 
   return identifier_map;
 }
-}  // namespace
+}  // namespace detail
 
 /// Visits the AST and generates symbols for variables.
 ///
@@ -50,7 +50,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
  public:
   explicit SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
       : symbol_table_(symbol_table),
-        predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)},
+        predefined_identifiers_{detail::GeneratePredefinedIdentifierMap(predefined_identifiers)},
         scopes_(1, Scope()) {}
 
   using HierarchicalTreeVisitor::PostVisit;
@@ -59,14 +59,14 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   using typename HierarchicalTreeVisitor::ReturnType;
 
   // Query
-  bool PreVisit(SingleQuery &) override {
+  bool PreVisit(SingleQuery & /*unused*/) override {
     prev_return_names_ = curr_return_names_;
     curr_return_names_.clear();
     return true;
   }
 
   // Union
-  bool PreVisit(CypherUnion &) override {
+  bool PreVisit(CypherUnion & /*unused*/) override {
     scopes_.back() = Scope();
     return true;
   }
@@ -86,12 +86,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   }
 
   // Clauses
-  bool PreVisit(Create &) override {
+  bool PreVisit(Create & /*unused*/) override {
     scopes_.back().in_create = true;
     return true;
   }
 
-  bool PostVisit(Create &) override {
+  bool PostVisit(Create & /*unused*/) override {
     scopes_.back().in_create = false;
     return true;
   }
@@ -113,7 +113,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(LoadCsv &) override { return false; }
+  bool PreVisit(LoadCsv & /*unused*/) override { return false; }
 
   bool PostVisit(LoadCsv &load_csv) override {
     if (HasSymbolLocalScope(load_csv.row_var_->name_)) {
@@ -131,7 +131,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return false;  // We handled the traversal ourselves.
   }
 
-  bool PostVisit(Return &) override {
+  bool PostVisit(Return & /*unused*/) override {
     for (const auto &name_symbol : scopes_.back().symbols) curr_return_names_.insert(name_symbol.first);
     return true;
   }
@@ -144,22 +144,22 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return false;  // We handled the traversal ourselves.
   }
 
-  bool PreVisit(Where &) override {
+  bool PreVisit(Where & /*unused*/) override {
     scopes_.back().in_where = true;
     return true;
   }
 
-  bool PostVisit(Where &) override {
+  bool PostVisit(Where & /*unused*/) override {
     scopes_.back().in_where = false;
     return true;
   }
 
-  bool PreVisit(Merge &) override {
+  bool PreVisit(Merge & /*unused*/) override {
     scopes_.back().in_merge = true;
     return true;
   }
 
-  bool PostVisit(Merge &) override {
+  bool PostVisit(Merge & /*unused*/) override {
     scopes_.back().in_merge = false;
     return true;
   }
@@ -173,12 +173,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PreVisit(Match &) override {
+  bool PreVisit(Match & /*unused*/) override {
     scopes_.back().in_match = true;
     return true;
   }
 
-  bool PostVisit(Match &) override {
+  bool PostVisit(Match & /*unused*/) override {
     auto &scope = scopes_.back();
     scope.in_match = false;
     // Check variables in property maps after visiting Match, so that they can
@@ -201,7 +201,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PostVisit(Foreach &) override {
+  bool PostVisit(Foreach & /*unused*/) override {
     scopes_.pop_back();
     return true;
   }
@@ -256,9 +256,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  ReturnType Visit(PrimitiveLiteral & /*unused*/) override { return true; }
 
-  ReturnType Visit(ParameterLookup &) override { return true; }
+  ReturnType Visit(ParameterLookup & /*unused*/) override { return true; }
 
   bool PreVisit(Aggregation &aggr) override {
     auto &scope = scopes_.back();
@@ -293,17 +293,17 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PostVisit(Aggregation &) override {
+  bool PostVisit(Aggregation & /*unused*/) override {
     scopes_.back().in_aggregation = false;
     return true;
   }
 
-  bool PreVisit(IfOperator &) override {
+  bool PreVisit(IfOperator & /*unused*/) override {
     ++scopes_.back().num_if_operators;
     return true;
   }
 
-  bool PostVisit(IfOperator &) override {
+  bool PostVisit(IfOperator & /*unused*/) override {
     --scopes_.back().num_if_operators;
     return true;
   }
@@ -356,7 +356,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PostVisit(Pattern &) override {
+  bool PostVisit(Pattern & /*unused*/) override {
     auto &scope = scopes_.back();
     scope.in_pattern = false;
     scope.in_create_node = false;
@@ -395,7 +395,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(NodeAtom &) override {
+  bool PostVisit(NodeAtom & /*unused*/) override {
     scopes_.back().in_node_atom = false;
     return true;
   }
@@ -471,7 +471,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(EdgeAtom &) override {
+  bool PostVisit(EdgeAtom & /*unused*/) override {
     auto &scope = scopes_.back();
     scope.visiting_edge = nullptr;
     scope.in_create_edge = false;

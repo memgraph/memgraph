@@ -39,7 +39,7 @@ jobs:
           source /opt/toolchain-v4/activate
 
           # The results are also written to standard output in order to retain them in the logs
-          ./tools/github/clang-tidy/run-clang-tidy.py -p build -j $THREADS -clang-tidy-binary=/opt/toolchain-v4/bin/clang-tidy "$PWD/src/*" |
+          ./tools/github/clang-tidy/run-clang-tidy.py -p build -j $THREADS -extra-arg="-DMG_CLANG_TIDY_CHECK" -clang-tidy-binary=/opt/toolchain-v4/bin/clang-tidy "$PWD/src/*" |
             tee ./build/full_clang_tidy_output.txt
 
       - name: Summarize clang-tidy results
