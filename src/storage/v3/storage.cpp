@@ -1657,29 +1657,25 @@ void Storage::CollectGarbage() {
       // so we can clean all of the deleted vertices
       while (!garbage_vertices_.empty()) {
         // TODO Get back on the strategy of cleaning
-        auto it = garbage_vertices_.begin();
-        int random = rand() % garbage_vertices_.size();
-        std::advance(it, random);
-
-        auto key = it->second.front().second;
-        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-        it->second.pop_front();
-        if (it->second.empty()) {
-          garbage_vertices_.erase(it);
+        for (auto &[primary_label, timestamped_primary_keys] : garbage_vertices_) {
+          if (timestamped_primary_keys.empty()) {
+            continue;
+          }
+          auto key = timestamped_primary_keys.front().second;
+          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+          timestamped_primary_keys.pop_front();
         }
       }
     } else {
       while (!garbage_vertices_.empty()) {
-        auto it = garbage_vertices_.begin();
-        int random = rand() % garbage_vertices_.size();
-        std::advance(it, random);
-        if (it->second.front().first < oldest_active_start_timestamp) {
-          auto key = it->second.front().second;
-          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-          it->second.pop_front();
-          if (it->second.empty()) {
-            garbage_vertices_.erase(it);
+        for (auto &[primary_label, timestamped_primary_keys] : garbage_vertices_) {
+          if (timestamped_primary_keys.empty() ||
+              timestamped_primary_keys.front().first < oldest_active_start_timestamp) {
+            continue;
           }
+          auto key = timestamped_primary_keys.front().second;
+          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+          timestamped_primary_keys.pop_front();
         }
       }
     }

@@ -14,6 +14,7 @@
 #include <optional>
 
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/vertex.hpp"
@@ -102,6 +103,8 @@ class VertexAccessor final {
   Result<std::vector<LabelId>> Labels(View view) const;
 
   Result<LabelId> PrimaryLabel(View view) const;
+
+  Result<PrimaryKey> PrimaryKey(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
