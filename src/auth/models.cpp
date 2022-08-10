@@ -202,6 +202,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission)
 void FineGrainedAccessPermissions::Grant(const std::string &permission) {
   if (permission == ASTERISK) {
     grants_.clear();
+    denies_.clear();
     grants_.insert(permission);
 
     return;
@@ -244,6 +245,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
 
 void FineGrainedAccessPermissions::Deny(const std::string &permission) {
   if (permission == ASTERISK) {
+    grants_.clear();
     denies_.clear();
     denies_.insert(permission);
 
