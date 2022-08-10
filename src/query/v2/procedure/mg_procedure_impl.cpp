@@ -27,6 +27,7 @@
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_helpers.hpp"
 #include "query/v2/stream/common.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/algorithm.hpp"
@@ -1508,8 +1509,9 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
       result);
 }
 
+// TODO Fix Remove Gid
 mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
-  return WrapExceptions([v] { return mgp_vertex_id{.as_int = v->impl.Gid().AsInt()}; }, result);
+  return WrapExceptions([v] { return mgp_vertex_id{.as_int = 0}; }, result);
 }
 
 mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
@@ -2071,7 +2073,8 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = graph->impl->FindVertex(memgraph::storage::v3::Gid::FromInt(id.as_int), graph->view);
+        // TODO Fix Remove Gid
+        auto maybe_vertex = graph->impl->FindVertex(0);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
@@ -2085,24 +2088,25 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
-mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
-  return WrapExceptions(
-      [=] {
-        if (!MgpGraphIsMutable(*graph)) {
-          throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
-        }
-        auto vertex = graph->impl->InsertVertex();
+//  TODO Fix Remove Gid
+// mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
+//   return WrapExceptions(
+//       [=] {
+//         if (!MgpGraphIsMutable(*graph)) {
+//           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
+//         }
+//         auto vertex = graph->impl->InsertVertex();
 
-        auto &ctx = graph->ctx;
-        ctx->execution_stats[memgraph::query::v2::ExecutionStats::Key::CREATED_NODES] += 1;
+//         auto &ctx = graph->ctx;
+//         ctx->execution_stats[memgraph::query::v2::ExecutionStats::Key::CREATED_NODES] += 1;
 
-        if (ctx->trigger_context_collector) {
-          ctx->trigger_context_collector->RegisterCreatedObject(vertex);
-        }
-        return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
-      },
-      result);
-}
+//         if (ctx->trigger_context_collector) {
+//            ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+//         }
+//         return NewRawMgpObject<mgp_vertex>(memory, nullptr, graph);
+//       },
+//       result);
+// }
 
 mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {
@@ -2173,11 +2177,11 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (!trigger_ctx_collector) {
       return;
     }
-
-    trigger_ctx_collector->RegisterDeletedObject((*result)->first);
-    if (!trigger_ctx_collector->ShouldRegisterDeletedObject<memgraph::query::v2::EdgeAccessor>()) {
-      return;
-    }
+    // TODO Fix Remove Gid
+    // trigger_ctx_collector->RegisterDeletedObject((*result)->first);
+    // if (!trigger_ctx_collector->ShouldRegisterDeletedObject<memgraph::query::v2::EdgeAccessor>()) {
+    //   return;
+    // }
     for (const auto &edge : (*result)->second) {
       trigger_ctx_collector->RegisterDeletedObject(edge);
     }

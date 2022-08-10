@@ -22,12 +22,16 @@
 
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/typed_value.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/concepts.hpp"
 #include "utils/fnv.hpp"
 
 namespace memgraph::query::v2 {
+
+// TODO Replace all mentions with PrimaryKey when we have hasing od the same
+constexpr uint64_t kFakeVertexGid{0};
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -223,8 +227,15 @@ class TriggerContextCollector {
   struct HashPairWithAccessor {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
-      using GidType = decltype(std::declval<TAccessor>().Gid());
-      return utils::HashCombine<GidType, T2>{}(pair.first.Gid(), pair.second);
+      // TODO Fix Remove Gid
+      if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
+        using UniqueIdentifierType = std::decay<decltype(kFakeVertexGid)>;
+        static double i{0.0001};
+        return utils::HashCombine<double, T2>{}(i++, pair.second);
+      } else {
+        using UniqueIdentifierType = decltype(std::declval<TAccessor>().Gid());
+        return utils::HashCombine<UniqueIdentifierType, T2>{}(pair.first.Gid(), pair.second);
+      }
     }
   };
 
@@ -239,10 +250,12 @@ class TriggerContextCollector {
 
   template <detail::ObjectAccessor TAccessor>
   struct Registry {
+    using UniqueIdentifier =
+        typename std::conditional_t<(std::is_same_v<TAccessor, VertexAccessor>), uint64_t, storage::v3::Gid>;
     bool should_register_created_objects{false};
     bool should_register_deleted_objects{false};
     bool should_register_updated_objects{false};  // Set/removed properties (and labels for vertices)
-    std::unordered_map<storage::v3::Gid, detail::CreatedObject<TAccessor>> created_objects;
+    std::unordered_map<UniqueIdentifier, detail::CreatedObject<TAccessor>> created_objects;
     std::vector<detail::DeletedObject<TAccessor>> deleted_objects;
     // During the transaction, a single property on a single object could be changed multiple times.
     // We want to register only the global change, at the end of the transaction. The change consists of
@@ -268,7 +281,11 @@ class TriggerContextCollector {
     if (!registry.should_register_created_objects) {
       return;
     }
-    registry.created_objects.emplace(created_object.Gid(), detail::CreatedObject{created_object});
+    if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
+      registry.created_objects.emplace(kFakeVertexGid, detail::CreatedObject{created_object});
+    } else {
+      registry.created_objects.emplace(created_object.Gid(), detail::CreatedObject{created_object});
+    }
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -276,14 +293,17 @@ class TriggerContextCollector {
     return GetRegistry<TAccessor>().should_register_deleted_objects;
   }
 
-  template <detail::ObjectAccessor TAccessor>
-  void RegisterDeletedObject(const TAccessor &deleted_object) {
-    auto &registry = GetRegistry<TAccessor>();
+  void RegisterDeletedObject(const EdgeAccessor &deleted_object) {
+    auto &registry = GetRegistry<EdgeAccessor>();
     if (!registry.should_register_deleted_objects || registry.created_objects.count(deleted_object.Gid())) {
       return;
     }
 
     registry.deleted_objects.emplace_back(deleted_object);
+  }
+
+  void RegisterDeletedObject(const VertexAccessor &deleted_object) {
+    // TODO Fix Remove Gid
   }
 
   template <detail::ObjectAccessor TAccessor>
@@ -298,9 +318,14 @@ class TriggerContextCollector {
     if (!registry.should_register_updated_objects) {
       return;
     }
-
-    if (registry.created_objects.count(object.Gid())) {
-      return;
+    if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
+      if (registry.created_objects.count(kFakeVertexGid)) {
+        return;
+      }
+    } else {
+      if (registry.created_objects.count(object.Gid())) {
+        return;
+      }
     }
 
     if (auto it = registry.property_changes.find({object, key}); it != registry.property_changes.end()) {

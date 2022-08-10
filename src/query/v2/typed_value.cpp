@@ -1083,7 +1083,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return hash;
     }
     case TypedValue::Type::Vertex:
-      return value.ValueVertex().Gid().AsUint();
+      return 0;
+    // return value.ValueVertex().Gid().AsUint();
     case TypedValue::Type::Edge:
       return value.ValueEdge().Gid().AsUint();
     case TypedValue::Type::Path: {
