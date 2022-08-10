@@ -177,6 +177,8 @@ bool operator==(const Role &first, const Role &second);
 // TODO (mferencevic): Implement password expiry.
 class User final {
  public:
+  User();
+
   User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,

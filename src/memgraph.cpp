@@ -753,7 +753,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  std::unique_ptr<memgraph::auth::User> GetUser(const std::string &username) override {
+  memgraph::auth::User GetUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user name.");
     }
@@ -764,7 +764,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
 
-      return std::make_unique<memgraph::auth::User>(memgraph::auth::User(*user));
+      return *user;
 
     } catch (const memgraph::auth::AuthException &e) {
       throw memgraph::query::QueryRuntimeException(e.what());

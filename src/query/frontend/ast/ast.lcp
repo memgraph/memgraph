@@ -2245,7 +2245,7 @@ cpp<#
              :slk-load (slk-load-ast-pointer "Expression"))
    (privileges "std::vector<Privilege>" :scope :public)
    (labels "std::vector<std::string>" :scope :public)
-   (edge_types "std::vector<std::string>" :scope :public))
+   (edge-types "std::vector<std::string>" :scope :public))
   (:public
     (lcp:define-enum action
         (create-role drop-role show-roles create-user set-password drop-user
@@ -2268,7 +2268,7 @@ cpp<#
     AuthQuery(Action action, std::string user, std::string role,
               std::string user_or_role, Expression *password,
               std::vector<Privilege> privileges, std::vector<std::string> labels,
-              std::vector<std::string> edge_types)
+              std::vector<std::string> edgeTypes)
         : action_(action),
           user_(user),
           role_(role),
@@ -2276,7 +2276,7 @@ cpp<#
           password_(password),
           privileges_(privileges),
           labels_(labels),
-          edge_types_(edge_types) {}
+          edge_types_(edgeTypes) {}
     cpp<#)
   (:private
     #>cpp
