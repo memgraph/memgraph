@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2022 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,22 +9,23 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import sys
 import pytest
 
-from common import execute_and_fetch_all, connect
+
+def test_1(connection_with_username):
+    assert True
 
 
-@pytest.fixture(autouse=True)
-def connection():
-    connection = connect()
-    yield connection
-    cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+# def test_2(connection):
+#     connection.cursor()
+#     assert False
 
 
-@pytest.fixture(autouse=True)
-def connection_with_username():
-    connection = connect(username="Boris", password="")
-    yield connection
-    cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+# def test_3(connection):
+#     connection.cursor()
+#     assert False
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))

@@ -6,9 +6,28 @@ template_cluster: &template_cluster
       setup_queries: []
       validation_queries: []
 
+template_cluster_lba: &template_cluster_lba
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries: [
+        "CREATE (:Label1 {id: 1});",
+        "CREATE (:Label1 {id: 2});",
+        "CREATE (:Label2 {id: 1});",
+        "CREATE USER Boris;",
+        "GRANT LABELS :Label1 TO Boris;"
+      ]
+      validation_queries: []
+
 workloads:
   - name: "Write procedures simple"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/simple_write.py"]
     <<: *template_cluster
+  - name: "Label-based auth"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/lba_procedures.py"]
+    <<: *template_cluster_lba
