@@ -49,7 +49,7 @@ ExecutionContext MakeContextWithUserAndAuthChecker(const AstStorage &storage, co
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
-  context.user = std::make_unique<memgraph::auth::User>(user);
+  context.user = user;
   context.auth_checker = auth_checker;
 
   return context;
