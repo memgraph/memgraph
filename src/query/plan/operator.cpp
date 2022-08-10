@@ -1059,16 +1059,22 @@ class ExpandVariableCursor : public Cursor {
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
+      if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, current_edge.first))
+        continue;
 
       // Check edge-uniqueness.
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
-
-      AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
+
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(context.user, *context.db_accessor, current_vertex, storage::View::OLD))
+        continue;
+
+      AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
@@ -1226,13 +1232,16 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
+        if (context.auth_checker &&
+            !context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD))
+          continue;
+
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
-            if (!context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD) ||
-                !context.auth_checker->Accept(context.user, *context.db_accessor, edge)) {
+            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
               continue;
-            }
+
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1250,10 +1259,9 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
-            if (!context.auth_checker->Accept(context.user, *context.db_accessor, edge.From(), storage::View::OLD) ||
-                !context.auth_checker->Accept(context.user, *context.db_accessor, edge)) {
+            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
               continue;
-            }
+
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1282,9 +1290,15 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
+        if (context.auth_checker &&
+            !context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD))
+          continue;
+
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
+            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+              continue;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
@@ -1302,6 +1316,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
+            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+              continue;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
