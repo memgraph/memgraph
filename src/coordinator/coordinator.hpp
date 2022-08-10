@@ -105,7 +105,6 @@ class Coordinator {
 
   /// Increment our
   ReadResponses Read(HlcRequest hlc_request) {
-    std::cout << "HlcRequest->HlcResponse" << std::endl;
     HlcResponse res{};
 
     auto hlc_shard_map = shard_map_.GetHlc();
@@ -125,8 +124,6 @@ class Coordinator {
   }
 
   GetShardMapResponse Read(GetShardMapRequest &&get_shard_map_request) {
-    std::cout << "GetShardMapRequest" << std::endl;
-
     GetShardMapResponse res;
     res.shard_map = shard_map_;
     return res;
@@ -179,22 +176,22 @@ class Coordinator {
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
   ReadResponses Read(ReadRequests requests) {
-    if (std::get_if<HlcRequest>(&requests)) {
-      std::cout << "HlcRequest" << std::endl;
-    } else if (std::get_if<GetShardMapRequest>(&requests)) {
-      std::cout << "GetShardMapRequest" << std::endl;
-    } else {
-      std::cout << "idk requests" << std::endl;
-    }
-    std::cout << "Coordinator Read()" << std::endl;
+    // if (std::get_if<HlcRequest>(&requests)) {
+    //   std::cout << "HlcRequest" << std::endl;
+    // } else if (std::get_if<GetShardMapRequest>(&requests)) {
+    //   std::cout << "GetShardMapRequest" << std::endl;
+    // } else {
+    //   std::cout << "idk requests" << std::endl;
+    // }
+    // std::cout << "Coordinator Read()" << std::endl;
     auto ret = std::visit([&](auto requests) { return Read(requests); }, (requests));
-    if (std::get_if<HlcResponse>(&ret)) {
-      std::cout << "HlcResponse" << std::endl;
-    } else if (std::get_if<GetShardMapResponse>(&ret)) {
-      std::cout << "GetShardMapResponse" << std::endl;
-    } else {
-      std::cout << "idk response" << std::endl;
-    }
+    // if (std::get_if<HlcResponse>(&ret)) {
+    //   std::cout << "HlcResponse" << std::endl;
+    // } else if (std::get_if<GetShardMapResponse>(&ret)) {
+    //   std::cout << "GetShardMapResponse" << std::endl;
+    // } else {
+    //   std::cout << "idk response" << std::endl;
+    // }
     return ret;
   }
 

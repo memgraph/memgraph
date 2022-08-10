@@ -129,21 +129,12 @@ int main() {
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{8 * 1024 * 1024},
+      .abort_time = Time::min() + std::chrono::microseconds{2 * 8 * 1024 * 1024},
   };
 
   auto simulator = Simulator(config);
 
   Io<SimulatorTransport> cli_io = simulator.RegisterNew();
-
-  // auto c_thread_1 = std::jthread(RunRaft< Coordinator>, std::move(c_1));
-  // simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[0]);
-
-  // auto c_thread_2 = std::jthread(RunRaft< Coordinator>, std::move(c_2));
-  // simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[1]);
-
-  // auto c_thread_3 = std::jthread(RunRaft<Coordinator>, std::move(c_3));
-  // simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[2]);
 
   // Register
   Io<SimulatorTransport> a_io_1 = simulator.RegisterNew();
@@ -255,37 +246,25 @@ int main() {
     // Look for Shard
     auto read_res_opt = coordinator_client.SendReadRequest(req);
     if (!read_res_opt) {
-      std::cout << "ERROR!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!0" << std::endl;
       continue;
     }
 
     if (!read_res_opt.value().success) {
-      std::cout << "Not successful." << std::endl;
       continue;
     }
 
-    std::cout << "Before" << std::endl;
     auto read_res = read_res_opt.value();
-    std::cout << "After" << std::endl;
 
     auto res = std::get<memgraph::coordinator::HlcResponse>(read_res.read_return);
+    // Transaction ID to be used later...
     auto transaction_id = res.new_hlc;
 
-    std::cout << "transaction_id: " << transaction_id.logical_id << std::endl;
-
-    if (!res.fresher_shard_map) {
-      // continue;
-      std::cout << "Something is really not OK..." << std::endl;
-    }
-
-    std::cout << "Before2" << std::endl;
     client_shard_map = res.fresher_shard_map.value();
-    std::cout << "After2" << std::endl;
 
     // TODO(gabor) check somewhere in the call chain if the entries are actually valid
-    for (auto &[key, val] : client_shard_map.GetShards()) {
-      std::cout << "key: " << key << std::endl;
-    }
+    // for (auto &[key, val] : client_shard_map.GetShards()) {
+    //   std::cout << "key: " << key << std::endl;
+    // }
 
     auto target_shard = client_shard_map.GetShardForKey(std::string("label1"), cm_k);
 
@@ -293,9 +272,7 @@ int main() {
     auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);
     MG_ASSERT(storage_client_opt);
 
-    std::cout << "Before3" << std::endl;
     auto storage_client = storage_client_opt.value();
-    std::cout << "After3" << std::endl;
 
     // Have client use shard map to decide which shard to communicate
     // with in order to write a new value
@@ -307,7 +284,6 @@ int main() {
     storage_req.value = 1000;
     auto write_res_opt = storage_client.SendWriteRequest(storage_req);
     if (!write_res_opt) {
-      std::cout << "ERROR!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1" << std::endl;
       continue;
     }
     auto write_res = write_res_opt.value().write_return;
@@ -325,19 +301,27 @@ int main() {
     storage_get_req.key = {write_key_1, write_key_2};
     auto get_res_opt = storage_client.SendReadRequest(storage_get_req);
     if (!get_res_opt) {
-      std::cout << "ERROR!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!2" << std::endl;
       continue;
     }
     auto get_res = get_res_opt.value();
     auto val = get_res.read_return.value.value();
 
-    std::cout << "val -> " << val << std::endl;
-
-    MG_ASSERT(get_res.read_return.value == 1000);
+    MG_ASSERT(val == 1000);
     break;
   }
 
   simulator.ShutDown();
+
+  SimulatorStats stats = simulator.Stats();
+
+  std::cout << "total messages:     " << stats.total_messages << std::endl;
+  std::cout << "dropped messages:   " << stats.dropped_messages << std::endl;
+  std::cout << "timed out requests: " << stats.timed_out_requests << std::endl;
+  std::cout << "total requests:     " << stats.total_requests << std::endl;
+  std::cout << "total responses:    " << stats.total_responses << std::endl;
+  std::cout << "simulator ticks:    " << stats.simulator_ticks << std::endl;
+
+  std::cout << "========================== SUCCESS :) ==========================" << std::endl;
 
   return 0;
 }
