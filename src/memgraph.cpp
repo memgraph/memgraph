@@ -19,6 +19,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <string>
@@ -32,6 +33,7 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -751,7 +753,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  memgraph::auth::User *GetUser(const std::string &username) override {
+  memgraph::auth::User GetUser(const std::string &username) override {
     if (!std::regex_match(username, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user name.");
     }
@@ -762,7 +764,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
       }
 
-      return new memgraph::auth::User(*user);
+      return *user;
 
     } catch (const memgraph::auth::AuthException &e) {
       throw memgraph::query::QueryRuntimeException(e.what());
@@ -885,21 +887,45 @@ class AuthChecker final : public memgraph::query::AuthChecker {
     return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
   }
 
-  bool IsUserAuthorizedLabels(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+              const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View &view) const final {
+    auto maybe_labels = vertex.Labels(view);
+    if (maybe_labels.HasError()) {
+      switch (maybe_labels.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+          throw memgraph::query::QueryRuntimeException("Unexpected error when getting labels.");
+      }
+    }
+
+    return IsUserAuthorizedLabels(user, dba, *maybe_labels);
+  }
+
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+              const memgraph::query::EdgeAccessor &edge) const final {
+    return IsUserAuthorizedEdgeType(user, dba, edge.EdgeType());
+  }
+
+ private:
+  bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const std::vector<memgraph::storage::LabelId> &labels) const final {
-    return std::any_of(labels.begin(), labels.end(), [dba, user](const auto label) {
-      return user->GetFineGrainedAccessLabelPermissions().Has(dba->LabelToName(label)) ==
+    return std::all_of(labels.begin(), labels.end(), [dba, user](const auto label) {
+      return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label)) ==
              memgraph::auth::PermissionLevel::GRANT;
     });
   }
 
-  bool IsUserAuthorizedEdgeType(const memgraph::auth::User *user, const memgraph::query::DbAccessor *dba,
+  bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                                 const memgraph::storage::EdgeTypeId &edgeType) const final {
-    return user->GetFineGrainedAccessEdgeTypePermissions().Has(dba->EdgeTypeToName(edgeType)) ==
+    return user.GetFineGrainedAccessEdgeTypePermissions().Has(dba.EdgeTypeToName(edgeType)) ==
            memgraph::auth::PermissionLevel::GRANT;
   }
 
- private:
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 

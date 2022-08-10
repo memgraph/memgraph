@@ -372,6 +372,8 @@ bool operator==(const Role &first, const Role &second) {
          first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
 }
 
+User::User() {}
+
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
 User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,

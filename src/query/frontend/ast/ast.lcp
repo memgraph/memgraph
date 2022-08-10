@@ -2245,7 +2245,7 @@ cpp<#
              :slk-load (slk-load-ast-pointer "Expression"))
    (privileges "std::vector<Privilege>" :scope :public)
    (labels "std::vector<std::string>" :scope :public)
-   (edgeTypes "std::vector<std::string>" :scope :public))
+   (edge-types "std::vector<std::string>" :scope :public))
   (:public
     (lcp:define-enum action
         (create-role drop-role show-roles create-user set-password drop-user
@@ -2276,7 +2276,7 @@ cpp<#
           password_(password),
           privileges_(privileges),
           labels_(labels),
-          edgetypes_(edgeTypes) {}
+          edge_types_(edgeTypes) {}
     cpp<#)
   (:private
     #>cpp

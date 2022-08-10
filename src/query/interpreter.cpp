@@ -260,6 +260,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
  private:
   storage::Storage *db_;
 };
+
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
@@ -282,7 +283,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
-  std::vector<std::string> edgeTypes = auth_query->edgetypes_;
+  std::vector<std::string> edgeTypes = auth_query->edge_types_;
   std::vector<std::string> labels = auth_query->labels_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
@@ -296,11 +297,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       AuthQuery::Action::REVOKE_PRIVILEGE,  AuthQuery::Action::SHOW_PRIVILEGES, AuthQuery::Action::SHOW_USERS_FOR_ROLE,
       AuthQuery::Action::SHOW_ROLE_FOR_USER};
 
-  // if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
-  //   throw utils::BasicException(
-  //       utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-  //       features"));
-  // }
+  if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
+    throw utils::BasicException(
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
+  }
 
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:

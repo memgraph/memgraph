@@ -138,6 +138,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     return expression;
   }
 
+  auto ExtractPrivilege(AuthQuery *auth, antlropencypher::MemgraphCypher::PrivilegeContext *privilege) {
+    if (privilege->EDGE_TYPES()) {
+      auth->edge_types_ = std::any_cast<std::vector<std::string>>(privilege->edgeTypeList()->accept(this));
+    } else if (privilege->LABELS()) {
+      auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
+    } else {
+      auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
+    }
+  }
+
   /**
    * @return CypherQuery*
    */

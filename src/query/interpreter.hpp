@@ -100,7 +100,7 @@ class AuthQueryHandler {
   virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual memgraph::auth::User *GetUser(const std::string &username) = 0;
+  virtual memgraph::auth::User GetUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
@@ -179,6 +179,13 @@ struct InterpreterContext {
 
   storage::Storage *db;
 
+  // ANTLR has singleton instance that is shared between threads. It is
+  // protected by locks inside of ANTLR. Unfortunately, they are not protected
+  // in a very good way. Once we have ANTLR version without race conditions we
+  // can remove this lock. This will probably never happen since ANTLR
+  // developers introduce more bugs in each version. Fortunately, we have
+  // cache so this lock probably won't impact performance much...
+  utils::SpinLock antlr_lock;
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
 
