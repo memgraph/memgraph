@@ -44,20 +44,20 @@ enum class Permission : uint64_t {
 // clang-format on
 
 // clang-format off
-enum class LabelPermission : ushort {
+enum class LabelPermission : uint64_t {
   READ          = 1,
   EDIT          = 1U << 1U,
   CREATE_DELETE = 1U << 2U
 };
 // clang-format on
 
-inline ushort operator|(LabelPermission a, LabelPermission b) {
-  return static_cast<ushort>(a) | static_cast<ushort>(b);
+inline uint64_t operator|(LabelPermission a, LabelPermission b) {
+  return static_cast<uint64_t>(a) | static_cast<uint64_t>(b);
 }
 
-inline ushort operator|(ushort a, LabelPermission b) { return a | static_cast<ushort>(b); }
+inline uint64_t operator|(uint64_t a, LabelPermission b) { return a | static_cast<uint64_t>(b); }
 
-inline bool operator&(ushort a, LabelPermission b) { return (a & static_cast<ushort>(b)) != (ushort)0; }
+inline bool operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -103,8 +103,8 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, ushort> &grants = {},
-                                        const std::unordered_map<std::string, ushort> &denies = {});
+  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &grants = {},
+                                        const std::unordered_map<std::string, uint64_t> &denies = {});
 
   PermissionLevel Has(const std::string &permission, LabelPermission label_permission);
 
@@ -119,12 +119,12 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, ushort> &grants() const;
-  const std::unordered_map<std::string, ushort> &denies() const;
+  const std::unordered_map<std::string, uint64_t> &grants() const;
+  const std::unordered_map<std::string, uint64_t> &denies() const;
 
  private:
-  std::unordered_map<std::string, ushort> grants_{};
-  std::unordered_map<std::string, ushort> denies_{};
+  std::unordered_map<std::string, uint64_t> grants_{};
+  std::unordered_map<std::string, uint64_t> denies_{};
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
