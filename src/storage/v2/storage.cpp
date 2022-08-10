@@ -46,6 +46,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -846,10 +847,12 @@ EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { retu
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
+utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto could_replicate_all_sync_replicas = true;
 
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
@@ -869,7 +872,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return StorageDataManipulationError{*validation_result};
       }
     }
 
@@ -926,7 +929,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, *commit_timestamp_);
+          could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
@@ -954,10 +957,14 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return StorageDataManipulationError{*unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;
+
+  if (!could_replicate_all_sync_replicas) {
+    return StorageDataManipulationError{ReplicationError{}};
+  }
 
   return {};
 }
@@ -1157,46 +1164,82 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
+  if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  const auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.DropIndex(label)) return false;
+  if (!indices_.label_index.DropIndex(label)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
+  auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.DropIndex(label, property)) return false;
+  if (!indices_.label_property_index.DropIndex(label, property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 IndicesInfo Storage::ListAllIndices() const {
@@ -1204,55 +1247,92 @@ IndicesInfo Storage::ListAllIndices() const {
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
+  if (ret.HasError()) {
+    return StorageExistenceConstraintDefinitionError{ret.GetError()};
+  }
+  if (!ret.GetValue()) {
+    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
+  }
+
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
-                                      const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropExistenceConstraint(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
-  return true;
-}
-
-utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret;
+  if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
+    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::CreationStatus::SUCCESS;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDroppingError{ReplicationError{}};
 }
 
-UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                const std::optional<uint64_t> desired_commit_timestamp) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
+  if (ret.HasError()) {
+    return StorageUniqueConstraintDefinitionError{ret.GetError()};
+  }
+  if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+    return ret.GetValue();
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
+                                           properties, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return UniqueConstraints::CreationStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
+}
+
+utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
+Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                              const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+                                           properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::DeletionStatus::SUCCESS;
+
+  if (success) {
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDroppingError{ReplicationError{}};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
@@ -1605,8 +1685,10 @@ void Storage::FinalizeWalFile() {
   }
 }
 
-void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
+bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) {
+    return true;
+  }
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
@@ -1775,17 +1857,28 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
 
   FinalizeWalFile();
 
+  auto finalized_on_all_replicas = true;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-      client->FinalizeTransactionReplication();
+      const auto finalized = client->FinalizeTransactionReplication();
+
+      if (client->Mode() == replication::ReplicationMode::SYNC) {
+        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+      }
     }
   });
+
+  return finalized_on_all_replicas;
 }
 
-void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
-                          const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
+bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                        const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) {
+    return true;
+  }
+
+  auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
     if (replication_role_.load() == ReplicationRole::MAIN) {
@@ -1794,12 +1887,17 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
           client->StartTransactionReplication(wal_file_->SequenceNumber());
           client->IfStreamingTransaction(
               [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-          client->FinalizeTransactionReplication();
+
+          const auto finalized = client->FinalizeTransactionReplication();
+          if (client->Mode() == replication::ReplicationMode::SYNC) {
+            finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+          }
         }
       });
     }
   }
   FinalizeWalFile();
+  return finalized_on_all_replicas;
 }
 
 utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {

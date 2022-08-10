@@ -359,5 +359,5 @@ add_dependencies(memgraph__unit test_lcp)
 # Test websocket
 find_package(Boost REQUIRED)
 
-add_unit_test(websocket.cpp)
-target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
+add_unit_test(monitoring.cpp)
+target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
