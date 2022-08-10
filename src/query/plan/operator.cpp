@@ -1832,16 +1832,21 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           continue;
         }
         auto [current_edge, current_edge_direction] = current_level.back();
+
         current_level.pop_back();
 
         // Order needs to be reverse since we expand from the back
-        edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+        if (!self_.is_reverse_)
+          edges_on_frame.emplace_back(current_edge);
+        else
+          edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+
         auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
         frame[self_.common_.node_symbol] = next_vertex;
         frame[self_.total_weight_.value()] = visited_cost_.at(next_vertex);
 
-        if (previous_.find(next_vertex) != previous_.end()) {
-          auto edges_previous = previous_[next_vertex];
+        if (previous_.find({next_vertex, traversal_stack_.size()}) != previous_.end()) {
+          auto edges_previous = previous_[{next_vertex, traversal_stack_.size()}];
           traversal_stack_.emplace_back(std::move(edges_previous));
         } else {
           // Signal the end of iteration
@@ -1886,17 +1891,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
         pq_.pop();
 
+        // Expand only if what we've just expanded is less than max depth.
+        if (expanded_.find(current_vertex) == expanded_.end() && current_depth < upper_bound_) {
+          expand_from_vertex(current_vertex, current_weight, current_depth);
+          expanded_.emplace(current_vertex);
+        }
+
         // Check if this route is the longer one, skip if it is
         auto maybe_cost = visited_cost_.find(current_vertex);
         if (maybe_cost != visited_cost_.end()) {
           auto min_cost = maybe_cost->second;
           if (!current_weight.IsNull() && (current_weight > min_cost).ValueBool()) continue;
-        }
-
-        // Expand only if what we've just expanded is less than max depth.
-        if (expanded_.find(current_vertex) == expanded_.end() && current_depth < upper_bound_) {
-          expand_from_vertex(current_vertex, current_weight, current_depth);
-          expanded_.emplace(current_vertex);
         }
 
         // If in priority queue, the vertex is already expanded.
@@ -1907,17 +1912,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
           // Append the expansion to the priority queue
           // Update the parent
-          if (previous_.find(prev_vertex) == previous_.end()) {
+          if (previous_.find({prev_vertex, current_depth - 1}) == previous_.end()) {
             utils::pmr::list<std::pair<EdgeAccessor, EdgeAtom::Direction>> empty(memory);
-            previous_[prev_vertex] = std::move(empty);
+            previous_[{prev_vertex, current_depth - 1}] = std::move(empty);
           }
 
-          previous_.at(prev_vertex).emplace_back(current_edge, direction);
+          previous_.at({prev_vertex, current_depth - 1}).emplace_back(current_edge, direction);
         }
       }
 
-      if (start_vertex && previous_.find(*start_vertex) != previous_.end()) {
-        auto edges_previous = previous_[*start_vertex];
+      if (start_vertex && previous_.find({*start_vertex, 0}) != previous_.end()) {
+        auto edges_previous = previous_[{*start_vertex, 0}];
         traversal_stack_.emplace_back(std::move(edges_previous));
       }
     }
@@ -1942,13 +1947,20 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   int64_t upper_bound_{-1};
   bool upper_bound_set_{false};
 
+  struct AspStateHash {
+    size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
+      return utils::HashCombine<VertexAccessor, int64_t>{}(key.first, key.second);
+    }
+  };
+
   using DirectedEdge = std::pair<EdgeAccessor, EdgeAtom::Direction>;
+  using PreviousState = std::pair<VertexAccessor, int64_t>;
   // Maps vertices to minimum weights they got in expansion.
   utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
   // Marking the expanded vertices to prevent multiple visits.
   utils::pmr::unordered_set<VertexAccessor> expanded_;
   // Maps the vertex with the potential expansion edge.
-  utils::pmr::unordered_map<VertexAccessor, utils::pmr::list<DirectedEdge>> previous_;
+  utils::pmr::unordered_map<PreviousState, utils::pmr::list<DirectedEdge>, AspStateHash> previous_;
   // Stack indicating the traversal level.
   utils::pmr::list<utils::pmr::list<DirectedEdge>> traversal_stack_;
 
@@ -2059,6 +2071,7 @@ class ConstructNamedPathCursor : public Cursor {
           break;
         case TypedValue::Type::Edge:
           path.Expand(expansion.ValueEdge());
+          spdlog::warn("({}->{})", expansion.ValueEdge().From().CypherId(), expansion.ValueEdge().To().CypherId());
           break;
         case TypedValue::Type::List: {
           last_was_edge_list = true;
