@@ -97,7 +97,7 @@ class Shared {
     return Take();
   }
 
-  bool IsReady() {
+  bool IsReady() const {
     std::unique_lock<std::mutex> lock(mu_);
     return item_;
   }
@@ -125,7 +125,7 @@ class Shared {
     cv_.notify_all();
   }
 
-  bool IsAwaited() {
+  bool IsAwaited() const {
     std::unique_lock<std::mutex> lock(mu_);
     return waiting_;
   }
