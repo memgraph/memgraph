@@ -37,6 +37,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIG
                       | CONFIGS
                       | CONSUMER_GROUP
+                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | DATA
@@ -45,6 +46,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDIT
                       | EXECUTE
                       | FOR
                       | FOREACH
@@ -255,8 +257,12 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | LABELS labels=labelList
+          | labelPrivileges=labelPrivilegeList
           ;
+
+labelPrivilegeList : singlePrivilege ( ',' singlePrivilege )* ;
+
+singlePrivilege : ( READ | EDIT | CREATE_DELETE ) ON LABELS labels=labelList ;
 
 privilegeList : privilege ( ',' privilege )* ;
 
