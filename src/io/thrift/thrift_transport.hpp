@@ -56,8 +56,7 @@ class ThriftTransport {
 
   Time Now() const {
     auto nano_time = std::chrono::system_clock::now();
-    auto micros = std::chrono::duration_cast<std::chrono::milliseconds>(nano_time);
-    return Time::now();
+    return std::chrono::time_point_cast<std::chrono::microseconds>(nano_time);
   }
 
   bool ShouldShutDown() const { return false; }

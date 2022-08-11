@@ -11,7 +11,11 @@
 
 #pragma once
 
+#include "io/transport.hpp"
+
 namespace memgraph::io::thrift {
+
+using memgraph::io::Address;
 
 class ThriftHandle {
  public:
