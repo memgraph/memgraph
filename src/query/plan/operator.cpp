@@ -3733,15 +3733,17 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
-  query::Graph *subgraph = nullptr;
+  query::SubgraphDbAccessor *subgraphAccessor = nullptr;
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
     TypedValue subgraph_typed = TypedValue(args_list.front(), args_list.front().ValueGraph().GetMemoryResource());
 
     args_list.erase(args_list.begin());
-    subgraph = &subgraph_typed.ValueGraph();
+    query::Graph *subgraph = &subgraph_typed.ValueGraph();
+    subgraphAccessor =
+        query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);
+    graph.impl = subgraphAccessor;
   }
 
-  // if we have graph at first element, it is okay to have 1+ element here
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,

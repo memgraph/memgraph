@@ -27,7 +27,7 @@ namespace memgraph::query {
  *  A data structure that holds a graph. A graph consists of at least one
  * vertex, and zero or more edges.
  */
-class Graph {
+class Graph final {
  public:
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<char>;

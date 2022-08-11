@@ -329,13 +329,7 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
-      return std::visit(memgraph::utils::Overloaded{[memory](memgraph::query::VertexAccessor impl) {
-                                                      return memgraph::query::TypedValue(impl, memory);
-                                                    },
-                                                    [memory](memgraph::query::SubgraphVertexAccessor impl) {
-                                                      return memgraph::query::TypedValue(impl.impl_, memory);
-                                                    }},
-                        val.vertex_v->impl);
+      return memgraph::query::TypedValue(val.vertex_v->getImpl(), memory);
     case MGP_VALUE_TYPE_EDGE:
       return memgraph::query::TypedValue(val.edge_v->impl, memory);
     case MGP_VALUE_TYPE_PATH: {
@@ -344,18 +338,10 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
 
       ;
-      memgraph::query::Path tv_path(
-          std::visit(
-              memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
-                                          [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-              path->vertices[0].impl),
-          memory);
+      memgraph::query::Path tv_path(path->vertices[0].getImpl(), memory);
       for (size_t i = 0; i < path->edges.size(); ++i) {
         tv_path.Expand(path->edges[i].impl);
-        tv_path.Expand(std::visit(
-            memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
-                                        [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-            path->vertices[i + 1].impl));
+        tv_path.Expand(path->vertices[i + 1].getImpl());
       }
       return memgraph::query::TypedValue(std::move(tv_path));
     }
@@ -1518,17 +1504,14 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
           return nullptr;
         }
         memgraph::utils::OnScopeExit clean_up([it] { it->current = std::nullopt; });
-        auto propToName = std::visit(memgraph::utils::Overloaded{
-                                         [it](memgraph::query::DbAccessor *impl) {
-                                           return memgraph::utils::pmr::string(
-                                               impl->PropertyToName(it->current_it->first), it->GetMemoryResource());
-                                         },
-                                         [it](memgraph::query::SubgraphDbAccessor *impl) {
-                                           return memgraph::utils::pmr::string(
-                                               impl->PropertyToName(it->current_it->first), it->GetMemoryResource());
-                                         },
-                                     },
-                                     it->graph->impl);
+        auto propToName = std::visit(
+            memgraph::utils::Overloaded{
+                [it](auto *impl) {
+                  return memgraph::utils::pmr::string(impl->PropertyToName(it->current_it->first),
+                                                      it->GetMemoryResource());
+                },
+            },
+            it->graph->impl);
         it->current.emplace(propToName, mgp_value(it->current_it->second, it->GetMemoryResource()));
         it->property.name = it->current->first.c_str();
         it->property.value = &it->current->second;
@@ -1542,10 +1525,7 @@ mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
   return WrapExceptions(
       [v] {
         return mgp_vertex_id{
-            .as_int = std::visit(memgraph::utils::Overloaded{
-                                     [](memgraph::query::VertexAccessor impl) { return impl.Gid().AsInt(); },
-                                     [](memgraph::query::SubgraphVertexAccessor impl) { return impl.Gid().AsInt(); }},
-                                 v->impl)};
+            .as_int = std::visit(memgraph::utils::Overloaded{[](auto &impl) { return impl.Gid().AsInt(); }}, v->impl)};
       },
       result);
 }
@@ -1621,19 +1601,13 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     }
 
     const auto prop_key = std::visit(
-        memgraph::utils::Overloaded{
-            [property_name](memgraph::query::DbAccessor *impl) { return impl->NameToProperty(property_name); },
-            [property_name](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToProperty(property_name); }},
+        memgraph::utils::Overloaded{[property_name](auto *impl) { return impl->NameToProperty(property_name); }},
         v->graph->impl);
 
-    const auto result = std::visit(
-        memgraph::utils::Overloaded{[prop_key, property_value](memgraph::query::VertexAccessor impl) {
-                                      return impl.SetProperty(prop_key, ToPropertyValue(*property_value));
-                                    },
-                                    [prop_key, property_value](memgraph::query::SubgraphVertexAccessor impl) {
-                                      return impl.SetProperty(prop_key, ToPropertyValue(*property_value));
-                                    }},
-        v->impl);
+    const auto result = std::visit(memgraph::utils::Overloaded{[prop_key, property_value](auto &impl) {
+                                     return impl.SetProperty(prop_key, ToPropertyValue(*property_value));
+                                   }},
+                                   v->impl);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1659,20 +1633,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     }
     const auto old_value = memgraph::query::TypedValue(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
-      trigger_ctx_collector->RegisterRemovedObjectProperty(
-          std::visit(
-              memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
-                                          [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-              v->impl),
-          prop_key, old_value);
+      trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), prop_key, old_value);
       return;
     }
     const auto new_value = ToTypedValue(*property_value, property_value->memory);
-    trigger_ctx_collector->RegisterSetObjectProperty(
-        std::visit(memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
-                                               [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-                   v->impl),
-        prop_key, old_value, new_value);
+    trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), prop_key, old_value, new_value);
   });
 }
 
@@ -1681,19 +1646,18 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
-    const auto label_id =
-        std::visit(memgraph::utils::Overloaded{
-                       [label](memgraph::query::DbAccessor *impl) { return impl->NameToLabel(label.name); },
-                       [label](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToLabel(label.name); },
-                   },
-                   v->graph->impl);
+    const auto label_id = std::visit(
+        memgraph::utils::Overloaded{
+            [label](auto *impl) { return impl->NameToLabel(label.name); },
+        },
+        v->graph->impl);
 
-    const auto result =
-        std::visit(memgraph::utils::Overloaded{
-                       [label_id](memgraph::query::VertexAccessor impl) { return impl.AddLabel(label_id); },
-                       [label_id](memgraph::query::SubgraphVertexAccessor impl) { return impl.AddLabel(label_id); },
-                   },
-                   v->impl);
+    const auto result = std::visit(
+        memgraph::utils::Overloaded{
+            [label_id](auto &impl) { return impl.AddLabel(label_id); },
+
+        },
+        v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1714,13 +1678,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_LABELS] += 1;
 
     if (ctx->trigger_context_collector) {
-      ctx->trigger_context_collector->RegisterSetVertexLabel(
-          std::visit(memgraph::utils::Overloaded{
-                         [](memgraph::query::VertexAccessor impl) { return impl; },
-                         [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; },
-                     },
-                     v->impl),
-          label_id);
+      ctx->trigger_context_collector->RegisterSetVertexLabel(v->getImpl(), label_id);
     }
   });
 }
@@ -1730,18 +1688,17 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
-    const auto label_id =
-        std::visit(memgraph::utils::Overloaded{
-                       [label](memgraph::query::DbAccessor *impl) { return impl->NameToLabel(label.name); },
-                       [label](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToLabel(label.name); },
-                   },
-                   v->graph->impl);
-    const auto result =
-        std::visit(memgraph::utils::Overloaded{
-                       [label_id](memgraph::query::VertexAccessor impl) { return impl.RemoveLabel(label_id); },
-                       [label_id](memgraph::query::SubgraphVertexAccessor impl) { return impl.RemoveLabel(label_id); },
-                   },
-                   v->impl);
+    const auto label_id = std::visit(
+        memgraph::utils::Overloaded{
+            [label](auto *impl) { return impl->NameToLabel(label.name); },
+        },
+        v->graph->impl);
+    const auto result = std::visit(
+        memgraph::utils::Overloaded{
+            [label_id](auto &impl) { return impl.RemoveLabel(label_id); },
+
+        },
+        v->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1762,12 +1719,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_LABELS] += 1;
 
     if (ctx->trigger_context_collector) {
-      ctx->trigger_context_collector->RegisterRemovedVertexLabel(
-          std::visit(
-              memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
-                                          [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-              v->impl),
-          label_id);
+      ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->getImpl(), label_id);
     }
   });
 }
@@ -1788,12 +1740,8 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
-        auto maybe_labels =
-            std::visit(memgraph::utils::Overloaded{
-                           [v](memgraph::query::VertexAccessor impl) { return impl.Labels(v->graph->view); },
-                           [v](memgraph::query::SubgraphVertexAccessor impl) { return impl.Labels(v->graph->view); },
-                       },
-                       v->impl);
+        auto maybe_labels = std::visit(
+            memgraph::utils::Overloaded{[v](const auto &impl) { return impl.Labels(v->graph->view); }}, v->impl);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -1815,12 +1763,11 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
   return WrapExceptions(
       [v, i]() -> const char * {
         // TODO: Maybe it's worth caching this in mgp_vertex.
-        auto maybe_labels =
-            std::visit(memgraph::utils::Overloaded{
-                           [v](memgraph::query::VertexAccessor impl) { return impl.Labels(v->graph->view); },
-                           [v](memgraph::query::SubgraphVertexAccessor impl) { return impl.Labels(v->graph->view); },
-                       },
-                       v->impl);
+        auto maybe_labels = std::visit(
+            memgraph::utils::Overloaded{
+                [v](const auto &impl) { return impl.Labels(v->graph->view); },
+            },
+            v->impl);
         if (maybe_labels.HasError()) {
           switch (maybe_labels.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -1842,12 +1789,11 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
                       "Expected LabelToName to return a pointer or reference, so we "
                       "don't have to take a copy and manage memory.");
 
-        const auto &name =
-            std::visit(memgraph::utils::Overloaded{
-                           [label](memgraph::query::DbAccessor *impl) { return impl->LabelToName(label); },
-                           [label](memgraph::query::SubgraphDbAccessor *impl) { return impl->LabelToName(label); },
-                       },
-                       v->graph->impl);
+        const auto &name = std::visit(
+            memgraph::utils::Overloaded{
+                [label](const auto *impl) { return impl->LabelToName(label); },
+            },
+            v->graph->impl);
         return name.c_str();
       },
       &result->name);
@@ -1857,18 +1803,15 @@ mgp_error mgp_vertex_has_label_named(mgp_vertex *v, const char *name, int *resul
   return WrapExceptions(
       [v, name] {
         memgraph::storage::LabelId label;
-        label = std::visit(memgraph::utils::Overloaded{
-                               [name](memgraph::query::DbAccessor *impl) { return impl->NameToLabel(name); },
-                               [name](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToLabel(name); },
-                           },
-                           v->graph->impl);
+        label = std::visit(
+            memgraph::utils::Overloaded{
+                [name](auto *impl) { return impl->NameToLabel(name); },
+            },
+            v->graph->impl);
 
         auto maybe_has_label = std::visit(
             memgraph::utils::Overloaded{
-                [v, label](memgraph::query::VertexAccessor impl) { return impl.HasLabel(v->graph->view, label); },
-                [v, label](memgraph::query::SubgraphVertexAccessor impl) {
-                  return impl.HasLabel(v->graph->view, label);
-                },
+                [v, label](auto &impl) { return impl.HasLabel(v->graph->view, label); },
             },
             v->impl);
         if (maybe_has_label.HasError()) {
@@ -1898,19 +1841,15 @@ mgp_error mgp_vertex_has_label(mgp_vertex *v, mgp_label label, int *result) {
 mgp_error mgp_vertex_get_property(mgp_vertex *v, const char *name, mgp_memory *memory, mgp_value **result) {
   return WrapExceptions(
       [v, name, memory]() -> mgp_value * {
-        const auto &key =
-            std::visit(memgraph::utils::Overloaded{
-                           [name](memgraph::query::DbAccessor *impl) { return impl->NameToProperty(name); },
-                           [name](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToProperty(name); },
-                       },
-                       v->graph->impl);
+        const auto &key = std::visit(
+            memgraph::utils::Overloaded{
+                [name](auto *impl) { return impl->NameToProperty(name); },
+            },
+            v->graph->impl);
 
         auto maybe_prop = std::visit(
             memgraph::utils::Overloaded{
-                [v, key](memgraph::query::VertexAccessor impl) { return impl.GetProperty(v->graph->view, key); },
-                [v, key](memgraph::query::SubgraphVertexAccessor impl) {
-                  return impl.GetProperty(v->graph->view, key);
-                },
+                [v, key](auto &impl) { return impl.GetProperty(v->graph->view, key); },
             },
             v->impl);
         if (maybe_prop.HasError()) {
@@ -1940,8 +1879,7 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
       [v, memory] {
         auto maybe_props = std::visit(
             memgraph::utils::Overloaded{
-                [v](memgraph::query::VertexAccessor impl) { return impl.Properties(v->graph->view); },
-                [v](memgraph::query::SubgraphVertexAccessor impl) { return impl.Properties(v->graph->view); },
+                [v](auto &impl) { return impl.Properties(v->graph->view); },
             },
             v->impl);
         if (maybe_props.HasError()) {
@@ -1971,12 +1909,11 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
         MG_ASSERT(it != nullptr);
 
-        auto maybe_edges =
-            std::visit(memgraph::utils::Overloaded{
-                           [v](memgraph::query::VertexAccessor impl) { return impl.InEdges(v->graph->view); },
-                           [v](memgraph::query::SubgraphVertexAccessor impl) { return impl.InEdges(v->graph->view); },
-                       },
-                       v->impl);
+        auto maybe_edges = std::visit(
+            memgraph::utils::Overloaded{
+                [v](auto &impl) { return impl.InEdges(v->graph->view); },
+            },
+            v->impl);
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
             case memgraph::storage::Error::DELETED_OBJECT:
@@ -2007,12 +1944,11 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
       [v, memory] {
         auto it = NewMgpObject<mgp_edges_iterator>(memory, *v);
         MG_ASSERT(it != nullptr);
-        auto maybe_edges =
-            std::visit(memgraph::utils::Overloaded{
-                           [v](memgraph::query::VertexAccessor impl) { return impl.OutEdges(v->graph->view); },
-                           [v](memgraph::query::SubgraphVertexAccessor impl) { return impl.OutEdges(v->graph->view); },
-                       },
-                       v->impl);
+        auto maybe_edges = std::visit(
+            memgraph::utils::Overloaded{
+                [v](auto &impl) { return impl.OutEdges(v->graph->view); },
+            },
+            v->impl);
 
         if (maybe_edges.HasError()) {
           switch (maybe_edges.GetError()) {
@@ -2107,8 +2043,7 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
       [e] {
         const auto &name = std::visit(
             memgraph::utils::Overloaded{
-                [e](memgraph::query::DbAccessor *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); },
-                [e](memgraph::query::SubgraphDbAccessor *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); },
+                [e](const auto *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); },
             },
             e->from.graph->impl);
         // static_assert(std::is_lvalue_reference_v<decltype(e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType()))>,
@@ -2132,11 +2067,11 @@ mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
 mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memory, mgp_value **result) {
   return WrapExceptions(
       [e, name, memory] {
-        const auto &key =
-            std::visit(memgraph::utils::Overloaded{
-                           [name](memgraph::query::DbAccessor *impl) { return impl->NameToProperty(name); },
-                           [name](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToProperty(name); }},
-                       e->from.graph->impl);
+        const auto &key = std::visit(
+            memgraph::utils::Overloaded{
+                [name](auto *impl) { return impl->NameToProperty(name); },
+            },
+            e->from.graph->impl);
         auto view = e->from.graph->view;
         auto maybe_prop = e->impl.GetProperty(view, key);
         if (maybe_prop.HasError()) {
@@ -2164,8 +2099,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     }
     const auto prop_key = std::visit(
         memgraph::utils::Overloaded{
-            [property_name](memgraph::query::DbAccessor *impl) { return impl->NameToProperty(property_name); },
-            [property_name](memgraph::query::SubgraphDbAccessor *impl) { return impl->NameToProperty(property_name); }},
+            [property_name](auto *impl) { return impl->NameToProperty(property_name); },
+        },
         e->from.graph->impl);
     const auto result = e->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
 
@@ -2233,16 +2168,13 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex =
-            std::visit(memgraph::utils::Overloaded{
-                           [graph, id](memgraph::query::DbAccessor *impl) {
-                             return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
-                           },
-                           [graph, id](memgraph::query::SubgraphDbAccessor *impl) {
-                             return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
-                           },
-                       },
-                       graph->impl);
+        auto maybe_vertex = std::visit(
+            memgraph::utils::Overloaded{
+                [graph, id](auto *impl) {
+                  return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
+                },
+            },
+            graph->impl);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
@@ -2262,10 +2194,8 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
-        auto vertex = std::visit(
-            memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl->InsertVertex(); },
-                                        [](memgraph::query::SubgraphDbAccessor *impl) { return impl->InsertVertex(); }},
-            graph->impl);
+        auto vertex =
+            std::visit(memgraph::utils::Overloaded{[](auto *impl) { return impl->InsertVertex(); }}, graph->impl);
 
         auto &ctx = graph->ctx;
         ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;
@@ -2452,11 +2382,8 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
       throw ImmutableObjectException{"Cannot remove an edge from an immutable graph!"};
     }
 
-    const auto result =
-        std::visit(memgraph::utils::Overloaded{
-                       [edge](memgraph::query::DbAccessor *impl) { return impl->RemoveEdge(&edge->impl); },
-                       [edge](memgraph::query::SubgraphDbAccessor *impl) { return impl->RemoveEdge(&edge->impl); }},
-                   graph->impl);
+    const auto result = std::visit(
+        memgraph::utils::Overloaded{[edge](auto *impl) { return impl->RemoveEdge(&edge->impl); }}, graph->impl);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::NONEXISTENT_OBJECT:

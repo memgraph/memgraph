@@ -20,6 +20,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "utils/pmr/unordered_set.hpp"
+#include "utils/variant_helpers.hpp"
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
@@ -46,6 +48,8 @@
 namespace memgraph::query {
 
 class VertexAccessor;
+
+class Graph;
 
 class EdgeAccessor final {
  public:
@@ -189,17 +193,76 @@ inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.F
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
+class SubgraphVertexAccessor final {
+ public:
+  query::VertexAccessor impl_;
+
+  explicit SubgraphVertexAccessor(query::VertexAccessor impl) : impl_(impl) {}
+
+  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
+    static_assert(noexcept(impl_ == v.impl_));
+    return impl_ == v.impl_;
+  }
+
+  auto InEdges(storage::View view) const {
+    // todo antoniofilipovic add filtering here
+    return impl_.InEdges(view);
+  }
+
+  auto OutEdges(storage::View view) const {
+    // todo antoniofilipovic add filtering here
+    return impl_.OutEdges(view);
+  }
+
+  auto Labels(storage::View view) const { return impl_.Labels(view); }
+
+  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+
+  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
+    return impl_.HasLabel(view, label);
+  }
+
+  auto Properties(storage::View view) const { return impl_.Properties(view); }
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+    return impl_.GetProperty(view, key);
+  }
+
+  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    return impl_.SetProperty(key, value);
+  }
+};
+
 class VerticesIterable final {
+  enum class Type { VERTEX, SUBGRAPH_VERTEX };
+
   storage::VerticesIterable iterable_;
+  Type type_;
 
  public:
   class Iterator final {
     storage::VerticesIterable::Iterator it_;
+    Type type_;
 
    public:
-    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(storage::VerticesIterable::Iterator it, Type type_) : it_(it), type_(type_) {}
+    // explicit Iterator(utils::pmr::unordered_set<VertexAccessor>>::iterator it, Type type_) : it_(it), type_(type_) {}
 
-    VertexAccessor operator*() const { return VertexAccessor(*it_); }
+    VertexAccessor operator*() const {
+      return VertexAccessor(*it_);
+      // switch (type_) {
+      //   case Type::VERTEX: {
+      //     return VertexAccessor(*it_);
+      //   }
+      //   case Type::SUBGRAPH_VERTEX: {
+      //     return SubgraphVertexAccessor(VertexAccessor(*it_));
+      //   }
+      // }
+    }
 
     Iterator &operator++() {
       ++it_;
@@ -211,11 +274,24 @@ class VerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(other == *this); }
   };
 
-  explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
+  explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)), type_(Type::VERTEX) {}
+  // explicit VerticesIterable(utils::pmr::unordered_set<VertexAccessor>> vertices) : iterable_(vertices),
+  // type_(Type::SUBGRAPH_VERTEX) {}
 
-  Iterator begin() { return Iterator(iterable_.begin()); }
+  Iterator begin() {
+    return Iterator(iterable_.begin(), type_);
+    // return std::visit(memgraph::utils::Overloaded{
+    //   [](auto &iterable_){return Iterator(iterable_.begin(), type_);}
+    // }, iterable_);
+  }
 
-  Iterator end() { return Iterator(iterable_.end()); }
+  Iterator end() {
+    return Iterator(iterable_.end(), type_);
+
+    // return std::visit(memgraph::utils::Overloaded{
+    //   [](auto &iterable_){return Iterator(iterable_.end(), type_);}
+    // }, iterable_);
+  }
 };
 
 class DbAccessor final {
@@ -364,9 +440,15 @@ class DbAccessor final {
 
 class SubgraphDbAccessor final {
   DbAccessor *db_accessor_;
+  query::Graph *graph_;
 
  public:
-  explicit SubgraphDbAccessor(query::DbAccessor *db_accessor) : db_accessor_(db_accessor) {}
+  explicit SubgraphDbAccessor(query::DbAccessor *db_accessor, query::Graph *graph)
+      : db_accessor_(db_accessor), graph_(graph) {}
+
+  static SubgraphDbAccessor *MakeSubgraphDbAccessor(query::DbAccessor *db_accessor, query::Graph *graph) {
+    return new SubgraphDbAccessor(db_accessor, graph);
+  }
 
   storage::PropertyId NameToProperty(const std::string_view name) { return db_accessor_->NameToProperty(name); }
 
@@ -423,49 +505,49 @@ class SubgraphDbAccessor final {
   }
 };
 
-class SubgraphVertexAccessor final {
- public:
-  query::VertexAccessor impl_;
+// class SubgraphEdgeAccessor final {
+//  public:
+//   query::EdgeAccessor impl_;
 
-  explicit SubgraphVertexAccessor(query::VertexAccessor impl) : impl_(impl) {}
+//  public:
+//   explicit SubgraphEdgeAccessor(query::EdgeAccessor impl) : impl_(std::move(impl)) {}
 
-  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
-    static_assert(noexcept(impl_ == v.impl_));
-    return impl_ == v.impl_;
-  }
+//   bool IsVisible(storage::View view) const { return impl_.IsVisible(view); }
 
-  auto InEdges(storage::View view) const {
-    // todo antoniofilipovic add filtering here
-    return impl_.InEdges(view);
-  }
+//   storage::EdgeTypeId EdgeType() const { return impl_.EdgeType(); }
 
-  auto OutEdges(storage::View view) const {
-    // todo antoniofilipovic add filtering here
-    return impl_.OutEdges(view);
-  }
+//   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  auto Labels(storage::View view) const { return impl_.Labels(view); }
+//   storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+//     return impl_.GetProperty(key, view);
+//   }
 
-  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+//   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+//     return impl_.SetProperty(key, value);
+//   }
 
-  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+//   storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
+//     return SetProperty(key, storage::PropertyValue());
+//   }
 
-  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
-    return impl_.HasLabel(view, label);
-  }
+//   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
+//     return impl_.ClearProperties();
+//   }
 
-  auto Properties(storage::View view) const { return impl_.Properties(view); }
+//   VertexAccessor To() const; //SubgraphVertexAccessor
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(view, key);
-  }
+//   VertexAccessor From() const; //SubgraphVertexAccessor
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+//   bool IsCycle() const;
 
-  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
-  }
-};
+//   int64_t CypherId() const { return impl_.Gid().AsInt(); }
+
+//   storage::Gid Gid() const noexcept { return impl_.Gid(); }
+
+//   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
+
+//   bool operator!=(const EdgeAccessor &e) const noexcept { return !(*this == e); }
+// };
 
 }  // namespace memgraph::query
 
