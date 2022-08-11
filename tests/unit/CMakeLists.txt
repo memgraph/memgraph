@@ -369,3 +369,6 @@ target_link_libraries(${test_prefix}storage_v3 mg-storage-v3)
 # Test future
 add_unit_test(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
+
+add_unit_test(monitoring.cpp)
+target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
