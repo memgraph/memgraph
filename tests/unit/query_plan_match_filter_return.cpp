@@ -1521,6 +1521,29 @@ TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
   EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+TEST_F(QueryPlanExpandAllShortestPaths, MultiplePaths) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(6)).HasValue());
+
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+  dba.AdvanceCommand();
+
+  auto edge2 = dba.InsertEdge(&v[1], &new_vertex, edge_type);
+  ASSERT_TRUE(edge2.HasValue());
+  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  dba.AdvanceCommand();
+
+  auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType);
+  ASSERT_EQ(results.size(), 6);
+  EXPECT_EQ(GetProp(results[4].vertex), 6);
+  EXPECT_EQ(results[4].total_weight, 10);
+  EXPECT_EQ(GetProp(results[5].vertex), 6);
+  EXPECT_EQ(results[5].total_weight, 10);
+}
+
 TEST(QueryPlan, ExpandOptional) {
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
