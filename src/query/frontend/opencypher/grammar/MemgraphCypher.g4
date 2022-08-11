@@ -230,11 +230,11 @@ setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeOrLabelPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeOrLabelPrivilegeList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeOrLabelsList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE
           | DELETE
@@ -257,16 +257,31 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | labelPrivileges=labelPrivilegeList
           ;
 
-labelPrivilegeList : singlePrivilege ( ',' singlePrivilege )* ;
+labelPrivilege : READ
+               | EDIT
+               | CREATE_DELETE
+               ;
 
-singlePrivilege : ( READ | EDIT | CREATE_DELETE ) ON LABELS labels=labelList ;
 
-privilegeList : privilege ( ',' privilege )* ;
+privilegeOrLabelPrivileges : privilege
+                           | labelPrivileges=complexPrivilegeList
+                           ;
 
-labelList : '*' | listOfLabels ;
+privilegeOrLabelPrivilegeList : privilegeOrLabelPrivileges ( ',' privilegeOrLabelPrivileges )* ;
+
+complexPrivilegeList : complexPrivilege ( ',' complexPrivilege )* ;
+
+complexPrivilege : labelPrivilege ON LABELS labels=labelList ;
+
+privilegeOrLabels : privilege
+                  | LABELS labels=labelList
+                  ;
+
+privilegeOrLabelsList : privilegeOrLabels ( ',' privilegeOrLabels )* ;
+
+labelList : ASTERISK | listOfLabels ;
 
 listOfLabels : label ( ',' label )* ;
 

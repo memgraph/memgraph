@@ -469,6 +469,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) override;
 
   /**
+   * @return std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>
+   */
+  antlrcpp::Any visitComplexPrivilegeList(MemgraphCypher::ComplexPrivilegeListContext *ctx) override;
+
+  /**
+   * @return AuthQuery::LabelPrivilege
+   */
+  antlrcpp::Any visitLabelPrivilege(MemgraphCypher::LabelPrivilegeContext *ctx) override;
+
+  /**
    * @return AuthQuery::Privilege
    */
   antlrcpp::Any visitPrivilege(MemgraphCypher::PrivilegeContext *ctx) override;
@@ -477,11 +487,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) override;
-
-  /**
-   * @return AuthQuery::Privilege
-   */
-  antlrcpp::Any visitLabelPrivilegeList(MemgraphCypher::LabelPrivilegeListContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege
