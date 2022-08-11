@@ -507,7 +507,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {"*"});
+        GrantPrivilege(username, memgraph::query::kPrivilegesAll,
+                       {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {"*"}}}});
       }
 
       return user_added;
@@ -770,58 +771,64 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                      const std::vector<std::string> &labels) override {
+  void GrantPrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &label_privileges) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, label_privileges,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
           permissions->Grant(permission);
         },
-        [](auto *label_permissions, const auto &label) {
-          label_permissions->Grant(label, memgraph::auth::LabelPermission::READ);
+        [](auto *label_permissions, const auto &label, const auto label_permission) {
+          label_permissions->Grant(label, label_permission);
         });
   }
 
-  void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                     const std::vector<std::string> &labels) override {
+  void DenyPrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &label_privileges) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, label_privileges,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
           permissions->Deny(permission);
         },
-        [](auto *label_permissions, const auto &label) {
-          label_permissions->Deny(label, memgraph::auth::LabelPermission::READ);
+        [](auto *label_permissions, const auto &label, const auto label_permission) {
+          label_permissions->Deny(label, label_permission);
         });
   }
 
-  void RevokePrivilege(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels) override {
+  void RevokePrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &label_privileges) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, label_privileges,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
           permissions->Revoke(permission);
         },
-        [](auto *label_permissions, const auto &label) { label_permissions->Revoke(label); });
+        [](auto *label_permissions, const auto &label, const auto label_permission) {
+          label_permissions->Revoke(label);
+        });
   }
 
  private:
   template <class TEditFun, class TEditLabelPermisionsFun>
-  void EditPermissions(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels, const TEditFun &edit_fun,
-                       const TEditLabelPermisionsFun &edit_label_permisions_fun) {
+  void EditPermissions(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -841,16 +848,26 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         for (const auto &permission : permissions) {
           edit_fun(&user->permissions(), permission);
         }
-        for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_permissions(), label);
+        for (const auto &label_privilege : label_privileges) {
+          for (const auto &it : label_privilege) {
+            for (const auto &label : it.second) {
+              edit_label_permisions_fun(&user->fine_grained_access_permissions(), label,
+                                        memgraph::glue::LabelPrivilegeToLabelPermission(it.first));
+            }
+          }
         }
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
-        for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_permissions(), label);
+        for (const auto &label_privilege : label_privileges) {
+          for (const auto &it : label_privilege) {
+            for (const auto &label : it.second) {
+              edit_label_permisions_fun(&role->fine_grained_access_permissions(), label,
+                                        memgraph::glue::LabelPrivilegeToLabelPermission(it.first));
+            }
+          }
         }
 
         locked_auth->SaveRole(*role);
