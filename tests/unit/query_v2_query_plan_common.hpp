@@ -40,6 +40,12 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   return context;
 }
 
+ExecutionContext MakeContext_Distributed(const AstStorage &storage, const SymbolTable &symbol_table,
+                                         memgraph::query::v2::DbAccessor *dba) {
+  // #NoCommit not needed?
+  return MakeContext(storage, symbol_table, dba);
+}
+
 /** Helper function that collects all the results from the given Produce. */
 std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
@@ -64,6 +70,11 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
   return results;
 }
 
+std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const Produce &produce, ExecutionContext *context) {
+  // #NoCommit not needed?
+  return CollectProduce(produce, context);
+}
+
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
   auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
@@ -75,6 +86,12 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
 template <typename... TNamedExpressions>
 auto MakeProduce(std::shared_ptr<LogicalOperator> input, TNamedExpressions... named_expressions) {
   return std::make_shared<Produce>(input, std::vector<NamedExpression *>{named_expressions...});
+}
+
+template <typename... TNamedExpressions>
+auto MakeProduce_Distributed(std::shared_ptr<LogicalOperator> input, TNamedExpressions... named_expressions) {
+  // #NoCommit not needed?
+  return MakeProduce(input, std::vector<NamedExpression *>{named_expressions...});
 }
 
 struct ScanAllTuple {
@@ -126,6 +143,17 @@ ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, 
   return ScanAllTuple{node, logical_op, symbol};
 }
 
+ScanAllTuple MakeScanAllByLabel_Distributed(AstStorage &storage, SymbolTable &symbol_table,
+                                            const std::string &identifier, memgraph::storage::v3::LabelId label,
+                                            std::shared_ptr<LogicalOperator> input = {nullptr},
+                                            memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  node->identifier_->MapTo(symbol);
+  auto logical_op = std::make_shared<ScanAllByLabel>(input, symbol, label, view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
 /**
  * Creates and returns a tuple of stuff for a scan-all starting from the node
  * with the given name and label whose property values are in range.
@@ -167,6 +195,19 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &s
   return ScanAllTuple{node, logical_op, symbol};
 }
 
+ScanAllTuple MakeScanAllByLabelPropertyValue_Distributed(
+    AstStorage &storage, SymbolTable &symbol_table, std::string identifier, memgraph::storage::v3::LabelId label,
+    memgraph::storage::v3::PropertyId property, const std::string &property_name, Expression *value,
+    std::shared_ptr<LogicalOperator> input = {nullptr},
+    memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  node->identifier_->MapTo(symbol);
+  auto logical_op =
+      std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, property_name, value, view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
 struct ExpandTuple {
   EdgeAtom *edge_;
   Symbol edge_sym_;
@@ -193,6 +234,25 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
+ExpandTuple MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
+                                   std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
+                                   const std::string &edge_identifier, EdgeAtom::Direction direction,
+                                   const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
+                                   const std::string &node_identifier, bool existing_node,
+                                   memgraph::storage::v3::View view) {
+  auto edge = EDGE(edge_identifier, direction);
+  auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
+  edge->identifier_->MapTo(edge_sym);
+
+  auto node = NODE(node_identifier);
+  auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
+  node->identifier_->MapTo(node_sym);
+
+  auto op =
+      std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types, existing_node, view);
+
+  return ExpandTuple{edge, edge_sym, node, node_sym, op};
+}
 struct UnwindTuple {
   Symbol sym_;
   std::shared_ptr<LogicalOperator> op_;

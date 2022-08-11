@@ -119,8 +119,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
   SymbolTable symbol_table;
 
   // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  auto scan_all_1 = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label_node, property_node_platformId,
-                                                    "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
+  auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(
+      storage, symbol_table, "n", label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
 
   {
     /*
@@ -129,14 +129,14 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     */
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce(scan_all_1.op_, output);
-    auto context = MakeContext(storage, symbol_table, &dba);
-    auto results = CollectProduce(*produce, &context);
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
     ASSERT_EQ(results.size(), 1);
   }
 
   // MATCH (p:Permission)
-  auto scan_all_2 = MakeScanAllByLabel(storage, symbol_table, "p", label_permission, scan_all_1.op_);
+  auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
   {
     /*
     Checking temporary result from:
@@ -147,15 +147,16 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p =
         NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
-    auto produce = MakeProduce(scan_all_2.op_, output_n, output_p);
-    auto context = MakeContext(storage, symbol_table, &dba);
-    auto results = CollectProduce(*produce, &context);
+    auto produce = MakeProduce_Distributed(scan_all_2.op_, output_n, output_p);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
   }
 
   // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-  auto expand_1 = MakeExpand(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
+  auto expand_1 =
+      MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
                              {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
@@ -166,16 +167,17 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     */
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-    auto produce = MakeProduce(expand_1.op_, output_n, output_p);
-    auto context = MakeContext(storage, symbol_table, &dba);
-    auto results = CollectProduce(*produce, &context);
+    auto produce = MakeProduce_Distributed(expand_1.op_, output_n, output_p);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
   }
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-  auto scan_all_3 = MakeScanAllByLabelPropertyValue(storage, symbol_table, "i", label_identity, property_identity_email,
-                                                    "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
+  auto scan_all_3 =
+      MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "i", label_identity, property_identity_email,
+                                                  "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
 
   {
     /*
@@ -189,15 +191,16 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
     auto output_i = NEXPR("i", IDENT("i")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("i", true));
 
-    auto produce = MakeProduce(scan_all_3.op_, output_n, output_p, output_i);
-    auto context = MakeContext(storage, symbol_table, &dba);
-    auto results = CollectProduce(*produce, &context);
+    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
   }
 
   // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-  auto expand_2 = MakeExpand(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
+  auto expand_2 =
+      MakeExpand_Distributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
                              {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
@@ -210,9 +213,9 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
     auto output_i = NEXPR("i", IDENT("i")->MapTo(expand_2.node_sym_))->MapTo(symbol_table.CreateSymbol("i", true));
-    auto produce = MakeProduce(scan_all_3.op_, output_n, output_p, output_i);
-    auto context = MakeContext(storage, symbol_table, &dba);
-    auto results = CollectProduce(*produce, &context);
+    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
   }
