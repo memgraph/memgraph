@@ -9,9 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// TODO(tyler) buffer out-of-order Append buffers to reassemble more quickly
+// TODO(tyler) buffer out-of-order Append buffers on the Followers to reassemble more quickly
 // TODO(tyler) handle granular batch sizes based on simple flow control
-// TODO(tyler) add proper token-based deterministic scheduling
 
 #pragma once
 
@@ -483,7 +482,6 @@ class Raft {
   /// message that has been received.
   /////////////////////////////////////////////////////////////
 
-  // Don't we need more stuff in this variant?
   void Handle(std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
                            WriteRequest<WriteOperation>, VoteRequest, VoteResponse> &&message_variant,
               RequestId request_id, Address from_address) {
