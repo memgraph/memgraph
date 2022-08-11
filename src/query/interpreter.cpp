@@ -20,7 +20,9 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <unordered_map>
 
+#include "auth/models.hpp"
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
 #include "query/constants.hpp"
@@ -300,7 +302,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
-  std::vector<std::string> labels = auth_query->labels_;
+  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges =
+      auth_query->label_privileges_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -330,7 +333,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll, {"*"});
+          auth->GrantPrivilege(username, kPrivilegesAll, {{{AuthQuery::LabelPrivilege::CREATE_DELETE, {"*"}}}});
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -405,20 +408,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->GrantPrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, label_privileges] {
+        auth->GrantPrivilege(user_or_role, privileges, label_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->DenyPrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, label_privileges] {
+        auth->DenyPrivilege(user_or_role, privileges, label_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges, labels] {
-        auth->RevokePrivilege(user_or_role, privileges, labels);
+      callback.fn = [auth, user_or_role, privileges, label_privileges] {
+        auth->RevokePrivilege(user_or_role, privileges, label_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;

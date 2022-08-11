@@ -103,16 +103,19 @@ class AuthQueryHandler {
   virtual memgraph::auth::User *GetUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                              const std::vector<std::string> &labels) = 0;
+  virtual void GrantPrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> &label_privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                             const std::vector<std::string> &labels) = 0;
+  virtual void DenyPrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> &label_privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokePrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                               const std::vector<std::string> &labels) = 0;
+  virtual void RevokePrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> &label_privileges) = 0;
 };
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
