@@ -83,6 +83,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelOperator_Distributed;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
+extern const Event ScanAllByLabelPropertyValueOperator_Distributed;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
@@ -670,6 +671,38 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue");
+}
+
+ScanAllByLabelPropertyValue_Distributed::ScanAllByLabelPropertyValue_Distributed(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::LabelId label,
+    storage::v3::PropertyId property, const std::string &property_name, Expression *expression, storage::v3::View view)
+    : ScanAll(input, output_symbol, view),
+      label_(label),
+      property_(property),
+      property_name_(property_name),
+      expression_(expression) {
+  DMG_ASSERT(expression, "Expression is not optional.");
+}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue_Distributed)
+
+UniqueCursorPtr ScanAllByLabelPropertyValue_Distributed::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator_Distributed);
+
+  auto vertices =
+      [this](Frame &frame, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
+                                                          view_, label_, property_, storage::v3::PropertyValue()))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) return std::nullopt;
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    }
+    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::PropertyValue(value)));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabelPropertyValue_Distributed");
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,

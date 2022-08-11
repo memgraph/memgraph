@@ -878,6 +878,46 @@ property value.
   (:serialize (:slk))
   (:clone))
 
+(lcp:define-class scan-all-by-label-property-value_-distributed (scan-all)
+  ((label "::storage::v3::LabelId" :scope :public)
+   (property "::storage::v3::PropertyId" :scope :public)
+   (property-name "std::string" :scope :public)
+   (expression "Expression *" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:documentation
+   "Behaves like @c ScanAll_Distributed, but produces only vertices with given label and
+property value.
+
+@sa ScanAll_Distributed
+@sa ScanAllByLabel_Distributed
+@sa ScanAllByLabelPropertyRange_Distributed")
+  (:public
+   #>cpp
+   ScanAllByLabelPropertyValue_Distributed() {}
+   /**
+    * Constructs the operator for given label and property value.
+    *
+    * @param input Preceding operator which will serve as the input.
+    * @param output_symbol Symbol where the vertices will be stored.
+    * @param label Label which the vertex must have.
+    * @param property Property from which the value will be looked up from.
+    * @param expression Expression producing the value of the vertex property.
+    * @param view storage::v3::View used when obtaining vertices.
+    */
+   ScanAllByLabelPropertyValue_Distributed(const std::shared_ptr<LogicalOperator> &input,
+                                           Symbol output_symbol, storage::v3::LabelId label,
+                                           storage::v3::PropertyId property,
+                                           const std::string &property_name,
+                                           Expression *expression,
+                                           storage::v3::View view = storage::v3::View::OLD);
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-class scan-all-by-label-property (scan-all)
   ((label "::storage::v3::LabelId" :scope :public)
    (property "::storage::v3::PropertyId" :scope :public)
