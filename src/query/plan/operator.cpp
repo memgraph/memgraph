@@ -1368,8 +1368,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 
-      if (!context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD) ||
-          !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD) ||
+           !context.auth_checker->Accept(context.user, *context.db_accessor, edge)))
         return;
 
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1529,8 +1530,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                            int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 
-      if (!context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD) ||
-          !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(context.user, *context.db_accessor, vertex, storage::View::OLD) ||
+           !context.auth_checker->Accept(context.user, *context.db_accessor, edge)))
         return;
 
       if (self_.filter_lambda_.expression) {
