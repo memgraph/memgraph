@@ -783,8 +783,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           // unconditionally granting/denying/revoking it?
           permissions->Grant(permission);
         },
-        [](auto *label_permissions, const auto &label, const auto label_permission) {
-          label_permissions->Grant(label, label_permission);
+        [](auto *label_permissions, const auto &label_permission_pair) {
+          for (const auto &it : label_permission_pair.second) {
+            label_permissions->Grant(it, memgraph::glue::LabelPrivilegeToLabelPermission(label_permission_pair.first));
+          }
         });
   }
 
@@ -800,8 +802,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           // unconditionally granting/denying/revoking it?
           permissions->Deny(permission);
         },
-        [](auto *label_permissions, const auto &label, const auto label_permission) {
-          label_permissions->Deny(label, label_permission);
+        [](auto *label_permissions, const auto &label_permission_pair) {
+          for (const auto &it : label_permission_pair.second) {
+            label_permissions->Deny(it, memgraph::glue::LabelPrivilegeToLabelPermission(label_permission_pair.first));
+          }
         });
   }
 
@@ -817,8 +821,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           // unconditionally granting/denying/revoking it?
           permissions->Revoke(permission);
         },
-        [](auto *label_permissions, const auto &label, const auto label_permission) {
-          label_permissions->Revoke(label);
+        [](auto *label_permissions, const auto &label_permission_pair) {
+          for (const auto &it : label_permission_pair.second) {
+            label_permissions->Revoke(it);
+          }
         });
   }
 
@@ -850,10 +856,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         }
         for (const auto &label_privilege : label_privileges) {
           for (const auto &it : label_privilege) {
-            for (const auto &label : it.second) {
-              edit_label_permisions_fun(&user->fine_grained_access_permissions(), label,
-                                        memgraph::glue::LabelPrivilegeToLabelPermission(it.first));
-            }
+            edit_label_permisions_fun(&user->fine_grained_access_permissions(), it);
           }
         }
         locked_auth->SaveUser(*user);
@@ -863,10 +866,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         }
         for (const auto &label_privilege : label_privileges) {
           for (const auto &it : label_privilege) {
-            for (const auto &label : it.second) {
-              edit_label_permisions_fun(&role->fine_grained_access_permissions(), label,
-                                        memgraph::glue::LabelPrivilegeToLabelPermission(it.first));
-            }
+            edit_label_permisions_fun(&role->fine_grained_access_permissions(), it);
           }
         }
 
