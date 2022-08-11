@@ -583,7 +583,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COALESCE(...) storage.Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
-#define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels) \
-  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), (labels))
+#define AUTH_QUERY(action, user, role, user_or_role, password, privileges, label_privileges)                   \
+  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
+                                             (label_privileges))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)

@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <unordered_map>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -98,8 +99,9 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 }
 
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
+  auto label_privileges = std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>{};
   auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, std::vector<AuthQuery::Privilege>{},
-                           std::vector<std::string>{});
+                           label_privileges);
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 
