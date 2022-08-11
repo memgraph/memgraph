@@ -1,0 +1,25 @@
+bolt_port: &bolt_port "7687"
+template_cluster: &template_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      log_file: "fine_grained_access.log"
+      setup_queries:
+        [
+          "CREATE USER admin IDENTIFIED BY 'admin';",
+          "CREATE USER user IDENTIFIED BY 'user';",
+          "MERGE (l1:label1 {name: 'test1'});",
+          "MERGE (l2:label2  {name: 'test2'});",
+          "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);",
+          "MERGE (l3:label3  {name: 'test3'});",
+          "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);",
+          "MERGE (mix:label3:label1  {name: 'test4'});",
+          "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);",
+        ]
+      validation_queries: []
+
+workloads:
+  - name: "Fine Grained Access"
+    binary: "tests/e2e/fine_grained_access/memgraph__e2e__fine_grained_access"
+    args: ["--bolt-port", *bolt_port]
+    <<: *template_cluster
