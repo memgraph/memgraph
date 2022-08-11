@@ -20,6 +20,7 @@
   M(CreateNodeOperator, "Number of times CreateNode operator was used.")                                   \
   M(CreateExpandOperator, "Number of times CreateExpand operator was used.")                               \
   M(ScanAllOperator, "Number of times ScanAll operator was used.")                                         \
+  M(ScanAllOperator_Distributed, "Number of times ScanAll_Distributed operator was used.")                 \
   M(ScanAllByLabelOperator, "Number of times ScanAllByLabel operator was used.")                           \
   M(ScanAllByLabelPropertyRangeOperator, "Number of times ScanAllByLabelPropertyRange operator was used.") \
   M(ScanAllByLabelPropertyValueOperator, "Number of times ScanAllByLabelPropertyValue operator was used.") \

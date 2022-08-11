@@ -102,6 +102,7 @@ class Once;
 class CreateNode;
 class CreateExpand;
 class ScanAll;
+class ScanAll_Distributed;
 class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
@@ -135,7 +136,7 @@ class LoadCsv;
 class Foreach;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
+    Once, CreateNode, CreateExpand, ScanAll, ScanAll_Distributed, ScanAllByLabel,
     ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById,
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
@@ -624,6 +625,53 @@ with a constructor argument.
    #>cpp
    ScanAll() {}
    ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+           storage::v3::View view = storage::v3::View::OLD);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class scan-all_-distributed (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (output-symbol "Symbol" :scope :public)
+   (view "::storage::v3::View" :scope :public
+         :documentation
+         "Controls which graph state is used to produce vertices.
+
+If @c storage::v3::View::OLD, @c ScanAll_Distributed will produce vertices visible in the
+previous graph state, before modifications done by current transaction &
+command. With @c storage::v3::View::NEW, all vertices will be produced the current
+transaction sees along with their modifications."))
+
+  (:documentation
+   "Operator which iterates over all the nodes currently in the database.
+When given an input (optional), does a cartesian product.
+
+It accepts an optional input. If provided then this op scans all the nodes
+currently in the database for each successful Pull from it's input, thereby
+producing a cartesian product of input Pulls and database elements.
+
+ScanAll_Distributed can either iterate over the previous graph state (state before
+the current transacton+command) or over current state. This is controlled
+with a constructor argument.
+
+@sa ScanAllByLabel_Distributed
+@sa ScanAllByLabelPropertyRange_Distributed
+@sa ScanAllByLabelPropertyValue_Distributed")
+  (:public
+   #>cpp
+   ScanAll_Distributed() {}
+   ScanAll_Distributed(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
            storage::v3::View view = storage::v3::View::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;

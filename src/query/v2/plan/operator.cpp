@@ -78,6 +78,7 @@ extern const Event OnceOperator;
 extern const Event CreateNodeOperator;
 extern const Event CreateExpandOperator;
 extern const Event ScanAllOperator;
+extern const Event ScanAllOperator_Distributed;
 extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
@@ -457,6 +458,79 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
+template <class TVerticesFun>
+class ScanAllCursor_Distributed : public Cursor {
+ public:
+  explicit ScanAllCursor_Distributed(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
+                                     const char *op_name)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        get_vertices_(std::move(get_vertices)),
+        op_name_(op_name) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+
+    if (MustAbort(context)) throw HintedAbortError();
+
+    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      auto next_vertices = get_vertices_(frame, context);
+      if (!next_vertices) continue;
+      // Since vertices iterator isn't nothrow_move_assignable, we have to use
+      // the roundabout assignment + emplace, instead of simple:
+      // vertices _ = get_vertices_(frame, context);
+      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_it_.emplace(vertices_.value().begin());
+    }
+
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  TVerticesFun get_vertices_;
+  std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+  std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  const char *op_name_;
+};
+
+ScanAll_Distributed::ScanAll_Distributed(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                         storage::v3::View view)
+    : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
+
+ACCEPT_WITH_INPUT(ScanAll_Distributed)
+
+UniqueCursorPtr ScanAll_Distributed::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
+
+  auto vertices = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Vertices(view_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAll_Distributed");
+}
+
+std::vector<Symbol> ScanAll_Distributed::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
   return symbols;
