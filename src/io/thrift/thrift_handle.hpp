@@ -35,6 +35,18 @@ class ThriftHandle {
   std::map<Address, void> clients_;
 
  public:
+  template <Message M>
+  void DeliverMessage(Address from_address, RequestId request_id, M &&message) {
+    {
+      std::unique_lock<std::mutex> lock(mu_);
+      std::any message_any(std::move(message));
+      OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
+      can_receive_.emplace_back(std::move(om));
+    }  // lock dropped
+
+    cv_.notify_all();
+  }
+
   template <Message Request, Message Response>
   void SubmitRequest(Address to_address, Address from_address, RequestId request_id, Request &&request,
                      Duration timeout, ResponsePromise<Response> &&promise) {
