@@ -124,6 +124,7 @@ class OpaquePromise {
   }
 
   OpaquePromise &operator=(OpaquePromise &&old) noexcept {
+    MG_ASSERT(ptr_ == nullptr);
     MG_ASSERT(old.ptr_ != nullptr);
     MG_ASSERT(this != &old);
     ptr_ = old.ptr_;
