@@ -125,6 +125,9 @@ class FineGrainedAccessPermissions final {
  private:
   std::unordered_map<std::string, uint64_t> grants_{};
   std::unordered_map<std::string, uint64_t> denies_{};
+
+  void grant_(const std::string &permission, LabelPermission label_permission);
+  void deny_(const std::string &permission, LabelPermission label_permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
