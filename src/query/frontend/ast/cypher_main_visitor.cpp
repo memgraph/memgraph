@@ -1277,8 +1277,10 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      if (privilege->LABELS()) {
-        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
+      if (privilege->labelPrivilegeList()) {
+        auth->label_privileges_.push_back(
+            std::any_cast<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>(
+                privilege->labelPrivilegeList()->accept(this)));
       } else {
         auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
       }
@@ -1299,8 +1301,10 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      if (privilege->LABELS()) {
-        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
+      if (privilege->labelPrivilegeList()) {
+        auth->label_privileges_.push_back(
+            std::any_cast<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>(
+                privilege->labelPrivilegeList()->accept(this)));
       } else {
         auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
       }
@@ -1321,8 +1325,10 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegeList()) {
     for (auto *privilege : ctx->privilegeList()->privilege()) {
-      if (privilege->LABELS()) {
-        auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
+      if (privilege->labelPrivilegeList()) {
+        auth->label_privileges_.push_back(
+            std::any_cast<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>(
+                privilege->labelPrivilegeList()->accept(this)));
       } else {
         auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
       }
@@ -1334,6 +1340,30 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   return auth;
 }
 
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitLabelPrivilegeList(MemgraphCypher::LabelPrivilegeListContext *ctx) {
+  std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>> result;
+  for (auto *privilege : ctx->singlePrivilege()) {
+    AuthQuery::LabelPrivilege key = AuthQuery::LabelPrivilege::READ;
+    if (privilege->EDIT()) {
+      key = AuthQuery::LabelPrivilege::EDIT;
+    } else if (privilege->CREATE_DELETE()) {
+      key = AuthQuery::LabelPrivilege::CREATE_DELETE;
+    }
+
+    auto value = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
+/**
+ * @return AuthQuery*
+ */
 antlrcpp::Any CypherMainVisitor::visitLabelList(MemgraphCypher::LabelListContext *ctx) {
   std::vector<std::string> labels;
   if (ctx->listOfLabels()) {
