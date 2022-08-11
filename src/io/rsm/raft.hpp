@@ -116,7 +116,7 @@ struct CommonState {
   Term term = 0;
   std::vector<std::pair<Term, WriteRequest>> log;
   LogIndex committed_log_size = 0;
-  LogIndex last_applied = 0;
+  LogIndex applied_size = 0;
 };
 
 struct FollowerTracker {
@@ -250,15 +250,14 @@ class Raft {
 
     size_t new_committed_log_size = indices[(indices.size() / 2)];
 
-    size_t apply_index = state_.committed_log_size;
-
     state_.committed_log_size = new_committed_log_size;
 
     // For each index between the old index and the new one (inclusive),
     // Apply that log's WriteOperation to our replicated_state_,
     // and use the specific return value of the ReplicatedState::Apply
     // method (WriteResponseValue) to respond to the requester.
-    for (; apply_index < new_committed_log_size; apply_index++) {
+    for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
+      const LogIndex apply_index = state_.applied_size;
       const auto &write_request = state_.log[apply_index].second;
       WriteResponseValue write_return = replicated_state_.Apply(write_request);
 
@@ -666,6 +665,11 @@ class Raft {
       state_.log.insert(state_.log.end(), req.entries.begin(), req.entries.end());
 
       state_.committed_log_size = std::min(req.leader_commit, LastLogIndex());
+
+      for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
+        const auto &write_request = state_.log[state_.applied_size].second;
+        replicated_state_.Apply(write_request);
+      }
 
       res.success = true;
     }
