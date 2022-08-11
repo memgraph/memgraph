@@ -150,7 +150,7 @@ ScanAllTuple MakeScanAllByLabel_Distributed(AstStorage &storage, SymbolTable &sy
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabel>(input, symbol, label, view);
+  auto logical_op = std::make_shared<ScanAllByLabel_Distributed>(input, symbol, label, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -203,8 +203,8 @@ ScanAllTuple MakeScanAllByLabelPropertyValue_Distributed(
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, property_name, value, view);
+  auto logical_op = std::make_shared<ScanAllByLabelPropertyValue_Distributed>(input, symbol, label, property,
+                                                                              property_name, value, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -248,8 +248,8 @@ ExpandTuple MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_tabl
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   node->identifier_->MapTo(node_sym);
 
-  auto op =
-      std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types, existing_node, view);
+  auto op = std::make_shared<Expand_Distributed>(input, input_symbol, node_sym, edge_sym, direction, edge_types,
+                                                 existing_node, view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
