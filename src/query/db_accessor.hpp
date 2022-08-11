@@ -49,7 +49,6 @@ namespace memgraph::query {
 
 class VertexAccessor;
 class Graph;
-class VerticesIterable;
 
 class EdgeAccessor final {
  public:
@@ -196,8 +195,9 @@ inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 class SubgraphVertexAccessor final {
  public:
   query::VertexAccessor impl_;
+  query::Graph *graph_;
 
-  explicit SubgraphVertexAccessor(query::VertexAccessor impl) : impl_(impl) {}
+  explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) : impl_(impl), graph_(graph_) {}
 
   bool operator==(const SubgraphVertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
@@ -529,6 +529,8 @@ class SubgraphDbAccessor final {
     // todo antoniofilipovic change to return SubgraphVertexAccessor && add check that vertex exists in subgraph
     return db_accessor_->FindVertex(gid, view);
   }
+
+  query::Graph *getGraph() { return graph_; }
 };
 
 // class SubgraphEdgeAccessor final {

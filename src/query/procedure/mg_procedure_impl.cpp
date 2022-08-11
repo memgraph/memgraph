@@ -2444,7 +2444,18 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
           return nullptr;
         }
         memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
-        it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
+        std::visit(memgraph::utils::Overloaded{[it](memgraph::query::DbAccessor *impl) {
+                                                 it->current_v.emplace(*it->current_it, it->graph,
+                                                                       it->GetMemoryResource());
+                                                 ;
+                                               },
+                                               [it](memgraph::query::SubgraphDbAccessor *impl) {
+                                                 it->current_v.emplace(memgraph::query::SubgraphVertexAccessor(
+                                                                           *it->current_it, impl->getGraph()),
+                                                                       it->graph, it->GetMemoryResource());
+                                               }},
+                   it->graph->impl);
+
         clean_up.Disable();
         return &*it->current_v;
       },
