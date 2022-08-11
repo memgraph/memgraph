@@ -522,6 +522,7 @@ class SubgraphDbAccessor final {
 
   VerticesIterable Vertices(storage::View view) {
     // todo antoniofilipovic change to get vertices from subgraph
+    // return VerticesIterable(graph_->vertices);
     return db_accessor_->Vertices(view);
   }
 
