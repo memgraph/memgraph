@@ -229,7 +229,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
   return denies_permission >= grants_permission ? denies_permission : grants_permission;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission, LabelPermission label_permission) {
+void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
   if (permission == ASTERISK) {
     MG_ASSERT(label_permission == LabelPermission::CREATE_DELETE);
     grants_.clear();
@@ -283,7 +283,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   }
 }
 
-void FineGrainedAccessPermissions::Deny(const std::string &permission, LabelPermission label_permission) {
+void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
   if (permission == ASTERISK) {
     MG_ASSERT(label_permission == LabelPermission::READ);
     denies_.clear();
