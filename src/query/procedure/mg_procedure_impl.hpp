@@ -455,6 +455,13 @@ struct mgp_vertex {
 
   mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
+  memgraph::query::VertexAccessor getImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
+                                    [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
+        this->impl);
+  }
+
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_vertex(const mgp_vertex &) = delete;
 
@@ -723,11 +730,8 @@ struct mgp_vertices_iterator {
   mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory),
         graph(graph),
-        vertices(
-            std::visit(memgraph::utils::Overloaded{
-                           [graph](memgraph::query::DbAccessor *impl) { return impl->Vertices(graph->view); },
-                           [graph](memgraph::query::SubgraphDbAccessor *impl) { return impl->Vertices(graph->view); }},
-                       graph->impl)),
+        vertices(std::visit(memgraph::utils::Overloaded{[graph](auto *impl) { return impl->Vertices(graph->view); }},
+                            graph->impl)),
         current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       current_v.emplace(*current_it, graph, memory);

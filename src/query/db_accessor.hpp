@@ -48,8 +48,8 @@
 namespace memgraph::query {
 
 class VertexAccessor;
-
 class Graph;
+class VerticesIterable;
 
 class EdgeAccessor final {
  public:
@@ -236,24 +236,49 @@ class SubgraphVertexAccessor final {
     return impl_.SetProperty(key, value);
   }
 };
+}  // namespace memgraph::query
+
+namespace std {
+
+template <>
+struct hash<memgraph::query::VertexAccessor> {
+  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+};
+
+template <>
+struct hash<memgraph::query::EdgeAccessor> {
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
+};
+
+}  // namespace std
+
+namespace memgraph::query {
 
 class VerticesIterable final {
   enum class Type { VERTEX, SUBGRAPH_VERTEX };
 
-  storage::VerticesIterable iterable_;
+  std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
+                                                             std::equal_to<void>, utils::Allocator<VertexAccessor>>>
+      iterable_;
   Type type_;
 
  public:
   class Iterator final {
-    storage::VerticesIterable::Iterator it_;
+    std::variant<storage::VerticesIterable::Iterator,
+                 std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                    utils::Allocator<VertexAccessor>>::iterator>
+        it_;
     Type type_;
 
    public:
     explicit Iterator(storage::VerticesIterable::Iterator it, Type type_) : it_(it), type_(type_) {}
-    // explicit Iterator(utils::pmr::unordered_set<VertexAccessor>>::iterator it, Type type_) : it_(it), type_(type_) {}
+    explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                         utils::Allocator<VertexAccessor>>::iterator it,
+                      Type type_)
+        : it_(it), type_(type_) {}
 
     VertexAccessor operator*() const {
-      return VertexAccessor(*it_);
+      return std::visit(memgraph::utils::Overloaded{[](auto it_) { return VertexAccessor(*it_); }}, it_);
       // switch (type_) {
       //   case Type::VERTEX: {
       //     return VertexAccessor(*it_);
@@ -265,7 +290,8 @@ class VerticesIterable final {
     }
 
     Iterator &operator++() {
-      ++it_;
+      //++it_;
+      std::visit(memgraph::utils::Overloaded{[](auto it_) { ++it_; }}, it_);
       return *this;
     }
 
@@ -275,22 +301,22 @@ class VerticesIterable final {
   };
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)), type_(Type::VERTEX) {}
-  // explicit VerticesIterable(utils::pmr::unordered_set<VertexAccessor>> vertices) : iterable_(vertices),
-  // type_(Type::SUBGRAPH_VERTEX) {}
+  explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                               utils::Allocator<VertexAccessor>>
+                                vertices)
+      : iterable_(vertices), type_(Type::SUBGRAPH_VERTEX) {}
 
   Iterator begin() {
-    return Iterator(iterable_.begin(), type_);
-    // return std::visit(memgraph::utils::Overloaded{
-    //   [](auto &iterable_){return Iterator(iterable_.begin(), type_);}
-    // }, iterable_);
+    // return Iterator(iterable_.begin(), type_);
+    return std::visit(
+        memgraph::utils::Overloaded{[this](auto &iterable_) { return Iterator(iterable_.begin(), type_); }}, iterable_);
   }
 
   Iterator end() {
-    return Iterator(iterable_.end(), type_);
+    // return Iterator(iterable_.end(), type_);
 
-    // return std::visit(memgraph::utils::Overloaded{
-    //   [](auto &iterable_){return Iterator(iterable_.end(), type_);}
-    // }, iterable_);
+    return std::visit(memgraph::utils::Overloaded{[this](auto &iterable_) { return Iterator(iterable_.end(), type_); }},
+                      iterable_);
   }
 };
 
@@ -550,17 +576,3 @@ class SubgraphDbAccessor final {
 // };
 
 }  // namespace memgraph::query
-
-namespace std {
-
-template <>
-struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
-};
-
-template <>
-struct hash<memgraph::query::EdgeAccessor> {
-  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
-};
-
-}  // namespace std
