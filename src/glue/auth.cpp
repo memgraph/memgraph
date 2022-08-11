@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth.hpp"
+#include "auth/models.hpp"
 
 namespace memgraph::glue {
 
@@ -57,6 +58,17 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::MODULE_WRITE;
     case query::AuthQuery::Privilege::WEBSOCKET:
       return auth::Permission::WEBSOCKET;
+  }
+}
+
+auth::LabelPermission LabelPrivilegeToLabelPermission(query::AuthQuery::LabelPrivilege label_privilege) {
+  switch (label_privilege) {
+    case query::AuthQuery::LabelPrivilege::READ:
+      return auth::LabelPermission::READ;
+    case query::AuthQuery::LabelPrivilege::EDIT:
+      return auth::LabelPermission::EDIT;
+    case query::AuthQuery::LabelPrivilege::CREATE_DELETE:
+      return auth::LabelPermission::CREATE_DELETE;
   }
 }
 }  // namespace memgraph::glue

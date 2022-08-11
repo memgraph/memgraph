@@ -20,4 +20,10 @@ namespace memgraph::glue {
  */
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
+/**
+ * Converts query::AuthQuery::LabelPrivilege to its corresponding
+ * auth::LabelPermission.
+ */
+auth::LabelPermission LabelPrivilegeToLabelPermission(query::AuthQuery::LabelPrivilege label_privilege);
+
 }  // namespace memgraph::glue
