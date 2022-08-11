@@ -87,6 +87,7 @@ extern const Event ScanAllByLabelPropertyValueOperator_Distributed;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
+extern const Event ExpandOperator_Distributed;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
 extern const Event FilterOperator;
@@ -912,6 +913,144 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   }
 }
 
+Expand_Distributed::Expand_Distributed(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+                                       Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+                                       const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node,
+                                       storage::v3::View view)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      view_(view) {}
+
+ACCEPT_WITH_INPUT(Expand_Distributed)
+
+UniqueCursorPtr Expand_Distributed::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ExpandOperator_Distributed);
+
+  return MakeUniqueCursorPtr<ExpandCursor_Distributed>(mem, *this, mem);
+}
+
+std::vector<Symbol> Expand_Distributed::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(common_.node_symbol);
+  symbols.emplace_back(common_.edge_symbol);
+  return symbols;
+}
+
+Expand_Distributed::ExpandCursor_Distributed::ExpandCursor_Distributed(const Expand_Distributed &self,
+                                                                       utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+bool Expand_Distributed::ExpandCursor_Distributed::Pull(Frame &frame, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Expand");
+
+  // A helper function for expanding a node from an edge.
+  auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+    if (self_.common_.existing_node) return;
+    switch (direction) {
+      case EdgeAtom::Direction::IN:
+        frame[self_.common_.node_symbol] = new_edge.From();
+        break;
+      case EdgeAtom::Direction::OUT:
+        frame[self_.common_.node_symbol] = new_edge.To();
+        break;
+      case EdgeAtom::Direction::BOTH:
+        LOG_FATAL("Must indicate exact expansion direction here");
+    }
+  };
+
+  while (true) {
+    if (MustAbort(context)) throw HintedAbortError();
+    // attempt to get a value from the incoming edges
+    if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
+      auto edge = *(*in_edges_it_)++;
+      frame[self_.common_.edge_symbol] = edge;
+      pull_node(edge, EdgeAtom::Direction::IN);
+      return true;
+    }
+
+    // attempt to get a value from the outgoing edges
+    if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
+      auto edge = *(*out_edges_it_)++;
+      // when expanding in EdgeAtom::Direction::BOTH directions
+      // we should do only one expansion for cycles, and it was
+      // already done in the block above
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
+      frame[self_.common_.edge_symbol] = edge;
+      pull_node(edge, EdgeAtom::Direction::OUT);
+      return true;
+    }
+
+    // If we are here, either the edges have not been initialized,
+    // or they have been exhausted. Attempt to initialize the edges.
+    if (!InitEdges(frame, context)) return false;
+
+    // we have re-initialized the edges, continue with the loop
+  }
+}
+
+void Expand_Distributed::ExpandCursor_Distributed::Shutdown() { input_cursor_->Shutdown(); }
+
+void Expand_Distributed::ExpandCursor_Distributed::Reset() {
+  input_cursor_->Reset();
+  in_edges_ = std::nullopt;
+  in_edges_it_ = std::nullopt;
+  out_edges_ = std::nullopt;
+  out_edges_it_ = std::nullopt;
+}
+
+bool Expand_Distributed::ExpandCursor_Distributed::InitEdges(Frame &frame, ExecutionContext &context) {
+  // Input Vertex could be null if it is created by a failed optional match. In
+  // those cases we skip that input pull and continue with the next.
+  while (true) {
+    if (!input_cursor_->Pull(frame, context)) return false;
+    TypedValue &vertex_value = frame[self_.input_symbol_];
+
+    // Null check due to possible failed optional match.
+    if (vertex_value.IsNull()) continue;
+
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    auto &vertex = vertex_value.ValueVertex();
+
+    auto direction = self_.common_.direction;
+    if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
+      if (self_.common_.existing_node) {
+        TypedValue &existing_node = frame[self_.common_.node_symbol];
+        // old_node_value may be Null when using optional matching
+        if (!existing_node.IsNull()) {
+          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+          in_edges_.emplace(
+              UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+        }
+      } else {
+        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+      }
+      if (in_edges_) {
+        in_edges_it_.emplace(in_edges_->begin());
+      }
+    }
+
+    if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
+      if (self_.common_.existing_node) {
+        TypedValue &existing_node = frame[self_.common_.node_symbol];
+        // old_node_value may be Null when using optional matching
+        if (!existing_node.IsNull()) {
+          ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+          out_edges_.emplace(
+              UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+        }
+      } else {
+        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+      }
+      if (out_edges_) {
+        out_edges_it_.emplace(out_edges_->begin());
+      }
+    }
+
+    return true;
+  }
+}
+
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
                                Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                                const std::vector<storage::v3::EdgeTypeId> &edge_types, bool is_reverse,
@@ -928,6 +1067,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       filter_lambda_(filter_lambda),
       weight_lambda_(weight_lambda),
       total_weight_(total_weight) {
+  // #NoCommit something to do here?
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
              "ExpandVariable can only be used with breadth first, depth first or "
@@ -988,6 +1128,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 }  // namespace
 
 class ExpandVariableCursor : public Cursor {
+  // #NoCommit something to do here?
  public:
   ExpandVariableCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}

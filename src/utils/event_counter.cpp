@@ -29,6 +29,7 @@
   M(ScanAllByLabelPropertyOperator, "Number of times ScanAllByLabelProperty operator was used.")                       \
   M(ScanAllByIdOperator, "Number of times ScanAllById operator was used.")                                             \
   M(ExpandOperator, "Number of times Expand operator was used.")                                                       \
+  M(ExpandOperator_Distributed, "Number of times Expand_Distributed operator was used.")                               \
   M(ExpandVariableOperator, "Number of times ExpandVariable operator was used.")                                       \
   M(ConstructNamedPathOperator, "Number of times ConstructNamedPath operator was used.")                               \
   M(FilterOperator, "Number of times Filter operator was used.")                                                       \
