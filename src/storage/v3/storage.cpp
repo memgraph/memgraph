@@ -108,10 +108,10 @@ auto AdvanceToVisibleVertexInLabelspace(Labelspace &labelspace, Labelspace::iter
   return vertex_it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labels_it,
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it,
                                         VerticesSkipList::Iterator vertex_it)
     : self_(self),
-      vertex_it(AdvanceToVisibleVertexInLabelspace(*self->labelspace_, labels_it, vertex_it, &self->vertex_,
+      vertex_it(AdvanceToVisibleVertexInLabelspace(*self->labelspace_, labelspace_it, vertex_it, &self->vertex_,
                                                    self->transaction_, self->view_, self->indices_, self_->constraints_,
                                                    self->config_, *self->schema_validator_, *self->schemas_)) {}
 
@@ -123,6 +123,10 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
       self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_, *self_->schemas_);
   return *this;
 }
+
+AllVerticesIterable::Iterator AllVerticesIterable::begin() noexcept { return {this, labelspace_->begin()}; }
+
+AllVerticesIterable::Iterator AllVerticesIterable::end() noexcept { return {this, labelspace_->end()}; }
 
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
   new (&all_vertices_) AllVerticesIterable(std::move(vertices));
@@ -509,52 +513,6 @@ Storage::Accessor::~Accessor() {
   FinalizeTransaction();
 }
 
-// TODO Remove when import csv is fixed
-// [[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
-//   OOMExceptionEnabler oom_exception;
-//   auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-//   auto acc = storage_->vertices_.access();
-//   auto *delta = CreateDeleteObjectDelta(&transaction_);
-//   // TODO(antaljanosbenjamin): handle keys and schema
-//   auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
-//   MG_ASSERT(inserted, "The vertex must be inserted here!");
-//   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-//   delta->prev.Set(&it->vertex);
-//   return {&it->vertex,
-//           &transaction_,
-//           &storage_->indices_,
-//           &storage_->constraints_,
-//           config_,
-//           storage_->schema_validator_,
-//           storage_->schemas_};
-// }
-
-// TODO Remove when replication is fixed
-// VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
-//   OOMExceptionEnabler oom_exception;
-//   // NOTE: When we update the next `vertex_id_` here we perform a RMW
-//   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-//   // because this function is only called from the replication delta applier
-//   // that runs single-threadedly and while this instance is set-up to apply
-//   // threads (it is the replica), it is guaranteed that no other writes are
-//   // possible.
-//   storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-//                              std::memory_order_release);
-//   auto acc = storage_->vertices_.access();
-//   auto *delta = CreateDeleteObjectDelta(&transaction_);
-//   auto [it, inserted] = acc.insert({Vertex{gid, delta}});
-//   MG_ASSERT(inserted, "The vertex must be inserted here!");
-//   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-//   delta->prev.Set(&it->vertex);
-//   return {&it->vertex,
-//           &transaction_,
-//           &storage_->indices_,
-//           &storage_->constraints_,
-//           config_,
-//           storage_->schema_validator_,
-//           storage_->schemas_};
-// }
-
 ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
@@ -572,7 +530,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
 
   // Extract key properties
   std::vector<PropertyValue> primary_properties;
-  for (auto [property_id, property_value] : properties) {
+  for (const auto &[property_id, property_value] : properties) {
     if (storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
       primary_properties.push_back(property_value);
     }
@@ -597,7 +555,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     }
   }
   // Set properties
-  for (auto [property_id, property_value] : properties) {
+  for (const auto &[property_id, property_value] : properties) {
     if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
       const auto maybe_error = va.SetProperty(property_id, property_value);
       if (maybe_error.HasError()) {

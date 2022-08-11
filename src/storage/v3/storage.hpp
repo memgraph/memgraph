@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <map>
 #include <numeric>
 #include <optional>
 #include <shared_mutex>
@@ -90,9 +91,9 @@ class AllVerticesIterable final {
     VerticesSkipList::Iterator vertex_it;
 
    public:
-    Iterator(AllVerticesIterable *self, Labelspace::iterator);
+    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it);
 
-    Iterator(AllVerticesIterable *self, Labelspace::iterator, VerticesSkipList::Iterator it);
+    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, VerticesSkipList::Iterator vertex_it);
 
     VertexAccessor operator*() const;
 
@@ -117,8 +118,9 @@ class AllVerticesIterable final {
         schema_validator_{&schema_validator},
         schemas_{&schemas} {}
 
-  Iterator begin() { return {this, labelspace_->begin()}; }
-  Iterator end() { return {this, labelspace_->end()}; }
+  Iterator begin() noexcept;
+
+  Iterator end() noexcept;
 };
 
 /// Generic access to different kinds of vertex iterations.
