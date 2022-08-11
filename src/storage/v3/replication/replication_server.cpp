@@ -159,7 +159,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
-  storage_->vertices_.clear();
+  storage_->labelspace.clear();
   storage_->edges_.clear();
 
   storage_->constraints_ = Constraints();
@@ -172,8 +172,9 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::RecoveredSnapshot{};
 
-    durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_, &storage_->epoch_history_,
-                             &storage_->name_id_mapper_, &storage_->edge_count_, storage_->config_.items);
+    // durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
+    // &storage_->epoch_history_,
+    //                          &storage_->name_id_mapper_, &storage_->edge_count_, storage_->config_.items);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -184,8 +185,8 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     storage_->edge_id_ = recovery_info.next_edge_id;
     storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
 
-    durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
-                                             &storage_->constraints_, &storage_->vertices_);
+    // durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
+    //                                          &storage_->constraints_, &storage_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }
@@ -296,7 +297,7 @@ Storage::ReplicationServer::~ReplicationServer() {
 }
 uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
   auto edge_acc = storage_->edges_.access();
-  auto vertex_acc = storage_->vertices_.access();
+  // auto vertex_acc = storage_->vertices_.access();
 
   std::optional<std::pair<uint64_t, Storage::Accessor>> commit_timestamp_and_accessor;
   auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {

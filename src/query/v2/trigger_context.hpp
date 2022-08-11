@@ -229,9 +229,8 @@ class TriggerContextCollector {
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
       // TODO Fix Remove Gid
       if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
-        using UniqueIdentifierType = std::decay<decltype(kFakeVertexGid)>;
-        static double i{0.0001};
-        return utils::HashCombine<double, T2>{}(i++, pair.second);
+        static uint64_t i{0};
+        return utils::HashCombine<uint64_t, T2>{}(i++, pair.second);
       } else {
         using UniqueIdentifierType = decltype(std::declval<TAccessor>().Gid());
         return utils::HashCombine<UniqueIdentifierType, T2>{}(pair.first.Gid(), pair.second);

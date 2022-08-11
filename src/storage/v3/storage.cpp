@@ -19,6 +19,7 @@
 #include <optional>
 #include <variant>
 
+#include <bits/ranges_algo.h>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 
@@ -41,6 +42,7 @@
 #include "storage/v3/replication/rpc.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -48,6 +50,7 @@
 #include "utils/message.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
@@ -68,10 +71,10 @@ void InsertVertexPKIntoMap(auto &container, const LabelId primary_label, const P
 }
 }  // namespace
 
-auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
-                            std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
-                            const Schemas &schemas) {
+auto AdvanceToVisibleVertexInSkipList(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
+                                      std::optional<VertexAccessor> *vertex, Transaction *tx, View view,
+                                      Indices *indices, Constraints *constraints, Config::Items config,
+                                      const SchemaValidator &schema_validator, const Schemas &schemas) {
   while (it != end) {
     *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, schema_validator, schemas, view);
     if (!*vertex) {
@@ -83,19 +86,41 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
   return it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
+auto AdvanceToVisibleVertexInLabelspace(Labelspace &labelspace, Labelspace::iterator labels_it,
+                                        VerticesSkipList::Iterator vertex_it, std::optional<VertexAccessor> *vertex,
+                                        Transaction *tx, View view, Indices *indices, Constraints *constraints,
+                                        Config::Items config, const SchemaValidator &schema_validator,
+                                        const Schemas &schemas) {
+  while (labels_it != labelspace.end()) {
+    auto vertex_accessor = labels_it->second.access();
+    while (vertex_it != vertex_accessor.end()) {
+      *vertex =
+          VertexAccessor::Create(&vertex_it->vertex, tx, indices, constraints, config, schema_validator, schemas, view);
+
+      if (!*vertex) {
+        ++vertex_it;
+        continue;
+      }
+      break;
+    }
+    ++labels_it;
+  }
+  return vertex_it;
+}
+
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labels_it,
+                                        VerticesSkipList::Iterator vertex_it)
     : self_(self),
-      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_, *self->schema_validator_,
-                                 *self->schemas_)) {}
+      vertex_it(AdvanceToVisibleVertexInLabelspace(*self->labelspace_, labels_it, vertex_it, &self->vertex_,
+                                                   self->transaction_, self->view_, self->indices_, self_->constraints_,
+                                                   self->config_, *self->schema_validator_, *self->schemas_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  ++it_;
-  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_,
-                               *self_->schemas_);
+  vertex_it = AdvanceToVisibleVertexInLabelspace(
+      *this->self_->labelspace_, labels_it_, vertex_it, &self_->vertex_, self_->transaction_, self_->view_,
+      self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_, *self_->schemas_);
   return *this;
 }
 
@@ -364,9 +389,9 @@ Storage::Storage(Config config)
   if (config_.durability.recover_on_startup) {
     auto info = std::optional<durability::RecoveryInfo>{};
 
-    durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
-                            &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
-                            &wal_seq_num_);
+    // durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
+    //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
+    //                         &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -538,7 +563,11 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  auto acc = storage_->vertices_.access();
+  // TODO Maybe ensure that skip list always exists on schema creation
+  if (!storage_->labelspace.contains(primary_label)) {
+    storage_->labelspace[primary_label] = VerticesSkipList{};
+  }
+  auto acc = storage_->labelspace[primary_label].access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
 
   // Extract key properties
@@ -579,9 +608,12 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
   return va;
 }
 
-std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId /*primary_label*/,
+std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primary_label,
                                                             std::vector<PropertyValue> primary_key, View view) {
-  auto acc = storage_->vertices_.access();
+  if (!storage_->labelspace.contains(primary_label)) {
+    return std::nullopt;
+  }
+  auto acc = storage_->labelspace[primary_label].access();
   // Later on use label space
   auto it = acc.find(primary_key);
   if (it == acc.end()) return std::nullopt;
@@ -1236,7 +1268,9 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
 
 bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
+  // TODO Fix Index
+  // if (!indices_.label_index.CreateIndex(label, labelspace.access())) return false;
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1246,7 +1280,9 @@ bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_c
 
 bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
+  // TODO Fix Index
+  // if (!indices_.label_property_index.CreateIndex(label, property, labelspace.access())) return false;
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1284,8 +1320,10 @@ IndicesInfo Storage::ListAllIndices() const {
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
+  // TODO Fix constraints
+  // auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
+  // if (ret.HasError() || !ret.GetValue()) return ret;
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1307,10 +1345,12 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret;
-  }
+  // TODO Fix constraints
+  // auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
+  // if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+  //   return ret;
+  // }
+  return UniqueConstraints::CreationStatus::ALREADY_EXISTS;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1356,7 +1396,7 @@ bool Storage::CreateSchema(const LabelId primary_label, const std::vector<Schema
 bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
 
 StorageInfo Storage::GetInfo() const {
-  auto vertex_count = vertices_.size();
+  auto vertex_count = labelspace.size();
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
@@ -1651,31 +1691,33 @@ void Storage::CollectGarbage() {
   });
 
   {
-    auto vertex_acc = vertices_.access();
-    if constexpr (force) {
-      // if force is set to true, then we have unique_lock and no transactions are active
-      // so we can clean all of the deleted vertices
-      while (!garbage_vertices_.empty()) {
-        // TODO Get back on the strategy of cleaning
-        for (auto &[primary_label, timestamped_primary_keys] : garbage_vertices_) {
-          if (timestamped_primary_keys.empty()) {
-            continue;
+    for (auto &[primary_label, vertices] : labelspace) {
+      auto vertex_acc = vertices.access();
+      if constexpr (force) {
+        // if force is set to true, then we have unique_lock and no transactions are active
+        // so we can clean all of the deleted vertices
+        while (!garbage_vertices_.empty()) {
+          // TODO Get back on the strategy of cleaning
+          for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
+            if (timestamped_primary_keys.empty() || primary_label != garbage_primary_label) {
+              continue;
+            }
+            auto key = timestamped_primary_keys.front().second;
+            MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+            timestamped_primary_keys.pop_front();
           }
-          auto key = timestamped_primary_keys.front().second;
-          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-          timestamped_primary_keys.pop_front();
         }
-      }
-    } else {
-      while (!garbage_vertices_.empty()) {
-        for (auto &[primary_label, timestamped_primary_keys] : garbage_vertices_) {
-          if (timestamped_primary_keys.empty() ||
-              timestamped_primary_keys.front().first < oldest_active_start_timestamp) {
-            continue;
+      } else {
+        while (!garbage_vertices_.empty()) {
+          for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
+            if (timestamped_primary_keys.empty() || primary_label != garbage_primary_label ||
+                timestamped_primary_keys.front().first < oldest_active_start_timestamp) {
+              continue;
+            }
+            auto key = timestamped_primary_keys.front().second;
+            MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+            timestamped_primary_keys.pop_front();
           }
-          auto key = timestamped_primary_keys.front().second;
-          MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-          timestamped_primary_keys.pop_front();
         }
       }
     }
@@ -1932,10 +1974,10 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
   // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, schema_validator_, schemas_, uuid_, epoch_id_,
-                             epoch_history_, &file_retainer_);
+  // durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+  //                            config_.durability.snapshot_retention_count, &vertices_, &edges_,
+  //                            &name_id_mapper_, &indices_, &constraints_, config_.items, schema_validator_, schemas_,
+  //                            uuid_, epoch_id_, epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
@@ -1965,7 +2007,9 @@ void Storage::FreeMemory() {
   CollectGarbage<true>();
 
   // SkipList is already threadsafe
-  vertices_.run_gc();
+  for (auto &[primary_label, labeled_vertices] : labelspace) {
+    labeled_vertices.run_gc();
+  }
   edges_.run_gc();
   indices_.label_index.RunGC();
   indices_.label_property_index.RunGC();
