@@ -508,7 +508,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
         GrantPrivilege(username, memgraph::query::kPrivilegesAll,
-                       {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {"*"}}}});
+                       {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
       }
 
       return user_added;

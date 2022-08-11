@@ -32,10 +32,8 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
 
 namespace memgraph::auth {
 namespace {
-const std::string ASTERISK = "*";
-const uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
-}  // namespace
-namespace {
+const uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
+
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
     Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
@@ -208,11 +206,11 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const LabelPermission label_permission) {
-  if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
+  if (denies_.size() == 1 && denies_.find(kAsterisk) != denies_.end()) {
     return PermissionLevel::DENY;
   }
 
-  if ((grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end())) {
+  if ((grants_.size() == 1 && grants_.find(kAsterisk) != grants_.end())) {
     return PermissionLevel::GRANT;
   }
 
@@ -231,7 +229,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 }
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
-  if (permission == ASTERISK) {
+  if (permission == kAsterisk) {
     grants_.clear();
   }
 
@@ -241,8 +239,8 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission, const La
     denies_.erase(deniedPermissionIter);
   }
 
-  if (grants_.size() == 1 && grants_.find(ASTERISK) != grants_.end()) {
-    grants_.erase(ASTERISK);
+  if (grants_.size() == 1 && grants_.find(kAsterisk) != grants_.end()) {
+    grants_.erase(kAsterisk);
   }
 
   if (grants_.find(permission) == grants_.end()) {
@@ -251,7 +249,7 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission, const La
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
-  if (permission == ASTERISK) {
+  if (permission == kAsterisk) {
     grants_.clear();
     denies_.clear();
 
@@ -271,7 +269,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
 }
 
 void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
-  if (permission == ASTERISK) {
+  if (permission == kAsterisk) {
     denies_.clear();
   }
 
@@ -281,8 +279,8 @@ void FineGrainedAccessPermissions::Deny(const std::string &permission, const Lab
     grants_.erase(grantedPermissionIter);
   }
 
-  if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
-    denies_.erase(ASTERISK);
+  if (denies_.size() == 1 && denies_.find(kAsterisk) != denies_.end()) {
+    denies_.erase(kAsterisk);
   }
 
   if (denies_.find(permission) == denies_.end()) {
@@ -326,7 +324,7 @@ void FineGrainedAccessPermissions::deny_(const std::string &permission, LabelPer
   uint64_t perm = 0;
   auto u_label_perm = static_cast<uint64_t>(label_permission);
 
-  while (u_label_perm <= LabelPermissionMax) {
+  while (u_label_perm <= kLabelPermissionMax) {
     perm |= u_label_perm;
     u_label_perm <<= shift;
   }

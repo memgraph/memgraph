@@ -333,7 +333,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll, {{{AuthQuery::LabelPrivilege::CREATE_DELETE, {"*"}}}});
+          auth->GrantPrivilege(username, kPrivilegesAll,
+                               {{{AuthQuery::LabelPrivilege::CREATE_DELETE, {auth::kAsterisk}}}});
         }
 
         return std::vector<std::vector<TypedValue>>();
