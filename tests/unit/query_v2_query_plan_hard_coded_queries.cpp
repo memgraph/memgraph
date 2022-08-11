@@ -135,7 +135,8 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     ASSERT_EQ(results.size(), 1);
   }
 
-  // MATCH (p:Permission)
+  // #NoCommit idea: should the ScanAllByLabel + Expand be done in a single call (perhaps more if some edges point to
+  // node in different shards) MATCH (p:Permission)
   auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
   {
     /*

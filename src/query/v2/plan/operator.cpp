@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <queue>
 #include <random>
@@ -466,6 +467,41 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
+// #NoCommit simple abstraction BEGIN
+using Address = int;
+using future_vertices = std::optional<storage::v3::VerticesIterable>;
+class Shard {
+ public:
+  memgraph::storage::v3::Storage::Accessor *accessor = nullptr;
+
+  storage::v3::VerticesIterable GetVertices(storage::v3::View view) const {
+    return storage::v3::VerticesIterable(accessor->Vertices(view));
+  }
+};
+
+class Coordinator {
+ public:
+  std::vector<int> GetShardAddresses() const { return std::vector<int>{}; }
+
+  future_vertices RequestVertices(Address address, storage::v3::View view) {
+    auto &shard = GetShardFromAddress(address);
+    return shard.GetVertices(view);
+  }
+
+ private:
+  Shard &GetShardFromAddress(Address address) const {
+    auto it = addresses_to_shards.find(address);
+    MG_ASSERT(it != addresses_to_shards.end());
+
+    return *it->second;
+  }
+
+  std::vector<std::unique_ptr<Shard>> shards_;
+  std::map<Address, Shard *> addresses_to_shards;
+};
+
+// #NoCommit simple abstraction END
+
 template <class TVerticesFun>
 class ScanAllCursor_Distributed : public Cursor {
  public:
@@ -476,22 +512,41 @@ class ScanAllCursor_Distributed : public Cursor {
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {  // #NoCommit this needs to change? Unsure
     SCOPED_PROFILE_OP(op_name_);
 
-    if (MustAbort(context)) throw HintedAbortError();
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
 
+    // Probably we want to get all vertices before looping over the return from the inputCursor.pull
+    // result is the same, but at least we do a single call to get all vertices from the storage
+    // be carefull though with the move thing
+
+    // ce while, c'est pas juste deux for loop caché en fait?
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(
+              frame,
+              context)) {  // #NoCommit ça va pull autant de fois qu'il y a de tuple à récupérer du cursor précedent
+        return false;
+      }
+
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
-      auto next_vertices = get_vertices_(frame, context);
-      if (!next_vertices) continue;
+      auto next_vertices_from_all_shards =
+          get_vertices_(frame, context);  // c'est correct et efficace de toujours demander next_vertices à chaque loop?
+
+      if (next_vertices_from_all_shards.empty()) {
+        continue;
+      }
       // Since vertices iterator isn't nothrow_move_assignable, we have to use
       // the roundabout assignment + emplace, instead of simple:
       // vertices _ = get_vertices_(frame, context);
-      vertices_.emplace(std::move(next_vertices.value()));
-      vertices_it_.emplace(vertices_.value().begin());
+      for (auto &next_vertices_from_single_shard :
+           next_vertices_from_all_shards) {  // #NoCommit is it correct? probably missing something big
+        vertices_.emplace(std::move(next_vertices_from_single_shard));
+        vertices_it_.emplace(vertices_.value().begin());
+      }
     }
 
     frame[output_symbol_] = *vertices_it_.value();
@@ -524,10 +579,48 @@ ACCEPT_WITH_INPUT(ScanAll_Distributed)
 
 UniqueCursorPtr ScanAll_Distributed::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
+  // #NoCommit this needs to change
+  auto vertices = [this](Frame &, ExecutionContext &context)
+      -> std::vector<storage::v3::VerticesIterable> {  // #NoCommit we don't need the frame, get rid of it?
+    Coordinator coordinator;                           // #NoCommit something that would come from the context i guess
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
+    const auto addresses = coordinator.GetShardAddresses();
+    auto futures = std::vector<future_vertices>(addresses.size());
+    for (auto address : addresses) {  // #NoCommit not correct if we reserve the size, use transform
+      futures.emplace_back(coordinator.RequestVertices(address, view_));
+    }
+    // std::transform(addresses.begin(), addresses.end(), futures, std::back_inserter(futures),
+    //                [&coordinator, view = view_](Address address) -> future_vertices {
+    //                  return coordinator.RequestVertices(address, view);
+    //                });
+
+    auto all_futures_ready = [&futures]() -> bool {
+      if (futures.empty()) {
+        return true;  // Default value, clearer though
+      }
+      return std::all_of(futures.begin(), futures.end(), [](future_vertices &future) {
+        return future.has_value();  // #NoCommit to mimic "is ready" or whateve
+      });
+    };
+
+    auto results = std::vector<storage::v3::VerticesIterable>{};  // #NoCommit maybe have a VerticesIterable instead of
+                                                                  // vector no? does that make sense?
+    results.reserve(addresses.size());
+
+    while (!all_futures_ready()) {
+      auto it = futures.begin();
+      while (it != futures.end()) {
+        if (it->has_value())  // #NoCommit to mimic "is ready" or whatever
+        {
+          results.emplace_back(std::move(it->value()));
+          it = futures.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+
+    return results;
   };
   return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
       mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAll_Distributed");
