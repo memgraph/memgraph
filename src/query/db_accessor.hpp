@@ -17,6 +17,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "query/exceptions.hpp"
+#include "query/graph.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -522,8 +523,8 @@ class SubgraphDbAccessor final {
 
   VerticesIterable Vertices(storage::View view) {
     // todo antoniofilipovic change to get vertices from subgraph
-    // return VerticesIterable(graph_->vertices);
-    return db_accessor_->Vertices(view);
+    return VerticesIterable(graph_->vertices);
+    // return db_accessor_->Vertices(view);
   }
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view) {
