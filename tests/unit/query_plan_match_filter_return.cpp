@@ -1333,6 +1333,11 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   }
 };
 
+bool compareResultType(const QueryPlanExpandAllShortestPaths::ResultType &a,
+                       const QueryPlanExpandAllShortestPaths::ResultType &b) {
+  return a.total_weight < b.total_weight;
+}
+
 // Testing all shortest paths on this graph:
 //
 //      5            5
@@ -1347,23 +1352,24 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
 
 TEST_F(QueryPlanExpandAllShortestPaths, Basic) {
   auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  sort(results.begin(), results.end(), compareResultType);
 
   ASSERT_EQ(results.size(), 4);
 
   // check end nodes
-  EXPECT_EQ(GetProp(results[0].vertex), 1);
-  EXPECT_EQ(GetProp(results[1].vertex), 2);
+  EXPECT_EQ(GetProp(results[0].vertex), 2);
+  EXPECT_EQ(GetProp(results[1].vertex), 1);
   EXPECT_EQ(GetProp(results[2].vertex), 3);
   EXPECT_EQ(GetProp(results[3].vertex), 4);
 
   // check paths and total weights
   EXPECT_EQ(results[0].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 5);
-  EXPECT_EQ(results[0].total_weight, 5);
+  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+  EXPECT_EQ(results[0].total_weight, 3);
 
   EXPECT_EQ(results[1].path.size(), 1);
-  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 3);
-  EXPECT_EQ(results[1].total_weight, 3);
+  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+  EXPECT_EQ(results[1].total_weight, 5);
 
   EXPECT_EQ(results[2].path.size(), 2);
   EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
@@ -1380,11 +1386,12 @@ TEST_F(QueryPlanExpandAllShortestPaths, Basic) {
 TEST_F(QueryPlanExpandAllShortestPaths, EdgeDirection) {
   {
     auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType);
     ASSERT_EQ(results.size(), 4);
-    EXPECT_EQ(GetProp(results[0].vertex), 1);
-    EXPECT_EQ(results[0].total_weight, 5);
-    EXPECT_EQ(GetProp(results[1].vertex), 2);
-    EXPECT_EQ(results[1].total_weight, 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
     EXPECT_EQ(GetProp(results[2].vertex), 3);
     EXPECT_EQ(results[2].total_weight, 6);
     EXPECT_EQ(GetProp(results[3].vertex), 4);
@@ -1392,13 +1399,14 @@ TEST_F(QueryPlanExpandAllShortestPaths, EdgeDirection) {
   }
   {
     auto results = ExpandAllShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType);
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
-    EXPECT_EQ(results[1].total_weight, 17);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
-    EXPECT_EQ(results[2].total_weight, 15);
+    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(results[1].total_weight, 15);
+    EXPECT_EQ(GetProp(results[2].vertex), 1);
+    EXPECT_EQ(results[2].total_weight, 17);
     EXPECT_EQ(GetProp(results[3].vertex), 2);
     EXPECT_EQ(results[3].total_weight, 18);
   }
@@ -1425,6 +1433,92 @@ TEST_F(QueryPlanExpandAllShortestPaths, Where) {
     EXPECT_EQ(GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 9);
   }
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, UpperBound) {
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 10);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(results[2].total_weight, 12);
+  }
+  {
+    auto new_vertex = dba.InsertVertex();
+    ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    dba.AdvanceCommand();
+
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 5);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(results[4].total_weight, 12);
+  }
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NonNumericWeight) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NegativeWeight) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
 TEST(QueryPlan, ExpandOptional) {
