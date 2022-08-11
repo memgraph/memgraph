@@ -80,6 +80,7 @@ extern const Event CreateExpandOperator;
 extern const Event ScanAllOperator;
 extern const Event ScanAllOperator_Distributed;
 extern const Event ScanAllByLabelOperator;
+extern const Event ScanAllByLabelOperator_Distributed;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
@@ -551,6 +552,24 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllByLabel");
+}
+
+ScanAllByLabel_Distributed::ScanAllByLabel_Distributed(const std::shared_ptr<LogicalOperator> &input,
+                                                       Symbol output_symbol, storage::v3::LabelId label,
+                                                       storage::v3::View view)
+    : ScanAll_Distributed(input, output_symbol, view), label_(label) {}
+
+ACCEPT_WITH_INPUT(ScanAllByLabel_Distributed)
+
+UniqueCursorPtr ScanAllByLabel_Distributed::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
+
+  auto vertices = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+    return std::make_optional(db->Vertices(view_, label_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel_Distributed");
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over

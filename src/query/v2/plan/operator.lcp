@@ -104,6 +104,7 @@ class CreateExpand;
 class ScanAll;
 class ScanAll_Distributed;
 class ScanAllByLabel;
+class ScanAllByLabel_Distributed;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
@@ -137,7 +138,7 @@ class Foreach;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAll_Distributed, ScanAllByLabel,
-    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
+    ScanAllByLabel_Distributed, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById,
     Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
@@ -699,6 +700,27 @@ given label.
    #>cpp
    ScanAllByLabel() {}
    ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
+                  Symbol output_symbol, storage::v3::LabelId label,
+                  storage::v3::View view = storage::v3::View::OLD);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class scan-all-by-label_-distributed (scan-all_-distributed)
+  ((label "::storage::v3::LabelId" :scope :public))
+  (:documentation
+   "Behaves like @c ScanAll_Distributed, but this operator produces only vertices with
+given label.
+
+@sa ScanAll_Distributed
+@sa ScanAllByLabelPropertyRange_Distributed
+@sa ScanAllByLabelPropertyValue_Distributed")
+  (:public
+   #>cpp
+   ScanAllByLabel_Distributed() {}
+   ScanAllByLabel_Distributed(const std::shared_ptr<LogicalOperator> &input,
                   Symbol output_symbol, storage::v3::LabelId label,
                   storage::v3::View view = storage::v3::View::OLD);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
