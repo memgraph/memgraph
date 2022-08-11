@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <map>
+#include <mutex>
+
 #include "io/message_conversion.hpp"
 #include "io/transport.hpp"
 
@@ -32,7 +36,7 @@ class ThriftHandle {
   std::vector<OpaqueMessage> can_receive_;
 
   // TODO(tyler) thrift clients for each outbound address combination
-  std::map<Address, void> clients_;
+  std::map<Address, void *> clients_;
 
  public:
   template <Message M>
