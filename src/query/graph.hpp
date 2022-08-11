@@ -13,9 +13,7 @@
 
 #include <functional>
 #include <utility>
-
 #include "query/db_accessor.hpp"
-#include "query/path.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -23,6 +21,7 @@
 
 namespace memgraph::query {
 
+class Path;
 /**
  *  A data structure that holds a graph. A graph consists of at least one
  * vertex, and zero or more edges.
@@ -36,18 +35,17 @@ class Graph final {
    * Create the graph with no elements
    * Allocations are done using the given MemoryResource.
    */
-  explicit Graph(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
+  explicit Graph(utils::MemoryResource *memory);
 
   /** Construct a copy using the given utils::MemoryResource */
-  Graph(const Graph &other, utils::MemoryResource *memory)
-      : vertices_(other.vertices_, memory), edges_(other.edges_, memory) {}
+  Graph(const Graph &other, utils::MemoryResource *memory);
 
   /**
    * Construct with the value of other.
    * utils::MemoryResource is obtained from other. After the move, other will be
    * empty.
    */
-  Graph(Graph &&other) noexcept : Graph(std::move(other), other.GetMemoryResource()) {}
+  Graph(Graph &&other) noexcept;
 
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
@@ -55,42 +53,24 @@ class Graph final {
    * *other.GetMemoryResource()`, because an element-wise move will be
    * performed.
    */
-  Graph(Graph &&other, utils::MemoryResource *memory)
-      : vertices_(std::move(other.vertices_), memory), edges_(std::move(other.edges_), memory) {}
+  Graph(Graph &&other, utils::MemoryResource *memory);
 
   /** Expands the graph with the given path. */
-  void Expand(const Path &path) {
-    const auto path_vertices_ = path.vertices();
-    const auto path_edges_ = path.edges();
-    std::for_each(path_vertices_.begin(), path_vertices_.end(),
-                  [this](const VertexAccessor v) { vertices_.insert(v); });
-    std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.insert(e); });
-  }
-
-  std::vector<query::EdgeAccessor> OutEdges(query::VertexAccessor vertex_accessor) {
-    std::vector<query::EdgeAccessor> out_edges;
-    for (auto it = edges_.begin(); it != edges_.end(); ++it) {
-      if (it->From() == vertex_accessor) {
-        out_edges.emplace_back(*it);
-      }
-    }
-    return out_edges;
-  }
+  void Expand(const Path &path);
+  std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  Graph &operator=(Graph &&) = default;
-
-  ~Graph() = default;
+  Graph &operator=(Graph &&);
 
   /** Returns the number of expansions (edges) in this path. */
-  auto size() const { return edges_.size(); }
+  auto size() const;
 
-  auto &vertices() { return vertices_; }
-  auto &edges() { return edges_; }
-  const auto &vertices() const { return vertices_; }
-  const auto &edges() const { return edges_; }
+  auto &vertices();
+  auto &edges();
+  const auto &vertices() const;
+  const auto &edges() const;
 
-  utils::MemoryResource *GetMemoryResource() const { return vertices_.get_allocator().GetMemoryResource(); }
+  utils::MemoryResource *GetMemoryResource() const;
 
  private:
   // Contains all the vertices in the Graph.
