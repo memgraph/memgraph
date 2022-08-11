@@ -24,7 +24,7 @@
 
 #include "io/address.hpp"
 #include "io/errors.hpp"
-#include "io/simulator/message_conversion.hpp"
+#include "io/message_conversion.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
@@ -33,33 +33,9 @@
 namespace memgraph::io::simulator {
 
 using memgraph::io::Duration;
+using memgraph::io::OpaqueMessage;
+using memgraph::io::OpaquePromise;
 using memgraph::io::Time;
-
-struct PromiseKey {
-  Address requester_address;
-  uint64_t request_id;
-  // TODO(tyler) possibly remove replier_address from promise key
-  // once we want to support DSR.
-  Address replier_address;
-
- public:
-  friend bool operator<(const PromiseKey &lhs, const PromiseKey &rhs) {
-    if (lhs.requester_address != rhs.requester_address) {
-      return lhs.requester_address < rhs.requester_address;
-    }
-
-    if (lhs.request_id != rhs.request_id) {
-      return lhs.request_id < rhs.request_id;
-    }
-
-    return lhs.replier_address < rhs.replier_address;
-  }
-};
-
-struct DeadlineAndOpaquePromise {
-  Time deadline;
-  OpaquePromise promise;
-};
 
 class SimulatorHandle {
   mutable std::mutex mu_{};

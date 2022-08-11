@@ -18,6 +18,12 @@ namespace memgraph::io::thrift {
 using memgraph::io::Address;
 
 class ThriftHandle {
+  // the responses to requests that are being waited on
+  std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
+
+  // messages that are sent to servers that may later receive them
+  std::map<Address, std::vector<OpaqueMessage>> can_receive_;
+
  public:
   template <Message Request, Message Response>
   void SubmitRequest(Address to_address, Address from_address, uint64_t request_id, Request &&request, Duration timeout,

@@ -27,31 +27,31 @@ using memgraph::io::Duration;
 using memgraph::io::Time;
 
 class ThriftTransport {
-  std::shared_ptr<ThriftHandle> simulator_handle_;
+  std::shared_ptr<ThriftHandle> thrift_handle_;
   const Address address_;
   std::random_device rng_;
 
  public:
-  ThriftTransport(std::shared_ptr<ThriftHandle> simulator_handle, Address address)
-      : simulator_handle_(simulator_handle), address_(address) {}
+  ThriftTransport(std::shared_ptr<ThriftHandle> thrift_handle, Address address)
+      : thrift_handle_(thrift_handle), address_(address) {}
 
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request, Duration timeout) {
     auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>();
 
-    simulator_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout, std::move(promise));
+    thrift_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout, std::move(promise));
 
     return std::move(future);
   }
 
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Duration timeout) {
-    return simulator_handle_->template Receive<Ms...>(address_, timeout);
+    return thrift_handle_->template Receive<Ms...>(address_, timeout);
   }
 
   template <Message M>
   void Send(Address address, uint64_t request_id, M message) {
-    return simulator_handle_->template Send<M>(address, address_, request_id, message);
+    return thrift_handle_->template Send<M>(address, address_, request_id, message);
   }
 
   Time Now() const {
