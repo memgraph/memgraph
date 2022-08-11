@@ -54,8 +54,7 @@ size_t SimulatorHandle::BlockedServers() {
   size_t blocked_servers = blocked_on_receive_;
 
   for (auto &[promise_key, opaque_promise] : promises_) {
-    if (opaque_promise.promise.IsAwaited()) {
-      if (server_addresses_.contains(promise_key.requester_address)) {
+    if (opaque_promise.promise.IsAwaited() && server_addresses_.contains(promise_key.requester_address)) {
         blocked_servers++;
       }
     }
