@@ -368,13 +368,12 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
-  } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
-    if (context.trigger_context_collector) {
-      context.trigger_context_collector->RegisterCreatedObject(created_vertex);
-    }
-    return created_vertex;
   }
+  auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+  if (context.trigger_context_collector) {
+    context.trigger_context_collector->RegisterCreatedObject(created_vertex);
+  }
+  return created_vertex;
 }
 
 template <class TVerticesFun>
@@ -2600,13 +2599,13 @@ namespace {
  * when there are */
 TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::MemoryResource *memory) {
   switch (element.op) {
-    case Aggregation::Op::COUNT:
-      return TypedValue(0, memory);
-    case Aggregation::Op::SUM:
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
       return TypedValue(memory);
+    case Aggregation::Op::COUNT:
+    case Aggregation::Op::SUM:
+      return TypedValue(0, memory);
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
@@ -2628,9 +2627,7 @@ class AggregateCursor : public Cursor {
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
-      // in case there is no input and no group_bys we need to return true
-      // just this once
-      if (aggregation_.empty() && self_.group_by_.empty()) {
+      if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_)

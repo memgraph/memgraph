@@ -16,6 +16,7 @@
 #include <map>
 
 #include "storage/v3/mvcc.hpp"
+#include "storage/v3/vertex.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
@@ -58,7 +59,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   {
     delta = vertex.delta;
     deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = VertexHasLabel(vertex, label);
 
     size_t i = 0;
     for (const auto &property : properties) {
@@ -140,7 +141,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   bool deleted{false};
   Delta *delta{nullptr};
   {
-    has_label = utils::Contains(vertex.labels, label);
+    has_label = VertexHasLabel(vertex, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
 
@@ -265,7 +266,7 @@ bool UniqueConstraints::Entry::operator==(const std::vector<PropertyValue> &rhs)
 
 void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) {
   for (auto &[label_props, storage] : constraints_) {
-    if (!utils::Contains(vertex->labels, label_props.first)) {
+    if (!VertexHasLabel(*vertex, label_props.first)) {
       continue;
     }
     auto values = ExtractPropertyValues(*vertex, label_props.second);
@@ -298,11 +299,12 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
   {
     auto acc = constraint->second.access();
 
-    for (const auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (const auto &lo_vertex : vertices) {
+      const auto &vertex = lo_vertex.vertex;
+      if (vertex.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }
-      auto values = ExtractPropertyValues(GetVertex(vertex), properties);
+      auto values = ExtractPropertyValues(vertex, properties);
       if (!values) {
         continue;
       }
@@ -315,7 +317,7 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
         break;
       }
 
-      acc.insert(Entry{std::move(*values), &GetVertex(vertex), 0});
+      acc.insert(Entry{std::move(*values), &vertex, 0});
     }
   }
 
@@ -350,7 +352,7 @@ std::optional<ConstraintViolation> UniqueConstraints::Validate(const Vertex &ver
   for (const auto &[label_props, storage] : constraints_) {
     const auto &label = label_props.first;
     const auto &properties = label_props.second;
-    if (!utils::Contains(vertex.labels, label)) {
+    if (!VertexHasLabel(vertex, label)) {
       continue;
     }
 

@@ -661,9 +661,12 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::VERTEX_DELETE: {
-          auto vertex = vertex_acc.find(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}});
-          if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
-          if (!GetVertex(vertex).in_edges.empty() || !GetVertex(vertex).out_edges.empty())
+          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}});
+          if (lgo_vertex_it == vertex_acc.end()) {
+            throw RecoveryFailure("The vertex doesn't exist!");
+          }
+          auto &vertex = lgo_vertex_it->vertex;
+          if (!vertex.in_edges.empty() || !vertex.out_edges.empty())
             throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
 
           if (!vertex_acc.remove(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}}))
@@ -673,39 +676,51 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         }
         case WalDeltaData::Type::VERTEX_ADD_LABEL:
         case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
-          auto vertex = vertex_acc.find(std::vector{PropertyValue{delta.vertex_add_remove_label.gid.AsInt()}});
-          if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_add_remove_label.gid.AsInt()}});
+          if (lgo_vertex_it == vertex_acc.end()) {
+            throw RecoveryFailure("The vertex doesn't exist!");
+          }
+          auto &vertex = lgo_vertex_it->vertex;
 
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.vertex_add_remove_label.label));
-          auto it = std::find(GetVertex(vertex).labels.begin(), GetVertex(vertex).labels.end(), label_id);
+          auto it = std::find(vertex.labels.begin(), vertex.labels.end(), label_id);
 
           if (delta.type == WalDeltaData::Type::VERTEX_ADD_LABEL) {
-            if (it != GetVertex(vertex).labels.end()) throw RecoveryFailure("The vertex already has the label!");
-            GetVertex(vertex).labels.push_back(label_id);
+            if (it != vertex.labels.end()) throw RecoveryFailure("The vertex already has the label!");
+            vertex.labels.push_back(label_id);
           } else {
-            if (it == GetVertex(vertex).labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
-            std::swap(*it, GetVertex(vertex).labels.back());
-            GetVertex(vertex).labels.pop_back();
+            if (it == vertex.labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
+            std::swap(*it, vertex.labels.back());
+            vertex.labels.pop_back();
           }
 
           break;
         }
         case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-          auto vertex = vertex_acc.find(std::vector{PropertyValue{delta.vertex_edge_set_property.gid.AsInt()}});
-          if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_edge_set_property.gid.AsInt()}});
+          if (lgo_vertex_it == vertex_acc.end()) {
+            throw RecoveryFailure("The vertex doesn't exist!");
+          }
 
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          GetVertex(vertex).properties.SetProperty(property_id, property_value);
+          lgo_vertex_it->vertex.properties.SetProperty(property_id, property_value);
 
           break;
         }
         case WalDeltaData::Type::EDGE_CREATE: {
-          auto from_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
-          if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
-          auto to_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
-          if (to_vertex == vertex_acc.end()) throw RecoveryFailure("The to vertex doesn't exist!");
+          auto from_lgo_vertex =
+              vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
+          if (from_lgo_vertex == vertex_acc.end()) {
+            throw RecoveryFailure("The from vertex doesn't exist!");
+          }
+          auto to_lgo_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
+          if (to_lgo_vertex == vertex_acc.end()) {
+            throw RecoveryFailure("The to vertex doesn't exist!");
+          }
+          auto &from_vertex = from_lgo_vertex->vertex;
+          auto &to_vertex = to_lgo_vertex->vertex;
 
           auto edge_gid = delta.edge_create_delete.gid;
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
@@ -716,18 +731,16 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
             edge_ref = EdgeRef(&*edge);
           }
           {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &GetVertex(to_vertex), edge_ref};
-            auto it = std::find(GetVertex(from_vertex).out_edges.begin(), GetVertex(from_vertex).out_edges.end(), link);
-            if (it != GetVertex(from_vertex).out_edges.end())
-              throw RecoveryFailure("The from vertex already has this edge!");
-            GetVertex(from_vertex).out_edges.push_back(link);
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
+            auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
+            if (it != from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex already has this edge!");
+            from_vertex.out_edges.push_back(link);
           }
           {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &GetVertex(from_vertex), edge_ref};
-            auto it = std::find(GetVertex(to_vertex).in_edges.begin(), GetVertex(to_vertex).in_edges.end(), link);
-            if (it != GetVertex(to_vertex).in_edges.end())
-              throw RecoveryFailure("The to vertex already has this edge!");
-            GetVertex(to_vertex).in_edges.push_back(link);
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
+            auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
+            if (it != to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex already has this edge!");
+            to_vertex.in_edges.push_back(link);
           }
 
           ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
@@ -738,10 +751,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::EDGE_DELETE: {
-          auto from_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
-          if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
-          auto to_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
-          if (to_vertex == vertex_acc.end()) throw RecoveryFailure("The to vertex doesn't exist!");
+          auto from_lgo_vertex =
+              vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
+          if (from_lgo_vertex == vertex_acc.end()) {
+            throw RecoveryFailure("The from vertex doesn't exist!");
+          }
+          auto to_lgo_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
+          if (to_lgo_vertex == vertex_acc.end()) {
+            throw RecoveryFailure("The to vertex doesn't exist!");
+          }
+          auto &from_vertex = from_lgo_vertex->vertex;
+          auto &to_vertex = to_lgo_vertex->vertex;
 
           auto edge_gid = delta.edge_create_delete.gid;
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
@@ -752,20 +772,18 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
             edge_ref = EdgeRef(&*edge);
           }
           {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &GetVertex(to_vertex), edge_ref};
-            auto it = std::find(GetVertex(from_vertex).out_edges.begin(), GetVertex(from_vertex).out_edges.end(), link);
-            if (it == GetVertex(from_vertex).out_edges.end())
-              throw RecoveryFailure("The from vertex doesn't have this edge!");
-            std::swap(*it, GetVertex(from_vertex).out_edges.back());
-            GetVertex(from_vertex).out_edges.pop_back();
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
+            auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
+            if (it == from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
+            std::swap(*it, from_vertex.out_edges.back());
+            from_vertex.out_edges.pop_back();
           }
           {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &GetVertex(from_vertex), edge_ref};
-            auto it = std::find(GetVertex(to_vertex).in_edges.begin(), GetVertex(to_vertex).in_edges.end(), link);
-            if (it == GetVertex(to_vertex).in_edges.end())
-              throw RecoveryFailure("The to vertex doesn't have this edge!");
-            std::swap(*it, GetVertex(to_vertex).in_edges.back());
-            GetVertex(to_vertex).in_edges.pop_back();
+            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
+            auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
+            if (it == to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
+            std::swap(*it, to_vertex.in_edges.back());
+            to_vertex.in_edges.pop_back();
           }
           if (items.properties_on_edges) {
             if (!edge_acc.remove(edge_gid)) throw RecoveryFailure("The edge must be removed here!");

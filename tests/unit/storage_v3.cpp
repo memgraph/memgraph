@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <limits>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
-
-#include <limits>
 
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/storage.hpp"
@@ -23,9 +23,13 @@ using testing::UnorderedElementsAre;
 
 namespace memgraph::storage::v3::tests {
 
-// NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, Commit) {
+class StorageV3 : public ::testing::Test {
+ protected:
   Storage store;
+};
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(StorageV3, Commit) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -72,8 +76,7 @@ TEST(StorageV3, Commit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, Abort) {
-  Storage store;
+TEST_F(StorageV3, Abort) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -96,8 +99,7 @@ TEST(StorageV3, Abort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, AdvanceCommandCommit) {
-  Storage store;
+TEST_F(StorageV3, AdvanceCommandCommit) {
   Gid gid1 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   Gid gid2 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
@@ -137,8 +139,7 @@ TEST(StorageV3, AdvanceCommandCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, AdvanceCommandAbort) {
-  Storage store;
+TEST_F(StorageV3, AdvanceCommandAbort) {
   Gid gid1 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   Gid gid2 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
@@ -178,9 +179,7 @@ TEST(StorageV3, AdvanceCommandAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, SnapshotIsolation) {
-  Storage store;
-
+TEST_F(StorageV3, SnapshotIsolation) {
   auto acc1 = store.Access();
   auto acc2 = store.Access();
 
@@ -212,8 +211,7 @@ TEST(StorageV3, SnapshotIsolation) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, AccessorMove) {
-  Storage store;
+TEST_F(StorageV3, AccessorMove) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -245,8 +243,7 @@ TEST(StorageV3, AccessorMove) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteCommit) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteCommit) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store.Access();  // read transaction
@@ -319,8 +316,7 @@ TEST(StorageV3, VertexDeleteCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteAbort) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteAbort) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   auto acc1 = store.Access();  // read transaction
@@ -445,8 +441,7 @@ TEST(StorageV3, VertexDeleteAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteSerializationError) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteSerializationError) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create vertex
@@ -520,8 +515,7 @@ TEST(StorageV3, VertexDeleteSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteSpecialCases) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteSpecialCases) {
   Gid gid1 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   Gid gid2 = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
@@ -580,8 +574,7 @@ TEST(StorageV3, VertexDeleteSpecialCases) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteLabel) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteLabel) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
@@ -732,8 +725,7 @@ TEST(StorageV3, VertexDeleteLabel) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexDeleteProperty) {
-  Storage store;
+TEST_F(StorageV3, VertexDeleteProperty) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex
@@ -871,8 +863,7 @@ TEST(StorageV3, VertexDeleteProperty) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexLabelCommit) {
-  Storage store;
+TEST_F(StorageV3, VertexLabelCommit) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -986,8 +977,7 @@ TEST(StorageV3, VertexLabelCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexLabelAbort) {
-  Storage store;
+TEST_F(StorageV3, VertexLabelAbort) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
@@ -1234,8 +1224,7 @@ TEST(StorageV3, VertexLabelAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexLabelSerializationError) {
-  Storage store;
+TEST_F(StorageV3, VertexLabelSerializationError) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -1342,8 +1331,7 @@ TEST(StorageV3, VertexLabelSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexPropertyCommit) {
-  Storage store;
+TEST_F(StorageV3, VertexPropertyCommit) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -1464,8 +1452,7 @@ TEST(StorageV3, VertexPropertyCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexPropertyAbort) {
-  Storage store;
+TEST_F(StorageV3, VertexPropertyAbort) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   // Create the vertex.
@@ -1742,8 +1729,7 @@ TEST(StorageV3, VertexPropertyAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexPropertySerializationError) {
-  Storage store;
+TEST_F(StorageV3, VertexPropertySerializationError) {
   Gid gid = Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
     auto acc = store.Access();
@@ -1844,8 +1830,7 @@ TEST(StorageV3, VertexPropertySerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, VertexLabelPropertyMixed) {
-  Storage store;
+TEST_F(StorageV3, VertexLabelPropertyMixed) {
   auto acc = store.Access();
   auto vertex = acc.CreateVertex();
 
@@ -2083,8 +2068,7 @@ TEST(StorageV3, VertexLabelPropertyMixed) {
   ASSERT_FALSE(acc.Commit().HasError());
 }
 
-TEST(StorageV3, VertexPropertyClear) {
-  Storage store;
+TEST_F(StorageV3, VertexPropertyClear) {
   Gid gid;
   auto property1 = store.NameToProperty("property1");
   auto property2 = store.NameToProperty("property2");
@@ -2188,9 +2172,7 @@ TEST(StorageV3, VertexPropertyClear) {
   }
 }
 
-TEST(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
-  Storage store;
-
+TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto label = store.NameToLabel("label");
   auto property = store.NameToProperty("property");
 
@@ -2245,9 +2227,7 @@ TEST(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_FALSE(acc.Commit().HasError());
 }
 
-TEST(StorageV3, VertexVisibilitySingleTransaction) {
-  Storage store;
-
+TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
   auto acc1 = store.Access();
   auto acc2 = store.Access();
 
@@ -2301,8 +2281,7 @@ TEST(StorageV3, VertexVisibilitySingleTransaction) {
   acc3.Abort();
 }
 
-TEST(StorageV3, VertexVisibilityMultipleTransactions) {
-  Storage store;
+TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
   Gid gid;
 
   {
@@ -2541,9 +2520,7 @@ TEST(StorageV3, VertexVisibilityMultipleTransactions) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageV3, DeletedVertexAccessor) {
-  Storage store;
-
+TEST_F(StorageV3, DeletedVertexAccessor) {
   const auto property = store.NameToProperty("property");
   const PropertyValue property_value{"property_value"};
 

@@ -12,8 +12,10 @@
 #pragma once
 
 #include <concepts>
+#include <type_traits>
 
 #include "storage/v3/vertex.hpp"
+#include "utils/concepts.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -37,21 +39,4 @@ struct LexicographicallyOrderedVertex {
     return lhs.vertex.keys < rhs;
   }
 };
-
-template <typename T>
-concept IsLexicographicallyOrderedVertex = std::same_as<LexicographicallyOrderedVertex, std::remove_cvref_t<T>>;
-
-template <typename T>
-concept IsLexicographicallyOrderedVertexHolder =
-    std::same_as<LexicographicallyOrderedVertex, std::remove_cvref_t<decltype(*(std::declval<T>()))>>;
-
-template <IsLexicographicallyOrderedVertex T>
-auto &GetVertex(T &wrapper) {
-  return wrapper.vertex;
-}
-template <IsLexicographicallyOrderedVertexHolder T>
-auto &GetVertex(T &wrapper) {
-  return (*wrapper).vertex;
-}
-
 }  // namespace memgraph::storage::v3

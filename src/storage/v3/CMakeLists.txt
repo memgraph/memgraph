@@ -12,6 +12,8 @@ set(storage_v3_src_files
     lexicographically_ordered_vertex.cpp
     property_store.cpp
     vertex_accessor.cpp
+    schemas.cpp
+    schema_validator.cpp
     storage.cpp)
 
 # #### Replication #####

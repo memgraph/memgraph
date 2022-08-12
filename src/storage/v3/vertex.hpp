@@ -22,19 +22,41 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::storage::v3 {
 
 struct Vertex {
+  Vertex(Gid gid, Delta *delta, LabelId primary_label)
+      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Vertex must be created with an initial DELETE_OBJECT delta!");
+  }
+
+  // TODO remove this when import replication is solved
+  Vertex(Gid gid, LabelId primary_label)
+      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Vertex must be created with an initial DELETE_OBJECT delta!");
+  }
+
+  // TODO remove this when import csv is solved
   Vertex(Gid gid, Delta *delta) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Vertex must be created with an initial DELETE_OBJECT delta!");
+  }
+
+  // TODO remove this when import replication is solved
+  explicit Vertex(Gid gid) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
   Gid Gid() const { return Gid::FromInt(keys.GetKey(0).ValueInt()); }
 
-  KeyStore keys{{}};
+  LabelId primary_label;
+  KeyStore keys;
   std::vector<LabelId> labels;
   PropertyStore properties;
 
@@ -49,5 +71,9 @@ struct Vertex {
 };
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
+
+inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) {
+  return vertex.primary_label == label || utils::Contains(vertex.labels, label);
+}
 
 }  // namespace memgraph::storage::v3

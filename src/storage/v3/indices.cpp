@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "indices.hpp"
+
 #include <limits>
 
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -275,11 +277,12 @@ bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices)
   }
   try {
     auto acc = it->second.access();
-    for (auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      acc.insert(Entry{&GetVertex(vertex), 0});
+      acc.insert(Entry{&vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -323,7 +326,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -341,8 +344,8 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_};
+      current_vertex_accessor_ = VertexAccessor{current_vertex_,     self_->transaction_, self_->indices_,
+                                                self_->constraints_, self_->config_,      *self_->schema_validator_};
       break;
     }
   }
@@ -350,14 +353,15 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
                                Transaction *transaction, Indices *indices, Constraints *constraints,
-                               Config::Items config)
+                               Config::Items config, const SchemaValidator &schema_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       transaction_(transaction),
       indices_(indices),
       constraints_(constraints),
-      config_(config) {}
+      config_(config),
+      schema_validator_(&schema_validator) {}
 
 void LabelIndex::RunGC() {
   for (auto &index_entry : index_) {
@@ -422,15 +426,16 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, Vertice
   }
   try {
     auto acc = it->second.access();
-    for (auto &vertex : vertices) {
-      if (GetVertex(vertex).deleted || !utils::Contains(GetVertex(vertex).labels, label)) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
+      if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
-      auto value = GetVertex(vertex).properties.GetProperty(property);
+      auto value = vertex.properties.GetProperty(property);
       if (value.IsNull()) {
         continue;
       }
-      acc.insert(Entry{std::move(value), &GetVertex(vertex), 0});
+      acc.insert(Entry{std::move(value), &vertex, 0});
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -474,7 +479,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -513,8 +518,8 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ =
-          VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->constraints_, self_->config_);
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
+                                                self_->constraints_, self_->config_, *self_->schema_validator_);
       break;
     }
   }
@@ -537,7 +542,7 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       Config::Items config)
+                                       Config::Items config, const SchemaValidator &schema_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
@@ -547,7 +552,8 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
       transaction_(transaction),
       indices_(indices),
       constraints_(constraints),
-      config_(config) {
+      config_(config),
+      schema_validator_(&schema_validator) {
   // We have to fix the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
