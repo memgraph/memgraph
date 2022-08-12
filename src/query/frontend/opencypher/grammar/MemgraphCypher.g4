@@ -256,7 +256,7 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
-          | EDGE_TYPES edgeTypes = edgeTypeList
+          | EDGE_TYPES edgeTypes=edgeTypeList
           | LABELS labels=labelList
           ;
 

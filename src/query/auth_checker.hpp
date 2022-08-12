@@ -42,7 +42,8 @@ class AuthChecker : public query::AuthCheckerInterface {
  public:
   AuthChecker();
 
-  AuthChecker(memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth);
+  explicit AuthChecker(
+      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth);
 
   bool IsUserAuthorized(const std::optional<std::string> &username,
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override;

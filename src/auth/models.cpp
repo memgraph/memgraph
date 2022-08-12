@@ -101,7 +101,12 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {}
+Permissions::Permissions(uint64_t grants, uint64_t denies) {
+  // The deny bitmask has higher priority than the grant bitmask.
+  denies_ = denies;
+  // Mask out the grant bitmask to make sure that it is correct.
+  grants_ = grants & (~denies);
+}
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
