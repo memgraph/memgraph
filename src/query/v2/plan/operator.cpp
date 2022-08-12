@@ -469,14 +469,13 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
 
 // #NoCommit simple abstraction BEGIN
 using Address = int;
-using future_vertices = std::optional<storage::v3::VerticesIterable>;
+using future_vertices = std::optional<DbAccessor::VerticesIterable>;
 class Shard {
  public:
-  memgraph::storage::v3::Storage::Accessor *accessor = nullptr;
+  memgraph::query::v2::DbAccessor *accessor = nullptr;
 
-  storage::v3::VerticesIterable GetVertices(storage::v3::View view) const {
-    return storage::v3::VerticesIterable(accessor->Vertices(view));
-  }
+  // #NoCommit what will we actually receive from the storage?
+  future_vertices GetVertices(storage::v3::View view) const { return accessor->Vertices(view); }
 };
 
 class Coordinator {
@@ -499,6 +498,43 @@ class Coordinator {
   std::vector<std::unique_ptr<Shard>> shards_;
   std::map<Address, Shard *> addresses_to_shards;
 };
+
+namespace {
+DbAccessor::VerticesIterable WaitAndCombine(std::vector<future_vertices> &&futures) {
+  /*
+  Two questions:
+  -Who's responsability is it to gather?
+  -How to do?
+  */
+  auto results = std::vector<DbAccessor::VerticesIterable>{};
+  results.reserve(futures.size());
+
+  auto all_futures_ready = [&futures]() -> bool {
+    if (futures.empty()) {
+      return true;  // Default value, clearer though
+    }
+    return std::all_of(futures.begin(), futures.end(), [](future_vertices &future) {
+      return future.has_value();  // #NoCommit to mimic "is ready" or whateve
+    });
+  };
+
+  while (!all_futures_ready()) {
+    auto it = futures.begin();
+    while (it != futures.end()) {
+      if (it->has_value())  // #NoCommit to mimic "is ready" or whatever
+      {
+        results.emplace_back(std::move(it->value()));
+        it = futures.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+
+  return std::move(results.front());  // #NoCommit
+}
+
+}  // namespace
 
 // #NoCommit simple abstraction END
 
@@ -523,30 +559,25 @@ class ScanAllCursor_Distributed : public Cursor {
     // result is the same, but at least we do a single call to get all vertices from the storage
     // be carefull though with the move thing
 
-    // ce while, c'est pas juste deux for loop caché en fait?
-    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
-      if (!input_cursor_->Pull(
-              frame,
-              context)) {  // #NoCommit ça va pull autant de fois qu'il y a de tuple à récupérer du cursor précedent
+    auto has_seen_all_vertices = vertices_.has_value() && vertices_it_.value() != vertices_.value().end();
+    while (!has_seen_all_vertices) {
+      if (!input_cursor_->Pull(frame, context)) {
         return false;
       }
 
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
-      auto next_vertices_from_all_shards =
-          get_vertices_(frame, context);  // c'est correct et efficace de toujours demander next_vertices à chaque loop?
-
-      if (next_vertices_from_all_shards.empty()) {
+      // #NoCommit optimisation: we do not want to ask it for every input_cursor_->pull(), we need to cache it
+      auto next_vertices = get_vertices_(frame, context);
+      if (!next_vertices) {
         continue;
       }
       // Since vertices iterator isn't nothrow_move_assignable, we have to use
       // the roundabout assignment + emplace, instead of simple:
       // vertices _ = get_vertices_(frame, context);
-      for (auto &next_vertices_from_single_shard :
-           next_vertices_from_all_shards) {  // #NoCommit is it correct? probably missing something big
-        vertices_.emplace(std::move(next_vertices_from_single_shard));
-        vertices_it_.emplace(vertices_.value().begin());
-      }
+      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_it_.emplace(vertices_.value().begin());
+      has_seen_all_vertices = vertices_it_.value() != vertices_.value().end();
     }
 
     frame[output_symbol_] = *vertices_it_.value();
@@ -579,51 +610,22 @@ ACCEPT_WITH_INPUT(ScanAll_Distributed)
 
 UniqueCursorPtr ScanAll_Distributed::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
-  // #NoCommit this needs to change
-  auto vertices = [this](Frame &, ExecutionContext &context)
-      -> std::vector<storage::v3::VerticesIterable> {  // #NoCommit we don't need the frame, get rid of it?
-    Coordinator coordinator;                           // #NoCommit something that would come from the context i guess
+  auto get_vertices =
+      [this](Frame &, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(view_))> {
+    Coordinator coordinator;  // #NoCommit we'll get it from context?
 
     const auto addresses = coordinator.GetShardAddresses();
-    auto futures = std::vector<future_vertices>(addresses.size());
-    for (auto address : addresses) {  // #NoCommit not correct if we reserve the size, use transform
+
+    auto futures = std::vector<future_vertices>();
+    for (auto address : addresses) {
       futures.emplace_back(coordinator.RequestVertices(address, view_));
     }
-    // std::transform(addresses.begin(), addresses.end(), futures, std::back_inserter(futures),
-    //                [&coordinator, view = view_](Address address) -> future_vertices {
-    //                  return coordinator.RequestVertices(address, view);
-    //                });
 
-    auto all_futures_ready = [&futures]() -> bool {
-      if (futures.empty()) {
-        return true;  // Default value, clearer though
-      }
-      return std::all_of(futures.begin(), futures.end(), [](future_vertices &future) {
-        return future.has_value();  // #NoCommit to mimic "is ready" or whateve
-      });
-    };
-
-    auto results = std::vector<storage::v3::VerticesIterable>{};  // #NoCommit maybe have a VerticesIterable instead of
-                                                                  // vector no? does that make sense?
-    results.reserve(addresses.size());
-
-    while (!all_futures_ready()) {
-      auto it = futures.begin();
-      while (it != futures.end()) {
-        if (it->has_value())  // #NoCommit to mimic "is ready" or whatever
-        {
-          results.emplace_back(std::move(it->value()));
-          it = futures.erase(it);
-        } else {
-          ++it;
-        }
-      }
-    }
-
-    return results;
+    return WaitAndCombine(std::move(futures));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
-      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAll_Distributed");
+
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(get_vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(get_vertices), "ScanAll_Distributed");
 }
 
 std::vector<Symbol> ScanAll_Distributed::ModifiedSymbols(const SymbolTable &table) const {
