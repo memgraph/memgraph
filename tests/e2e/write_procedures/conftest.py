@@ -20,11 +20,3 @@ def connection():
     yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-
-
-@pytest.fixture(autouse=True)
-def connection_with_username():
-    connection = connect(username="Boris", password="")
-    yield connection
-    cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
