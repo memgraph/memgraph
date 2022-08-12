@@ -11,16 +11,16 @@
 
 import sys
 import pytest
-from common import execute_and_fetch_all
+from common import connect, execute_and_fetch_all
 
 
-def test_lba_procedures_vertices_iterator_count_only_permitted_vertices(connection_from_username_and_password):
-    cursor = next(connection_from_username_and_password(username="Josip", password="")).cursor()
+def test_lba_procedures_vertices_iterator_count_only_permitted_vertices():
+    cursor = connect(username="Josip", password="").cursor()
     result = execute_and_fetch_all(cursor, "CALL read.number_of_visible_nodes() YIELD nr_of_nodes RETURN nr_of_nodes ;")
 
     assert result[0][0] == 10
 
-    cursor = next(connection_from_username_and_password(username="Boris", password="")).cursor()
+    cursor = connect(username="Boris", password="").cursor()
     result = execute_and_fetch_all(cursor, "CALL read.number_of_visible_nodes() YIELD nr_of_nodes RETURN nr_of_nodes ;")
 
     assert result[0][0] == 6
