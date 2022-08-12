@@ -40,7 +40,6 @@ add_subdirectory(write_procedures)
 add_subdirectory(magic_functions)
 add_subdirectory(module_file_manager)
 add_subdirectory(monitoring_server)
-add_subdirectory(fine_grained_access)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/memgraph-selfsigned.crt DESTINATION ${CMAKE_CURRENT_BINARY_DIR})

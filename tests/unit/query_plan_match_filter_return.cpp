@@ -410,9 +410,53 @@ TEST_F(ExpandFixture, Expand) {
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
+class TestAuthChecker : public memgraph::query::AuthChecker {
+ public:
+  MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
+                                            const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
+
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+              const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View &view) const final {
+    auto maybe_labels = vertex.Labels(view);
+    if (maybe_labels.HasError()) {
+      switch (maybe_labels.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw memgraph::query::QueryRuntimeException("Trying to get labels from a deleted node.");
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          throw memgraph::query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+          throw memgraph::query::QueryRuntimeException("Unexpected error when getting labels.");
+      }
+    }
+
+    return IsUserAuthorizedLabels(user, dba, *maybe_labels);
+  }
+
+  bool Accept(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+              const memgraph::query::EdgeAccessor &edge) const final {
+    return IsUserAuthorizedEdgeType(user, dba, edge.EdgeType());
+  }
+
+ private:
+  bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+                              const std::vector<memgraph::storage::LabelId> &labels) const final {
+    return std::all_of(labels.begin(), labels.end(), [dba, user](const auto label) {
+      return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label)) ==
+             memgraph::auth::PermissionLevel::GRANT;
+    });
+  }
+
+  bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+                                const memgraph::storage::EdgeTypeId &edgeType) const final {
+    return user.GetFineGrainedAccessEdgeTypePermissions().Has(dba.EdgeTypeToName(edgeType)) ==
+           memgraph::auth::PermissionLevel::GRANT;
+  }
+};
 
 TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
-  auto test_expand = [&](memgraph::auth::User &user, AuthChecker &auth_checker, EdgeAtom::Direction direction,
+  auto test_expand = [&](memgraph::auth::User &user, TestAuthChecker &auth_checker, EdgeAtom::Direction direction,
                          memgraph::storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
@@ -431,7 +475,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test");
   user.fine_grained_access_handler().label_permissions().Grant("*");
   memgraph::storage::EdgeTypeId edge_type_test{db.NameToEdgeType("edge_type_test")};
-  AuthChecker auth_checker{};
+  TestAuthChecker auth_checker{};
 
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type_test).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type_test).HasValue());

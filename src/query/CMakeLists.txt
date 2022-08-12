@@ -8,7 +8,6 @@ add_custom_target(generate_lcp_query DEPENDS ${generated_lcp_query_files})
 
 set(mg_query_sources
     ${lcp_query_cpp_files}
-    auth_checker.cpp
     common.cpp
     cypher_query_interpreter.cpp
     dump.cpp
