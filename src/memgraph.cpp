@@ -37,6 +37,7 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "glue/auth_checker.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
@@ -753,24 +754,6 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  memgraph::auth::User GetUser(const std::string &username) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      auto locked_auth = auth_->Lock();
-      auto user = locked_auth->GetUser(username);
-      if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
-      }
-
-      return *user;
-
-    } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
-    }
-  }
-
   void GrantPrivilege(const std::string &user_or_role,
                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                       const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) override {
@@ -898,8 +881,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-      memgraph::query::AuthChecker auth_checker{};
-      if (user_ && !auth_checker.IsUserAuthorized(*user_, result.privileges)) {
+      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
@@ -1248,7 +1230,7 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  memgraph::query::AuthChecker auth_checker{&auth};
+  memgraph::glue::AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 

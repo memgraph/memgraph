@@ -73,8 +73,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
-  AuthChecker *auth_checker{nullptr};
-  auth::User user;
+  std::unique_ptr<UserBasedAuthChecker> auth_checker{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

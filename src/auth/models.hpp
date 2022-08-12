@@ -59,7 +59,13 @@ std::string PermissionLevelToString(PermissionLevel level);
 
 class Permissions final {
  public:
-  Permissions(uint64_t grants = 0, uint64_t denies = 0);
+  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0);
+
+  Permissions(const Permissions &) = default;
+  Permissions &operator=(const Permissions &) = default;
+  Permissions(Permissions &&) noexcept = default;
+  Permissions &operator=(Permissions &&) noexcept = default;
+  ~Permissions() = default;
 
   PermissionLevel Has(Permission permission) const;
 
@@ -95,6 +101,12 @@ class FineGrainedAccessPermissions final {
   explicit FineGrainedAccessPermissions(const std::unordered_set<std::string> &grants = {},
                                         const std::unordered_set<std::string> &denies = {});
 
+  FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
+  FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
+  FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
+  FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
+  ~FineGrainedAccessPermissions() = default;
+
   PermissionLevel Has(const std::string &permission) const;
 
   void Grant(const std::string &permission);
@@ -122,9 +134,14 @@ bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 
 class FineGrainedAccessHandler final {
  public:
-  explicit FineGrainedAccessHandler(
-      const FineGrainedAccessPermissions &labelPermissions = FineGrainedAccessPermissions(),
-      const FineGrainedAccessPermissions &edgeTypePermissions = FineGrainedAccessPermissions());
+  explicit FineGrainedAccessHandler(FineGrainedAccessPermissions labelPermissions = FineGrainedAccessPermissions(),
+                                    FineGrainedAccessPermissions edgeTypePermissions = FineGrainedAccessPermissions());
+
+  FineGrainedAccessHandler(const FineGrainedAccessHandler &) = default;
+  FineGrainedAccessHandler &operator=(const FineGrainedAccessHandler &) = default;
+  FineGrainedAccessHandler(FineGrainedAccessHandler &&) noexcept = default;
+  FineGrainedAccessHandler &operator=(FineGrainedAccessHandler &&) noexcept = default;
+  ~FineGrainedAccessHandler() = default;
 
   const FineGrainedAccessPermissions &label_permissions() const;
   FineGrainedAccessPermissions &label_permissions();
@@ -148,10 +165,16 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 
 class Role final {
  public:
-  Role(const std::string &rolename);
+  explicit Role(const std::string &rolename);
 
   Role(const std::string &rolename, const Permissions &permissions,
-       const FineGrainedAccessHandler &fine_grained_access_handler);
+       FineGrainedAccessHandler fine_grained_access_handler);
+
+  Role(const Role &) = default;
+  Role &operator=(const Role &) = default;
+  Role(Role &&) noexcept = default;
+  Role &operator=(Role &&) noexcept = default;
+  ~Role() = default;
 
   const std::string &rolename() const;
   const Permissions &permissions() const;
@@ -179,10 +202,16 @@ class User final {
  public:
   User();
 
-  User(const std::string &username);
+  explicit User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-       const FineGrainedAccessHandler &fine_grained_access_handler);
+       FineGrainedAccessHandler fine_grained_access_handler);
+
+  User(const User &) = default;
+  User &operator=(const User &) = default;
+  User(User &&) noexcept = default;
+  User &operator=(User &&) noexcept = default;
+  ~User() = default;
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);

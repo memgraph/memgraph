@@ -226,7 +226,7 @@ std::vector<auth::User> Auth::AllUsers() const {
     if (username != utils::ToLowerCase(username)) continue;
     auto user = GetUser(username);
     if (user) {
-      ret.push_back(*user);
+      ret.push_back(std::move(*user));
     }
   }
   return ret;
@@ -306,7 +306,7 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
     if (it->second == rolename) {
       auto user = GetUser(username);
       if (user) {
-        ret.push_back(*user);
+        ret.push_back(std::move(*user));
       } else {
         throw AuthException("Couldn't load user '{}'!", username);
       }
