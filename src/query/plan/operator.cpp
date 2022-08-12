@@ -872,7 +872,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
     if (context.auth_checker) {
       (void)std::remove_if(edges.begin(), edges.end(), [&context, &view](const auto &edge) {
         return !context.auth_checker->Accept(context.user, *context.db_accessor, edge) ||
-               !context.auth_checker->Accept(context.user, *context.db_accessor, edge.From(), view);
+               !context.auth_checker->Accept(context.user, *context.db_accessor, edge.To(), view);
       });
     }
 
@@ -1067,6 +1067,7 @@ class ExpandVariableCursor : public Cursor {
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
+
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
 
@@ -1239,7 +1240,9 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
-            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+            if (context.auth_checker &&
+                (!context.auth_checker->Accept(context.user, *context.db_accessor, edge) ||
+                 !context.auth_checker->Accept(context.user, *context.db_accessor, edge.To(), storage::View::OLD)))
               continue;
 
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
@@ -1259,7 +1262,9 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
-            if (context.auth_checker && !context.auth_checker->Accept(context.user, *context.db_accessor, edge))
+            if (context.auth_checker &&
+                (!context.auth_checker->Accept(context.user, *context.db_accessor, edge) ||
+                 !context.auth_checker->Accept(context.user, *context.db_accessor, edge.From(), storage::View::OLD)))
               continue;
 
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {

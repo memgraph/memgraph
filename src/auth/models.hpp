@@ -103,6 +103,8 @@ class FineGrainedAccessPermissions final {
 
   void Deny(const std::string &permission);
 
+  void Reset();
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.

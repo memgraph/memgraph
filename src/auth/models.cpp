@@ -223,11 +223,14 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission) {
   }
 }
 
+void FineGrainedAccessPermissions::Reset() {
+  grants_.clear();
+  denies_.clear();
+}
+
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   if (permission == ASTERISK) {
-    grants_.clear();
-    denies_.clear();
-
+    Reset();
     return;
   }
 
@@ -245,8 +248,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
 
 void FineGrainedAccessPermissions::Deny(const std::string &permission) {
   if (permission == ASTERISK) {
-    grants_.clear();
-    denies_.clear();
+    Reset();
     denies_.insert(permission);
 
     return;
