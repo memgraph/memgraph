@@ -297,8 +297,8 @@ const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::g
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::denies() const { return denies_; }
 
 void FineGrainedAccessPermissions::DoGrant(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift = 1;
-  uint64_t perm = 0;
+  uint64_t shift{1};
+  uint64_t perm{0};
   auto u_label_perm = static_cast<uint64_t>(label_permission);
 
   while (u_label_perm != 0) {
@@ -310,8 +310,8 @@ void FineGrainedAccessPermissions::DoGrant(const std::string &permission, LabelP
 }
 
 void FineGrainedAccessPermissions::DoDeny(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift = 1;
-  uint64_t perm = 0;
+  uint64_t shift{1};
+  uint64_t perm{0};
   auto u_label_perm = static_cast<uint64_t>(label_permission);
 
   while (u_label_perm <= LabelPermissionMax) {

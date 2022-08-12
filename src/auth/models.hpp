@@ -13,7 +13,6 @@
 #include <unordered_map>
 
 #include <json/json.hpp>
-#include <utility>
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
