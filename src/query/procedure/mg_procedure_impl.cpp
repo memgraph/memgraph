@@ -461,7 +461,17 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
     }
     case MGP_VALUE_TYPE_VERTEX: {
       memgraph::utils::Allocator<mgp_vertex> allocator(m);
-      vertex_v = allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph);
+      vertex_v = std::visit(
+          memgraph::utils::Overloaded{[&](memgraph::query::DbAccessor *impl) {
+                                        return allocator.new_object<mgp_vertex>(tv.ValueVertex(), graph);
+                                      },
+                                      [&](memgraph::query::SubgraphDbAccessor *impl) {
+                                        return allocator.new_object<mgp_vertex>(
+                                            memgraph::query::SubgraphVertexAccessor(tv.ValueVertex(), impl->getGraph()),
+                                            graph);
+                                      }},
+          graph->impl);
+
       break;
     }
     case MGP_VALUE_TYPE_EDGE: {

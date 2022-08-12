@@ -3733,15 +3733,15 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
-  query::SubgraphDbAccessor *subgraphAccessor = nullptr;
-  if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
-    TypedValue subgraph_typed = TypedValue(args_list.front(), args_list.front().ValueGraph().GetMemoryResource());
 
+  if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
+    // TypedValue subgraph_typed = TypedValue(args_list.front(), args_list.front().ValueGraph().GetMemoryResource());
+    query::Graph *subgraph =
+        new query::Graph(std::move(args_list.front().ValueGraph()), args_list.front().ValueGraph().GetMemoryResource());
     args_list.erase(args_list.begin());
-    query::Graph *subgraph = &subgraph_typed.ValueGraph();
-    subgraphAccessor =
-        query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);
-    graph.impl = subgraphAccessor;
+    // query::Graph *subgraph = new query::Graph(std::move(graph), args_list.front().ValueGraph().GetMemoryResource())
+
+    graph.impl = query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);
   }
 
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);

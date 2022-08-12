@@ -15,6 +15,10 @@
 
 #include "query/graph.hpp"
 
+#include <cppitertools/filter.hpp>
+#include <cppitertools/imap.hpp>
+#include "utils/pmr/unordered_set.hpp"
+
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor *db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
@@ -91,4 +95,53 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 }
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
+
+auto SubgraphVertexAccessor::OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
+  // todo antoniofilipovic add filtering here
+
+  auto maybe_edges = impl_.impl_.OutEdges(view, {});
+  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  auto edges = std::move(*maybe_edges);
+  auto graph_edges = graph_->edges();
+
+  std::unordered_set<storage::EdgeAccessor> graph_edges_storage;
+
+  for (auto e : graph_edges) {
+    graph_edges_storage.insert(e.impl_);
+  }
+
+  std::vector<storage::EdgeAccessor> filteredOutEdges;
+  for (auto &edge : edges) {
+    if (std::find(begin(graph_edges_storage), end(graph_edges_storage), edge) != std::end(graph_edges_storage)) {
+      filteredOutEdges.push_back(edge);
+    }
+  }
+
+  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+}
+
+auto SubgraphVertexAccessor::InEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
+  // todo antoniofilipovic add filtering here
+
+  auto maybe_edges = impl_.impl_.InEdges(view, {});
+  if (maybe_edges.HasError()) return maybe_edges.GetError();
+  auto edges = std::move(*maybe_edges);
+  auto graph_edges = graph_->edges();
+
+  std::unordered_set<storage::EdgeAccessor> graph_edges_storage;
+
+  for (auto e : graph_edges) {
+    graph_edges_storage.insert(e.impl_);
+  }
+
+  std::vector<storage::EdgeAccessor> filteredOutEdges;
+  for (auto &edge : edges) {
+    if (std::find(begin(graph_edges_storage), end(graph_edges_storage), edge) != std::end(graph_edges_storage)) {
+      filteredOutEdges.push_back(edge);
+    }
+  }
+
+  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+}
+
 }  // namespace memgraph::query

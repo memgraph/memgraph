@@ -200,20 +200,9 @@ class SubgraphVertexAccessor final {
     return impl_ == v.impl_;
   }
 
-  auto InEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
-    // todo antoniofilipovic add filtering here
+  auto InEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const;
 
-    auto maybe_edges = impl_.impl_.InEdges(view, {});
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(*maybe_edges));
-  }
-
-  auto OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
-    // todo antoniofilipovic add filtering here
-    auto maybe_edges = impl_.impl_.OutEdges(view, {});
-    if (maybe_edges.HasError()) return maybe_edges.GetError();
-    return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(*maybe_edges));
-  }
+  auto OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const;
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
 
