@@ -13,6 +13,7 @@
 #include <unordered_map>
 
 #include <json/json.hpp>
+#include <utility>
 
 namespace memgraph::auth {
 // These permissions must have values that are applicable for usage in a
@@ -63,7 +64,7 @@ inline bool operator&(uint64_t a, LabelPermission b) { return (a & static_cast<u
 std::string PermissionToString(Permission permission);
 
 // Class that indicates what permission level the user/role has.
-enum class PermissionLevel : short { DENY, GRANT, NEUTRAL };
+enum class PermissionLevel : short { GRANT, NEUTRAL, DENY };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
@@ -126,8 +127,12 @@ class FineGrainedAccessPermissions final {
   std::unordered_map<std::string, uint64_t> grants_{};
   std::unordered_map<std::string, uint64_t> denies_{};
 
-  void grant_(const std::string &permission, LabelPermission label_permission);
-  void deny_(const std::string &permission, LabelPermission label_permission);
+  void DoGrant(const std::string &permission, LabelPermission label_permission);
+  void DoDeny(const std::string &permission, LabelPermission label_permission);
+
+  std::unordered_map<std::string, uint64_t>::const_iterator Find(const std::string &key, bool in_denies) const;
+  std::unordered_map<std::string, uint64_t>::const_iterator GrantsFind(const std::string &key) const;
+  std::unordered_map<std::string, uint64_t>::const_iterator DeniesFind(const std::string &key) const;
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
