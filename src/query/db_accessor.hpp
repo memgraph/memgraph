@@ -149,10 +149,6 @@ class VertexAccessor final {
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  storage::Result<std::vector<storage::EdgeAccessor>> OutEdgesFiltered(storage::View view) const {
-    return impl_.OutEdges(view, {});
-  }
-
   auto OutEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
       -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
     auto maybe_edges = impl_.OutEdges(view, edge_types);
@@ -204,14 +200,19 @@ class SubgraphVertexAccessor final {
     return impl_ == v.impl_;
   }
 
-  auto InEdges(storage::View view) const {
+  auto InEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
     // todo antoniofilipovic add filtering here
-    return impl_.InEdges(view);
+
+    auto maybe_edges = impl_.impl_.InEdges(view, {});
+    if (maybe_edges.HasError()) return maybe_edges.GetError();
+    return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
-  auto OutEdges(storage::View view) const {
+  auto OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
     // todo antoniofilipovic add filtering here
-    return impl_.OutEdges(view);
+    auto maybe_edges = impl_.impl_.OutEdges(view, {});
+    if (maybe_edges.HasError()) return maybe_edges.GetError();
+    return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(*maybe_edges));
   }
 
   auto Labels(storage::View view) const { return impl_.Labels(view); }
@@ -291,7 +292,7 @@ class VerticesIterable final {
 
     Iterator &operator++() {
       //++it_;
-      std::visit(memgraph::utils::Overloaded{[](auto it_) { ++it_; }}, it_);
+      std::visit(memgraph::utils::Overloaded{[this](auto it_) { this->it_ = ++it_; }}, it_);
       return *this;
     }
 
