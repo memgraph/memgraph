@@ -1521,6 +1521,15 @@ TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
   EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+// MultiplePaths testing on this graph:
+//       5        5
+//  [0]-->--[1]--->---[6]
+//   |        \       /
+//  \/ 3     5 >-[4]->
+//   |           /   1
+//  [2]-->--[3]->
+//       3       3
+
 TEST_F(QueryPlanExpandAllShortestPaths, MultiplePaths) {
   auto new_vertex = dba.InsertVertex();
   ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(6)).HasValue());
@@ -1542,6 +1551,27 @@ TEST_F(QueryPlanExpandAllShortestPaths, MultiplePaths) {
   EXPECT_EQ(results[4].total_weight, 10);
   EXPECT_EQ(GetProp(results[5].vertex), 6);
   EXPECT_EQ(results[5].total_weight, 10);
+}
+
+// Uses graph from Basic test, with double edge 2->-3 and 3->-4
+TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
+  auto edge = dba.InsertEdge(&v[2], &v[3], edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  dba.AdvanceCommand();
+
+  auto edge2 = dba.InsertEdge(&v[3], &v[4], edge_type);
+  ASSERT_TRUE(edge2.HasValue());
+  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  dba.AdvanceCommand();
+
+  auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType);
+  ASSERT_EQ(results.size(), 8);
+  EXPECT_EQ(GetProp(results[6].vertex), 4);
+  EXPECT_EQ(results[4].total_weight, 9);
+  EXPECT_EQ(GetProp(results[7].vertex), 4);
+  EXPECT_EQ(results[5].total_weight, 9);
 }
 
 TEST(QueryPlan, ExpandOptional) {
