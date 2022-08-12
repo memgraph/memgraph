@@ -1519,7 +1519,7 @@ void Storage::CollectGarbage() {
     std::unique_lock<utils::SpinLock> guard(engine_lock_);
     uint64_t mark_timestamp = timestamp_;
     // Take garbage_undo_buffers lock while holding the engine lock to make sure that entries are sorted by mark
-    // timestamp in the list. This is necessary when a transaction is aborting simultaneously with a GC run: boht of
+    // timestamp in the list. This is necessary when a transaction is aborting simultaneously with a GC run: both of
     // these operations acquire a mark timestamps and then modify the garbage deltas.
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       // Release engine lock because we don't have to hold it anymore and
