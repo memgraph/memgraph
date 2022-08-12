@@ -250,7 +250,7 @@ class Raft {
 
     size_t new_committed_log_size = indices[(indices.size() / 2)];
 
-    state_.committed_log_size = new_committed_log_size;
+    state_.committed_log_size = std::max(state_.committed_log_size, new_committed_log_size);
 
     // For each index between the old index and the new one (inclusive),
     // Apply that log's WriteOperation to our replicated_state_,
@@ -664,6 +664,7 @@ class Raft {
 
       state_.log.insert(state_.log.end(), req.entries.begin(), req.entries.end());
 
+      MG_ASSERT(req.leader_commit >= state_.committed_log_size);
       state_.committed_log_size = std::min(req.leader_commit, LastLogIndex());
 
       for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
