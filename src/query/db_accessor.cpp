@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "query/db_accessor.hpp"
+
 #include "query/graph.hpp"
 
 namespace memgraph::query {
@@ -21,7 +23,7 @@ SubgraphDbAccessor *SubgraphDbAccessor::MakeSubgraphDbAccessor(DbAccessor *db_ac
   return new SubgraphDbAccessor(db_accessor, graph);
 }
 
-storage::PropertyId SubgraphDbAccessor::SubgraphDBNameToProperty(const std::string_view name) {
+storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
   return db_accessor_->NameToProperty(name);
 }
 

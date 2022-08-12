@@ -47,10 +47,10 @@ Graph &Graph::operator=(Graph &&) = default;
 /** Returns the number of expansions (edges) in this path. */
 auto Graph::size() const { return edges_.size(); }
 
-auto &Graph::vertices() { return vertices_; }
-auto &Graph::edges() { return edges_; }
-const auto &Graph::vertices() const { return vertices_; }
-const auto &Graph::edges() const { return edges_; }
+utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() { return vertices_; }
+utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }
+const utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() const { return vertices_; }
+const utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() const { return edges_; }
 
 utils::MemoryResource *Graph::GetMemoryResource() const { return vertices_.get_allocator().GetMemoryResource(); }
 

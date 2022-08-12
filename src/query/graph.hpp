@@ -65,10 +65,10 @@ class Graph final {
   /** Returns the number of expansions (edges) in this path. */
   auto size() const;
 
-  auto &vertices();
-  auto &edges();
-  const auto &vertices() const;
-  const auto &edges() const;
+  utils::pmr::unordered_set<VertexAccessor> &vertices();
+  utils::pmr::unordered_set<EdgeAccessor> &edges();
+  const utils::pmr::unordered_set<VertexAccessor> &vertices() const;
+  const utils::pmr::unordered_set<EdgeAccessor> &edges() const;
 
   utils::MemoryResource *GetMemoryResource() const;
 
