@@ -673,12 +673,7 @@ struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
-    if (current_it != vertices.end()) {
-      current_v.emplace(*current_it, graph, memory);
-    }
-  }
+  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
 
   memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
 
