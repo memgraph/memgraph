@@ -13,6 +13,7 @@
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::query {
 

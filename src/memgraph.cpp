@@ -898,7 +898,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+      memgraph::query::AuthChecker auth_checker{};
+      if (user_ && !auth_checker.IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
