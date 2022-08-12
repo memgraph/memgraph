@@ -37,7 +37,6 @@ def test_simple(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS '{','.join(pulsar_topics)}' TRANSFORM {transformation}",
     )
     common.start_stream(cursor, "test")
-    time.sleep(5)
 
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(
@@ -66,8 +65,6 @@ def test_separate_consumers(pulsar_client, pulsar_topics, connection, transforma
     for stream_name in stream_names:
         common.start_stream(cursor, stream_name)
 
-    time.sleep(5)
-
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(topic, send_timeout_millis=60000)
         producer.send(common.SIMPLE_MSG)
@@ -89,7 +86,6 @@ def test_start_from_latest_messages(pulsar_client, pulsar_topics, connection):
         f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
 
     def assert_message_not_consumed(message):
         vertices_with_msg = common.execute_and_fetch_all(
@@ -154,7 +150,6 @@ def test_check_stream(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS {pulsar_topics[0]} TRANSFORM {transformation} BATCH_SIZE {BATCH_SIZE}",
     )
     common.start_stream(cursor, "test")
-    time.sleep(1)
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -308,7 +303,6 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     )
 
     common.start_stream(cursor, "test_stream")
-    time.sleep(1)
 
     producer = pulsar_client.create_producer(
         common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
@@ -317,7 +311,6 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
     assert common.timed_wait(lambda: not common.get_is_running(cursor, "test_stream"))
 
     common.start_stream(cursor, "test_stream")
-    time.sleep(1)
     producer.send(b"CREATE (n:VERTEX { id : 42 })")
     assert common.check_one_result_row(cursor, "MATCH (n:VERTEX { id : 42 }) RETURN n")
 
@@ -332,7 +325,6 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
         f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{LOCAL}'",
     )
     common.start_stream(cursor, "test")
-    time.sleep(5)
 
     for topic in pulsar_topics:
         producer = pulsar_client.create_producer(
@@ -342,6 +334,73 @@ def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
 
     for topic in pulsar_topics:
         check_vertex_exists_with_topic_and_payload(cursor, topic, common.SIMPLE_MSG)
+
+
+def test_start_stream_with_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def messages_sender(nof_messages):
+        for x in range(nof_messages):
+            producer.send(common.SIMPLE_MSG)
+
+    common.test_start_stream_with_batch_limit(connection, stream_creator, messages_sender)
+
+
+def test_start_stream_with_batch_limit_timeout(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_reaching_timeout(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 1
+
+    def stream_creator(stream_name, batch_size):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE {batch_size}"
+
+    common.test_start_stream_with_batch_limit_reaching_timeout(connection, stream_creator)
+
+
+def test_start_stream_with_batch_limit_while_check_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_start_stream_with_batch_limit_while_check_running(connection, stream_creator, message_sender)
+
+
+def test_check_while_stream_with_batch_limit_running(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    producer = pulsar_client.create_producer(
+        common.pulsar_default_namespace_topic(pulsar_topics[0]), send_timeout_millis=60000
+    )
+
+    def message_sender(message):
+        producer.send(message)
+
+    common.test_check_while_stream_with_batch_limit_running(connection, stream_creator, message_sender)
 
 
 def test_check_stream_same_number_of_queries_than_messages(pulsar_client, pulsar_topics, connection):
@@ -378,6 +437,24 @@ def test_check_stream_different_number_of_queries_than_messages(pulsar_client, p
         producer.send(msg)
 
     common.test_check_stream_different_number_of_queries_than_messages(connection, stream_creator, message_sender)
+
+
+def test_start_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_start_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
+def test_check_stream_with_batch_limit_with_invalid_batch_limit(pulsar_client, pulsar_topics, connection):
+    assert len(pulsar_topics) > 0
+
+    def stream_creator(stream_name):
+        return f"CREATE PULSAR STREAM {stream_name} TOPICS {pulsar_topics[0]} TRANSFORM pulsar_transform.simple BATCH_SIZE 1"
+
+    common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
 
 
 if __name__ == "__main__":

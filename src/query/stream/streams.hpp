@@ -115,6 +115,17 @@ class Streams final {
   /// @throws ConsumerRunningException if the consumer is already running
   void Start(const std::string &stream_name);
 
+  /// Start consuming from a stream.
+  ///
+  /// @param stream_name name of the stream that needs to be started
+  /// @param batch_limit number of batches we want to consume before stopping
+  /// @param timeout the maximum duration during which the command should run.
+  ///
+  /// @throws StreamsException if the stream doesn't exist
+  /// @throws ConsumerRunningException if the consumer is already running
+  void StartWithLimit(const std::string &stream_name, uint64_t batch_limit,
+                      std::optional<std::chrono::milliseconds> timeout) const;
+
   /// Stop consuming from a stream.
   ///
   /// @param stream_name name of the stream that needs to be stopped
@@ -142,6 +153,7 @@ class Streams final {
   ///
   /// @param stream_name name of the stream we want to test
   /// @param batch_limit number of batches we want to test before stopping
+  /// @param timeout the maximum duration during which the command should run.
   ///
   /// @returns A vector of vectors of TypedValue. Each subvector contains two elements, the query string and the
   /// nullable parameters map.
@@ -151,7 +163,7 @@ class Streams final {
   /// @throws ConsumerCheckFailedException if the transformation function throws any std::exception during processing
   TransformationResult Check(const std::string &stream_name,
                              std::optional<std::chrono::milliseconds> timeout = std::nullopt,
-                             std::optional<int64_t> batch_limit = std::nullopt) const;
+                             std::optional<uint64_t> batch_limit = std::nullopt) const;
 
  private:
   template <Stream TStream>
@@ -176,7 +188,7 @@ class Streams final {
   void Persist(StreamStatus<TStream> &&status) {
     const std::string stream_name = status.name;
     if (!storage_.Put(stream_name, nlohmann::json(std::move(status)).dump())) {
-      throw StreamsException{"Couldn't persist steam data for stream '{}'", stream_name};
+      throw StreamsException{"Couldn't persist stream data for stream '{}'", stream_name};
     }
   }
 

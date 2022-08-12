@@ -17,6 +17,7 @@
 #include <variant>
 
 #include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -28,6 +29,8 @@
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
+#include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_persistence_helper.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/file.hpp"
@@ -43,6 +46,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_server.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -50,6 +54,19 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
+  switch (error) {
+    case Storage::RegisterReplicaError::NAME_EXISTS:
+      return "NAME_EXISTS";
+    case Storage::RegisterReplicaError::END_POINT_EXISTS:
+      return "END_POINT_EXISTS";
+    case Storage::RegisterReplicaError::CONNECTION_FAILED:
+      return "CONNECTION_FAILED";
+    case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      return "COULD_NOT_BE_PERSISTED";
+  }
+}
 }  // namespace
 
 auto AdvanceToVisibleVertex(utils::SkipList<Vertex>::Iterator it, utils::SkipList<Vertex>::Iterator end,
@@ -306,6 +323,13 @@ Storage::Storage(Config config)
       uuid_(utils::GenerateUUID()),
       epoch_id_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
+      replication_role_ == ReplicationRole::MAIN) {
+    spdlog::warn(
+        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
+        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
+        "without write-ahead logs this instance is not replicating any data.");
+  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -392,6 +416,16 @@ Storage::Storage(Config config)
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
+  }
+
+  if (config_.durability.restore_replicas_on_startup) {
+    spdlog::info("Replica's configuration will be stored and will be automatically restored in case of a crash.");
+    utils::EnsureDirOrDie(config_.durability.storage_directory / durability::kReplicationDirectory);
+    storage_ =
+        std::make_unique<kvstore::KVStore>(config_.durability.storage_directory / durability::kReplicationDirectory);
+    RestoreReplicas();
+  } else {
+    spdlog::warn("Replicas' configuration will NOT be stored. When the server restarts, replicas will be forgotten.");
   }
 }
 
@@ -805,18 +839,20 @@ const std::string &Storage::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const
   return storage_->EdgeTypeToName(edge_type);
 }
 
-LabelId Storage::Accessor::NameToLabel(const std::string_view &name) { return storage_->NameToLabel(name); }
+LabelId Storage::Accessor::NameToLabel(const std::string_view name) { return storage_->NameToLabel(name); }
 
-PropertyId Storage::Accessor::NameToProperty(const std::string_view &name) { return storage_->NameToProperty(name); }
+PropertyId Storage::Accessor::NameToProperty(const std::string_view name) { return storage_->NameToProperty(name); }
 
-EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view &name) { return storage_->NameToEdgeType(name); }
+EdgeTypeId Storage::Accessor::NameToEdgeType(const std::string_view name) { return storage_->NameToEdgeType(name); }
 
 void Storage::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
+utils::BasicResult<StorageDataManipulationError, void> Storage::Accessor::Commit(
     const std::optional<uint64_t> desired_commit_timestamp) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto could_replicate_all_sync_replicas = true;
 
   if (transaction_.deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
@@ -836,7 +872,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
       auto validation_result = ValidateExistenceConstraints(*prev.vertex, storage_->constraints_);
       if (validation_result) {
         Abort();
-        return *validation_result;
+        return StorageDataManipulationError{*validation_result};
       }
     }
 
@@ -893,7 +929,7 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
         if (storage_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-          storage_->AppendToWal(transaction_, *commit_timestamp_);
+          could_replicate_all_sync_replicas = storage_->AppendToWalDataManipulation(transaction_, *commit_timestamp_);
         }
 
         // Take committed_transactions lock while holding the engine lock to
@@ -921,10 +957,14 @@ utils::BasicResult<ConstraintViolation, void> Storage::Accessor::Commit(
 
     if (unique_constraint_violation) {
       Abort();
-      return *unique_constraint_violation;
+      return StorageDataManipulationError{*unique_constraint_violation};
     }
   }
   is_transaction_active_ = false;
+
+  if (!could_replicate_all_sync_replicas) {
+    return StorageDataManipulationError{ReplicationError{}};
+  }
 
   return {};
 }
@@ -1114,56 +1154,92 @@ const std::string &Storage::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-LabelId Storage::NameToLabel(const std::string_view &name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+LabelId Storage::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
 
-PropertyId Storage::NameToProperty(const std::string_view &name) {
+PropertyId Storage::NameToProperty(const std::string_view name) {
   return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-EdgeTypeId Storage::NameToEdgeType(const std::string_view &name) {
+EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
   return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
+  if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  const auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::CreateIndex(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+    LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.DropIndex(label)) return false;
+  if (!indices_.label_index.DropIndex(label)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
+  auto success =
+      AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageIndexDefinitionError, void> Storage::DropIndex(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.DropIndex(label, property)) return false;
+  if (!indices_.label_property_index.DropIndex(label, property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageIndexDefinitionError{ReplicationError{}};
 }
 
 IndicesInfo Storage::ListAllIndices() const {
@@ -1171,55 +1247,92 @@ IndicesInfo Storage::ListAllIndices() const {
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = storage::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
+  if (ret.HasError()) {
+    return StorageExistenceConstraintDefinitionError{ret.GetError()};
+  }
+  if (!ret.GetValue()) {
+    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
+  }
+
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return true;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDefinitionError{ReplicationError{}};
 }
 
-bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
-                                      const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> Storage::DropExistenceConstraint(
+    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!storage::DropExistenceConstraint(&constraints_, label, property)) return false;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
-  return true;
-}
-
-utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
-  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret;
+  if (!storage::DropExistenceConstraint(&constraints_, label, property)) {
+    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label,
+                                           {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::CreationStatus::SUCCESS;
+
+  if (success) {
+    return {};
+  }
+
+  return StorageExistenceConstraintDroppingError{ReplicationError{}};
 }
 
-UniqueConstraints::DeletionStatus Storage::DropUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
+utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
+Storage::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                const std::optional<uint64_t> desired_commit_timestamp) {
+  std::unique_lock<utils::RWLock> storage_guard(main_lock_);
+  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
+  if (ret.HasError()) {
+    return StorageUniqueConstraintDefinitionError{ret.GetError()};
+  }
+  if (ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+    return ret.GetValue();
+  }
+  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label,
+                                           properties, commit_timestamp);
+  commit_log_->MarkFinished(commit_timestamp);
+  last_commit_timestamp_ = commit_timestamp;
+
+  if (success) {
+    return UniqueConstraints::CreationStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDefinitionError{ReplicationError{}};
+}
+
+utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus>
+Storage::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                              const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
+  auto success = AppendToWalDataDefinition(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label,
+                                           properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
   last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::DeletionStatus::SUCCESS;
+
+  if (success) {
+    return UniqueConstraints::DeletionStatus::SUCCESS;
+  }
+
+  return StorageUniqueConstraintDroppingError{ReplicationError{}};
 }
 
 ConstraintsInfo Storage::ListAllConstraints() const {
@@ -1572,8 +1685,10 @@ void Storage::FinalizeWalFile() {
   }
 }
 
-void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
+bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) {
+    return true;
+  }
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
@@ -1742,17 +1857,28 @@ void Storage::AppendToWal(const Transaction &transaction, uint64_t final_commit_
 
   FinalizeWalFile();
 
+  auto finalized_on_all_replicas = true;
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &client : clients) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-      client->FinalizeTransactionReplication();
+      const auto finalized = client->FinalizeTransactionReplication();
+
+      if (client->Mode() == replication::ReplicationMode::SYNC) {
+        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+      }
     }
   });
+
+  return finalized_on_all_replicas;
 }
 
-void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
-                          const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
+bool Storage::AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                        const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
+  if (!InitializeWalFile()) {
+    return true;
+  }
+
+  auto finalized_on_all_replicas = true;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
   {
     if (replication_role_.load() == ReplicationRole::MAIN) {
@@ -1761,12 +1887,17 @@ void Storage::AppendToWal(durability::StorageGlobalOperation operation, LabelId 
           client->StartTransactionReplication(wal_file_->SequenceNumber());
           client->IfStreamingTransaction(
               [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-          client->FinalizeTransactionReplication();
+
+          const auto finalized = client->FinalizeTransactionReplication();
+          if (client->Mode() == replication::ReplicationMode::SYNC) {
+            finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+          }
         }
       });
     }
   }
   FinalizeWalFile();
+  return finalized_on_all_replicas;
 }
 
 utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
@@ -1875,31 +2006,61 @@ bool Storage::SetMainReplicationRole() {
 
 utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
     std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::ReplicationClientConfig &config) {
+    const replication::RegistrationMode registration_mode, const replication::ReplicationClientConfig &config) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can register a replica!");
 
   const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&](auto &client) { return client->Name() == name; });
+    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
   });
 
   if (name_exists) {
     return RegisterReplicaError::NAME_EXISTS;
   }
 
-  MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
-            "Only SYNC mode can have a timeout set");
+  const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
+    return std::any_of(clients.begin(), clients.end(),
+                       [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
+  });
+
+  if (end_point_exists) {
+    return RegisterReplicaError::END_POINT_EXISTS;
+  }
+
+  if (ShouldStoreAndRestoreReplicas()) {
+    auto data = replication::ReplicaStatusToJSON(
+        replication::ReplicaStatus{.name = name,
+                                   .ip_address = endpoint.address,
+                                   .port = endpoint.port,
+                                   .sync_mode = replication_mode,
+                                   .replica_check_frequency = config.replica_check_frequency,
+                                   .ssl = config.ssl});
+    if (!storage_->Put(name, data.dump())) {
+      spdlog::error("Error when saving replica {} in settings.", name);
+      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+    }
+  }
 
   auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
+
   if (client->State() == replication::ReplicaState::INVALID) {
-    return RegisterReplicaError::CONNECTION_FAILED;
+    if (replication::RegistrationMode::CAN_BE_INVALID != registration_mode) {
+      return RegisterReplicaError::CONNECTION_FAILED;
+    }
+
+    spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.", client->Name());
   }
 
   return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Storage::RegisterReplicaError> {
     // Another thread could have added a client with same name while
     // we were connecting to this client.
     if (std::any_of(clients.begin(), clients.end(),
-                    [&](auto &other_client) { return client->Name() == other_client->Name(); })) {
+                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
       return RegisterReplicaError::NAME_EXISTS;
+    }
+
+    if (std::any_of(clients.begin(), clients.end(),
+                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
+      return RegisterReplicaError::END_POINT_EXISTS;
     }
 
     clients.push_back(std::move(client));
@@ -1907,8 +2068,15 @@ utils::BasicResult<Storage::RegisterReplicaError> Storage::RegisterReplica(
   });
 }
 
-bool Storage::UnregisterReplica(const std::string_view name) {
+bool Storage::UnregisterReplica(const std::string &name) {
   MG_ASSERT(replication_role_.load() == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
+  if (ShouldStoreAndRestoreReplicas()) {
+    if (!storage_->Delete(name)) {
+      spdlog::error("Error when removing replica {} from settings.", name);
+      return false;
+    }
+  }
+
   return replication_clients_.WithLock([&](auto &clients) {
     return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
   });
@@ -1931,10 +2099,10 @@ std::vector<Storage::ReplicaInfo> Storage::ReplicasInfo() {
   return replication_clients_.WithLock([](auto &clients) {
     std::vector<Storage::ReplicaInfo> replica_info;
     replica_info.reserve(clients.size());
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
-                   [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(), client->Mode(), client->Timeout(), client->Endpoint(), client->State()};
-                   });
+    std::transform(
+        clients.begin(), clients.end(), std::back_inserter(replica_info), [](const auto &client) -> ReplicaInfo {
+          return {client->Name(), client->Mode(), client->Endpoint(), client->State(), client->GetTimestampInfo()};
+        });
     return replica_info;
   });
 }
@@ -1943,5 +2111,42 @@ void Storage::SetIsolationLevel(IsolationLevel isolation_level) {
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
 }
+
+void Storage::RestoreReplicas() {
+  MG_ASSERT(memgraph::storage::ReplicationRole::MAIN == GetReplicationRole());
+  if (!ShouldStoreAndRestoreReplicas()) {
+    return;
+  }
+  spdlog::info("Restoring replicas.");
+
+  for (const auto &[replica_name, replica_data] : *storage_) {
+    spdlog::info("Restoring replica {}.", replica_name);
+
+    const auto maybe_replica_status = replication::JSONToReplicaStatus(nlohmann::json::parse(replica_data));
+    if (!maybe_replica_status.has_value()) {
+      LOG_FATAL("Cannot parse previously saved configuration of replica {}.", replica_name);
+    }
+
+    auto replica_status = *maybe_replica_status;
+    MG_ASSERT(replica_status.name == replica_name, "Expected replica name is '{}', but got '{}'", replica_status.name,
+              replica_name);
+
+    auto ret =
+        RegisterReplica(std::move(replica_status.name), {std::move(replica_status.ip_address), replica_status.port},
+                        replica_status.sync_mode, replication::RegistrationMode::CAN_BE_INVALID,
+                        {
+                            .replica_check_frequency = replica_status.replica_check_frequency,
+                            .ssl = replica_status.ssl,
+                        });
+
+    if (ret.HasError()) {
+      MG_ASSERT(RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
+      LOG_FATAL("Failure when restoring replica {}: {}.", replica_name, RegisterReplicaErrorToString(ret.GetError()));
+    }
+    spdlog::info("Replica {} restored.", replica_name);
+  }
+}
+
+bool Storage::ShouldStoreAndRestoreReplicas() const { return nullptr != storage_; }
 
 }  // namespace memgraph::storage

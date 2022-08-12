@@ -16,4 +16,6 @@ namespace memgraph::storage::replication {
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
 enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
+
+enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, CAN_BE_INVALID };
 }  // namespace memgraph::storage::replication

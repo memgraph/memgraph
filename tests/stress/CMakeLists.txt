@@ -17,3 +17,6 @@ endfunction(add_stress_test)
 
 add_stress_test(long_running.cpp)
 target_link_libraries(${test_prefix}long_running mg-communication mg-io mg-utils)
+
+add_stress_test(parser.cpp)
+target_link_libraries(${test_prefix}parser mg-communication mg-io mg-utils mgclient)

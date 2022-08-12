@@ -20,6 +20,7 @@
 #include <functional>
 #include <limits>
 #include <optional>
+#include <variant>
 
 #include "glue/communication.hpp"
 #include "memory/memory_control.hpp"
@@ -44,6 +45,7 @@
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -73,6 +75,9 @@ extern const Event TriggersCreated;
 }  // namespace EventCounter
 
 namespace memgraph::query {
+
+template <typename>
+constexpr auto kAlwaysFalse = false;
 
 namespace {
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
@@ -160,7 +165,7 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
 
   /// @throw QueryRuntimeException if an error ocurred.
   void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
+                       const ReplicationQuery::SyncMode sync_mode,
                        const std::chrono::seconds replica_check_frequency) override {
     if (db_->GetReplicationRole() == storage::ReplicationRole::REPLICA) {
       // replica can't register another replica
@@ -183,9 +188,9 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
         io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::kDefaultReplicationPort);
     if (maybe_ip_and_port) {
       auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          name, {std::move(ip), port}, repl_mode,
-          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
+      auto ret = db_->RegisterReplica(name, {std::move(ip), port}, repl_mode,
+                                      storage::replication::RegistrationMode::MUST_BE_INSTANTLY_VALID,
+                                      {.replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
       if (ret.HasError()) {
         throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
       }
@@ -228,8 +233,24 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
           replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
           break;
       }
-      if (repl_info.timeout) {
-        replica.timeout = *repl_info.timeout;
+
+      replica.current_timestamp_of_replica = repl_info.timestamp_info.current_timestamp_of_replica;
+      replica.current_number_of_timestamp_behind_master =
+          repl_info.timestamp_info.current_number_of_timestamp_behind_master;
+
+      switch (repl_info.state) {
+        case storage::replication::ReplicaState::READY:
+          replica.state = ReplicationQuery::ReplicaState::READY;
+          break;
+        case storage::replication::ReplicaState::REPLICATING:
+          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
+          break;
+        case storage::replication::ReplicaState::RECOVERY:
+          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
+          break;
+        case storage::replication::ReplicaState::INVALID:
+          replica.state = ReplicationQuery::ReplicaState::INVALID;
+          break;
       }
 
       return replica;
@@ -468,24 +489,18 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       const auto &name = repl_query->replica_name_;
       const auto &sync_mode = repl_query->sync_mode_;
       auto socket_address = repl_query->socket_address_->Accept(evaluator);
-      auto timeout = EvaluateOptionalExpression(repl_query->timeout_, &evaluator);
       const auto replica_check_frequency = interpreter_context->config.replication_replica_check_frequency;
-      std::optional<double> maybe_timeout;
-      if (timeout.IsDouble()) {
-        maybe_timeout = timeout.ValueDouble();
-      } else if (timeout.IsInt()) {
-        maybe_timeout = static_cast<double>(timeout.ValueInt());
-      }
+
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name, socket_address, sync_mode,
-                     maybe_timeout, replica_check_frequency]() mutable {
-        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, maybe_timeout,
-                                replica_check_frequency);
+                     replica_check_frequency]() mutable {
+        handler.RegisterReplica(name, std::string(socket_address.ValueString()), sync_mode, replica_check_frequency);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICA,
                                   fmt::format("Replica {} is registered.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::DROP_REPLICA: {
       const auto &name = repl_query->replica_name_;
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, name]() mutable {
@@ -496,8 +511,11 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->replica_name_));
       return callback;
     }
+
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-      callback.header = {"name", "socket_address", "sync_mode", "timeout"};
+      callback.header = {
+          "name", "socket_address", "sync_mode", "current_timestamp_of_replica", "number_of_timestamp_behind_master",
+          "state"};
       callback.fn = [handler = ReplQueryHandler{interpreter_context->db}, replica_nfields = callback.header.size()] {
         const auto &replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
@@ -508,6 +526,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
           typed_replica.emplace_back(TypedValue(replica.name));
           typed_replica.emplace_back(TypedValue(replica.socket_address));
+
           switch (replica.sync_mode) {
             case ReplicationQuery::SyncMode::SYNC:
               typed_replica.emplace_back(TypedValue("sync"));
@@ -516,10 +535,24 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
               typed_replica.emplace_back(TypedValue("async"));
               break;
           }
-          if (replica.timeout) {
-            typed_replica.emplace_back(TypedValue(*replica.timeout));
-          } else {
-            typed_replica.emplace_back(TypedValue());
+
+          typed_replica.emplace_back(TypedValue(static_cast<int64_t>(replica.current_timestamp_of_replica)));
+          typed_replica.emplace_back(
+              TypedValue(static_cast<int64_t>(replica.current_number_of_timestamp_behind_master)));
+
+          switch (replica.state) {
+            case ReplicationQuery::ReplicaState::READY:
+              typed_replica.emplace_back(TypedValue("ready"));
+              break;
+            case ReplicationQuery::ReplicaState::REPLICATING:
+              typed_replica.emplace_back(TypedValue("replicating"));
+              break;
+            case ReplicationQuery::ReplicaState::RECOVERY:
+              typed_replica.emplace_back(TypedValue("recovery"));
+              break;
+            case ReplicationQuery::ReplicaState::INVALID:
+              typed_replica.emplace_back(TypedValue("invalid"));
+              break;
           }
 
           typed_replicas.emplace_back(std::move(typed_replica));
@@ -655,12 +688,26 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
     case StreamQuery::Action::START_STREAM: {
-      callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
-        interpreter_context->streams.Start(stream_name);
-        return std::vector<std::vector<TypedValue>>{};
-      };
-      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
-                                  fmt::format("Started stream {}.", stream_query->stream_name_));
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      const auto timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator);
+
+      if (batch_limit.has_value()) {
+        if (batch_limit.value() < 0) {
+          throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+        }
+
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_, batch_limit, timeout]() {
+          interpreter_context->streams.StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+      } else {
+        callback.fn = [interpreter_context, stream_name = stream_query->stream_name_]() {
+          interpreter_context->streams.Start(stream_name);
+          return std::vector<std::vector<TypedValue>>{};
+        };
+        notifications->emplace_back(SeverityLevel::INFO, NotificationCode::START_STREAM,
+                                    fmt::format("Started stream {}.", stream_query->stream_name_));
+      }
       return callback;
     }
     case StreamQuery::Action::START_ALL_STREAMS: {
@@ -730,9 +777,15 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
     }
     case StreamQuery::Action::CHECK_STREAM: {
       callback.header = {"queries", "raw messages"};
+
+      const auto batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator);
+      if (batch_limit.has_value() && batch_limit.value() < 0) {
+        throw utils::BasicException("Parameter BATCH_LIMIT cannot hold negative value");
+      }
+
       callback.fn = [interpreter_context, stream_name = stream_query->stream_name_,
                      timeout = GetOptionalValue<std::chrono::milliseconds>(stream_query->timeout_, evaluator),
-                     batch_limit = GetOptionalValue<int64_t>(stream_query->batch_limit_, evaluator)]() mutable {
+                     batch_limit]() mutable {
         return interpreter_context->streams.Check(stream_name, timeout, batch_limit);
       };
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::CHECK_STREAM,
@@ -740,6 +793,37 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
   }
+}
+
+Callback HandleConfigQuery() {
+  Callback callback;
+  callback.header = {"name", "default_value", "current_value", "description"};
+
+  callback.fn = [] {
+    std::vector<GFLAGS_NAMESPACE::CommandLineFlagInfo> flags;
+    GetAllFlags(&flags);
+
+    std::vector<std::vector<TypedValue>> results;
+
+    for (const auto &flag : flags) {
+      if (flag.hidden ||
+          // These flags are not defined with gflags macros but are specified in config/flags.yaml
+          flag.name == "help" || flag.name == "help_xml" || flag.name == "version") {
+        continue;
+      }
+
+      std::vector<TypedValue> current_fields;
+      current_fields.emplace_back(flag.name);
+      current_fields.emplace_back(flag.default_value);
+      current_fields.emplace_back(flag.current_value);
+      current_fields.emplace_back(flag.description);
+
+      results.emplace_back(std::move(current_fields));
+    }
+
+    return results;
+  };
+  return callback;
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
@@ -1132,7 +1216,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -1199,7 +1283,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   // full query string) when given just the inner query to execute.
   ParsedQuery parsed_inner_query =
       ParseQuery(parsed_query.query_string.substr(kProfileQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, &interpreter_context->antlr_lock, interpreter_context->config.query);
+                 &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
@@ -1303,23 +1387,34 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (properties.empty()) {
-          if (!interpreter_context->db->CreateIndex(label)) {
-            index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          }
-          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error = properties.empty() ? interpreter_context->db->CreateIndex(label)
+                                                    : interpreter_context->db->CreateIndex(label, properties[0]);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          const auto &error = maybe_index_error.GetError();
+          std::visit(
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
+                using ErrorType = std::remove_cvref_t<T>;
+                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                  EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
+                  throw ReplicationException(
+                      fmt::format("At least one SYNC replica has not confirmed the creation of the index on label {} "
+                                  "on properties {}.",
+                                  label_name, properties_stringified));
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
+                  index_notification.code = NotificationCode::EXISTENT_INDEX;
+                  index_notification.title = fmt::format("Index on label {} on properties {} already exists.",
+                                                         label_name, properties_stringified);
+                } else {
+                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                }
+              },
+              error);
         } else {
-          MG_ASSERT(properties.size() == 1U);
-          if (!interpreter_context->db->CreateIndex(label, properties[0])) {
-            index_notification.code = NotificationCode::EXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} already exists.", label_name, properties_stringified);
-          }
-          EventCounter::IncrementCounter(EventCounter::LabelPropertyIndexCreated);
+          EventCounter::IncrementCounter(EventCounter::LabelIndexCreated);
         }
-        invalidate_plan_cache();
       };
       break;
     }
@@ -1330,21 +1425,31 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [interpreter_context, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (properties.empty()) {
-          if (!interpreter_context->db->DropIndex(label)) {
-            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-          }
-        } else {
-          MG_ASSERT(properties.size() == 1U);
-          if (!interpreter_context->db->DropIndex(label, properties[0])) {
-            index_notification.code = NotificationCode::NONEXISTANT_INDEX;
-            index_notification.title =
-                fmt::format("Index on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-          }
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error = properties.empty() ? interpreter_context->db->DropIndex(label)
+                                                    : interpreter_context->db->DropIndex(label, properties[0]);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          const auto &error = maybe_index_error.GetError();
+          std::visit(
+              [&index_notification, &label_name, &properties_stringified]<typename T>(T &&) {
+                using ErrorType = std::remove_cvref_t<T>;
+                if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                  throw ReplicationException(
+                      fmt::format("At least one SYNC replica has not confirmed the dropping of the index on label {} "
+                                  "on properties {}.",
+                                  label_name, properties_stringified));
+                } else if constexpr (std::is_same_v<ErrorType, storage::IndexDefinitionError>) {
+                  index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+                  index_notification.title = fmt::format("Index on label {} on properties {} doesn't exist.",
+                                                         label_name, properties_stringified);
+                } else {
+                  static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                }
+              },
+              error);
         }
-        invalidate_plan_cache();
       };
       break;
     }
@@ -1472,6 +1577,28 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
       RWType::NONE};
 }
 
+PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
+  if (in_explicit_transaction) {
+    throw ShowConfigModificationInMulticommandTxException();
+  }
+
+  auto callback = HandleConfigQuery();
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) [[unlikely]] {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   switch (event_type) {
     case TriggerQuery::EventType::ANY:
@@ -1517,8 +1644,7 @@ Callback CreateTrigger(TriggerQuery *trigger_query,
         interpreter_context->trigger_store.AddTrigger(
             std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
             before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT, &interpreter_context->ast_cache,
-            dba, &interpreter_context->antlr_lock, interpreter_context->config.query, std::move(owner),
-            interpreter_context->auth_checker);
+            dba, interpreter_context->config.query, std::move(owner), interpreter_context->auth_checker);
         return {};
       }};
 }
@@ -1872,21 +1998,37 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              MG_ASSERT(violation.properties.size() == 1U);
-              auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
-              throw QueryRuntimeException(
-                  "Unable to create existence constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_name);
-            }
-            if (res.HasValue() && !res.GetValue()) {
-              constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} already exists.", label_name, properties_stringified);
+            auto maybe_constraint_error = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
+
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&interpreter_context, &label_name, &properties_stringified,
+                   &constraint_notification]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      MG_ASSERT(violation.properties.size() == 1U);
+                      auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
+                      throw QueryRuntimeException(
+                          "Unable to create existence constraint :{}({}), because an "
+                          "existing node violates it.",
+                          label_name, property_name);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint EXISTS on label {} on properties {} already exists.", label_name,
+                                      properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException(
+                          "At least one SYNC replica has not confirmed the creation of the EXISTS constraint on label "
+                          "{} on properties {}.",
+                          label_name, properties_stringified);
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
           };
           break;
@@ -1904,21 +2046,35 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              std::stringstream property_names_stream;
-              utils::PrintIterable(property_names_stream, violation.properties, ", ",
-                                   [&interpreter_context](auto &stream, const auto &prop) {
-                                     stream << interpreter_context->db->PropertyToName(prop);
-                                   });
-              throw QueryRuntimeException(
-                  "Unable to create unique constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_names_stream.str());
+            auto maybe_constraint_error = interpreter_context->db->CreateUniqueConstraint(label, property_set);
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&interpreter_context, &label_name, &properties_stringified]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      auto violation_label_name = interpreter_context->db->LabelToName(violation.label);
+                      std::stringstream property_names_stream;
+                      utils::PrintIterable(property_names_stream, violation.properties, ", ",
+                                           [&interpreter_context](auto &stream, const auto &prop) {
+                                             stream << interpreter_context->db->PropertyToName(prop);
+                                           });
+                      throw QueryRuntimeException(
+                          "Unable to create unique constraint :{}({}), because an "
+                          "existing node violates it.",
+                          violation_label_name, property_names_stream.str());
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException(fmt::format(
+                          "At least one SYNC replica has not confirmed the creation of the UNIQUE constraint: {}({}).",
+                          label_name, properties_stringified));
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
-            switch (res.GetValue()) {
+            switch (maybe_constraint_error.GetValue()) {
               case storage::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
                     "At least one property must be used for unique "
@@ -1929,7 +2085,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     "for unique constraints is exceeded.",
                     storage::kUniqueConstraintsMaxProperties);
               case storage::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
-                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
+                constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
                                 properties_stringified);
@@ -1957,10 +2113,27 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification &constraint_notification) {
-            if (!interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
-              constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
+            auto maybe_constraint_error = interpreter_context->db->DropExistenceConstraint(label, properties[0]);
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&label_name, &properties_stringified, &constraint_notification]<typename T>(T &&) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint EXISTS on label {} on properties {} doesn't exist.", label_name,
+                                      properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException(
+                          fmt::format("At least one SYNC replica has not confirmed the dropping of the EXISTS "
+                                      "constraint  on label {} on properties {}.",
+                                      label_name, properties_stringified));
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
             return std::vector<std::vector<TypedValue>>();
           };
@@ -1979,7 +2152,24 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
+            auto maybe_constraint_error = interpreter_context->db->DropUniqueConstraint(label, property_set);
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&label_name, &properties_stringified]<typename T>(T &&) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+                      throw ReplicationException(
+                          fmt::format("At least one SYNC replica has not confirmed the dropping of the UNIQUE "
+                                      "constraint on label {} on properties {}.",
+                                      label_name, properties_stringified));
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
+            }
+            const auto &res = maybe_constraint_error.GetValue();
             switch (res) {
               case storage::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
                 throw SyntaxException(
@@ -1993,7 +2183,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                     storage::kUniqueConstraintsMaxProperties);
                 break;
               case storage::UniqueConstraints::DeletionStatus::NOT_FOUND:
-                constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
+                constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
                 constraint_notification.title =
                     fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
                                 properties_stringified);
@@ -2074,8 +2264,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["cost_estimate"] = 0.0;
 
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query = ParseQuery(query_string, params, &interpreter_context_->ast_cache,
-                                          &interpreter_context_->antlr_lock, interpreter_context_->config.query);
+    ParsedQuery parsed_query =
+        ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
     // Some queries require an active transaction in order to be prepared.
@@ -2133,6 +2323,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                             &*execution_db_accessor_);
     } else if (utils::Downcast<FreeMemoryQuery>(parsed_query.query)) {
       prepared_query = PrepareFreeMemoryQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
+    } else if (utils::Downcast<ShowConfigQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowConfigQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
@@ -2209,28 +2401,41 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
-          break;
-        }
-      }
+    auto maybe_commit_error = db_accessor.Commit();
+    if (maybe_commit_error.HasError()) {
+      const auto &error = maybe_commit_error.GetError();
+
+      std::visit(
+          [&trigger, &db_accessor]<typename T>(T &&arg) {
+            using ErrorType = std::remove_cvref_t<T>;
+            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
+                           trigger.Name());
+            } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+              const auto &constraint_violation = arg;
+              switch (constraint_violation.type) {
+                case storage::ConstraintViolation::Type::EXISTENCE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
+                               trigger.Name(), label_name, property_name);
+                }
+                case storage::ConstraintViolation::Type::UNIQUE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  std::stringstream property_names_stream;
+                  utils::PrintIterable(
+                      property_names_stream, constraint_violation.properties, ", ",
+                      [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
+                  spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
+                               trigger.Name(), label_name, property_names_stream.str());
+                }
+              }
+            } else {
+              static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+            }
+          },
+          error);
     }
   }
 }
@@ -2271,32 +2476,45 @@ void Interpreter::Commit() {
     db_accessor_.reset();
     trigger_context_collector_.reset();
   };
+  utils::OnScopeExit members_reseter(reset_necessary_members);
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
-        break;
-      }
-    }
+  auto commit_confirmed_by_all_sync_repplicas = true;
+
+  auto maybe_commit_error = db_accessor_->Commit();
+  if (maybe_commit_error.HasError()) {
+    const auto &error = maybe_commit_error.GetError();
+
+    std::visit(
+        [&execution_db_accessor = execution_db_accessor_,
+         &commit_confirmed_by_all_sync_repplicas]<typename T>(T &&arg) {
+          using ErrorType = std::remove_cvref_t<T>;
+          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            commit_confirmed_by_all_sync_repplicas = false;
+          } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+            const auto &constraint_violation = arg;
+            auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
+            switch (constraint_violation.type) {
+              case storage::ConstraintViolation::Type::EXISTENCE: {
+                MG_ASSERT(constraint_violation.properties.size() == 1U);
+                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
+                                     property_name);
+              }
+              case storage::ConstraintViolation::Type::UNIQUE: {
+                std::stringstream property_names_stream;
+                utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                                     [&execution_db_accessor](auto &stream, const auto &prop) {
+                                       stream << execution_db_accessor->PropertyToName(prop);
+                                     });
+                throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
+                                     property_names_stream.str());
+              }
+            }
+          } else {
+            static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+          }
+        },
+        error);
   }
 
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
@@ -2315,9 +2533,10 @@ void Interpreter::Commit() {
         });
   }
 
-  reset_necessary_members();
-
   SPDLOG_DEBUG("Finished committing the transaction");
+  if (!commit_confirmed_by_all_sync_repplicas) {
+    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+  }
 }
 
 void Interpreter::AdvanceCommand() {

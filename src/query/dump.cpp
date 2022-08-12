@@ -46,7 +46,7 @@ const char *kInternalPropertyId = "__mg_id__";
 const char *kInternalVertexLabel = "__mg_vertex__";
 
 /// A helper function that escapes label, edge type and property names.
-std::string EscapeName(const std::string_view &value) {
+std::string EscapeName(const std::string_view value) {
   std::string out;
   out.reserve(value.size() + 2);
   out.append(1, '`');

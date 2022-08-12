@@ -45,7 +45,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
       MG_ASSERT(!dba.Commit().HasError());
     }
 
-    MG_ASSERT(db->CreateIndex(label));
+    MG_ASSERT(!db->CreateIndex(label).HasError());
 
     interpreter_context.emplace(&*db, memgraph::query::InterpreterConfig{}, data_directory);
     interpreter.emplace(&*interpreter_context);

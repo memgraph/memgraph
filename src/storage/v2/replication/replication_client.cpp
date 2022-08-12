@@ -43,11 +43,6 @@ Storage::ReplicationClient::ReplicationClient(std::string name, Storage *storage
   rpc_client_.emplace(endpoint, &*rpc_context_);
   TryInitializeClientSync();
 
-  if (config.timeout && replica_state_ != replication::ReplicaState::INVALID) {
-    timeout_.emplace(*config.timeout);
-    timeout_dispatcher_.emplace();
-  }
-
   // Help the user to get the most accurate replica state possible.
   if (config.replica_check_frequency > std::chrono::seconds(0)) {
     replica_checker_.Run("Replica Checker", config.replica_check_frequency, [&] { FrequentCheck(); });
@@ -227,58 +222,24 @@ void Storage::ReplicationClient::IfStreamingTransaction(const std::function<void
   }
 }
 
-void Storage::ReplicationClient::FinalizeTransactionReplication() {
+bool Storage::ReplicationClient::FinalizeTransactionReplication() {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
   if (replica_state_ != replication::ReplicaState::REPLICATING) {
-    return;
+    return false;
   }
 
   if (mode_ == replication::ReplicationMode::ASYNC) {
-    thread_pool_.AddTask([this] { this->FinalizeTransactionReplicationInternal(); });
-  } else if (timeout_) {
-    MG_ASSERT(mode_ == replication::ReplicationMode::SYNC, "Only SYNC replica can have a timeout.");
-    MG_ASSERT(timeout_dispatcher_, "Timeout thread is missing");
-    timeout_dispatcher_->WaitForTaskToFinish();
-
-    timeout_dispatcher_->active = true;
-    thread_pool_.AddTask([&, this] {
-      this->FinalizeTransactionReplicationInternal();
-      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      // TimerThread can finish waiting for timeout
-      timeout_dispatcher_->active = false;
-      // Notify the main thread
-      timeout_dispatcher_->main_cv.notify_one();
-    });
-
-    timeout_dispatcher_->StartTimeoutTask(*timeout_);
-
-    // Wait until one of the threads notifies us that they finished executing
-    // Both threads should first set the active flag to false
-    {
-      std::unique_lock main_guard(timeout_dispatcher_->main_lock);
-      timeout_dispatcher_->main_cv.wait(main_guard, [&] { return !timeout_dispatcher_->active.load(); });
-    }
-
-    // TODO (antonio2368): Document and/or polish SEMI-SYNC to ASYNC fallback.
-    if (replica_state_ == replication::ReplicaState::REPLICATING) {
-      mode_ = replication::ReplicationMode::ASYNC;
-      timeout_.reset();
-      // This can only happen if we timeouted so we are sure that
-      // Timeout task finished
-      // We need to delete timeout dispatcher AFTER the replication
-      // finished because it tries to acquire the timeout lock
-      // and acces the `active` variable`
-      thread_pool_.AddTask([this] { timeout_dispatcher_.reset(); });
-    }
+    thread_pool_.AddTask([this] { static_cast<void>(this->FinalizeTransactionReplicationInternal()); });
+    return true;
   } else {
-    FinalizeTransactionReplicationInternal();
+    return FinalizeTransactionReplicationInternal();
   }
 }
 
-void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
+bool Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
   MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
   try {
     auto response = replica_stream_->Finalize();
@@ -289,6 +250,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
       thread_pool_.AddTask([&, this] { this->RecoverReplica(response.current_commit_timestamp); });
     } else {
       replica_state_.store(replication::ReplicaState::READY);
+      return true;
     }
   } catch (const rpc::RpcFailedException &) {
     replica_stream_.reset();
@@ -298,6 +260,7 @@ void Storage::ReplicationClient::FinalizeTransactionReplicationInternal() {
     }
     HandleRpcFailure();
   }
+  return false;
 }
 
 void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
@@ -537,30 +500,34 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   return recovery_steps;
 }
 
-////// TimeoutDispatcher //////
-void Storage::ReplicationClient::TimeoutDispatcher::WaitForTaskToFinish() {
-  // Wait for the previous timeout task to finish
-  std::unique_lock main_guard(main_lock);
-  main_cv.wait(main_guard, [&] { return finished; });
-}
+Storage::TimestampInfo Storage::ReplicationClient::GetTimestampInfo() {
+  Storage::TimestampInfo info;
+  info.current_timestamp_of_replica = 0;
+  info.current_number_of_timestamp_behind_master = 0;
 
-void Storage::ReplicationClient::TimeoutDispatcher::StartTimeoutTask(const double timeout) {
-  timeout_pool.AddTask([timeout, this] {
-    finished = false;
-    using std::chrono::steady_clock;
-    const auto timeout_duration =
-        std::chrono::duration_cast<steady_clock::duration>(std::chrono::duration<double>(timeout));
-    const auto end_time = steady_clock::now() + timeout_duration;
-    while (active && (steady_clock::now() < end_time)) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  try {
+    auto stream{rpc_client_->Stream<replication::TimestampRpc>()};
+    const auto response = stream.AwaitResponse();
+    const auto is_success = response.success;
+    if (!is_success) {
+      replica_state_.store(replication::ReplicaState::INVALID);
+      HandleRpcFailure();
     }
+    auto main_time_stamp = storage_->last_commit_timestamp_.load();
+    info.current_timestamp_of_replica = response.current_commit_timestamp;
+    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+  } catch (const rpc::RpcFailedException &) {
+    {
+      std::unique_lock client_guard(client_lock_);
+      replica_state_.store(replication::ReplicaState::INVALID);
+    }
+    HandleRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably won't
+                         // block
+  }
 
-    std::unique_lock main_guard(main_lock);
-    finished = true;
-    active = false;
-    main_cv.notify_one();
-  });
+  return info;
 }
+
 ////// ReplicaStream //////
 Storage::ReplicationClient::ReplicaStream::ReplicaStream(ReplicationClient *self,
                                                          const uint64_t previous_commit_timestamp,

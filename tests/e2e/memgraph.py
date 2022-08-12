@@ -76,11 +76,8 @@ class MemgraphInstanceRunner:
         self.stop()
         self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
-        self.data_directory = tempfile.TemporaryDirectory()
         args_mg = [
             self.binary_path,
-            "--data-directory",
-            self.data_directory.name,
             "--storage-wal-enabled",
             "--storage-snapshot-interval-sec",
             "300",
@@ -112,4 +109,4 @@ class MemgraphInstanceRunner:
             return
         self.proc_mg.kill()
         code = self.proc_mg.wait()
-        assert code == 9, "The killed Memgraph process exited with non-nine!"
+        assert code == -9, "The killed Memgraph process exited with non-nine!"

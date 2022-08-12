@@ -2376,10 +2376,7 @@ cpp<#
    (port "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (sync_mode "SyncMode" :scope :public)
-   (timeout "Expression *" :initval "nullptr" :scope :public
-             :slk-save #'slk-save-ast-pointer
-             :slk-load (slk-load-ast-pointer "Expression")))
+   (sync_mode "SyncMode" :scope :public))
 
   (:public
     (lcp:define-enum action
@@ -2391,6 +2388,9 @@ cpp<#
       (:serialize))
     (lcp:define-enum sync-mode
         (sync async)
+      (:serialize))
+    (lcp:define-enum replica-state
+        (ready replicating recovery invalid)
       (:serialize))
     #>cpp
     ReplicationQuery() = default;
@@ -2662,6 +2662,14 @@ cpp<#
   (:private
     #>cpp
     friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+  (lcp:define-class show-config-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
   (:serialize (:slk))
   (:clone))
