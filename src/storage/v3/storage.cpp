@@ -732,10 +732,8 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::SpinLock> guard;
   if (config_.properties_on_edges) {
     auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock<utils::SpinLock>(edge_ptr->lock);
 
     if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
 
@@ -1015,7 +1013,6 @@ void Storage::Accessor::Abort() {
       }
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
-        std::lock_guard<utils::SpinLock> guard(edge->lock);
         Delta *current = edge->delta;
         while (current != nullptr &&
                current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
@@ -1363,7 +1360,6 @@ void Storage::CollectGarbage() {
           }
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
-            std::lock_guard<utils::SpinLock> edge_guard(edge->lock);
             if (edge->delta != &delta) {
               // Something changed, we're not the first delta in the chain
               // anymore.

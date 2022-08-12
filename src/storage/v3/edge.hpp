@@ -33,7 +33,6 @@ struct Edge {
 
   PropertyStore properties;
 
-  mutable utils::SpinLock lock;
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;

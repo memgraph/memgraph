@@ -542,7 +542,6 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   // actions.
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
-  std::lock_guard<utils::SpinLock> guard(edge.lock);
   switch (delta.action) {
     case Delta::Action::SET_PROPERTY: {
       encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);

@@ -682,13 +682,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     for (auto &edge : acc) {
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
-      bool is_visible = true;
-      Delta *delta = nullptr;
-      {
-        std::lock_guard<utils::SpinLock> guard(edge.lock);
-        is_visible = !edge.deleted;
-        delta = edge.delta;
-      }
+      auto is_visible = !edge.deleted;
+      auto *delta = edge.delta;
       ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:

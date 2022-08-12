@@ -22,14 +22,10 @@
 namespace memgraph::storage::v3 {
 
 bool EdgeAccessor::IsVisible(const View view) const {
-  bool deleted = true;
-  bool exists = true;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-    deleted = edge_.ptr->deleted;
-    delta = edge_.ptr->delta;
-  }
+  auto deleted = edge_.ptr->deleted;
+  auto exists = true;
+  auto *delta = edge_.ptr->delta;
+
   ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
@@ -66,8 +62,6 @@ Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const Prope
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
@@ -88,8 +82,6 @@ Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const Prope
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!config_.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
-  std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
@@ -106,16 +98,11 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
   if (!config_.properties_on_edges) return PropertyValue();
-  bool exists = true;
-  bool deleted = false;
-  PropertyValue value;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-    deleted = edge_.ptr->deleted;
-    value = edge_.ptr->properties.GetProperty(property);
-    delta = edge_.ptr->delta;
-  }
+  auto exists = true;
+  auto deleted = edge_.ptr->deleted;
+  auto value = edge_.ptr->properties.GetProperty(property);
+  auto *delta = edge_.ptr->delta;
+
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
@@ -148,16 +135,11 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
   if (!config_.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
-  bool exists = true;
-  bool deleted = false;
-  std::map<PropertyId, PropertyValue> properties;
-  Delta *delta = nullptr;
-  {
-    std::lock_guard<utils::SpinLock> guard(edge_.ptr->lock);
-    deleted = edge_.ptr->deleted;
-    properties = edge_.ptr->properties.Properties();
-    delta = edge_.ptr->delta;
-  }
+  auto exists = true;
+  auto deleted = edge_.ptr->deleted;
+  auto properties = edge_.ptr->properties.Properties();
+  auto *delta = edge_.ptr->delta;
+
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
