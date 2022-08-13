@@ -166,14 +166,14 @@ TEST(QueryStripper, TrueLiteral) {
   StrippedQuery stripped("RETURN trUE");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_PROP_EQ(stripped.literals().At(0).second, TypedValue(true));
-  EXPECT_EQ(stripped.query(), "RETURN " + kStrippedBooleanToken);
+  EXPECT_EQ(stripped.query(), "RETURN " + kStrippedBooleanTrueToken);
 }
 
 TEST(QueryStripper, FalseLiteral) {
   StrippedQuery stripped("RETURN fAlse");
   EXPECT_EQ(stripped.literals().size(), 1);
   EXPECT_PROP_EQ(stripped.literals().At(0).second, TypedValue(false));
-  EXPECT_EQ(stripped.query(), "RETURN " + kStrippedBooleanToken);
+  EXPECT_EQ(stripped.query(), "RETURN " + kStrippedBooleanFalseToken);
 }
 
 TEST(QueryStripper, NullLiteral) {

@@ -24,7 +24,8 @@ namespace memgraph::query::frontend {
 const std::string kStrippedIntToken = "0";
 const std::string kStrippedDoubleToken = "0.0";
 const std::string kStrippedStringToken = "\"a\"";
-const std::string kStrippedBooleanToken = "true";
+const std::string kStrippedBooleanTrueToken = "true";
+const std::string kStrippedBooleanFalseToken = "false";
 
 /**
  * StrippedQuery contains:

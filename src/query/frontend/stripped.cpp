@@ -124,9 +124,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
         // We don't strip NULL, since it can appear in special expressions
         // like IS NULL and IS NOT NULL, but we strip true and false keywords.
         if (utils::IEquals(token.second, "true")) {
-          replace_stripped(token_index, true, kStrippedBooleanToken);
+          replace_stripped(token_index, true, kStrippedBooleanTrueToken);
         } else if (utils::IEquals(token.second, "false")) {
-          replace_stripped(token_index, false, kStrippedBooleanToken);
+          replace_stripped(token_index, false, kStrippedBooleanFalseToken);
         } else {
           token_strings.push_back(token.second);
         }
