@@ -1,4 +1,4 @@
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2021 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,23 +9,16 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
-import pytest
+import mgclient
+import typing
 
 
-def test_1(connection_with_username):
-    assert True
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()
 
 
-# def test_2(connection):
-#     connection.cursor()
-#     assert False
-
-
-# def test_3(connection):
-#     connection.cursor()
-#     assert False
-
-
-if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+def connect(**kwargs) -> mgclient.Connection:
+    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
+    connection.autocommit = True
+    return connection

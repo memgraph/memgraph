@@ -206,22 +206,18 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const LabelPermission label_permission) {
-  if (denies_.size() == 1 && denies_.find(kAsterisk) != denies_.end()) {
-    return PermissionLevel::DENY;
-  }
-
-  if ((grants_.size() == 1 && grants_.find(kAsterisk) != grants_.end())) {
-    return PermissionLevel::GRANT;
-  }
-
   auto grants_permission = PermissionLevel::DENY;
   auto denies_permission = PermissionLevel::GRANT;
 
-  if (denies_.find(permission) != denies_.end() && (denies_[permission] & label_permission)) {
+  const auto &deny_it = DeniesFind(permission);
+
+  if (deny_it != denies_.end() && (deny_it->second & label_permission)) {
     denies_permission = PermissionLevel::DENY;
   }
 
-  if (grants_.find(permission) != grants_.end() && (grants_[permission] & label_permission)) {
+  const auto &grant_it = GrantsFind(permission);
+
+  if (grant_it != grants_.end() && (grant_it->second & label_permission)) {
     grants_permission = PermissionLevel::GRANT;
   }
 
@@ -231,21 +227,17 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
   if (permission == kAsterisk) {
     grants_.clear();
+  } else if (grants_.size() == 1 && grants_.contains(ASTERISK)) {
+    grants_.erase(ASTERISK);
+
+    auto denied_permission_iter = denies_.find(permission);
+
+    if (denied_permission_iter != denies_.end()) {
+      denies_.erase(denied_permission_iter);
+    }
   }
 
-  auto deniedPermissionIter = denies_.find(permission);
-
-  if (deniedPermissionIter != denies_.end()) {
-    denies_.erase(deniedPermissionIter);
-  }
-
-  if (grants_.size() == 1 && grants_.find(kAsterisk) != grants_.end()) {
-    grants_.erase(kAsterisk);
-  }
-
-  if (grants_.find(permission) == grants_.end()) {
-    grant_(permission, label_permission);
-  }
+  DoGrant(permission, label_permission);
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
@@ -256,36 +248,32 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
     return;
   }
 
-  auto deniedPermissionIter = denies_.find(permission);
-  auto grantedPermissionIter = grants_.find(permission);
+  auto denied_permission_iter = denies_.find(permission);
+  auto granted_permission_iter = grants_.find(permission);
 
-  if (deniedPermissionIter != denies_.end()) {
-    denies_.erase(deniedPermissionIter);
+  if (denied_permission_iter != denies_.end()) {
+    denies_.erase(denied_permission_iter);
   }
 
-  if (grantedPermissionIter != grants_.end()) {
-    grants_.erase(grantedPermissionIter);
+  if (granted_permission_iter != grants_.end()) {
+    grants_.erase(granted_permission_iter);
   }
 }
 
 void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
   if (permission == kAsterisk) {
     denies_.clear();
+  } else if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
+    denies_.erase(ASTERISK);
+
+    auto granted_permission_iter = grants_.find(permission);
+
+    if (granted_permission_iter != grants_.end()) {
+      grants_.erase(granted_permission_iter);
+    }
   }
 
-  auto grantedPermissionIter = grants_.find(permission);
-
-  if (grantedPermissionIter != grants_.end()) {
-    grants_.erase(grantedPermissionIter);
-  }
-
-  if (denies_.size() == 1 && denies_.find(kAsterisk) != denies_.end()) {
-    denies_.erase(kAsterisk);
-  }
-
-  if (denies_.find(permission) == denies_.end()) {
-    deny_(permission, label_permission);
-  }
+  DoDeny(permission, label_permission);
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
@@ -306,9 +294,9 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::grants() const { return grants_; }
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::denies() const { return denies_; }
 
-void FineGrainedAccessPermissions::grant_(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift = 1;
-  uint64_t perm = 0;
+void FineGrainedAccessPermissions::DoGrant(const std::string &permission, LabelPermission label_permission) {
+  uint64_t shift{1};
+  uint64_t perm{0};
   auto u_label_perm = static_cast<uint64_t>(label_permission);
 
   while (u_label_perm != 0) {
@@ -319,9 +307,9 @@ void FineGrainedAccessPermissions::grant_(const std::string &permission, LabelPe
   grants_[permission] = perm;
 }
 
-void FineGrainedAccessPermissions::deny_(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift = 1;
-  uint64_t perm = 0;
+void FineGrainedAccessPermissions::DoDeny(const std::string &permission, LabelPermission label_permission) {
+  uint64_t shift{1};
+  uint64_t perm{0};
   auto u_label_perm = static_cast<uint64_t>(label_permission);
 
   while (u_label_perm <= kLabelPermissionMax) {
@@ -330,6 +318,24 @@ void FineGrainedAccessPermissions::deny_(const std::string &permission, LabelPer
   }
 
   denies_[permission] = perm;
+}
+
+std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::Find(const std::string &key,
+                                                                                             bool in_denies) const {
+  const auto &collection = in_denies ? denies_ : grants_;
+  const auto &it = collection.find("*");
+
+  return it != collection.end() ? it : collection.find(key);
+}
+
+std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::GrantsFind(
+    const std::string &key) const {
+  return Find(key, false);
+}
+
+std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::DeniesFind(
+    const std::string &key) const {
+  return Find(key, true);
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {

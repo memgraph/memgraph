@@ -32,7 +32,6 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
