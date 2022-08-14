@@ -6,8 +6,8 @@ template_cluster: &template_cluster
       log_file: "fine_grained_access.log"
       setup_queries:
         [
-          "CREATE USER admin IDENTIFIED BY 'admin';",
-          "CREATE USER user IDENTIFIED BY 'user';",
+          "CREATE USER admin IDENTIFIED BY 'test';",
+          "CREATE USER user IDENTIFIED BY 'test';",
           "MERGE (l1:label1 {name: 'test1'});",
           "MERGE (l2:label2  {name: 'test2'});",
           "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);",
@@ -20,6 +20,6 @@ template_cluster: &template_cluster
 
 workloads:
   - name: "Fine Grained Access"
-    binary: "tests/e2e/fine_grained_access/memgraph__e2e__fine_grained_access"
-    args: ["--bolt-port", *bolt_port]
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/edge_type_filtering_tests.py"]
     <<: *template_cluster
