@@ -702,7 +702,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
       if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_)))
+                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_)))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
@@ -717,7 +717,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_)))
+                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_)))
         continue;
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);

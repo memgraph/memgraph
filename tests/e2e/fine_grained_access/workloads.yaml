@@ -15,6 +15,8 @@ template_cluster: &template_cluster
           "MATCH (l1:label1),(l3:label3) WHERE l1.name = 'test1' AND l3.name = 'test3' CREATE (l1)-[r:edgeType2]->(l3);",
           "MERGE (mix:label3:label1  {name: 'test4'});",
           "MATCH (l1:label1),(mix:label3) WHERE l1.name = 'test1' AND mix.name = 'test4' CREATE (l1)-[r:edgeType2]->(mix);",
+          "GRANT LABELS * TO user;",
+          "GRANT EDGE_TYPES * TO user;",
         ]
       validation_queries: []
 
