@@ -227,8 +227,8 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
   if (permission == kAsterisk) {
     grants_.clear();
-  } else if (grants_.size() == 1 && grants_.contains(ASTERISK)) {
-    grants_.erase(ASTERISK);
+  } else if (grants_.size() == 1 && grants_.contains(kAsterisk)) {
+    grants_.erase(kAsterisk);
 
     auto denied_permission_iter = denies_.find(permission);
 
@@ -263,8 +263,8 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
 void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
   if (permission == kAsterisk) {
     denies_.clear();
-  } else if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
-    denies_.erase(ASTERISK);
+  } else if (denies_.size() == 1 && denies_.find(kAsterisk) != denies_.end()) {
+    denies_.erase(kAsterisk);
 
     auto granted_permission_iter = grants_.find(permission);
 
