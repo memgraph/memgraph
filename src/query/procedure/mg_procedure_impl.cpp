@@ -2214,7 +2214,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        auto maybe_vertex = std::visit(
+        std::optional<memgraph::query::VertexAccessor> maybe_vertex = std::visit(
             memgraph::utils::Overloaded{
                 [graph, id](auto *impl) {
                   return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
@@ -2222,8 +2222,16 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
             },
             graph->impl);
         if (maybe_vertex) {
-          // todo antoniofilipovic change this to set proper vertexAccessro
-          return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+          return std::visit(memgraph::utils::Overloaded{
+                                [memory, graph, maybe_vertex](memgraph::query::DbAccessor *impl) {
+                                  return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+                                },
+                                [memory, graph, maybe_vertex](memgraph::query::SubgraphDbAccessor *impl) {
+                                  return NewRawMgpObject<mgp_vertex>(
+                                      memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()),
+                                      graph);
+                                }},
+                            graph->impl);
         }
         return nullptr;
       },

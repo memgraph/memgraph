@@ -91,7 +91,11 @@ VerticesIterable SubgraphDbAccessor::Vertices(storage::View view) {
 
 std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, storage::View view) {
   // todo antoniofilipovic change to return SubgraphVertexAccessor && add check that vertex exists in subgraph
-  return db_accessor_->FindVertex(gid, view);
+  std::optional<VertexAccessor> maybe_vertex = db_accessor_->FindVertex(gid, view);
+  if (maybe_vertex && this->graph_->ContainsVertex(*maybe_vertex)) {
+    return *maybe_vertex;
+  }
+  return std::nullopt;
 }
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }

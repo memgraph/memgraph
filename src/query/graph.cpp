@@ -35,6 +35,13 @@ void Graph::InsertVertex(const VertexAccessor &vertex) { vertices_.insert(vertex
 
 void Graph::InsertEdge(const EdgeAccessor &edge) { edges_.insert(edge); }
 
+bool Graph::ContainsVertex(const VertexAccessor &vertex) {
+  if (std::find(begin(vertices_), end(vertices_), vertex) != std::end(vertices_)) {
+    return true;
+  }
+  return false;
+}
+
 std::vector<query::EdgeAccessor> Graph::OutEdges(query::VertexAccessor vertex_accessor) {
   std::vector<query::EdgeAccessor> out_edges;
   for (auto it = edges_.begin(); it != edges_.end(); ++it) {
