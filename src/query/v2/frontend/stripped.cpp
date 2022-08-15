@@ -22,15 +22,15 @@
 #include "parser/opencypher/generated/MemgraphCypher.h"
 #include "parser/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "parser/opencypher/generated/MemgraphCypherLexer.h"
+#include "parser/stripped_lexer_constants.hpp"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/frontend/stripped_lexer_constants.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::v2::frontend {
 
-using namespace lexer_constants;
+using namespace parser::lexer_constants;
 
 StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   enum class Token {
@@ -462,13 +462,13 @@ int StrippedQuery::MatchEscapedName(int start) const {
 int StrippedQuery::MatchUnescapedName(int start) const {
   auto i = start;
   auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-  if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedStarts[got.first]) {
+  if (got.first >= parser::lexer_constants::kBitsetSize || !kUnescapedNameAllowedStarts[got.first]) {
     return 0;
   }
   i += got.second;
   while (i < static_cast<int>(original_.size())) {
     got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-    if (got.first >= lexer_constants::kBitsetSize || !kUnescapedNameAllowedParts[got.first]) {
+    if (got.first >= parser::lexer_constants::kBitsetSize || !kUnescapedNameAllowedParts[got.first]) {
       break;
     }
     i += got.second;
@@ -487,7 +487,7 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   while (i < len) {
     if (state == State::OUT) {
       auto got = GetFirstUtf8SymbolCodepoint(original_.data() + i);
-      if (got.first < lexer_constants::kBitsetSize && kSpaceParts[got.first]) {
+      if (got.first < parser::lexer_constants::kBitsetSize && kSpaceParts[got.first]) {
         i += got.second;
       } else if (i + 1 < len && original_[i] == '/' && original_[i + 1] == '*') {
         comment_position = i;

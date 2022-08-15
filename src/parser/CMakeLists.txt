@@ -37,4 +37,5 @@ add_custom_target(generated_opencypher_parser
 
 add_library(mg-parser STATIC ${antlr_opencypher_generated_src})
 add_dependencies(mg-parser generated_opencypher_parser)
+target_include_directories(mg-parser PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mg-parser antlr4)

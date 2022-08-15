@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-/// @file
 #pragma once
 
 #define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)

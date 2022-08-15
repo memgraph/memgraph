@@ -210,9 +210,6 @@ inline std::string_view ToString(const PulsarConfigKey key) {
   }
 }
 }  // namespace detail
-}  // namespace MG_INJECTED_NAMESPACE_NAME
-
-namespace memgraph::expr {
 
 using antlropencypher::MemgraphCypher;
 
@@ -2621,7 +2618,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    *
    * @return string
    */
-  inline static antlrcpp::Any visitStringLiteral(const std::string &escaped) { return ParseStringLiteral(escaped); }
+  inline static antlrcpp::Any visitStringLiteral(const std::string &escaped) {
+    return expr::ParseStringLiteral(escaped);
+  }
 
   /**
    * @return bool
@@ -2657,14 +2656,14 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return int64_t
    */
   antlrcpp::Any visitIntegerLiteral(MemgraphCypher::IntegerLiteralContext *ctx) override {
-    return ParseIntegerLiteral(ctx->getText());
+    return expr::ParseIntegerLiteral(ctx->getText());
   }
 
   /**
    * @return double
    */
   antlrcpp::Any visitDoubleLiteral(MemgraphCypher::DoubleLiteralContext *ctx) override {
-    return ParseDoubleLiteral(ctx->getText());
+    return expr::ParseDoubleLiteral(ctx->getText());
   }
 
   /**
@@ -3033,4 +3032,4 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
   QueryInfo query_info_;
 };
-}  // namespace memgraph::expr
+}  // namespace MG_INJECTED_NAMESPACE_NAME

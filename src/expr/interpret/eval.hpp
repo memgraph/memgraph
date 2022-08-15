@@ -23,7 +23,6 @@
 #include "expr/exceptions.hpp"
 #include "expr/interpret/frame.hpp"
 #include "expr/semantic/symbol_table.hpp"
-#include "query/exceptions.hpp"
 #include "utils/exceptions.hpp"
 
 namespace memgraph::expr {

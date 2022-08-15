@@ -15,7 +15,9 @@
 #include <type_traits>
 
 #include "expr/ast.hpp"
+#include "expr/typed_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::expr {
@@ -38,43 +40,15 @@ inline void PrintObject(std::ostream *out, Expression *expr);
 
 inline void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
 
-// void PrintObject(std::ostream *out, const storage::v3::PropertyValue &value) {
-//   switch (value.type()) {
-//     case storage::v3::PropertyValue::Type::Null:
-//       *out << "null";
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::String:
-//       PrintObject(out, value.ValueString());
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::Bool:
-//       *out << (value.ValueBool() ? "true" : "false");
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::Int:
-//       PrintObject(out, value.ValueInt());
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::Double:
-//       PrintObject(out, value.ValueDouble());
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::List:
-//       PrintObject(out, value.ValueList());
-//       break;
-//
-//     case storage::v3::PropertyValue::Type::Map:
-//       PrintObject(out, value.ValueMap());
-//       break;
-//     case storage::v3::PropertyValue::Type::TemporalData:
-//       PrintObject(out, value.ValueTemporalData());
-//       break;
-//   }
-// }
-
 template <typename T>
 void PrintObject(std::ostream *out, const std::vector<T> &vec) {
+  *out << "[";
+  utils::PrintIterable(*out, vec, ", ", [](auto &stream, const auto &item) { PrintObject(&stream, item); });
+  *out << "]";
+}
+
+template <typename T>
+void PrintObject(std::ostream *out, const std::vector<T, utils::Allocator<T>> &vec) {
   *out << "[";
   utils::PrintIterable(*out, vec, ", ", [](auto &stream, const auto &item) { PrintObject(&stream, item); });
   *out << "]";
@@ -89,6 +63,59 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map) {
     PrintObject(&stream, item.second);
   });
   *out << "}";
+}
+
+template <typename T>
+void PrintObject(std::ostream *out, const utils::pmr::map<utils::pmr::string, T> &map) {
+  *out << "{";
+  utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
+    PrintObject(&stream, item.first);
+    stream << ": ";
+    PrintObject(&stream, item.second);
+  });
+  *out << "}";
+}
+
+template <typename T1, typename T2, typename T3>
+inline void PrintObject(std::ostream *out, const TypedValueT<T1, T2, T3> &value) {
+  using TypedValue = TypedValueT<T1, T2, T3>;
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      *out << "null";
+      break;
+    case TypedValue::Type::String:
+      PrintObject(out, value.ValueString());
+      break;
+    case TypedValue::Type::Bool:
+      *out << (value.ValueBool() ? "true" : "false");
+      break;
+    case TypedValue::Type::Int:
+      PrintObject(out, value.ValueInt());
+      break;
+    case TypedValue::Type::Double:
+      PrintObject(out, value.ValueDouble());
+      break;
+    case TypedValue::Type::List:
+      PrintObject(out, value.ValueList());
+      break;
+    case TypedValue::Type::Map:
+      PrintObject(out, value.ValueMap());
+      break;
+    case TypedValue::Type::Date:
+      PrintObject(out, value.ValueDate());
+      break;
+    case TypedValue::Type::Duration:
+      PrintObject(out, value.ValueDuration());
+      break;
+    case TypedValue::Type::LocalTime:
+      PrintObject(out, value.ValueLocalTime());
+      break;
+    case TypedValue::Type::LocalDateTime:
+      PrintObject(out, value.ValueLocalDateTime());
+      break;
+    default:
+      MG_ASSERT(false, "PrintObject(std::ostream *out, const TypedValue &value) should not reach here");
+  }
 }
 
 template <typename T>
@@ -201,9 +228,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   void Visit(Identifier &op) override { detail::PrintOperator(out_, "Identifier", op.name_); }
 
-  void Visit(PrimitiveLiteral &op) override {
-    // PrintObject(out_, op.value_);
-  }
+  void Visit(PrimitiveLiteral &op) override { detail::PrintObject(out_, op.value_); }
 
   void Visit(PropertyLookup &op) override {
     detail::PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);

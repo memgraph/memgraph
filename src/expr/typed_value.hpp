@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/memory.hpp"
@@ -53,7 +54,7 @@ class TypedValueException : public utils::BasicException {
  * allocations. When copying and moving TypedValue instances, take care that the
  * appropriate MemoryResource is used.
  */
-template <typename VertexAccessor, typename EdgeAccessor, typename PathT>
+template <typename TVertexAccessor, typename TEdgeAccessor, typename TPathT>
 class TypedValueT {
  public:
   /** Custom TypedValue equality function that returns a bool
@@ -121,8 +122,8 @@ class TypedValueT {
         case TypedValueT::Type::Path: {
           const auto &vertices = value.ValuePath().vertices();
           const auto &edges = value.ValuePath().edges();
-          return utils::FnvCollection<decltype(vertices), VertexAccessor>{}(vertices) ^
-                 utils::FnvCollection<decltype(edges), EdgeAccessor>{}(edges);
+          return utils::FnvCollection<decltype(vertices), TVertexAccessor>{}(vertices) ^
+                 utils::FnvCollection<decltype(edges), TEdgeAccessor>{}(edges);
         }
         case TypedValueT::Type::Date:
           return utils::DateHash{}(value.ValueDate());
@@ -211,13 +212,13 @@ class TypedValueT {
         new (&map_v) TMap(other.map_v, memory_);
         return;
       case Type::Vertex:
-        new (&vertex_v) VertexAccessor(other.vertex_v);
+        new (&vertex_v) TVertexAccessor(other.vertex_v);
         return;
       case Type::Edge:
-        new (&edge_v) EdgeAccessor(other.edge_v);
+        new (&edge_v) TEdgeAccessor(other.edge_v);
         return;
       case Type::Path:
-        new (&path_v) PathT(other.path_v, memory_);
+        new (&path_v) TPathT(other.path_v, memory_);
         return;
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
@@ -271,13 +272,13 @@ class TypedValueT {
         new (&map_v) TMap(std::move(other.map_v), memory_);
         break;
       case Type::Vertex:
-        new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+        new (&vertex_v) TVertexAccessor(std::move(other.vertex_v));
         break;
       case Type::Edge:
-        new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+        new (&edge_v) TEdgeAccessor(std::move(other.edge_v));
         break;
       case Type::Path:
-        new (&path_v) PathT(std::move(other.path_v), memory_);
+        new (&path_v) TPathT(std::move(other.path_v), memory_);
         break;
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
@@ -422,19 +423,19 @@ class TypedValueT {
     new (&map_v) TMap(value, memory_);
   }
 
-  explicit TypedValueT(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValueT(const TVertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Vertex) {
-    new (&vertex_v) VertexAccessor(vertex);
+    new (&vertex_v) TVertexAccessor(vertex);
   }
 
-  explicit TypedValueT(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValueT(const TEdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(edge);
+    new (&edge_v) TEdgeAccessor(edge);
   }
 
-  explicit TypedValueT(const PathT &path, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit TypedValueT(const TPathT &path, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Path) {
-    new (&path_v) PathT(path, memory_);
+    new (&path_v) TPathT(path, memory_);
   }
 
   // move constructors for non-primitive types
@@ -531,14 +532,14 @@ class TypedValueT {
     new (&map_v) TMap(std::move(other), memory_);
   }
 
-  explicit TypedValueT(VertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
+  explicit TypedValueT(TVertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Vertex) {
-    new (&vertex_v) VertexAccessor(std::move(vertex));
+    new (&vertex_v) TVertexAccessor(std::move(vertex));
   }
 
-  explicit TypedValueT(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
+  explicit TypedValueT(TEdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
       : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(std::move(edge));
+    new (&edge_v) TEdgeAccessor(std::move(edge));
   }
 
   /**
@@ -546,15 +547,15 @@ class TypedValueT {
    * utils::MemoryResource is obtained from path. After the move, path will be
    * left empty.
    */
-  explicit TypedValueT(PathT &&path) noexcept : TypedValueT(std::move(path), path.GetMemoryResource()) {}
+  explicit TypedValueT(TPathT &&path) noexcept : TypedValueT(std::move(path), path.GetMemoryResource()) {}
 
   /**
    * Construct with the value of path and use the given MemoryResource.
    * If `*path.GetMemoryResource() != *memory`, this call will perform an
    * element-wise move and path is not guaranteed to be empty.
    */
-  TypedValueT(PathT &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
-    new (&path_v) PathT(std::move(path), memory_);
+  TypedValueT(TPathT &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
+    new (&path_v) TPathT(std::move(path), memory_);
   }
 
   // copy assignment operators
@@ -599,9 +600,9 @@ class TypedValueT {
     return *this;
   }
 
-  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
-  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
-  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const PathT &, Path, path_v)
+  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TVertexAccessor &, Vertex, vertex_v)
+  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TEdgeAccessor &, Edge, edge_v)
+  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TPathT &, Path, path_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Date &, Date, date_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_time_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
@@ -646,7 +647,7 @@ class TypedValueT {
     return *this;
   }
 
-  DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(PathT, Path, path_v)
+  DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TPathT, Path, path_v)
 
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
@@ -684,13 +685,13 @@ class TypedValueT {
           new (&map_v) TMap(other.map_v, memory_);
           return *this;
         case TypedValueT::Type::Vertex:
-          new (&vertex_v) VertexAccessor(other.vertex_v);
+          new (&vertex_v) TVertexAccessor(other.vertex_v);
           return *this;
         case TypedValueT::Type::Edge:
-          new (&edge_v) EdgeAccessor(other.edge_v);
+          new (&edge_v) TEdgeAccessor(other.edge_v);
           return *this;
         case TypedValueT::Type::Path:
-          new (&path_v) PathT(other.path_v, memory_);
+          new (&path_v) TPathT(other.path_v, memory_);
           return *this;
         case Type::Date:
           new (&date_v) utils::Date(other.date_v);
@@ -744,13 +745,13 @@ class TypedValueT {
           new (&map_v) TMap(std::move(other.map_v), memory_);
           break;
         case TypedValueT::Type::Vertex:
-          new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+          new (&vertex_v) TVertexAccessor(std::move(other.vertex_v));
           break;
         case TypedValueT::Type::Edge:
-          new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+          new (&edge_v) TEdgeAccessor(std::move(other.edge_v));
           break;
         case TypedValueT::Type::Path:
-          new (&path_v) PathT(std::move(other.path_v), memory_);
+          new (&path_v) TPathT(std::move(other.path_v), memory_);
           break;
         case Type::Date:
           new (&date_v) utils::Date(other.date_v);
@@ -798,9 +799,9 @@ class TypedValueT {
   DEFINE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
   DEFINE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
   DEFINE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
-  DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-  DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-  DEFINE_VALUE_AND_TYPE_GETTERS(PathT, Path, path_v)
+  DEFINE_VALUE_AND_TYPE_GETTERS(TVertexAccessor, Vertex, vertex_v)
+  DEFINE_VALUE_AND_TYPE_GETTERS(TEdgeAccessor, Edge, edge_v)
+  DEFINE_VALUE_AND_TYPE_GETTERS(TPathT, Path, path_v)
   DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
   DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
   DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
@@ -1280,6 +1281,40 @@ class TypedValueT {
     LOG_FATAL("Unsupported TypedValueT::Type");
   }
 
+  friend std::ostream &operator<<(std::ostream &os, const TypedValueT &val) {
+    switch (val.type()) {
+      case TypedValueT::Type::Null:
+        return os << "null";
+      case TypedValueT::Type::Bool:
+        return os << (val.ValueBool() ? "true" : "false");
+      case TypedValueT::Type::Int:
+        return os << val.ValueInt();
+      case TypedValueT::Type::Double:
+        return os << val.ValueDouble();
+      case TypedValueT::Type::String:
+        return os << val.ValueString();
+      case TypedValueT::Type::List:
+        os << "[";
+        utils::PrintIterable(os, val.ValueList());
+        return os << "]";
+      case TypedValueT::Type::Map:
+        os << "{";
+        utils::PrintIterable(os, val.ValueMap(), ", ",
+                             [](auto &strm, const auto &pr) { strm << pr.first << ": " << pr.second; });
+        return os << "}";
+      case TypedValueT::Type::Date:
+        return os << val.ValueDate();
+      case TypedValueT::Type::LocalTime:
+        return os << val.ValueLocalTime();
+      case TypedValueT::Type::LocalDateTime:
+        return os << val.ValueLocalDateTime();
+      case TypedValueT::Type::Duration:
+        return os << val.ValueDuration();
+      default:
+        LOG_FATAL("Unsupported printing: TVertexAccessor || TEdgeAccessor || TPathT");
+    }
+  }
+
  private:
   void DestroyValue() {
     switch (type_) {
@@ -1302,13 +1337,13 @@ class TypedValueT {
         map_v.~TMap();
         break;
       case Type::Vertex:
-        vertex_v.~VertexAccessor();
+        vertex_v.~TVertexAccessor();
         break;
       case Type::Edge:
-        edge_v.~EdgeAccessor();
+        edge_v.~TEdgeAccessor();
         break;
       case Type::Path:
-        path_v.~PathT();
+        path_v.~TPathT();
         break;
       case Type::Date:
       case Type::LocalTime:
@@ -1456,9 +1491,9 @@ class TypedValueT {
     TString string_v;
     TVector list_v;
     TMap map_v;
-    VertexAccessor vertex_v;
-    EdgeAccessor edge_v;
-    PathT path_v;
+    TVertexAccessor vertex_v;
+    TEdgeAccessor edge_v;
+    TPathT path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
