@@ -15,6 +15,7 @@
 #include <json/json.hpp>
 
 namespace memgraph::auth {
+const std::string ASTERISK = "*";
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off
@@ -58,6 +59,11 @@ inline uint64_t operator|(LabelPermission a, LabelPermission b) {
 inline uint64_t operator|(uint64_t a, LabelPermission b) { return a | static_cast<uint64_t>(b); }
 
 inline bool operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
+
+const uint64_t LabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
+                                    memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
+const uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
+const uint64_t LabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -103,8 +109,8 @@ bool operator!=(const Permissions &first, const Permissions &second);
 
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &grants = {},
-                                        const std::unordered_map<std::string, uint64_t> &denies = {});
+  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
+                                        const std::optional<uint64_t> &global_permission = std::nullopt);
 
   PermissionLevel Has(const std::string &permission, LabelPermission label_permission);
 
@@ -119,19 +125,15 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, uint64_t> &grants() const;
-  const std::unordered_map<std::string, uint64_t> &denies() const;
+  const std::unordered_map<std::string, uint64_t> &permissions() const;
+  const std::optional<uint64_t> &global_permission() const;
 
  private:
-  std::unordered_map<std::string, uint64_t> grants_{};
-  std::unordered_map<std::string, uint64_t> denies_{};
+  std::unordered_map<std::string, uint64_t> permissions_{};
+  std::optional<uint64_t> global_permission_;
 
-  void DoGrant(const std::string &permission, LabelPermission label_permission);
-  void DoDeny(const std::string &permission, LabelPermission label_permission);
-
-  std::unordered_map<std::string, uint64_t>::const_iterator Find(const std::string &key, bool in_denies) const;
-  std::unordered_map<std::string, uint64_t>::const_iterator GrantsFind(const std::string &key) const;
-  std::unordered_map<std::string, uint64_t>::const_iterator DeniesFind(const std::string &key) const;
+  static uint64_t CalculateGrant(LabelPermission label_permission);
+  static uint64_t CalculateDeny(LabelPermission label_permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -212,4 +214,7 @@ class User final {
 };
 
 bool operator==(const User &first, const User &second);
+
+FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
+                                   const FineGrainedAccessPermissions &second);
 }  // namespace memgraph::auth

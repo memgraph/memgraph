@@ -32,10 +32,6 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
 
 namespace memgraph::auth {
 namespace {
-const std::string ASTERISK = "*";
-const uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
-}  // namespace
-namespace {
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
     Permission::MATCH,      Permission::CREATE,    Permission::MERGE,       Permission::DELETE,
@@ -104,17 +100,22 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-std::unordered_map<std::string, uint64_t> Merge(const std::unordered_map<std::string, uint64_t> &first,
-                                                const std::unordered_map<std::string, uint64_t> &second) {
-  std::unordered_map<std::string, uint64_t> result{first};
+FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
+                                   const FineGrainedAccessPermissions &second) {
+  std::unordered_map<std::string, uint64_t> permissions{first.permissions()};
+  std::optional<uint64_t> global_permission = std::nullopt;
 
-  for (const auto &it : second) {
-    if (result.find(it.first) != result.end()) {
-      result[it.first] |= it.second;
-    }
+  if (second.global_permission().has_value()) {
+    global_permission = second.global_permission().value();
+  } else if (first.global_permission().has_value()) {
+    global_permission = first.global_permission().value();
   }
 
-  return result;
+  for (const auto &it : second.permissions()) {
+    permissions[it.first] = it.second;
+  }
+
+  return FineGrainedAccessPermissions(permissions, global_permission);
 }
 
 Permissions::Permissions(uint64_t grants, uint64_t denies) {
@@ -202,86 +203,52 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
-FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &grants,
-                                                           const std::unordered_map<std::string, uint64_t> &denies)
-    : grants_(grants), denies_(denies) {}
+FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions,
+                                                           const std::optional<uint64_t> &global_permission)
+    : permissions_(permissions), global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const LabelPermission label_permission) {
-  auto grants_permission = PermissionLevel::DENY;
-  auto denies_permission = PermissionLevel::GRANT;
+  uint64_t concrete_permission = permissions_.contains(permission)
+                                     ? permissions_[permission]
+                                     : (global_permission_.has_value() ? global_permission_.value() : 0);
 
-  const auto &deny_it = DeniesFind(permission);
+  auto temp_permission = concrete_permission & label_permission;
 
-  if (deny_it != denies_.end() && (deny_it->second & label_permission)) {
-    denies_permission = PermissionLevel::DENY;
-  }
-
-  const auto &grant_it = GrantsFind(permission);
-
-  if (grant_it != grants_.end() && (grant_it->second & label_permission)) {
-    grants_permission = PermissionLevel::GRANT;
-  }
-
-  return denies_permission >= grants_permission ? denies_permission : grants_permission;
+  return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
   if (permission == ASTERISK) {
-    grants_.clear();
-  } else if (grants_.size() == 1 && grants_.contains(ASTERISK)) {
-    grants_.erase(ASTERISK);
-
-    auto denied_permission_iter = denies_.find(permission);
-
-    if (denied_permission_iter != denies_.end()) {
-      denies_.erase(denied_permission_iter);
-    }
+    global_permission_ = global_permission_.has_value() ? *global_permission_ |= CalculateGrant(label_permission)
+                                                        : CalculateGrant(label_permission);
+  } else {
+    permissions_[permission] |= CalculateGrant(label_permission);
   }
-
-  DoGrant(permission, label_permission);
 }
 
 void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   if (permission == ASTERISK) {
-    grants_.clear();
-    denies_.clear();
-
-    return;
-  }
-
-  auto denied_permission_iter = denies_.find(permission);
-  auto granted_permission_iter = grants_.find(permission);
-
-  if (denied_permission_iter != denies_.end()) {
-    denies_.erase(denied_permission_iter);
-  }
-
-  if (granted_permission_iter != grants_.end()) {
-    grants_.erase(granted_permission_iter);
+    permissions_.clear();
+    global_permission_ = std::nullopt;
+  } else {
+    permissions_.erase(permission);
   }
 }
 
 void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
   if (permission == ASTERISK) {
-    denies_.clear();
-  } else if (denies_.size() == 1 && denies_.find(ASTERISK) != denies_.end()) {
-    denies_.erase(ASTERISK);
-
-    auto granted_permission_iter = grants_.find(permission);
-
-    if (granted_permission_iter != grants_.end()) {
-      grants_.erase(granted_permission_iter);
-    }
+    global_permission_ = global_permission_.has_value() ? *global_permission_ &= CalculateDeny(label_permission)
+                                                        : CalculateDeny(label_permission);
+  } else {
+    permissions_[permission] |= CalculateDeny(label_permission);
   }
-
-  DoDeny(permission, label_permission);
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
-  data["grants"] = grants_;
-  data["denies"] = denies_;
+  data["permissions"] = permissions_;
+  data["global_permission"] = global_permission_.has_value() ? std::to_string(global_permission_.value()) : "-1";
   return data;
 }
 
@@ -290,58 +257,50 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
     throw AuthException("Couldn't load permissions data!");
   }
 
-  return FineGrainedAccessPermissions(data["grants"], data["denies"]);
-}
+  std::optional<uint64_t> global_permission;
 
-const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::grants() const { return grants_; }
-const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::denies() const { return denies_; }
-
-void FineGrainedAccessPermissions::DoGrant(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift{1};
-  uint64_t perm{0};
-  auto u_label_perm = static_cast<uint64_t>(label_permission);
-
-  while (u_label_perm != 0) {
-    perm |= u_label_perm;
-    u_label_perm >>= shift;
+  if (data["global_permission"] == "-1") {
+    global_permission = std::nullopt;
+  } else {
+    global_permission = data["global_permission"];
   }
 
-  grants_[permission] = perm;
+  return FineGrainedAccessPermissions(data["permissions"], global_permission);
 }
 
-void FineGrainedAccessPermissions::DoDeny(const std::string &permission, LabelPermission label_permission) {
-  uint64_t shift{1};
-  uint64_t perm{0};
-  auto u_label_perm = static_cast<uint64_t>(label_permission);
+const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::permissions() const {
+  return permissions_;
+}
+const std::optional<uint64_t> &FineGrainedAccessPermissions::global_permission() const { return global_permission_; };
 
-  while (u_label_perm <= LabelPermissionMax) {
-    perm |= u_label_perm;
-    u_label_perm <<= shift;
+uint64_t FineGrainedAccessPermissions::CalculateGrant(LabelPermission label_permission) {
+  uint64_t shift{1};
+  uint64_t result{0};
+  auto uint_label_permission = static_cast<uint64_t>(label_permission);
+
+  while (uint_label_permission > 0) {
+    result |= uint_label_permission;
+    uint_label_permission >>= shift;
   }
 
-  denies_[permission] = perm;
+  return result;
 }
 
-std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::Find(const std::string &key,
-                                                                                             bool in_denies) const {
-  const auto &collection = in_denies ? denies_ : grants_;
-  const auto &it = collection.find("*");
+uint64_t FineGrainedAccessPermissions::CalculateDeny(LabelPermission label_permission) {
+  uint64_t shift{1};
+  uint64_t result{0};
+  auto uint_label_permission = static_cast<uint64_t>(label_permission);
 
-  return it != collection.end() ? it : collection.find(key);
-}
+  while (uint_label_permission <= LabelPermissionMax) {
+    result |= uint_label_permission;
+    uint_label_permission <<= shift;
+  }
 
-std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::GrantsFind(
-    const std::string &key) const {
-  return Find(key, false);
-}
-
-std::unordered_map<std::string, uint64_t>::const_iterator FineGrainedAccessPermissions::DeniesFind(
-    const std::string &key) const {
-  return Find(key, true);
+  return LabelPermissionAll - result;
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
-  return first.grants() == second.grants() && first.denies() == second.denies();
+  return first.permissions() == second.permissions() && first.global_permission() == second.global_permission();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
@@ -448,9 +407,7 @@ Permissions User::GetPermissions() const {
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessPermissions() const {
   if (role_) {
-    return FineGrainedAccessPermissions(
-        Merge(fine_grained_access_permissions_.grants(), role_->fine_grained_access_permissions().grants()),
-        Merge(fine_grained_access_permissions_.denies(), role_->fine_grained_access_permissions().denies()));
+    return Merge(role()->fine_grained_access_permissions(), fine_grained_access_permissions_);
   }
   return fine_grained_access_permissions_;
 }
