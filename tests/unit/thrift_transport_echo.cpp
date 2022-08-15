@@ -18,4 +18,7 @@
 
 using namespace memgraph::io;
 
-TEST(ThriftTransport, Echo) {}
+TEST(ThriftTransport, Echo) {
+  // TODO(tyler and gabor) use thrift-generated echo, and thrift transport, to send, reply, and receive the response for
+  // a thrift-defined message
+}
