@@ -513,6 +513,16 @@ struct mgp_edge {
            memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
 
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::VertexAccessor &from_v,
+           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph,
+           memgraph::utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
+
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::SubgraphVertexAccessor &from_v,
+           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph,
+           memgraph::utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
+
   mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
 
