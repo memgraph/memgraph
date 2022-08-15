@@ -237,9 +237,16 @@ class Raft {
   // When the entry has been safely replicated, the leader applies the
   // entry to its state machine and returns the result of that
   // execution to the client.
+  //
+  // "Safely replicated" is defined as being known to be present
+  // on at least a majority of all peers (inclusive of the Leader).
   void BumpCommitIndexAndReplyToClients(Leader &leader) {
-    // set the current committed_log_size based on the
-    auto indices = std::vector<LogIndex>{state_.log.size()};
+    auto indices = std::vector<LogIndex>{};
+
+    // We include our own log size in the calculation of the log
+    // index that is present on at least a majority of all peers.
+    indices.push_back(state_.log.size());
+
     for (const auto &[addr, f] : leader.followers) {
       indices.push_back(f.confirmed_contiguous_index);
       Log("at port ", addr.last_known_port, " has confirmed contiguous index of: ", f.confirmed_contiguous_index);
@@ -248,9 +255,25 @@ class Raft {
     // reverse sort from highest to lowest (using std::ranges::greater)
     std::ranges::sort(indices, std::ranges::greater());
 
-    size_t new_committed_log_size = indices[(indices.size() / 2)];
+    // This is a particularly correctness-critical calculation because it
+    // determines which index we will consider to be the committed index.
+    //
+    // If the following indexes are recorded for clusters of different sizes,
+    // these are the expected indexes that are considered to have reached
+    // consensus:
+    // state           | expected value | (indices.size() / 2)
+    // [1]              1                 (1 / 2) => 0
+    // [2, 1]           1                 (2 / 2) => 1
+    // [3, 2, 1]        2                 (3 / 2) => 1
+    // [4, 3, 2, 1]     2                 (4 / 2) => 2
+    // [5, 4, 3, 2, 1]  3                 (5 / 2) => 2
+    size_t index_present_on_majority = indices.size() / 2;
+    LogIndex new_committed_log_size = indices[index_present_on_majority];
 
-    state_.committed_log_size = std::max(state_.committed_log_size, new_committed_log_size);
+    // We never go backwards in history.
+    MG_ASSERT(state_.committed_log_size <= new_committed_log_size);
+
+    state_.committed_log_size = new_committed_log_size;
 
     // For each index between the old index and the new one (inclusive),
     // Apply that log's WriteOperation to our replicated_state_,
