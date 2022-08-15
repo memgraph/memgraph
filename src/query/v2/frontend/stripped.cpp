@@ -30,7 +30,7 @@
 
 namespace memgraph::query::v2::frontend {
 
-using namespace parser::lexer_constants;
+using namespace parser::lexer_constants;  // NOLINT(google-build-using-namespace)
 
 StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   enum class Token {
