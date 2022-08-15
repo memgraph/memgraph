@@ -479,6 +479,10 @@ class Shard {
   future_vertices GetVertices(storage::v3::View view, storage::v3::LabelId labelId) const {
     return accessor->Vertices(view, labelId);
   }
+  future_vertices GetVertices(storage::v3::View view, storage::v3::LabelId labelId, storage::v3::PropertyId propertyId,
+                              const storage::v3::PropertyValue &propertyValue) const {
+    return accessor->Vertices(view, labelId, propertyId, propertyValue);
+  }
 };
 
 class Coordinator {
@@ -493,6 +497,12 @@ class Coordinator {
   future_vertices RequestVertices(Address address, storage::v3::View view, storage::v3::LabelId labelId) {
     auto &shard = GetShardFromAddress(address);
     return shard.GetVertices(view, labelId);
+  }
+
+  future_vertices RequestVertices(Address address, storage::v3::View view, storage::v3::LabelId labelId,
+                                  storage::v3::PropertyId propertyId, const storage::v3::PropertyValue &propertyValue) {
+    auto &shard = GetShardFromAddress(address);
+    return shard.GetVertices(view, labelId, propertyId, propertyValue);
   }
 
  private:
@@ -670,7 +680,8 @@ UniqueCursorPtr ScanAllByLabel_Distributed::MakeCursor(utils::MemoryResource *me
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
   auto get_vertices =
-      [this](Frame &, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(view_))> {
+      [this](Frame &,
+             ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(view_, label_))> {
     Coordinator coordinator;  // #NoCommit we'll get it from context?
 
     const auto addresses = coordinator.GetShardAddresses();
@@ -803,20 +814,30 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue_Distributed)
 UniqueCursorPtr ScanAllByLabelPropertyValue_Distributed::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator_Distributed);
 
-  auto vertices =
+  auto get_vertices =
       [this](Frame &frame, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
                                                           view_, label_, property_, storage::v3::PropertyValue()))> {
-    auto *db = context.db_accessor;
+    Coordinator coordinator;  // #NoCommit we'll get it from context?
+
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
     if (value.IsNull()) return std::nullopt;
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
     }
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::PropertyValue(value)));
+
+    const auto addresses = coordinator.GetShardAddresses();
+    auto futures = std::vector<future_vertices>();
+    for (auto address : addresses) {
+      futures.emplace_back(
+          coordinator.RequestVertices(address, view_, label_, property_, storage::v3::PropertyValue(value)));
+    }
+
+    return WaitAndCombine(std::move(futures));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
-      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabelPropertyValue_Distributed");
+
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(get_vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(get_vertices), "ScanAllByLabelPropertyValue_Distributed");
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
