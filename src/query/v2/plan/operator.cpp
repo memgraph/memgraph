@@ -476,6 +476,9 @@ class Shard {
 
   // #NoCommit what will we actually receive from the storage?
   future_vertices GetVertices(storage::v3::View view) const { return accessor->Vertices(view); }
+  future_vertices GetVertices(storage::v3::View view, storage::v3::LabelId labelId) const {
+    return accessor->Vertices(view, labelId);
+  }
 };
 
 class Coordinator {
@@ -485,6 +488,11 @@ class Coordinator {
   future_vertices RequestVertices(Address address, storage::v3::View view) {
     auto &shard = GetShardFromAddress(address);
     return shard.GetVertices(view);
+  }
+
+  future_vertices RequestVertices(Address address, storage::v3::View view, storage::v3::LabelId labelId) {
+    auto &shard = GetShardFromAddress(address);
+    return shard.GetVertices(view, labelId);
   }
 
  private:
@@ -661,12 +669,22 @@ ACCEPT_WITH_INPUT(ScanAllByLabel_Distributed)
 UniqueCursorPtr ScanAllByLabel_Distributed::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_));
+  auto get_vertices =
+      [this](Frame &, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(view_))> {
+    Coordinator coordinator;  // #NoCommit we'll get it from context?
+
+    const auto addresses = coordinator.GetShardAddresses();
+
+    auto futures = std::vector<future_vertices>();
+    for (auto address : addresses) {
+      futures.emplace_back(coordinator.RequestVertices(address, view_, label_));
+    }
+
+    return WaitAndCombine(std::move(futures));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(vertices)>>(
-      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel_Distributed");
+
+  return MakeUniqueCursorPtr<ScanAllCursor_Distributed<decltype(get_vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(get_vertices), "ScanAllByLabel_Distributed");
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
