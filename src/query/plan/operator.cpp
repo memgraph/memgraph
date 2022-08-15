@@ -1525,7 +1525,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       if (MustAbort(context)) throw HintedAbortError();
       if (pq_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
-
         const auto &vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
         auto vertex = vertex_value.ValueVertex();
@@ -2070,7 +2069,6 @@ class ConstructNamedPathCursor : public Cursor {
           break;
         case TypedValue::Type::Edge:
           path.Expand(expansion.ValueEdge());
-          spdlog::warn("({}->{})", expansion.ValueEdge().From().CypherId(), expansion.ValueEdge().To().CypherId());
           break;
         case TypedValue::Type::List: {
           last_was_edge_list = true;
