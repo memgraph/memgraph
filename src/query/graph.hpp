@@ -57,6 +57,9 @@ class Graph final {
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path);
+  void InsertVertex(const VertexAccessor &vertex);
+  void InsertEdge(const EdgeAccessor &edge);
+
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
   /** Move assign other, utils::MemoryResource of `this` is used. */

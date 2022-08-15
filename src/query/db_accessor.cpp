@@ -77,10 +77,10 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
   return result;
 }
 
-VertexAccessor SubgraphDbAccessor::InsertVertex() {
-  auto result = db_accessor_->InsertVertex();
-  // todo antoniofilipovic add vertex to subgraph
-  return result;
+SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
+  VertexAccessor vertex = db_accessor_->InsertVertex();
+  this->graph_->InsertVertex(vertex);
+  return SubgraphVertexAccessor(vertex, this->getGraph());
 }
 
 VerticesIterable SubgraphDbAccessor::Vertices(storage::View view) {

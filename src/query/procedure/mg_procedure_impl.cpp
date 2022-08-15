@@ -2222,6 +2222,7 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
             },
             graph->impl);
         if (maybe_vertex) {
+          // todo antoniofilipovic change this to set proper vertexAccessro
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
         }
         return nullptr;
@@ -2240,16 +2241,18 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
-        auto vertex =
-            std::visit(memgraph::utils::Overloaded{[](auto *impl) { return impl->InsertVertex(); }}, graph->impl);
+        auto vertex = std::visit(memgraph::utils::Overloaded{[=](auto *impl) {
+                                   return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph);
+                                 }},
+                                 graph->impl);
 
         auto &ctx = graph->ctx;
         ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;
 
         if (ctx->trigger_context_collector) {
-          ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+          ctx->trigger_context_collector->RegisterCreatedObject(vertex->getImpl());
         }
-        return NewRawMgpObject<mgp_vertex>(memory, vertex, graph);
+        return vertex;
       },
       result);
 }
@@ -2417,6 +2420,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         if (ctx->trigger_context_collector) {
           ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
+        // check what does this method call
         return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
       },
       result);

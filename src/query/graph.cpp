@@ -31,6 +31,10 @@ void Graph::Expand(const Path &path) {
   std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.insert(e); });
 }
 
+void Graph::InsertVertex(const VertexAccessor &vertex) { vertices_.insert(vertex); }
+
+void Graph::InsertEdge(const EdgeAccessor &edge) { edges_.insert(edge); }
+
 std::vector<query::EdgeAccessor> Graph::OutEdges(query::VertexAccessor vertex_accessor) {
   std::vector<query::EdgeAccessor> out_edges;
   for (auto it = edges_.begin(); it != edges_.end(); ++it) {

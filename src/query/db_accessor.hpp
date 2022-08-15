@@ -486,7 +486,7 @@ class SubgraphDbAccessor final {
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor);
 
-  VertexAccessor InsertVertex();
+  SubgraphVertexAccessor InsertVertex();
 
   VerticesIterable Vertices(storage::View view);
 
