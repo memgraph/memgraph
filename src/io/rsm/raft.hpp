@@ -349,7 +349,7 @@ class Raft {
     return std::chrono::microseconds{rand_micros};
   }
 
-  Term PreviousTermFromIndex(LogIndex index) {
+  Term PreviousTermFromIndex(LogIndex index) const {
     if (index == 0 || state_.log.size() + 1 <= index) {
       return 0;
     }
