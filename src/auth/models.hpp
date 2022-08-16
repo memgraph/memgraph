@@ -46,6 +46,7 @@ enum class Permission : uint64_t {
 
 // clang-format off
 enum class LabelPermission : uint64_t {
+  NO_PERMISSION = 0,
   READ          = 1,
   EDIT          = 1U << 1U,
   CREATE_DELETE = 1U << 2U
@@ -73,6 +74,12 @@ enum class PermissionLevel : short { GRANT, NEUTRAL, DENY };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
+
+// Function that converts a label permission level to its string representation.
+std::string LabelPermissionToString(LabelPermission level);
+
+// Constructs a label permission from a permission
+LabelPermission PermissionToLabelPermission(uint64_t permission);
 
 class Permissions final {
  public:

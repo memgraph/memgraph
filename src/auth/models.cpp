@@ -102,6 +102,31 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
+LabelPermission PermissionToLabelPermission(uint64_t permission) {
+  if (permission & LabelPermission::CREATE_DELETE) {
+    return LabelPermission::CREATE_DELETE;
+  } else if (permission & LabelPermission::EDIT) {
+    return LabelPermission::EDIT;
+  } else if (permission & LabelPermission::READ) {
+    return LabelPermission::READ;
+  }
+
+  return LabelPermission::NO_PERMISSION;
+}
+
+std::string LabelPermissionToString(LabelPermission level) {
+  switch (level) {
+    case LabelPermission::CREATE_DELETE:
+      return "CREATE_DELETE";
+    case LabelPermission::EDIT:
+      return "EDIT";
+    case LabelPermission::READ:
+      return "READ";
+    case LabelPermission::NO_PERMISSION:
+      return "NO_PERMISSION";
+  }
+}
+
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
   std::unordered_map<std::string, uint64_t> permissions{first.permissions()};
