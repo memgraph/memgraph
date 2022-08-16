@@ -225,19 +225,6 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
     ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1"), PermissionLevel::DENY);
     ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1"), PermissionLevel::DENY);
   }
-
-  // Deny label to user, Grant to role
-  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest");
-  role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest");
-  user->fine_grained_access_handler().label_permissions().Deny("roleLabelTest");
-  user->fine_grained_access_handler().edge_type_permissions().Deny("roleEdgeTypeTest");
-  user->SetRole(*role);
-
-  // Check permissions.
-  {
-    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1"), PermissionLevel::GRANT);
-    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1"), PermissionLevel::GRANT);
-  }
 }
 
 TEST_F(AuthWithStorage, RoleManipulations) {
