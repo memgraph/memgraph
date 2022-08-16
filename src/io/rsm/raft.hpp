@@ -372,14 +372,15 @@ class Raft {
 
   LogIndex LastLogIndex() { return state_.log.size(); }
 
-  Term LastLogTerm() {
+  Term LastLogTerm() const {
     if (state_.log.empty()) {
       return 0;
     }
 
-    auto &[term, data] = state_.log.back();
+    const auto &[term, data] = state_.log.back();
     return term;
   }
+
 
   template <typename... Ts>
   void Log(Ts &&...args) {
