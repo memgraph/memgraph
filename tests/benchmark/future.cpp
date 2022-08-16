@@ -9,13 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include <benchmark/benchmark.h>
 
-#include <chrono>
+#include "io/future.hpp"
 
-namespace memgraph::io {
+static void FuturePairFillWait(benchmark::State &state) {
+  uint64_t counter = 0;
+  while (state.KeepRunning()) {
+    auto [future, promise] = memgraph::io::FuturePromisePair<int>();
+    promise.Fill(1);
+    std::move(future).Wait();
 
-using Duration = std::chrono::microseconds;
-using Time = std::chrono::time_point<std::chrono::local_t, Duration>;
+    ++counter;
+  }
+  state.SetItemsProcessed(counter);
+}
 
-}  // namespace memgraph::io
+BENCHMARK(FuturePairFillWait)->Unit(benchmark::kNanosecond)->UseRealTime();
+
+BENCHMARK_MAIN();

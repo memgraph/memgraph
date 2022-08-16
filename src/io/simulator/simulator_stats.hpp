@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace memgraph::io::simulator {
 struct SimulatorStats {
   uint64_t total_messages = 0;
