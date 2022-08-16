@@ -162,7 +162,7 @@ void RunSimulation() {
   auto srv_thread_3 = std::jthread(RunRaft<SimulatorTransport>, std::move(srv_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_3);
 
-  std::cout << "beginning test after servers have become quiescent" << std::endl;
+  spdlog::debug("beginning test after servers have become quiescent");
 
   std::mt19937 cli_rng_{0};
   Address server_addrs[]{srv_addr_1, srv_addr_2, srv_addr_3};
@@ -185,7 +185,7 @@ void RunSimulation() {
     WriteRequest<CasRequest> cli_req;
     cli_req.operation = cas_req;
 
-    std::cout << "client sending CasRequest to Leader " << leader.last_known_port << std::endl;
+    spdlog::debug("client sending CasRequest to Leader {} ", leader.last_known_port);
     ResponseFuture<WriteResponse<CasResponse>> cas_response_future =
         cli_io.Request<WriteRequest<CasRequest>, WriteResponse<CasResponse>>(leader, cli_req);
 
@@ -193,7 +193,8 @@ void RunSimulation() {
     ResponseResult<WriteResponse<CasResponse>> cas_response_result = std::move(cas_response_future).Wait();
 
     if (cas_response_result.HasError()) {
-      std::cout << "client timed out while trying to communicate with leader server " << std::endl;
+      spdlog::debug("client timed out while trying to communicate with assumed Leader server {}",
+                    leader.last_known_port);
       continue;
     }
 
@@ -203,14 +204,14 @@ void RunSimulation() {
     if (write_cas_response.retry_leader) {
       MG_ASSERT(!write_cas_response.success, "retry_leader should never be set for successful responses");
       leader = write_cas_response.retry_leader.value();
-      std::cout << "client redirected to leader server " << leader.last_known_port << std::endl;
+      spdlog::debug("client redirected to leader server {}", leader.last_known_port);
     } else if (!write_cas_response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, 2);
       size_t addr_index = addr_distrib(cli_rng_);
       leader = server_addrs[addr_index];
 
-      std::cout << "client NOT redirected to leader server, trying a random one at index " << addr_index
-                << " with port " << leader.last_known_port << std::endl;
+      spdlog::debug("client NOT redirected to leader server, trying a random one at index {} with port {}", addr_index,
+                    leader.last_known_port);
       continue;
     }
 
@@ -218,8 +219,8 @@ void RunSimulation() {
 
     bool cas_succeeded = cas_response.cas_success;
 
-    std::cout << "Client received CasResponse! success: " << cas_succeeded
-              << " last_known_value: " << (int)*last_known_value << std::endl;
+    spdlog::debug("Client received CasResponse! success: {} last_known_value {}", cas_succeeded,
+                  (int)*last_known_value);
 
     if (cas_succeeded) {
       last_known_value = i;
@@ -234,7 +235,8 @@ void RunSimulation() {
     ReadRequest<GetRequest> read_req;
     read_req.operation = get_req;
 
-    std::cout << "client sending GetRequest to Leader " << leader.last_known_port << std::endl;
+    spdlog::debug("client sending GetRequest to Leader {}", leader.last_known_port);
+
     ResponseFuture<ReadResponse<GetResponse>> get_response_future =
         cli_io.Request<ReadRequest<GetRequest>, ReadResponse<GetResponse>>(leader, read_req);
 
@@ -242,7 +244,7 @@ void RunSimulation() {
     ResponseResult<ReadResponse<GetResponse>> get_response_result = std::move(get_response_future).Wait();
 
     if (get_response_result.HasError()) {
-      std::cout << "client timed out while trying to communicate with leader server " << std::endl;
+      spdlog::debug("client timed out while trying to communicate with Leader server {}", leader.last_known_port);
       continue;
     }
 
@@ -257,21 +259,21 @@ void RunSimulation() {
     if (read_get_response.retry_leader) {
       MG_ASSERT(!read_get_response.success, "retry_leader should never be set for successful responses");
       leader = read_get_response.retry_leader.value();
-      std::cout << "client redirected to leader server " << leader.last_known_port << std::endl;
+      spdlog::debug("client redirected to Leader server {}", leader.last_known_port);
     } else if (!read_get_response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, 2);
       size_t addr_index = addr_distrib(cli_rng_);
       leader = server_addrs[addr_index];
 
-      std::cout << "client NOT redirected to leader server, trying a random one at index " << addr_index
-                << " with port " << leader.last_known_port << std::endl;
+      spdlog::debug("client NOT redirected to leader server, trying a random one at index {} with port {}", addr_index,
+                    leader.last_known_port);
     }
 
     GetResponse get_response = read_get_response.read_return;
 
     MG_ASSERT(get_response.value == i);
 
-    std::cout << "client successfully cas'd a value and read it back! value: " << i << std::endl;
+    spdlog::debug("client successfully cas'd a value and read it back! value: {}", i);
 
     success = true;
   }
@@ -282,14 +284,14 @@ void RunSimulation() {
 
   SimulatorStats stats = simulator.Stats();
 
-  std::cout << "total messages:     " << stats.total_messages << std::endl;
-  std::cout << "dropped messages:   " << stats.dropped_messages << std::endl;
-  std::cout << "timed out requests: " << stats.timed_out_requests << std::endl;
-  std::cout << "total requests:     " << stats.total_requests << std::endl;
-  std::cout << "total responses:    " << stats.total_responses << std::endl;
-  std::cout << "simulator ticks:    " << stats.simulator_ticks << std::endl;
+  spdlog::debug("total messages:     ", stats.total_messages);
+  spdlog::debug("dropped messages:   ", stats.dropped_messages);
+  spdlog::debug("timed out requests: ", stats.timed_out_requests);
+  spdlog::debug("total requests:     ", stats.total_requests);
+  spdlog::debug("total responses:    ", stats.total_responses);
+  spdlog::debug("simulator ticks:    ", stats.simulator_ticks);
 
-  std::cout << "========================== SUCCESS :) ==========================" << std::endl;
+  spdlog::debug("========================== SUCCESS :) ==========================");
 
   /*
   this is implicit in jthread's dtor
@@ -303,12 +305,12 @@ int main() {
   int n_tests = 50;
 
   for (int i = 0; i < n_tests; i++) {
-    std::cout << "========================== NEW SIMULATION " << i << " ==========================" << std::endl;
-    std::cout << "\tTime\tTerm\tPort\tRole\t\tMessage\n";
+    spdlog::debug("========================== NEW SIMULATION {} ==========================", i);
+    spdlog::debug("\tTime\tTerm\tPort\tRole\t\tMessage\n");
     RunSimulation();
   }
 
-  std::cout << "passed " << n_tests << " tests!" << std::endl;
+  spdlog::debug("passed {} tests!", n_tests);
 
   return 0;
 }
