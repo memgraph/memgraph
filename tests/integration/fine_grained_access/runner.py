@@ -87,6 +87,7 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
             "CREATE USER admin IDENTIFIED BY 'admin'",
             "GRANT ALL PRIVILEGES TO admin",
             "CREATE USER user IDENTIFIED BY 'user'",
+            "GRANT ALL PRIVILEGES TO user",
             "GRANT LABELS :label1, :label2, :label3 TO user",
             "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user",
             "MERGE (l1:label1 {name: 'test1'})",

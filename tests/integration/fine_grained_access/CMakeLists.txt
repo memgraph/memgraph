@@ -1,6 +1,4 @@
-
-
-set(target_name memgraph__integration__lba)
+set(target_name memgraph__integration__fine_grained_access)
 set(tester_target_name ${target_name}__tester)
 set(filtering_target_name ${target_name}__filtering)
 
