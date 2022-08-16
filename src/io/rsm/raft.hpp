@@ -431,7 +431,7 @@ class Raft {
   std::optional<Role> Cron(Candidate &candidate) {
     const auto now = io_.Now();
     const Duration election_timeout = RandomTimeout(100000, 200000);
-    auto election_timeout_us = std::chrono::duration_cast<std::chrono::milliseconds>(election_timeout).count();
+    const auto election_timeout_us = std::chrono::duration_cast<std::chrono::milliseconds>(election_timeout).count();
 
     if (now - candidate.election_began > election_timeout) {
       state_.term++;
