@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -41,6 +42,7 @@
 #include "storage/v3/replication/replication_server.hpp"
 #include "storage/v3/replication/rpc.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
 #include "utils/exceptions.hpp"
@@ -71,10 +73,10 @@ void InsertVertexPKIntoMap(auto &container, const LabelId primary_label, const P
 }
 }  // namespace
 
-auto AdvanceToVisibleVertexInSkipList(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
-                                      std::optional<VertexAccessor> *vertex, Transaction *tx, View view,
-                                      Indices *indices, Constraints *constraints, Config::Items config,
-                                      const SchemaValidator &schema_validator, const Schemas &schemas) {
+std::optional<VerticesSkipList::Iterator> AdvanceToVisibleVertex(
+    VerticesSkipList::Iterator it, VerticesSkipList::Iterator end, std::optional<VertexAccessor> *vertex,
+    Transaction *tx, View view, Indices *indices, Constraints *constraints, Config::Items config,
+    const SchemaValidator &schema_validator, const Schemas &schemas) {
   while (it != end) {
     *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, schema_validator, schemas, view);
     if (!*vertex) {
@@ -83,50 +85,55 @@ auto AdvanceToVisibleVertexInSkipList(VerticesSkipList::Iterator it, VerticesSki
     }
     break;
   }
-  return it;
+  return std::nullopt;
 }
 
-auto AdvanceToVisibleVertexInLabelspace(Labelspace &labelspace, Labelspace::iterator labels_it,
-                                        VerticesSkipList::Iterator vertex_it, std::optional<VertexAccessor> *vertex,
-                                        Transaction *tx, View view, Indices *indices, Constraints *constraints,
-                                        Config::Items config, const SchemaValidator &schema_validator,
-                                        const Schemas &schemas) {
-  while (labels_it != labelspace.end()) {
-    auto vertex_accessor = labels_it->second.access();
-    while (vertex_it != vertex_accessor.end()) {
-      *vertex =
-          VertexAccessor::Create(&vertex_it->vertex, tx, indices, constraints, config, schema_validator, schemas, view);
-
-      if (!*vertex) {
-        ++vertex_it;
-        continue;
-      }
-      break;
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it)
+    : self_(self), labels_it_{labelspace_it} {
+  if (labels_it_ != self_->labelspace_->end()) {
+    self_->vertex_accessor.emplace(labelspace_it->second.access());
+    vertex_it_ = AdvanceToVisibleVertex(self_->vertex_accessor->begin(), self_->vertex_accessor->end(), &self_->vertex_,
+                                        self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
+                                        self_->config_, *self_->schema_validator_, *self_->schemas_);
+    if (vertex_it_ == std::nullopt) {
+      end_ = true;
     }
-    ++labels_it;
   }
-  return vertex_it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it,
-                                        VerticesSkipList::Iterator vertex_it)
-    : self_(self),
-      vertex_it(AdvanceToVisibleVertexInLabelspace(*self->labelspace_, labelspace_it, vertex_it, &self->vertex_,
-                                                   self->transaction_, self->view_, self->indices_, self_->constraints_,
-                                                   self->config_, *self->schema_validator_, *self->schemas_)) {}
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, bool end)
+    : self_(self), labels_it_{labelspace_it}, end_{end} {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  vertex_it = AdvanceToVisibleVertexInLabelspace(
-      *this->self_->labelspace_, labels_it_, vertex_it, &self_->vertex_, self_->transaction_, self_->view_,
-      self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_, *self_->schemas_);
+  while (labels_it_ != self_->labelspace_->end() && vertex_it_) {
+    ++*vertex_it_;
+    if (*vertex_it_ != self_->vertex_accessor->end()) {
+      vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
+                                          self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
+                                          self_->config_, *self_->schema_validator_, *self_->schemas_);
+      if (vertex_it_) {
+        return *this;
+      }
+    }
+    ++labels_it_;
+    if (labels_it_ != self_->labelspace_->end()) {
+      self_->vertex_accessor.emplace(labels_it_->second.access());
+      vertex_it_.emplace(self_->vertex_accessor->begin());
+    }
+    vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
+                                        self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
+                                        self_->config_, *self_->schema_validator_, *self_->schemas_);
+    return *this;
+  }
+  end_ = true;
   return *this;
 }
 
 AllVerticesIterable::Iterator AllVerticesIterable::begin() noexcept { return {this, labelspace_->begin()}; }
 
-AllVerticesIterable::Iterator AllVerticesIterable::end() noexcept { return {this, labelspace_->end()}; }
+AllVerticesIterable::Iterator AllVerticesIterable::end() noexcept { return {this, labelspace_->end(), true}; }
 
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
   new (&all_vertices_) AllVerticesIterable(std::move(vertices));

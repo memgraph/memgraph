@@ -75,6 +75,7 @@ using Labelspace = std::map<LabelId, VerticesSkipList>;
 /// generic, public use.
 class AllVerticesIterable final {
   Labelspace *labelspace_;
+  std::optional<VerticesSkipList::Accessor> vertex_accessor;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -87,20 +88,24 @@ class AllVerticesIterable final {
  public:
   class Iterator final {
     AllVerticesIterable *self_;
+
     Labelspace::iterator labels_it_;
-    VerticesSkipList::Iterator vertex_it;
 
    public:
+    std::optional<VerticesSkipList::Iterator> vertex_it_;
+    bool end_{false};
+
     Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it);
 
-    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, VerticesSkipList::Iterator vertex_it);
+    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, bool end);
 
     VertexAccessor operator*() const;
 
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const {
-      return self_ == other.self_ && labels_it_ == other.labels_it_ && vertex_it == other.vertex_it;
+      return (self_ == other.self_ && labels_it_ == other.labels_it_ && vertex_it_ == other.vertex_it_) ||
+             (end_ == other.end_ && self_ == other.self_);
     }
 
     bool operator!=(const Iterator &other) const { return !(*this == other); }
