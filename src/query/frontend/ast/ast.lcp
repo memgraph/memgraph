@@ -2268,7 +2268,7 @@ cpp<#
     AuthQuery(Action action, std::string user, std::string role,
               std::string user_or_role, Expression *password,
               std::vector<Privilege> privileges, std::vector<std::string> labels,
-              std::vector<std::string> edgeTypes)
+              std::vector<std::string> edge_types)
         : action_(action),
           user_(user),
           role_(role),
@@ -2276,7 +2276,7 @@ cpp<#
           password_(password),
           privileges_(privileges),
           labels_(labels),
-          edge_types_(edgeTypes) {}
+          edge_types_(edge_types) {}
     cpp<#)
   (:private
     #>cpp

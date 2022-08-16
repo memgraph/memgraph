@@ -55,7 +55,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
   return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
 }
 
-std::unique_ptr<memgraph::query::UserBasedAuthChecker> AuthChecker::GetUserBasedAuthChecker(
+std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const std::string &username) const {
   try {
     auto locked_auth = auth_->Lock();
@@ -64,7 +64,7 @@ std::unique_ptr<memgraph::query::UserBasedAuthChecker> AuthChecker::GetUserBased
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
     }
 
-    return std::make_unique<memgraph::glue::UserBasedAuthChecker>(std::move(*user));
+    return std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*user));
 
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -80,10 +80,11 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
   });
 }
 
-UserBasedAuthChecker::UserBasedAuthChecker(auth::User user) : user_{std::move(user)} {};
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user) : user_{std::move(user)} {};
 
-bool UserBasedAuthChecker::Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::VertexAccessor &vertex,
-                                  const memgraph::storage::View &view) const {
+bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
+                                    const memgraph::query::VertexAccessor &vertex,
+                                    const memgraph::storage::View &view) const {
   auto maybe_labels = vertex.Labels(view);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
@@ -101,8 +102,8 @@ bool UserBasedAuthChecker::Accept(const memgraph::query::DbAccessor &dba, const 
   return IsUserAuthorizedLabels(user_, dba, *maybe_labels);
 }
 
-bool UserBasedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
-                                  const memgraph::query::EdgeAccessor &edge) const {
+bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
+                                    const memgraph::query::EdgeAccessor &edge) const {
   return IsUserAuthorizedEdgeType(user_, dba, edge.EdgeType());
 }
 

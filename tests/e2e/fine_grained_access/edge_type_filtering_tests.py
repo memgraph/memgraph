@@ -4,7 +4,11 @@ import pytest
 
 
 def test_all_edge_types_all_labels_granted():
+    admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
     assert len(results) == 3
@@ -13,7 +17,10 @@ def test_all_edge_types_all_labels_granted():
 def test_deny_edge_type():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1, :label2, :label3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES :edgeType2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES :edgeType1 TO user;")
+
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
     assert len(results) == 2
@@ -23,7 +30,9 @@ def test_denied_node_label():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1,:label3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label2 TO user;")
+
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
     assert len(results) == 2
@@ -33,8 +42,9 @@ def test_denied_one_of_node_label():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1,:label2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES :edgeType1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES :edgeType1, :edgeType2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label3 TO user;")
+
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
     assert len(results) == 1

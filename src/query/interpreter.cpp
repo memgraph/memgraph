@@ -945,7 +945,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
-    ctx_.auth_checker = interpreter_context->auth_checker->GetUserBasedAuthChecker(*username);
+    ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username);
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {

@@ -412,8 +412,7 @@ TEST_F(ExpandFixture, Expand) {
 }
 
 TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
-  auto test_expand = [&](memgraph::glue::UserBasedAuthChecker &auth_checker, EdgeAtom::Direction direction,
-                         memgraph::storage::View view) {
+  auto test_expand = [&](memgraph::auth::User user, EdgeAtom::Direction direction, memgraph::storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
 
@@ -421,7 +420,8 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
     auto output =
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    auto context = MakeContextWithUserAndAuthChecker(storage, symbol_table, &dba, &auth_checker);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
   };
 
@@ -431,35 +431,35 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test");
   user.fine_grained_access_handler().label_permissions().Grant("*");
   memgraph::storage::EdgeTypeId edge_type_test{db.NameToEdgeType("edge_type_test")};
-  memgraph::glue::UserBasedAuthChecker auth_checker{user};
 
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type_test).HasValue());
   ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type_test).HasValue());
   // test that expand works well for both old and new graph state
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
 
   dba.AdvanceCommand();
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(2, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 
   user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_test");
 
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(8, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
-  EXPECT_EQ(8, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
 
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
-  EXPECT_EQ(4, test_expand(auth_checker, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
-  EXPECT_EQ(8, test_expand(auth_checker, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
 
 TEST_F(ExpandFixture, ExpandPath) {

@@ -28,7 +28,7 @@ class AuthChecker : public query::AuthChecker {
   bool IsUserAuthorized(const std::optional<std::string> &username,
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override;
 
-  std::unique_ptr<memgraph::query::UserBasedAuthChecker> GetUserBasedAuthChecker(
+  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username) const override;
 
   [[nodiscard]] static bool IsUserAuthorized(const memgraph::auth::User &user,
@@ -38,15 +38,16 @@ class AuthChecker : public query::AuthChecker {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 
-class UserBasedAuthChecker : public query::UserBasedAuthChecker {
+class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
-  explicit UserBasedAuthChecker(auth::User user);
+  explicit FineGrainedAuthChecker(auth::User user);
 
   virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
                       const memgraph::storage::View &view) const override;
 
   virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const override;
 
+ private:
   auth::User user_;
 };
 

@@ -16,7 +16,7 @@
 
 namespace memgraph::query {
 
-class UserBasedAuthChecker;
+class FineGrainedAuthChecker;
 
 class AuthChecker {
  public:
@@ -25,13 +25,13 @@ class AuthChecker {
   [[nodiscard]] virtual bool IsUserAuthorized(const std::optional<std::string> &username,
                                               const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
 
-  [[nodiscard]] virtual std::unique_ptr<UserBasedAuthChecker> GetUserBasedAuthChecker(
+  [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username) const = 0;
 };
 
-class UserBasedAuthChecker {
+class FineGrainedAuthChecker {
  public:
-  virtual ~UserBasedAuthChecker() = default;
+  virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
                                     const memgraph::storage::View &view) const = 0;
@@ -39,7 +39,7 @@ class UserBasedAuthChecker {
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const = 0;
 };
 
-class AllowEverythingUserBasedAuthChecker final : public query::UserBasedAuthChecker {
+class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
   bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
               const memgraph::storage::View &view) const override {
@@ -58,7 +58,7 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
     return true;
   }
 
-  std::unique_ptr<UserBasedAuthChecker> GetUserBasedAuthChecker(const std::string & /*username*/) const override {
+  std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/) const override {
     return std::make_unique<AllowEverythingUserBasedAuthChecker>();
   }
 };

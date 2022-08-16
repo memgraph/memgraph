@@ -39,8 +39,8 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
   MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
-  MOCK_CONST_METHOD1(GetUserBasedAuthChecker,
-                     std::unique_ptr<memgraph::query::UserBasedAuthChecker>(const std::string &username));
+  MOCK_CONST_METHOD1(GetFineGrainedAuthChecker,
+                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(const std::string &username));
 };
 }  // namespace
 

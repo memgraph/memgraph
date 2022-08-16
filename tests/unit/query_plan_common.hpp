@@ -42,14 +42,14 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   return context;
 }
 
-ExecutionContext MakeContextWithUserAndAuthChecker(const AstStorage &storage, const SymbolTable &symbol_table,
+ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, const SymbolTable &symbol_table,
                                                    memgraph::query::DbAccessor *dba,
-                                                   memgraph::glue::UserBasedAuthChecker *auth_checker) {
+                                                   memgraph::glue::FineGrainedAuthChecker *auth_checker) {
   ExecutionContext context{dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
-  context.auth_checker = std::make_unique<memgraph::glue::UserBasedAuthChecker>(std::move(*auth_checker));
+  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
 
   return context;
 }
