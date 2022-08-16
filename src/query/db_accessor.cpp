@@ -57,10 +57,16 @@ storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(Edge
   return result;
 }
 
-storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(VertexAccessor *from, VertexAccessor *to,
+storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                                              const storage::EdgeTypeId &edge_type) {
-  auto result = db_accessor_->InsertEdge(from, to, edge_type);
-  // todo antoniofilipovic add edge to subgraph
+  VertexAccessor *from_impl = &from->impl_;
+  VertexAccessor *to_impl = &to->impl_;
+
+  auto result = db_accessor_->InsertEdge(from_impl, to_impl, edge_type);
+  if (result.HasError()) {
+    return result;
+  }
+  this->graph_->InsertEdge(*result);
   return result;
 }
 

@@ -479,7 +479,7 @@ class SubgraphDbAccessor final {
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
 
-  storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
+  storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(

@@ -2385,28 +2385,27 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create an edge in an immutable graph!"};
         }
-        auto edge = std::visit(memgraph::utils::Overloaded{
-                                   [from, to, type](memgraph::query::DbAccessor *impl) {
-                                     if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
-                                         std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
-                                       throw std::logic_error{"Both vertices must be of VertexAccessorType"};
-                                     }
-                                     return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
-                                                             &std::get<memgraph::query::VertexAccessor>(to->impl),
-                                                             impl->NameToEdgeType(type.name));
-                                   },
-                                   [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
-                                     // todo antoniofilipovic change this, it is wrong here since it needs to be
-                                     // SubgraphVertexAccessor
-                                     if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
-                                         std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
-                                       throw std::logic_error{"Wrong type"};
-                                     }
-                                     return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
-                                                             &std::get<memgraph::query::VertexAccessor>(to->impl),
-                                                             impl->NameToEdgeType(type.name));
-                                   }},
-                               graph->impl);
+        auto edge =
+            std::visit(memgraph::utils::Overloaded{
+                           [from, to, type](memgraph::query::DbAccessor *impl) {
+                             if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
+                                 std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
+                               throw std::logic_error{"Both vertices must be of VertexAccessor type"};
+                             }
+                             return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
+                                                     &std::get<memgraph::query::VertexAccessor>(to->impl),
+                                                     impl->NameToEdgeType(type.name));
+                           },
+                           [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
+                             if (std::holds_alternative<memgraph::query::VertexAccessor>(from->impl) ||
+                                 std::holds_alternative<memgraph::query::VertexAccessor>(to->impl)) {
+                               throw std::logic_error{"Both vertices must be of SubgraphVertexAccessor type"};
+                             }
+                             return impl->InsertEdge(&std::get<memgraph::query::SubgraphVertexAccessor>(from->impl),
+                                                     &std::get<memgraph::query::SubgraphVertexAccessor>(to->impl),
+                                                     impl->NameToEdgeType(type.name));
+                           }},
+                       graph->impl);
 
         if (edge.HasError()) {
           switch (edge.GetError()) {
