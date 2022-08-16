@@ -82,8 +82,9 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3_scanAll) {
     DbAccessor dba(&storage_dba);
 
     auto property_index = 0;
-    auto vertex_node = *dba.InsertVertexAndValidate(schema_label, {},
-                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    auto vertex_node = dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    ASSERT_FALSE(vertex_node.HasValue());
 
     ASSERT_FALSE(dba.Commit().HasError());
   }
