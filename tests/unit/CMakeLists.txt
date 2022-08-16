@@ -321,6 +321,9 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
+add_unit_test(auth_checker.cpp)
+target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
