@@ -325,7 +325,7 @@ class Raft {
       };
 
       // request_id not necessary to set because it's not a Future-backed Request.
-      const RequestId request_id = 0;
+    static constexpr RequestId request_id = 0;
 
       io_.Send(address, request_id, ar);
     }
