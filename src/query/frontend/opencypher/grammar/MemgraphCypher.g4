@@ -45,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE_TYPES
                       | EXECUTE
                       | FOR
                       | FOREACH
@@ -255,10 +256,17 @@ privilege : CREATE
           | MODULE_READ
           | MODULE_WRITE
           | WEBSOCKET
+          | EDGE_TYPES edgeTypes=edgeTypeList
           | LABELS labels=labelList
           ;
 
 privilegeList : privilege ( ',' privilege )* ;
+
+edgeTypeList : '*' | listOfEdgeTypes ;
+
+listOfEdgeTypes : edgeType ( ',' edgeType )* ;
+
+edgeType : COLON symbolicName ;
 
 labelList : '*' | listOfLabels ;
 

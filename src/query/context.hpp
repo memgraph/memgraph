@@ -11,10 +11,10 @@
 
 #pragma once
 
+#include <memory>
 #include <type_traits>
 
 #include "query/common.hpp"
-#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
@@ -73,7 +73,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
-  FineGrainedAccessChecker *fine_grained_access_checker{nullptr};
+  std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

@@ -453,6 +453,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitClearRole(MemgraphCypher::ClearRoleContext *ctx) override;
 
+  void extractPrivilege(AuthQuery *auth, antlropencypher::MemgraphCypher::PrivilegeContext *privilege);
+
   /**
    * @return AuthQuery*
    */
@@ -467,6 +469,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitEdgeTypeList(MemgraphCypher::EdgeTypeListContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege
