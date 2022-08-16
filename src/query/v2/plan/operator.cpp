@@ -1047,6 +1047,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   }
 }
 
+// #NoCommit
 Expand_Distributed::Expand_Distributed(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                                        Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
                                        const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node,
@@ -1078,9 +1079,15 @@ Expand_Distributed::ExpandCursor_Distributed::ExpandCursor_Distributed(const Exp
 bool Expand_Distributed::ExpandCursor_Distributed::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Expand");
 
+  /*
+  Not sure at which point the ExpandCursor contacts the storage? Perhaps nothing to change
+
+  */
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
-    if (self_.common_.existing_node) return;
+    if (self_.common_.existing_node) {
+      return;
+    }
     switch (direction) {
       case EdgeAtom::Direction::IN:
         frame[self_.common_.node_symbol] = new_edge.From();
@@ -1093,8 +1100,11 @@ bool Expand_Distributed::ExpandCursor_Distributed::Pull(Frame &frame, ExecutionC
     }
   };
 
-  while (true) {
-    if (MustAbort(context)) throw HintedAbortError();
+  do {
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
@@ -1109,7 +1119,10 @@ bool Expand_Distributed::ExpandCursor_Distributed::Pull(Frame &frame, ExecutionC
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
-      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) {
+        continue;
+      }
+
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
       return true;
@@ -1117,10 +1130,12 @@ bool Expand_Distributed::ExpandCursor_Distributed::Pull(Frame &frame, ExecutionC
 
     // If we are here, either the edges have not been initialized,
     // or they have been exhausted. Attempt to initialize the edges.
-    if (!InitEdges(frame, context)) return false;
+    if (!InitEdges(frame, context)) {
+      return false;
+    }
 
     // we have re-initialized the edges, continue with the loop
-  }
+  } while (true);
 }
 
 void Expand_Distributed::ExpandCursor_Distributed::Shutdown() { input_cursor_->Shutdown(); }
@@ -1136,12 +1151,16 @@ void Expand_Distributed::ExpandCursor_Distributed::Reset() {
 bool Expand_Distributed::ExpandCursor_Distributed::InitEdges(Frame &frame, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
-  while (true) {
-    if (!input_cursor_->Pull(frame, context)) return false;
+  do {
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
     TypedValue &vertex_value = frame[self_.input_symbol_];
 
     // Null check due to possible failed optional match.
-    if (vertex_value.IsNull()) continue;
+    if (vertex_value.IsNull()) {
+      continue;
+    }
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.ValueVertex();
@@ -1182,7 +1201,7 @@ bool Expand_Distributed::ExpandCursor_Distributed::InitEdges(Frame &frame, Execu
     }
 
     return true;
-  }
+  } while (true);
 }
 
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
