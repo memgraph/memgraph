@@ -1,0 +1,12 @@
+diff -ur a/thrift/lib/cpp2/server/IOWorkerContext.h b/thrift/lib/cpp2/server/IOWorkerContext.h
+--- a/thrift/lib/cpp2/server/IOWorkerContext.h  2022-06-08 11:50:43.043948657 +0200
++++ b/thrift/lib/cpp2/server/IOWorkerContext.h  2022-06-08 11:47:33.232695125 +0200
+@@ -59,7 +59,7 @@
+           auto aliveLocked = alive->rlock();
+           if (*aliveLocked) {
+             // IOWorkerContext is still alive and so is replyQueue_
+-            queue->startConsumingInternal(&evb);
++            queue->startConsuming(&evb);
+           }
+         });
+   }

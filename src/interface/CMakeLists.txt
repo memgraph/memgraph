@@ -27,7 +27,7 @@ mg_thrift_library(
 )
 
 mg_thrift_library(
-  "echo_trial" #file_name
+  "echo" #file_name
   "Echo" #services
   "${MG_INTERFACE_PATH}" #file_path
   "${MG_INTERFACE_PATH}" #output_path

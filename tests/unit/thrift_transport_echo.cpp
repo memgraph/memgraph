@@ -33,8 +33,6 @@ using namespace folly;
 
 using namespace std::chrono_literals;
 
-namespace {
-
 // static constexpr int port = 6666;  // The port on which server is listening
 
 class EchoSvc : public EchoSvIf {
@@ -49,7 +47,7 @@ class EchoSvc : public EchoSvIf {
   // The Thrift handle method
   void ReceiveSend(const EchoMessage &m) override {
     // m.get_message();
-    LOG(ERROR) << "Received\n";
+    // LOG(ERROR) << "Received\n";
     current_message_ = prefix_ + m.get_message();
     // SendOutMessage(6665);
     //  LOG(ERROR) << "Sent\n";
@@ -87,8 +85,6 @@ class EchoSvc : public EchoSvIf {
 
   std::string GetCurrentMessage() { return current_message_; }
 };
-
-}  // namespace
 
 TEST(ThriftTransport, Echo) {
   // TODO(tyler and gabor) use thrift-generated echo, and thrift transport, to send, reply, and receive the response for

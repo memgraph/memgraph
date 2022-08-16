@@ -397,4 +397,4 @@ target_link_libraries(${test_prefix}future mg-io)
 
 # Test Thrift transport echo
 add_unit_test(thrift_transport_echo.cpp)
-target_link_libraries(${test_prefix}thrift_transport_echo mg-io)
+target_link_libraries(${test_prefix}thrift_transport_echo mg-io Threads::Threads mg-interface-echo-cpp2 fmt)
