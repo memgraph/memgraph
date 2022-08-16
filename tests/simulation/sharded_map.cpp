@@ -58,6 +58,7 @@ using memgraph::io::simulator::SimulatorTransport;
 using StorageClient =
     RsmClient<Io<SimulatorTransport>, StorageWriteRequest, StorageWriteResponse, StorageGetRequest, StorageGetResponse>;
 namespace {
+
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
                              memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
                              memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
@@ -193,8 +194,6 @@ int main() {
   auto b_thread_3 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[2]);
 
-  std::cout << "beginning test after servers have become quiescent" << std::endl;
-
   // Spin up coordinators
 
   Io<SimulatorTransport> c_io_1 = simulator.RegisterNew();
@@ -219,6 +218,8 @@ int main() {
 
   auto c_thread_3 = std::jthread([c_3]() mutable { c_3.Run(); });
   simulator.IncrementServerCountAndWaitForQuiescentState(c_addrs[2]);
+
+  std::cout << "beginning test after servers have become quiescent" << std::endl;
 
   // Have client contact coordinator RSM for a new transaction ID and
   // also get the current shard map
@@ -259,7 +260,9 @@ int main() {
     // Transaction ID to be used later...
     auto transaction_id = res.new_hlc;
 
-    client_shard_map = res.fresher_shard_map.value();
+    if (res.fresher_shard_map) {
+      client_shard_map = res.fresher_shard_map.value();
+    }
 
     // TODO(gabor) check somewhere in the call chain if the entries are actually valid
     // for (auto &[key, val] : client_shard_map.GetShards()) {

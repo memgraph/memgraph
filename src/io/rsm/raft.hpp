@@ -156,14 +156,17 @@ struct Follower {
 using Role = std::variant<Candidate, Leader, Follower>;
 
 /*
+
 all ReplicatedState classes should have an Apply method
-that returns our WriteResponseValue:
+that returns our WriteResponseValue after consensus, and
+a Read method that returns our ReadResponseValue without
+requiring consensus.
 
 ReadResponse Read(ReadOperation);
 WriteResponseValue ReplicatedState::Apply(WriteRequest);
 
-for examples:
-if the state is uint64_t, and WriteRequest is `struct PlusOne {};`,
+For example:
+If the state is uint64_t, and WriteRequest is `struct PlusOne {};`,
 and WriteResponseValue is also uint64_t (the new value), then
 each call to state.Apply(PlusOne{}) will return the new value
 after incrementing it. 0, 1, 2, 3... and this will be sent back
