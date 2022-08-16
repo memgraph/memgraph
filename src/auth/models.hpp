@@ -60,10 +60,10 @@ inline uint64_t operator|(uint64_t a, LabelPermission b) { return a | static_cas
 
 inline bool operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
 
-const uint64_t LabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
-                                    memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
-const uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
-const uint64_t LabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
+const uint64_t kLabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
+                                     memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
+const uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
+const uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);

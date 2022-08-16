@@ -450,7 +450,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(asterisk, LabelPermission::CREATE_DELETE);
     fga_permissions.Deny(any_label, LabelPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.global_permission(), LabelPermissionAll);
+    ASSERT_EQ(fga_permissions.global_permission(), kLabelPermissionAll);
     ASSERT_FALSE(fga_permissions.permissions().empty());
   }
 
@@ -459,7 +459,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(asterisk, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.global_permission(), LabelPermissionAll);
+    ASSERT_EQ(fga_permissions.global_permission(), kLabelPermissionAll);
     ASSERT_TRUE(fga_permissions.permissions().empty());
   }
 

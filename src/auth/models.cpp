@@ -32,7 +32,6 @@ DEFINE_string(auth_password_strength_regex, default_password_regex.data(),
 
 namespace memgraph::auth {
 namespace {
-const uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
 
 // Constant list of all available permissions.
 const std::vector<Permission> kPermissionsAll = {
@@ -293,12 +292,12 @@ uint64_t FineGrainedAccessPermissions::CalculateDeny(LabelPermission label_permi
   uint64_t result{0};
   auto uint_label_permission = static_cast<uint64_t>(label_permission);
 
-  while (uint_label_permission <= LabelPermissionMax) {
+  while (uint_label_permission <= kLabelPermissionMax) {
     result |= uint_label_permission;
     uint_label_permission <<= shift;
   }
 
-  return LabelPermissionAll - result;
+  return kLabelPermissionAll - result;
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
