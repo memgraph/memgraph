@@ -248,7 +248,7 @@ void FineGrainedAccessPermissions::Deny(const std::string &permission, const Lab
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["permissions"] = permissions_;
-  data["global_permission"] = global_permission_.has_value() ? std::to_string(global_permission_.value()) : "-1";
+  data["global_permission"] = global_permission_.has_value() ? global_permission_.value() : -1;
   return data;
 }
 
@@ -259,7 +259,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
 
   std::optional<uint64_t> global_permission;
 
-  if (data["global_permission"] == "-1") {
+  if (data["global_permission"].empty() || data["global_permission"] == -1) {
     global_permission = std::nullopt;
   } else {
     global_permission = data["global_permission"];
