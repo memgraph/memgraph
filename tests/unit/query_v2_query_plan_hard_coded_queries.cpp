@@ -18,6 +18,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "io/simulator/simulator.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/plan/operator.hpp"
@@ -44,6 +45,70 @@ class QueryPlanHardCodedQueriesTest : public ::testing::Test {
   const storage::v3::LabelId schema_label{db_v3.NameToLabel("label")};
   const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
 };
+
+TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3_scanAll) {
+  /*
+
+  QUERY:
+    MATCH (n)
+    RETURN *;
+
+  QUERY PLAN:
+    Produce {n}
+    ScanAll (n)
+    Once
+  */
+  // auto config = memgraph::io::simulator::SimulatorConfig{
+  //     .drop_percent = 0,
+  //     .perform_timeouts = false,
+  //     .scramble_messages = false,
+  //     .rng_seed = 0,
+  // };
+  // auto simulator = memgraph::io::simulator::Simulator(config);
+  // auto storage_address = memgraph::io::Address::TestAddress(1);
+  // memgraph::io::Io<memgraph::io::simulator::SimulatorTransport> storage_client = simulator.Register(storage_address);
+
+  // struct CoordinatorClient { // who we send request to and from
+  // } coordinator_client;
+
+  /*
+  low risk thing that wn't change:
+
+  Getting the shard map from the coordinator
+  I need a coordinator
+  */
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    auto vertex_node = *dba.InsertVertexAndValidate(schema_label, {},
+                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (n)
+  auto scan_all_1 = MakeScanAll_Distributed(storage, symbol_table, "n");
+
+  {
+    /*
+    Checking temporary result from:
+      MATCH (n)
+    */
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+  }
+}
 
 TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
   /*

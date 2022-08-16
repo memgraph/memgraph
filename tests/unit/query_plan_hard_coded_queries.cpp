@@ -38,6 +38,49 @@ class QueryPlanHardCodedQueriesTest : public ::testing::Test {
   memgraph::storage::Storage db_v2;
 };
 
+TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v2_scanAll) {
+  /*
+  QUERY:
+    MATCH (n)
+    RETURN *;
+
+  QUERY PLAN:
+    Produce {n}
+    ScanAll (n)
+    Once
+  */
+  {  // Inserting data
+    auto storage_dba = db_v2.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto vertex_node = dba.InsertVertex();
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v2.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (n)
+  auto scan_all_1 = MakeScanAll(storage, symbol_table, "n");
+
+  {
+    /*
+    Checking temporary result from:
+      MATCH (n)
+    */
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan_all_1.op_, output);
+    auto context = MakeContext(storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 1);
+  }
+}
+
 TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v2) {
   /*
   INDEXES:
