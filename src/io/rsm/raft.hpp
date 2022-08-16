@@ -448,7 +448,7 @@ class Raft {
 
       for (const auto &peer : peers_) {
         // request_id not necessary to set because it's not a Future-backed Request.
-        auto request_id = 0;
+        static constexpr auto request_id = 0;
         io_.template Send<VoteRequest>(peer, request_id, request);
         outstanding_votes.insert(peer);
       }
