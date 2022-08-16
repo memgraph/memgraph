@@ -101,7 +101,12 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-Permissions::Permissions(uint64_t grants, uint64_t denies) : grants_(grants & (~denies)), denies_(denies) {}
+Permissions::Permissions(uint64_t grants, uint64_t denies) {
+  // The deny bitmask has higher priority than the grant bitmask.
+  denies_ = denies;
+  // Mask out the grant bitmask to make sure that it is correct.
+  grants_ = grants & (~denies);
+}
 
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
@@ -169,7 +174,7 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!data["grants"].is_number_unsigned() || !data["denies"].is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  return {data["grants"], data["denies"]};
+  return Permissions{data["grants"], data["denies"]};
 }
 
 uint64_t Permissions::grants() const { return grants_; }
@@ -295,9 +300,9 @@ bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAcce
   return !(first == second);
 }
 
-FineGrainedAccessHandler::FineGrainedAccessHandler(const FineGrainedAccessPermissions &labelPermissions,
-                                                   const FineGrainedAccessPermissions &edgeTypePermissions)
-    : label_permissions_(labelPermissions), edge_type_permissions_(edgeTypePermissions) {}
+FineGrainedAccessHandler::FineGrainedAccessHandler(FineGrainedAccessPermissions labelPermissions,
+                                                   FineGrainedAccessPermissions edgeTypePermissions)
+    : label_permissions_(std::move(labelPermissions)), edge_type_permissions_(std::move(edgeTypePermissions)) {}
 
 const FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() const { return label_permissions_; }
 FineGrainedAccessPermissions &FineGrainedAccessHandler::label_permissions() { return label_permissions_; }
@@ -324,7 +329,7 @@ FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::j
   auto label_permissions = FineGrainedAccessPermissions::Deserialize(data["label_permissions"]);
   auto edge_type_permissions = FineGrainedAccessPermissions::Deserialize(data["edge_type_permissions"]);
 
-  return FineGrainedAccessHandler(label_permissions, edge_type_permissions);
+  return FineGrainedAccessHandler(std::move(label_permissions), std::move(edge_type_permissions));
 }
 
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second) {
@@ -339,10 +344,10 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
 Role::Role(const std::string &rolename, const Permissions &permissions,
-           const FineGrainedAccessHandler &fine_grained_access_handler)
+           FineGrainedAccessHandler fine_grained_access_handler)
     : rolename_(utils::ToLowerCase(rolename)),
       permissions_(permissions),
-      fine_grained_access_handler_(fine_grained_access_handler) {}
+      fine_grained_access_handler_(std::move(fine_grained_access_handler)) {}
 
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
@@ -368,7 +373,7 @@ Role Role::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
   auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
-  return {data["rolename"], permissions, fine_grained_access_handler};
+  return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
 }
 
 bool operator==(const Role &first, const Role &second) {
@@ -381,11 +386,11 @@ User::User() {}
 User::User(const std::string &username) : username_(utils::ToLowerCase(username)) {}
 
 User::User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-           const FineGrainedAccessHandler &fine_grained_access_handler)
+           FineGrainedAccessHandler fine_grained_access_handler)
     : username_(utils::ToLowerCase(username)),
       password_hash_(password_hash),
       permissions_(permissions),
-      fine_grained_access_handler_(fine_grained_access_handler) {}
+      fine_grained_access_handler_(std::move(fine_grained_access_handler)) {}
 
 bool User::CheckPassword(const std::string &password) {
   if (password_hash_.empty()) return true;
@@ -428,8 +433,8 @@ void User::ClearRole() { role_ = std::nullopt; }
 
 Permissions User::GetPermissions() const {
   if (role_) {
-    return {permissions_.grants() | role_->permissions().grants(),
-            permissions_.denies() | role_->permissions().denies()};
+    return Permissions{permissions_.grants() | role_->permissions().grants(),
+                       permissions_.denies() | role_->permissions().denies()};
   }
   return permissions_;
 }

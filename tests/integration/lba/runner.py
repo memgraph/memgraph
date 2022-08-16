@@ -106,8 +106,11 @@ def execute_test(memgraph_binary: str, tester_binary: str, filtering_binary: str
     execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 2, "user", "user")
     execute_admin_queries(["GRANT EDGE_TYPES :edgeType1 TO user", "DENY LABELS :label3 TO user"])
     execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 1, "user", "user")
+    execute_admin_queries(["DENY LABELS :label1 TO user"])
+    execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user")
     execute_admin_queries(["REVOKE LABELS * FROM user", "REVOKE EDGE_TYPES * FROM user"])
     execute_filtering(filtering_binary, ["MATCH (n)-[r]->(m) RETURN n,r,m"], 0, "user", "user")
+
     print("\033[1;36m~~ Finished edge filtering test ~~\033[0m\n")
 
     # Shutdown the memgraph binary

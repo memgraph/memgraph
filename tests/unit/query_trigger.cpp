@@ -14,6 +14,7 @@
 #include <filesystem>
 
 #include <fmt/format.h>
+#include "glue/auth_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
@@ -38,18 +39,8 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
   MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
-
-  MOCK_CONST_METHOD3(Accept, bool(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                                  const memgraph::query::EdgeAccessor &edge));
-  MOCK_CONST_METHOD4(Accept, bool(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                                  const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View &view));
-
-  MOCK_CONST_METHOD3(IsUserAuthorizedEdgeType,
-                     bool(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                          const memgraph::storage::EdgeTypeId &edgeType));
-  MOCK_CONST_METHOD3(IsUserAuthorizedLabels,
-                     bool(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                          const std::vector<memgraph::storage::LabelId> &labels));
+  MOCK_CONST_METHOD1(GetFineGrainedAuthChecker,
+                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(const std::string &username));
 };
 }  // namespace
 

@@ -2250,6 +2250,32 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   });
 }
 
+namespace {
+void NextPermitted(mgp_vertices_iterator &it) {
+  if (!it.graph->ctx->auth_checker) {
+    return;
+  }
+
+  while (it.current_it != it.vertices.end()) {
+    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view)) {
+      break;
+    }
+
+    ++it.current_it;
+  }
+};
+}  // namespace
+
+/// @throw anything VerticesIterable may throw
+mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
+    : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
+  NextPermitted(*this);
+
+  if (current_it != vertices.end()) {
+    current_v.emplace(*current_it, graph, memory);
+  }
+}
+
 void mgp_vertices_iterator_destroy(mgp_vertices_iterator *it) { DeleteRawMgpObject(it); }
 
 mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vertices_iterator **result) {
@@ -2280,10 +2306,16 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
                     "should have been set to std::nullopt");
           return nullptr;
         }
-        if (++it->current_it == it->vertices.end()) {
+
+        ++it->current_it;
+
+        NextPermitted(*it);
+
+        if (it->current_it == it->vertices.end()) {
           it->current_v = std::nullopt;
           return nullptr;
         }
+
         memgraph::utils::OnScopeExit clean_up([it] { it->current_v = std::nullopt; });
         it->current_v.emplace(*it->current_it, it->graph, it->GetMemoryResource());
         clean_up.Disable();
