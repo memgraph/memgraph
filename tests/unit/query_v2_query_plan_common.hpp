@@ -116,6 +116,16 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const s
   return ScanAllTuple{node, logical_op, symbol};
 }
 
+ScanAllTuple MakeScanAll_Distributed(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
+                                     std::shared_ptr<LogicalOperator> input = {nullptr},
+                                     memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
+  auto node = NODE(identifier);
+  auto symbol = symbol_table.CreateSymbol(identifier, true);
+  node->identifier_->MapTo(symbol);
+  auto logical_op = std::make_shared<ScanAll_Distributed>(input, symbol, view);
+  return ScanAllTuple{node, logical_op, symbol};
+}
+
 ScanAllTuple MakeScanAllNew(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
                             std::shared_ptr<LogicalOperator> input = {nullptr},
                             memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
