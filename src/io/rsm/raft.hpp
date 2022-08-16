@@ -135,7 +135,7 @@ struct Leader {
   std::unordered_map<LogIndex, PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
-  static void Print() { std::cout << "\tLeader   \t"; }
+  std::string ToString() { return "\tLeader   \t"; }
 };
 
 struct Candidate {
@@ -143,14 +143,14 @@ struct Candidate {
   Time election_began = Time::min();
   std::set<Address> outstanding_votes;
 
-  static void Print() { std::cout << "\tCandidate\t"; }
+  std::string ToString() { return "\tCandidate\t"; }
 };
 
 struct Follower {
   Time last_received_append_entries_timestamp;
   Address leader_address;
 
-  static void Print() { std::cout << "\tFollower \t"; }
+  std::string ToString() { return "\tFollower \t"; }
 };
 
 using Role = std::variant<Candidate, Leader, Follower>;
@@ -391,11 +391,17 @@ class Raft {
 
     const Term term = state_.term;
 
-    std::cout << '\t' << micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
+    std::ostringstream out;
 
-    std::visit([&](auto &&role) { role.Print(); }, role_);
+    out << '\t' << (int)micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
 
-    (std::cout << ... << args) << std::endl;
+    std::string role_string = std::visit([&](auto &&role) { return role.ToString(); }, role_);
+
+    out << role_string;
+
+    (out << ... << args);
+
+    spdlog::debug(out.str());
   }
 
   /////////////////////////////////////////////////////////////
