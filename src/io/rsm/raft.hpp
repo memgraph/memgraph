@@ -354,7 +354,7 @@ class Raft {
       return 0;
     }
 
-    auto &[term, data] = state_.log.at(index - 1);
+    const auto &[term, data] = state_.log.at(index - 1);
     return term;
   }
 
