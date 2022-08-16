@@ -58,7 +58,7 @@ inline uint64_t operator|(LabelPermission a, LabelPermission b) {
 
 inline uint64_t operator|(uint64_t a, LabelPermission b) { return a | static_cast<uint64_t>(b); }
 
-inline bool operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
+inline uint64_t operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
 
 const uint64_t LabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
                                     memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
@@ -76,7 +76,13 @@ std::string PermissionLevelToString(PermissionLevel level);
 
 class Permissions final {
  public:
-  Permissions(uint64_t grants = 0, uint64_t denies = 0);
+  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0);
+
+  Permissions(const Permissions &) = default;
+  Permissions &operator=(const Permissions &) = default;
+  Permissions(Permissions &&) noexcept = default;
+  Permissions &operator=(Permissions &&) noexcept = default;
+  ~Permissions() = default;
 
   PermissionLevel Has(Permission permission) const;
 
@@ -111,6 +117,11 @@ class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
                                         const std::optional<uint64_t> &global_permission = std::nullopt);
+  FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
+  FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
+  FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
+  FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
+  ~FineGrainedAccessPermissions() = default;
 
   PermissionLevel Has(const std::string &permission, LabelPermission label_permission);
 
@@ -140,18 +151,55 @@ bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAcce
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
 
+class FineGrainedAccessHandler final {
+ public:
+  explicit FineGrainedAccessHandler(FineGrainedAccessPermissions labelPermissions = FineGrainedAccessPermissions(),
+                                    FineGrainedAccessPermissions edgeTypePermissions = FineGrainedAccessPermissions());
+
+  FineGrainedAccessHandler(const FineGrainedAccessHandler &) = default;
+  FineGrainedAccessHandler &operator=(const FineGrainedAccessHandler &) = default;
+  FineGrainedAccessHandler(FineGrainedAccessHandler &&) noexcept = default;
+  FineGrainedAccessHandler &operator=(FineGrainedAccessHandler &&) noexcept = default;
+  ~FineGrainedAccessHandler() = default;
+
+  const FineGrainedAccessPermissions &label_permissions() const;
+  FineGrainedAccessPermissions &label_permissions();
+
+  const FineGrainedAccessPermissions &edge_type_permissions() const;
+  FineGrainedAccessPermissions &edge_type_permissions();
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static FineGrainedAccessHandler Deserialize(const nlohmann::json &data);
+
+  friend bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+
+ private:
+  FineGrainedAccessPermissions label_permissions_;
+  FineGrainedAccessPermissions edge_type_permissions_;
+};
+
+bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+
 class Role final {
  public:
-  Role(const std::string &rolename);
+  explicit Role(const std::string &rolename);
 
   Role(const std::string &rolename, const Permissions &permissions,
-       const FineGrainedAccessPermissions &fine_grained_access_permissions);
+       FineGrainedAccessHandler fine_grained_access_handler);
+
+  Role(const Role &) = default;
+  Role &operator=(const Role &) = default;
+  Role(Role &&) noexcept = default;
+  Role &operator=(Role &&) noexcept = default;
+  ~Role() = default;
 
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
-  FineGrainedAccessPermissions &fine_grained_access_permissions();
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
 
   nlohmann::json Serialize() const;
 
@@ -163,7 +211,7 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
-  FineGrainedAccessPermissions fine_grained_access_permissions_;
+  FineGrainedAccessHandler fine_grained_access_handler_;
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -171,10 +219,18 @@ bool operator==(const Role &first, const Role &second);
 // TODO (mferencevic): Implement password expiry.
 class User final {
  public:
-  User(const std::string &username);
+  User();
+
+  explicit User(const std::string &username);
 
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
-       const FineGrainedAccessPermissions &fine_grained_access_permissions);
+       FineGrainedAccessHandler fine_grained_access_handler);
+
+  User(const User &) = default;
+  User &operator=(const User &) = default;
+  User(User &&) noexcept = default;
+  User &operator=(User &&) noexcept = default;
+  ~User() = default;
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
@@ -187,14 +243,15 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
-  FineGrainedAccessPermissions GetFineGrainedAccessPermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
 
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessPermissions &fine_grained_access_permissions() const;
-  FineGrainedAccessPermissions &fine_grained_access_permissions();
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
 
   const Role *role() const;
 
@@ -209,7 +266,7 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
-  FineGrainedAccessPermissions fine_grained_access_permissions_;
+  FineGrainedAccessHandler fine_grained_access_handler_;
   std::optional<Role> role_;
 };
 

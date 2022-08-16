@@ -21,7 +21,7 @@
 namespace memgraph::auth {
 /**
  * This class serves as the main Authentication/Authorization storage.
- * It provides functions for managing Users, Roles and Permissions.
+ * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
  * NOTE: The non-const functions in this class aren't thread safe.
  * TODO (mferencevic): Disable user/role modification functions when they are
  * being managed by the auth module.

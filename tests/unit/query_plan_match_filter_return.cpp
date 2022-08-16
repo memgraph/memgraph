@@ -25,11 +25,15 @@
 #include <cppitertools/range.hpp>
 #include <cppitertools/repeat.hpp>
 
+#include "auth/auth.hpp"
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 
 #include "query_plan_common.hpp"
+#include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -405,6 +409,60 @@ TEST_F(ExpandFixture, Expand) {
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+}
+
+TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
+  auto test_expand = [&](memgraph::auth::User user, EdgeAtom::Direction direction, memgraph::storage::View view) {
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", direction, {}, "m", false, view);
+
+    // make a named expression and a produce
+    auto output =
+        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(r_m.op_, output);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    return PullAll(*produce, &context);
+  };
+
+  auto user = memgraph::auth::User("test");
+
+  user.fine_grained_access_handler().edge_type_permissions().Grant("Edge",
+                                                                   memgraph::auth::LabelPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test",
+                                                                  memgraph::auth::LabelPermission::READ);
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::LabelPermission::CREATE_DELETE);
+  memgraph::storage::EdgeTypeId edge_type_test{db.NameToEdgeType("edge_type_test")};
+
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type_test).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v3, edge_type_test).HasValue());
+  // test that expand works well for both old and new graph state
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
+
+  dba.AdvanceCommand();
+
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+
+  user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_test",
+                                                                   memgraph::auth::LabelPermission::CREATE_DELETE);
+
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::NEW));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::NEW));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::NEW));
+
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
+  EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
+  EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
 
 TEST_F(ExpandFixture, ExpandPath) {

@@ -19,6 +19,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <string>
@@ -32,9 +33,11 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "glue/auth_checker.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
@@ -506,7 +509,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {"*"});
+        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {"*"}, {"*"});
       }
 
       return user_added;
@@ -751,29 +754,11 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  memgraph::auth::User *GetUser(const std::string &username) override {
-    if (!std::regex_match(username, name_regex_)) {
-      throw memgraph::query::QueryRuntimeException("Invalid user name.");
-    }
-    try {
-      auto locked_auth = auth_->Lock();
-      auto user = locked_auth->GetUser(username);
-      if (!user) {
-        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
-      }
-
-      return new memgraph::auth::User(*user);
-
-    } catch (const memgraph::auth::AuthException &e) {
-      throw memgraph::query::QueryRuntimeException(e.what());
-    }
-  }
-
   void GrantPrivilege(const std::string &user_or_role,
                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                      const std::vector<std::string> &labels) override {
+                      const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, labels, edge_types,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
@@ -781,15 +766,15 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           permissions->Grant(permission);
         },
         [](auto *label_permissions, const auto &label) {
-          label_permissions->Grant(label, memgraph::auth::LabelPermission::READ);
+          label_permissions->Grant(label, memgraph::auth::LabelPermission::CREATE_DELETE);
         });
   }
 
   void DenyPrivilege(const std::string &user_or_role,
                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                     const std::vector<std::string> &labels) override {
+                     const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, labels, edge_types,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
@@ -803,9 +788,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void RevokePrivilege(const std::string &user_or_role,
                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels) override {
+                       const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
-        user_or_role, privileges, labels,
+        user_or_role, privileges, labels, edge_types,
         [](auto *permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
@@ -819,8 +804,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   template <class TEditFun, class TEditLabelPermisionsFun>
   void EditPermissions(const std::string &user_or_role,
                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels, const TEditFun &edit_fun,
-                       const TEditLabelPermisionsFun &edit_label_permisions_fun) {
+                       const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes,
+                       const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -841,15 +826,22 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           edit_fun(&user->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_permissions(), label);
+          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(), label);
         }
+        for (const auto &edgeType : edgeTypes) {
+          edit_label_permisions_fun(&user->fine_grained_access_handler().edge_type_permissions(), edgeType);
+        }
+
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
           edit_fun(&role->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_permissions(), label);
+          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(), label);
+        }
+        for (const auto &edgeType : edgeTypes) {
+          edit_label_permisions_fun(&role->fine_grained_access_handler().edge_type_permissions(), edgeType);
         }
 
         locked_auth->SaveRole(*role);
@@ -858,41 +850,6 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       throw memgraph::query::QueryRuntimeException(e.what());
     }
   }
-};
-
-class AuthChecker final : public memgraph::query::AuthChecker {
- public:
-  explicit AuthChecker(
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : auth_{auth} {}
-
-  static bool IsUserAuthorized(const memgraph::auth::User &user,
-                               const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
-    const auto user_permissions = user.GetPermissions();
-    return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
-      return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
-             memgraph::auth::PermissionLevel::GRANT;
-    });
-  }
-
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const final {
-    std::optional<memgraph::auth::User> maybe_user;
-    {
-      auto locked_auth = auth_->ReadLock();
-      if (!locked_auth->HasUsers()) {
-        return true;
-      }
-      if (username.has_value()) {
-        maybe_user = locked_auth->GetUser(*username);
-      }
-    }
-
-    return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
-  }
-
- private:
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -937,7 +894,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
@@ -1286,7 +1243,7 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  AuthChecker auth_checker{&auth};
+  memgraph::glue::AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 

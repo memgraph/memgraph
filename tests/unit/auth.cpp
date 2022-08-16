@@ -18,6 +18,7 @@
 
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
+#include "auth/models.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 #include "utils/license.hpp"
@@ -157,6 +158,81 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
     ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
     ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::NEUTRAL);
     ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
+  }
+}
+
+TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
+  ASSERT_FALSE(auth.HasUsers());
+  ASSERT_TRUE(auth.AddUser("test"));
+  ASSERT_TRUE(auth.HasUsers());
+
+  auto user = auth.GetUser("test");
+  ASSERT_NE(user, std::nullopt);
+
+  // Test initial user fine grained access permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), FineGrainedAccessPermissions{});
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(), FineGrainedAccessPermissions{});
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Grant one label to user .
+  user->fine_grained_access_handler().label_permissions().Grant("labelTest", LabelPermission::CREATE_DELETE);
+  // Grant one edge type to user .
+  user->fine_grained_access_handler().edge_type_permissions().Grant("edgeTypeTest", LabelPermission::CREATE_DELETE);
+
+  // Check permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest", LabelPermission::READ),
+            PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest", LabelPermission::READ),
+            PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Deny one label to user .
+  user->fine_grained_access_handler().label_permissions().Deny("labelTest1", LabelPermission::READ);
+  // Deny one edge type to user .
+  user->fine_grained_access_handler().edge_type_permissions().Deny("edgeTypeTest1", LabelPermission::READ);
+
+  // Check permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest1", LabelPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest1", LabelPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Create role.
+  ASSERT_TRUE(auth.AddRole("admin"));
+  auto role = auth.GetRole("admin");
+  ASSERT_NE(role, std::nullopt);
+
+  // Grant label and edge type to role and role to user.
+  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", LabelPermission::CREATE_DELETE);
+  role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest", LabelPermission::CREATE_DELETE);
+  user->SetRole(*role);
+
+  // Check permissions.
+  {
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest", LabelPermission::READ),
+              PermissionLevel::GRANT);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest", LabelPermission::READ),
+              PermissionLevel::GRANT);
+  }
+
+  // Deny label and edge type to role and role to user.
+  role->fine_grained_access_handler().label_permissions().Deny("roleLabelTest1", LabelPermission::READ);
+  role->fine_grained_access_handler().edge_type_permissions().Deny("roleEdgeTypeTest1", LabelPermission::READ);
+  user->SetRole(*role);
+
+  // Check permissions.
+  {
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1", LabelPermission::READ),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", LabelPermission::READ),
+              PermissionLevel::DENY);
   }
 }
 
@@ -823,9 +899,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto fine_grained_perms = FineGrainedAccessPermissions();
-    auto user1 = User("test", "pw", perms, fine_grained_perms);
-    auto user2 = User("Test", "pw", perms, fine_grained_perms);
+    auto fine_grained_access_handler = FineGrainedAccessHandler();
+    auto user1 = User("test", "pw", perms, fine_grained_access_handler);
+    auto user2 = User("Test", "pw", perms, fine_grained_access_handler);
     ASSERT_EQ(user1, user2);
     ASSERT_EQ(user1.username(), user2.username());
     ASSERT_EQ(user1.username(), "test");
@@ -841,9 +917,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto fine_grained_perms = FineGrainedAccessPermissions();
-    auto role1 = Role("role", perms, fine_grained_perms);
-    auto role2 = Role("Role", perms, fine_grained_perms);
+    auto fine_grained_access_handler = FineGrainedAccessHandler();
+    auto role1 = Role("role", perms, fine_grained_access_handler);
+    auto role2 = Role("Role", perms, fine_grained_access_handler);
     ASSERT_EQ(role1, role2);
     ASSERT_EQ(role1.rolename(), role2.rolename());
     ASSERT_EQ(role1.rolename(), "role");

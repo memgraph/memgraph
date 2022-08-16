@@ -14,6 +14,7 @@
 #include <filesystem>
 
 #include <fmt/format.h>
+#include "glue/auth_checker.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
@@ -21,6 +22,7 @@
 #include "query/interpreter.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
 
@@ -37,6 +39,8 @@ class MockAuthChecker : public memgraph::query::AuthChecker {
  public:
   MOCK_CONST_METHOD2(IsUserAuthorized, bool(const std::optional<std::string> &username,
                                             const std::vector<memgraph::query::AuthQuery::Privilege> &privileges));
+  MOCK_CONST_METHOD1(GetFineGrainedAuthChecker,
+                     std::unique_ptr<memgraph::query::FineGrainedAuthChecker>(const std::string &username));
 };
 }  // namespace
 
