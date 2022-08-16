@@ -89,10 +89,6 @@ class EchoSvc : public EchoSvIf {
 TEST(ThriftTransport, Echo) {
   // TODO(tyler and gabor) use thrift-generated echo, and thrift transport, to send, reply, and receive the response for
   // a thrift-defined message
-  int argc = 0;
-  char **argv;
-  folly::init(&argc, &argv);
-
   auto ptr1 = std::make_shared<EchoSvc>();
   auto ptr2 = std::make_shared<EchoSvc>();
 
@@ -110,18 +106,19 @@ TEST(ThriftTransport, Echo) {
     s->serve();
   });
 
-  // Wait some time...
   std::this_thread::sleep_for(4000ms);
 
   ptr1->SendOneShotMessage(6666, "original");
-  // Wait some time...
   std::this_thread::sleep_for(4000ms);
 
   ptr2->SendOutMessage(6665);
-  // Wait some time...
   std::this_thread::sleep_for(4000ms);
 
   auto result = ptr1->GetCurrentMessage();
 
   ASSERT_EQ(result, std::string("00original"));
+
+  // Solve this once this is not just a POC.
+  server_thread2.detach();
+  server_thread1.detach();
 }
