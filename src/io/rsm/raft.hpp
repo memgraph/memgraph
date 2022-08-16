@@ -186,7 +186,7 @@ concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r)
 /// ReplicatedState     the high-level data structure that is managed by the raft-backed replicated state machine
 /// WriteOperation      the individual operation type that is applied to the ReplicatedState in identical order
 ///                     across each replica
-/// WriteResponseValue  the return value of calling ReplicatedState::write(WriteOperation), which is executed in
+/// WriteResponseValue  the return value of calling ReplicatedState::Apply(WriteOperation), which is executed in
 ///                     identical order across all replicas after an WriteOperation reaches consensus.
 /// ReadOperation       the type of operations that do not require consensus before executing directly
 ///                     on a const ReplicatedState &
