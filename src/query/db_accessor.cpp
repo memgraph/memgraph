@@ -53,8 +53,10 @@ const std::string &SubgraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId type) 
 
 storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(EdgeAccessor *edge) {
   auto result = db_accessor_->RemoveEdge(edge);
-  // todo antoniofilipovic remove edge from subgraph
-  return result;
+  if (result.HasError() || !*result) {
+    return result;
+  }
+  return this->graph_->RemoveEdge(*edge);
 }
 
 storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
@@ -85,7 +87,6 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     return result;
   }
   return this->graph_->RemoveVertex(*vertex_accessor);
-  ;
 }
 
 SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {

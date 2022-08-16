@@ -53,6 +53,14 @@ std::optional<VertexAccessor> Graph::RemoveVertex(const VertexAccessor &vertex) 
   return vertex;
 }
 
+std::optional<EdgeAccessor> Graph::RemoveEdge(const EdgeAccessor &edge) {
+  auto value = edges_.erase(edge);
+  if (value == 0) {
+    return std::nullopt;
+  }
+  return edge;
+}
+
 std::vector<query::EdgeAccessor> Graph::OutEdges(query::VertexAccessor vertex_accessor) {
   std::vector<query::EdgeAccessor> out_edges;
   for (auto it = edges_.begin(); it != edges_.end(); ++it) {
