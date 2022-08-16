@@ -16,8 +16,10 @@
 #include <optional>
 #include <shared_mutex>
 #include <variant>
+#include <vector>
 
 #include "io/network/endpoint.hpp"
+#include "kvstore/kvstore.hpp"
 #include "storage/v3/commit_log.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/constraints.hpp"
@@ -25,14 +27,19 @@
 #include "storage/v3/durability/wal.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
+#include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/rw_lock.hpp"
@@ -66,6 +73,7 @@ class AllVerticesIterable final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
+  const SchemaValidator *schema_validator_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -86,13 +94,15 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config)
+                      Indices *indices, Constraints *constraints, Config::Items config,
+                      SchemaValidator *schema_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
-        config_(config) {}
+        config_(config),
+        schema_validator_(schema_validator) {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
@@ -173,6 +183,11 @@ struct ConstraintsInfo {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
 };
 
+/// Structure used to return information about existing schemas in the storage
+struct SchemasInfo {
+  Schemas::SchemasList schemas;
+};
+
 /// Structure used to return information about the storage.
 struct StorageInfo {
   uint64_t vertex_count;
@@ -190,10 +205,6 @@ class Storage final {
   /// @throw std::bad_alloc
   explicit Storage(Config config = Config());
 
-  Storage(const Storage &) = delete;
-  Storage(Storage &&) = delete;
-  Storage &operator=(const Storage &) = delete;
-  Storage &operator=(Storage &&) = delete;
   ~Storage();
 
   class Accessor final {
@@ -213,15 +224,21 @@ class Storage final {
 
     ~Accessor();
 
-    /// @throw std::bad_alloc
     VertexAccessor CreateVertex();
+
+    VertexAccessor CreateVertex(Gid gid);
+
+    /// @throw std::bad_alloc
+    ResultSchema<VertexAccessor> CreateVertexAndValidate(
+        LabelId primary_label, const std::vector<LabelId> &labels,
+        const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_,
-                                                  storage_->config_.items));
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_.items,
+                                                  &storage_->schema_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -287,13 +304,13 @@ class Storage final {
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(const std::string_view &name);
+    LabelId NameToLabel(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(const std::string_view &name);
+    PropertyId NameToProperty(std::string_view name);
 
     /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(const std::string_view &name);
+    EdgeTypeId NameToEdgeType(std::string_view name);
 
     bool LabelIndexExists(LabelId label) const { return storage_->indices_.label_index.IndexExists(label); }
 
@@ -310,6 +327,10 @@ class Storage final {
               storage_->constraints_.unique_constraints.ListConstraints()};
     }
 
+    const SchemaValidator &GetSchemaValidator() const;
+
+    SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
+
     void AdvanceCommand();
 
     /// Commit returns `ConstraintViolation` if the changes made by this
@@ -325,7 +346,7 @@ class Storage final {
 
    private:
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertex(Gid gid);
+    VertexAccessor CreateVertex(Gid gid, LabelId primary_label);
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
@@ -347,13 +368,13 @@ class Storage final {
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(const std::string_view &name);
+  LabelId NameToLabel(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(const std::string_view &name);
+  PropertyId NameToProperty(std::string_view name);
 
   /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(const std::string_view &name);
+  EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
@@ -368,7 +389,7 @@ class Storage final {
   IndicesInfo ListAllIndices() const;
 
   /// Creates an existence constraint. Returns true if the constraint was
-  /// successfuly added, false if it already exists and a `ConstraintViolation`
+  /// successfully added, false if it already exists and a `ConstraintViolation`
   /// if there is an existing vertex violating the constraint.
   ///
   /// @throw std::bad_alloc
@@ -406,6 +427,14 @@ class Storage final {
 
   ConstraintsInfo ListAllConstraints() const;
 
+  SchemasInfo ListAllSchemas() const;
+
+  const Schemas::Schema *GetSchema(LabelId primary_label) const;
+
+  bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
+
+  bool DropSchema(LabelId primary_label);
+
   StorageInfo GetInfo() const;
 
   bool LockPath();
@@ -415,7 +444,12 @@ class Storage final {
 
   bool SetMainReplicationRole();
 
-  enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, CONNECTION_FAILED };
+  enum class RegisterReplicaError : uint8_t {
+    NAME_EXISTS,
+    END_POINT_EXISTS,
+    CONNECTION_FAILED,
+    COULD_NOT_BE_PERSISTED
+  };
 
   /// @pre The instance should have a MAIN role
   /// @pre Timeout can only be set for SYNC replication
@@ -493,8 +527,10 @@ class Storage final {
 
   NameIdMapper name_id_mapper_;
 
+  SchemaValidator schema_validator_;
   Constraints constraints_;
   Indices indices_;
+  Schemas schemas_;
 
   // Transaction engine
   utils::SpinLock engine_lock_;

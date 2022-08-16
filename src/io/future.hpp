@@ -77,7 +77,7 @@ class Shared {
         // so we have to get out of its way to avoid
         // a cyclical deadlock.
         lock.unlock();
-        simulator_progressed = (simulator_notifier_)();
+        simulator_progressed = std::invoke(simulator_notifier_);
         lock.lock();
         if (item_) {
           // item may have been filled while we
@@ -97,7 +97,7 @@ class Shared {
     return Take();
   }
 
-  bool IsReady() {
+  bool IsReady() const {
     std::unique_lock<std::mutex> lock(mu_);
     return item_;
   }
@@ -125,7 +125,7 @@ class Shared {
     cv_.notify_all();
   }
 
-  bool IsAwaited() {
+  bool IsAwaited() const {
     std::unique_lock<std::mutex> lock(mu_);
     return waiting_;
   }

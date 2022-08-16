@@ -9,10 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// TODO(tyler) buffer out-of-order Append buffers to reassemble more quickly
+// TODO(tyler) buffer out-of-order Append buffers on the Followers to reassemble more quickly
 // TODO(tyler) handle granular batch sizes based on simple flow control
-// TODO(tyler) add "application" test that asserts that all state machines apply the same items in-order
-// TODO(tyler) add proper token-based deterministic scheduling
 
 #pragma once
 
@@ -21,6 +19,7 @@
 #include <map>
 #include <set>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "io/simulator/simulator.hpp"
@@ -31,14 +30,9 @@ namespace memgraph::io::rsm {
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::Io;
-using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
 using memgraph::io::Time;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
 
 using Term = uint64_t;
 using LogIndex = uint64_t;
@@ -77,7 +71,14 @@ struct ReadResponse {
   std::optional<Address> retry_leader;
 };
 
-// TODO(tyler) add docs
+/// AppendRequest is a raft-level message that the Leader
+/// periodically broadcasts to all Follower peers. This
+/// serves three main roles:
+/// 1. acts as a heartbeat from the Leader to the Follower
+/// 2. replicates new data that the Leader has received to the Follower
+/// 3. informs Follower peers when the commit index has increased,
+///    signalling that it is now safe to apply log items to the
+///    replicated state machine
 template <typename WriteRequest>
 struct AppendRequest {
   Term term = 0;
@@ -115,7 +116,7 @@ struct CommonState {
   Term term = 0;
   std::vector<std::pair<Term, WriteRequest>> log;
   LogIndex committed_log_size = 0;
-  LogIndex last_applied = 0;
+  LogIndex applied_size = 0;
 };
 
 struct FollowerTracker {
@@ -124,17 +125,17 @@ struct FollowerTracker {
 };
 
 struct PendingClientRequest {
-  LogIndex log_index;
   RequestId request_id;
   Address address;
+  Time received_at;
 };
 
 struct Leader {
   std::map<Address, FollowerTracker> followers;
-  std::deque<PendingClientRequest> pending_client_requests;
+  std::unordered_map<LogIndex, PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
-  void Print() { std::cout << "\tLeader   \t"; }
+  static void Print() { std::cout << "\tLeader   \t"; }
 };
 
 struct Candidate {
@@ -142,48 +143,36 @@ struct Candidate {
   Time election_began = Time::min();
   std::set<Address> outstanding_votes;
 
-  void Print() { std::cout << "\tCandidate\t"; }
+  static void Print() { std::cout << "\tCandidate\t"; }
 };
 
 struct Follower {
   Time last_received_append_entries_timestamp;
   Address leader_address;
 
-  void Print() { std::cout << "\tFollower \t"; }
+  static void Print() { std::cout << "\tFollower \t"; }
 };
 
 using Role = std::variant<Candidate, Leader, Follower>;
 
 /*
-TODO make concept that expresses the fact that any RSM must
-be able to have a specific type applied to it, returning
-another interesting result type.
-
-all ReplicatedState classes should have an apply method
+all ReplicatedState classes should have an Apply method
 that returns our WriteResponseValue:
 
-ReadResponse read(ReadOperation);
-WriteResponseValue ReplicatedState::apply(WriteRequest);
+ReadResponse Read(ReadOperation);
+WriteResponseValue ReplicatedState::Apply(WriteRequest);
 
 for examples:
 if the state is uint64_t, and WriteRequest is `struct PlusOne {};`,
 and WriteResponseValue is also uint64_t (the new value), then
-each call to state.apply(PlusOne{}) will return the new value
+each call to state.Apply(PlusOne{}) will return the new value
 after incrementing it. 0, 1, 2, 3... and this will be sent back
 to the client that requested the mutation.
 
 In practice, these mutations will usually be predicated on some
 previous value, so that they are idempotent, functioning similarly
 to a CAS operation.
-
-template<typename Write, typename T, typename WriteResponse>
-concept Rsm = requires(T t, Write w)
-{
-    { t.read(r) } -> std::same_as<ReadResponse>;
-    { t.apply(w) } -> std::same_as<WriteResponseValue>;
-};
 */
-
 template <typename WriteOperation, typename ReadOperation, typename ReplicatedState, typename WriteResponseValue,
           typename ReadResponseValue>
 concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r) {
@@ -201,7 +190,7 @@ concept Rsm = requires(ReplicatedState state, WriteOperation w, ReadOperation r)
 ///                     identical order across all replicas after an WriteOperation reaches consensus.
 /// ReadOperation       the type of operations that do not require consensus before executing directly
 ///                     on a const ReplicatedState &
-/// ReadResponseValue   the return value of calling ReplicatedState::read(ReadOperation), which is executed directly
+/// ReadResponseValue   the return value of calling ReplicatedState::Read(ReadOperation), which is executed directly
 ///                     without going through consensus first
 template <typename IoImpl, typename ReplicatedState, typename WriteOperation, typename WriteResponseValue,
           typename ReadOperation, typename ReadResponseValue>
@@ -255,41 +244,36 @@ class Raft {
       indices.push_back(f.confirmed_contiguous_index);
       Log("at port ", addr.last_known_port, " has confirmed contiguous index of: ", f.confirmed_contiguous_index);
     }
-    std::ranges::sort(indices, std::ranges::greater());
-    // assuming reverse sort (using std::ranges::greater)
-    size_t new_committed_log_size = indices[(indices.size() / 2)];
 
-    // TODO(tyler / gabor) for each index between the old
-    // index and the new one, apply that log's WriteOperation
-    // to our replicated_state_, and use the specific return
-    // value of the ReplicatedState::apply method (WriteResponseValue)
-    // to respondto the requester.
-    //
-    // this will completely replace the while loop below
+    // reverse sort from highest to lowest (using std::ranges::greater)
+    std::ranges::sort(indices, std::ranges::greater());
+
+    size_t new_committed_log_size = indices[(indices.size() / 2)];
 
     state_.committed_log_size = new_committed_log_size;
 
-    Log("committed_log_size is now ", state_.committed_log_size);
+    // For each index between the old index and the new one (inclusive),
+    // Apply that log's WriteOperation to our replicated_state_,
+    // and use the specific return value of the ReplicatedState::Apply
+    // method (WriteResponseValue) to respond to the requester.
+    for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
+      const LogIndex apply_index = state_.applied_size;
+      const auto &write_request = state_.log[apply_index].second;
+      WriteResponseValue write_return = replicated_state_.Apply(write_request);
 
-    while (!leader.pending_client_requests.empty()) {
-      const auto &front = leader.pending_client_requests.front();
-      if (front.log_index <= state_.committed_log_size) {
-        const auto &write_request = state_.log[front.log_index].second;
-        WriteResponseValue write_return = replicated_state_.Apply(write_request);
+      if (leader.pending_client_requests.contains(apply_index)) {
+        PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
+
         WriteResponse<WriteResponseValue> resp;
         resp.success = true;
         resp.write_return = write_return;
-        // Log("responding SUCCESS to client");
-        // WriteResponse rr{
-        //     .success = true,
-        //     .retry_leader = std::nullopt,
-        // };
-        io_.Send(front.address, front.request_id, std::move(resp));
-        leader.pending_client_requests.pop_front();
-      } else {
-        break;
+
+        io_.Send(client_request.address, client_request.request_id, std::move(resp));
+        leader.pending_client_requests.erase(apply_index);
       }
     }
+
+    Log("committed_log_size is now ", state_.committed_log_size);
   }
 
   // Raft paper - 5.1
@@ -477,7 +461,7 @@ class Raft {
       BroadcastAppendEntries(leader.followers);
       leader.last_broadcast = now;
     }
-    // TODO(tyler) TimeOutOldClientRequests();
+
     return std::nullopt;
   }
 
@@ -493,7 +477,6 @@ class Raft {
   /// message that has been received.
   /////////////////////////////////////////////////////////////
 
-  // Don't we need more stuff in this variant?
   void Handle(std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
                            WriteRequest<WriteOperation>, VoteRequest, VoteResponse> &&message_variant,
               RequestId request_id, Address from_address) {
@@ -575,14 +558,14 @@ class Raft {
             .next_index = committed_log_size,
             .confirmed_contiguous_index = committed_log_size,
         };
-        followers.insert({address, std::move(follower)});
+        followers.insert({address, follower});
       }
       for (const auto &address : candidate.outstanding_votes) {
         FollowerTracker follower{
             .next_index = state_.log.size(),
             .confirmed_contiguous_index = 0,
         };
-        followers.insert({address, std::move(follower)});
+        followers.insert({address, follower});
       }
 
       Log("becoming Leader at term ", state_.term);
@@ -591,7 +574,7 @@ class Raft {
 
       return Leader{
           .followers = std::move(followers),
-          .pending_client_requests = std::deque<PendingClientRequest>(),
+          .pending_client_requests = std::unordered_map<LogIndex, PendingClientRequest>(),
       };
     }
 
@@ -599,7 +582,7 @@ class Raft {
   }
 
   template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, VoteResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(AllRoles &, VoteResponse &&, RequestId, Address) {
     Log("non-Candidate received VoteResponse");
     return std::nullopt;
   }
@@ -668,7 +651,7 @@ class Raft {
       Log("req.last_log_term differs from our leader term at that slot, expected: ", LastLogTerm(), " but got ",
           req.last_log_term);
     } else {
-      // happy path - apply log
+      // happy path - Apply log
       Log("applying batch of entries to log of size ", req.entries.size());
 
       MG_ASSERT(req.last_log_index >= state_.committed_log_size,
@@ -683,6 +666,11 @@ class Raft {
 
       state_.committed_log_size = std::min(req.leader_commit, LastLogIndex());
 
+      for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
+        const auto &write_request = state_.log[state_.applied_size].second;
+        replicated_state_.Apply(write_request);
+      }
+
       res.success = true;
     }
 
@@ -691,7 +679,7 @@ class Raft {
     return std::nullopt;
   }
 
-  std::optional<Role> Handle(Leader &leader, AppendResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(Leader &leader, AppendResponse &&res, RequestId, Address from_address) {
     if (res.term != state_.term) {
     } else if (!leader.followers.contains(from_address)) {
       Log("received AppendResponse from unknown Follower");
@@ -714,7 +702,7 @@ class Raft {
   }
 
   template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, AppendResponse &&res, RequestId request_id, Address from_address) {
+  std::optional<Role> Handle(AllRoles &, AppendResponse &&, RequestId, Address) {
     // we used to be the leader, and are getting old delayed responses
     return std::nullopt;
   }
@@ -724,10 +712,8 @@ class Raft {
   /////////////////////////////////////////////////////////////
 
   // Leaders are able to immediately respond to the requester (with a ReadResponseValue) applied to the ReplicatedState
-  std::optional<Role> Handle(Leader &leader, ReadRequest<ReadOperation> &&req, RequestId request_id,
-                             Address from_address) {
-    // TODO(tyler / gabor) implement
-
+  std::optional<Role> Handle(Leader &, ReadRequest<ReadOperation> &&req, RequestId request_id, Address from_address) {
+    Log("handling ReadOperation");
     ReadOperation read_operation = req.operation;
 
     ReadResponseValue read_return = replicated_state_.Read(read_operation);
@@ -744,10 +730,7 @@ class Raft {
   }
 
   // Candidates should respond with a failure, similar to the Candidate + WriteRequest failure below
-  std::optional<Role> Handle(Candidate &, ReadRequest<ReadOperation> &&req, RequestId request_id,
-                             Address from_address) {
-    // TODO(tyler / gabor) implement
-
+  std::optional<Role> Handle(Candidate &, ReadRequest<ReadOperation> &&, RequestId request_id, Address from_address) {
     Log("received ReadOperation - not redirecting because no Leader is known");
     auto res = ReadResponse<ReadResponseValue>{};
 
@@ -760,11 +743,9 @@ class Raft {
     return std::nullopt;
   }
 
-  // Leaders should respond with a redirection, similar to the Follower + WriteRequest response below
-  std::optional<Role> Handle(Follower &follower, ReadRequest<ReadOperation> &&req, RequestId request_id,
+  // Followers should respond with a redirection, similar to the Follower + WriteRequest response below
+  std::optional<Role> Handle(Follower &follower, ReadRequest<ReadOperation> &&, RequestId request_id,
                              Address from_address) {
-    // TODO(tyler / gabor) implement
-
     auto res = ReadResponse<ReadResponseValue>{};
 
     res.success = false;
@@ -781,7 +762,7 @@ class Raft {
   // server. If the client’s first choice is not the leader, that
   // server will reject the client’s request and supply information
   // about the most recent leader it has heard from.
-  std::optional<Role> Handle(Follower &follower, WriteRequest<WriteOperation> &&req, RequestId request_id,
+  std::optional<Role> Handle(Follower &follower, WriteRequest<WriteOperation> &&, RequestId request_id,
                              Address from_address) {
     auto res = WriteResponse<WriteResponseValue>{};
 
@@ -794,8 +775,7 @@ class Raft {
     return std::nullopt;
   }
 
-  std::optional<Role> Handle(Candidate &, WriteRequest<WriteOperation> &&req, RequestId request_id,
-                             Address from_address) {
+  std::optional<Role> Handle(Candidate &, WriteRequest<WriteOperation> &&, RequestId request_id, Address from_address) {
     Log("received WriteRequest - not redirecting because no Leader is known");
     auto res = WriteResponse<WriteResponseValue>{};
 
@@ -811,22 +791,23 @@ class Raft {
   // only leaders actually handle replication requests from clients
   std::optional<Role> Handle(Leader &leader, WriteRequest<WriteOperation> &&req, RequestId request_id,
                              Address from_address) {
-    Log("received WriteRequest");
+    Log("handling WriteRequest");
 
     // we are the leader. add item to log and send Append to peers
     state_.log.emplace_back(std::pair(state_.term, std::move(req.operation)));
 
+    LogIndex log_index = state_.log.size() - 1;
+
     PendingClientRequest pcr{
-        .log_index = state_.log.size() - 1,
         .request_id = request_id,
         .address = from_address,
+        .received_at = io_.Now(),
     };
 
-    leader.pending_client_requests.push_back(pcr);
+    leader.pending_client_requests.emplace(log_index, pcr);
 
     BroadcastAppendEntries(leader.followers);
 
-    // TODO(tyler) add message to pending requests buffer, reply asynchronously
     return std::nullopt;
   }
 };
