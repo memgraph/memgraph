@@ -225,6 +225,7 @@ class SubgraphVertexAccessor final {
   storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
     return impl_.SetProperty(key, value);
   }
+  VertexAccessor GetVertexAccessor();
 };
 }  // namespace memgraph::query
 
@@ -484,7 +485,7 @@ class SubgraphDbAccessor final {
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor);
 
-  storage::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor);
+  storage::Result<std::optional<VertexAccessor>> RemoveVertex(SubgraphVertexAccessor *vertex_accessor);
 
   SubgraphVertexAccessor InsertVertex();
 

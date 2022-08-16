@@ -42,6 +42,17 @@ bool Graph::ContainsVertex(const VertexAccessor &vertex) {
   return false;
 }
 
+std::optional<VertexAccessor> Graph::RemoveVertex(const VertexAccessor &vertex) {
+  if (!ContainsVertex(vertex)) {
+    return std::nullopt;
+  }
+  auto value = vertices_.erase(vertex);
+  if (value == 0) {
+    return std::nullopt;
+  }
+  return vertex;
+}
+
 std::vector<query::EdgeAccessor> Graph::OutEdges(query::VertexAccessor vertex_accessor) {
   std::vector<query::EdgeAccessor> out_edges;
   for (auto it = edges_.begin(); it != edges_.end(); ++it) {

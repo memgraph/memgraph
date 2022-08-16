@@ -2273,19 +2273,19 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 
     const auto result =
         std::visit(memgraph::utils::Overloaded{
-                       [vertex](memgraph::query::DbAccessor *impl) {
+                       [&](memgraph::query::DbAccessor *impl) {
                          if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Wrong type"};
+                           throw std::logic_error{
+                               "Remove vertex for DbAccessor should not get reference to SubgraphVertexAccessor"};
                          }
                          return impl->RemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
                        },
-                       [vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                         // todo antoniofilipovic change this, it is wrong here since it needs to be
-                         // SubgraphVertexAccessor
-                         if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Wrong type"};
+                       [&](memgraph::query::SubgraphDbAccessor *impl) {
+                         if (std::holds_alternative<memgraph::query::VertexAccessor>(vertex->impl)) {
+                           throw std::logic_error{
+                               "Remove vertex for SubgraphDbAccessor should not get reference to VertexAccessor"};
                          }
-                         return impl->RemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
+                         return impl->RemoveVertex(&(std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl)));
                        }},
                    graph->impl);
 

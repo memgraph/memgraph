@@ -71,10 +71,15 @@ SubgraphDbAccessor::DetachRemoveVertex(VertexAccessor *vertex_accessor) {
   return result;
 }
 
-storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(VertexAccessor *vertex_accessor) {
+storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
+    SubgraphVertexAccessor *subgraphvertex_accessor) {
+  VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;
   auto result = db_accessor_->RemoveVertex(vertex_accessor);
-  // todo antoniofilipovic remove vertex from subgraph
-  return result;
+  if (result.HasError() || !*result) {
+    return result;
+  }
+  return this->graph_->RemoveVertex(*vertex_accessor);
+  ;
 }
 
 SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
@@ -99,6 +104,8 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 }
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
+
+VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() { return impl_; }
 
 auto SubgraphVertexAccessor::OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
   // todo antoniofilipovic add filtering here

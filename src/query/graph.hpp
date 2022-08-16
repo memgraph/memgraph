@@ -60,6 +60,7 @@ class Graph final {
   void InsertVertex(const VertexAccessor &vertex);
   void InsertEdge(const EdgeAccessor &edge);
   bool ContainsVertex(const VertexAccessor &vertex);
+  std::optional<VertexAccessor> RemoveVertex(const VertexAccessor &vertex);
 
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
