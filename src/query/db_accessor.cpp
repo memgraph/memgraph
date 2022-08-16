@@ -74,9 +74,7 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
 
 storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 SubgraphDbAccessor::DetachRemoveVertex(VertexAccessor *vertex_accessor) {
-  auto result = db_accessor_->DetachRemoveVertex(vertex_accessor);
-  // todo antoniofilipovic remove vertex and edges from subgraph
-  return result;
+  throw std::logic_error{"Such operation not possible on subgraph"};
 }
 
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
