@@ -289,7 +289,7 @@ class Raft {
 
         WriteResponse<WriteResponseValue> resp;
         resp.success = true;
-        resp.write_return = write_return;
+        resp.write_return = std::move(write_return);
 
         io_.Send(client_request.address, client_request.request_id, std::move(resp));
         leader.pending_client_requests.erase(apply_index);
