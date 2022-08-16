@@ -334,10 +334,7 @@ class Raft {
   // Raft paper - 5.2
   // Raft uses randomized election timeouts to ensure that split votes are rare and that they are resolved quickly
   Duration RandomTimeout(Duration min, Duration max) {
-    auto min_micros = std::chrono::duration_cast<std::chrono::milliseconds>(min).count();
-    auto max_micros = std::chrono::duration_cast<std::chrono::milliseconds>(max).count();
-
-    std::uniform_int_distribution time_distrib(min_micros, max_micros);
+    std::uniform_int_distribution time_distrib(min.count(), max.count());
 
     auto rand_micros = io_.Rand(time_distrib);
 
