@@ -11,56 +11,52 @@
 
 #include "utils/event_counter.hpp"
 
-#define APPLY_FOR_EVENTS(M)                                                                                            \
-  M(ReadQuery, "Number of read-only queries executed.")                                                                \
-  M(WriteQuery, "Number of write-only queries executed.")                                                              \
-  M(ReadWriteQuery, "Number of read-write queries executed.")                                                          \
-                                                                                                                       \
-  M(OnceOperator, "Number of times Once operator was used")                                                            \
-  M(CreateNodeOperator, "Number of times CreateNode operator was used.")                                               \
-  M(CreateExpandOperator, "Number of times CreateExpand operator was used.")                                           \
-  M(ScanAllOperator, "Number of times ScanAll operator was used.")                                                     \
-  M(ScanAllOperator_Distributed, "Number of times ScanAll_Distributed operator was used.")                             \
-  M(ScanAllByLabelOperator, "Number of times ScanAllByLabel operator was used.")                                       \
-  M(ScanAllByLabelOperator_Distributed, "Number of times ScanAllByLabelOperator_Distributed operator was used.")       \
-  M(ScanAllByLabelPropertyRangeOperator, "Number of times ScanAllByLabelPropertyRange operator was used.")             \
-  M(ScanAllByLabelPropertyValueOperator, "Number of times ScanAllByLabelPropertyValue operator was used.")             \
-  M(ScanAllByLabelPropertyValueOperator_Distributed, "Number of times ScanAllByLabelPropertyValue operator was used.") \
-  M(ScanAllByLabelPropertyOperator, "Number of times ScanAllByLabelProperty operator was used.")                       \
-  M(ScanAllByIdOperator, "Number of times ScanAllById operator was used.")                                             \
-  M(ExpandOperator, "Number of times Expand operator was used.")                                                       \
-  M(ExpandOperator_Distributed, "Number of times Expand_Distributed operator was used.")                               \
-  M(ExpandVariableOperator, "Number of times ExpandVariable operator was used.")                                       \
-  M(ConstructNamedPathOperator, "Number of times ConstructNamedPath operator was used.")                               \
-  M(FilterOperator, "Number of times Filter operator was used.")                                                       \
-  M(ProduceOperator, "Number of times Produce operator was used.")                                                     \
-  M(DeleteOperator, "Number of times Delete operator was used.")                                                       \
-  M(SetPropertyOperator, "Number of times SetProperty operator was used.")                                             \
-  M(SetPropertiesOperator, "Number of times SetProperties operator was used.")                                         \
-  M(SetLabelsOperator, "Number of times SetLabels operator was used.")                                                 \
-  M(RemovePropertyOperator, "Number of times RemoveProperty operator was used.")                                       \
-  M(RemoveLabelsOperator, "Number of times RemoveLabels operator was used.")                                           \
-  M(EdgeUniquenessFilterOperator, "Number of times EdgeUniquenessFilter operator was used.")                           \
-  M(AccumulateOperator, "Number of times Accumulate operator was used.")                                               \
-  M(AggregateOperator, "Number of times Aggregate operator was used.")                                                 \
-  M(SkipOperator, "Number of times Skip operator was used.")                                                           \
-  M(LimitOperator, "Number of times Limit operator was used.")                                                         \
-  M(OrderByOperator, "Number of times OrderBy operator was used.")                                                     \
-  M(MergeOperator, "Number of times Merge operator was used.")                                                         \
-  M(OptionalOperator, "Number of times Optional operator was used.")                                                   \
-  M(UnwindOperator, "Number of times Unwind operator was used.")                                                       \
-  M(DistinctOperator, "Number of times Distinct operator was used.")                                                   \
-  M(UnionOperator, "Number of times Union operator was used.")                                                         \
-  M(CartesianOperator, "Number of times Cartesian operator was used.")                                                 \
-  M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                                         \
-  M(ForeachOperator, "Number of times Foreach operator was used.")                                                     \
-                                                                                                                       \
-  M(FailedQuery, "Number of times executing a query failed.")                                                          \
-  M(LabelIndexCreated, "Number of times a label index was created.")                                                   \
-  M(LabelPropertyIndexCreated, "Number of times a label property index was created.")                                  \
-  M(StreamsCreated, "Number of Streams created.")                                                                      \
-  M(MessagesConsumed, "Number of consumed streamed messages.")                                                         \
-  M(TriggersCreated, "Number of Triggers created.")                                                                    \
+#define APPLY_FOR_EVENTS(M)                                                                                \
+  M(ReadQuery, "Number of read-only queries executed.")                                                    \
+  M(WriteQuery, "Number of write-only queries executed.")                                                  \
+  M(ReadWriteQuery, "Number of read-write queries executed.")                                              \
+                                                                                                           \
+  M(OnceOperator, "Number of times Once operator was used.")                                               \
+  M(CreateNodeOperator, "Number of times CreateNode operator was used.")                                   \
+  M(CreateExpandOperator, "Number of times CreateExpand operator was used.")                               \
+  M(ScanAllOperator, "Number of times ScanAll operator was used.")                                         \
+  M(ScanAllByLabelOperator, "Number of times ScanAllByLabel operator was used.")                           \
+  M(ScanAllByLabelPropertyRangeOperator, "Number of times ScanAllByLabelPropertyRange operator was used.") \
+  M(ScanAllByLabelPropertyValueOperator, "Number of times ScanAllByLabelPropertyValue operator was used.") \
+  M(ScanAllByLabelPropertyOperator, "Number of times ScanAllByLabelProperty operator was used.")           \
+  M(ScanAllByIdOperator, "Number of times ScanAllById operator was used.")                                 \
+  M(ExpandOperator, "Number of times Expand operator was used.")                                           \
+  M(ExpandVariableOperator, "Number of times ExpandVariable operator was used.")                           \
+  M(ConstructNamedPathOperator, "Number of times ConstructNamedPath operator was used.")                   \
+  M(FilterOperator, "Number of times Filter operator was used.")                                           \
+  M(ProduceOperator, "Number of times Produce operator was used.")                                         \
+  M(DeleteOperator, "Number of times Delete operator was used.")                                           \
+  M(SetPropertyOperator, "Number of times SetProperty operator was used.")                                 \
+  M(SetPropertiesOperator, "Number of times SetProperties operator was used.")                             \
+  M(SetLabelsOperator, "Number of times SetLabels operator was used.")                                     \
+  M(RemovePropertyOperator, "Number of times RemoveProperty operator was used.")                           \
+  M(RemoveLabelsOperator, "Number of times RemoveLabels operator was used.")                               \
+  M(EdgeUniquenessFilterOperator, "Number of times EdgeUniquenessFilter operator was used.")               \
+  M(AccumulateOperator, "Number of times Accumulate operator was used.")                                   \
+  M(AggregateOperator, "Number of times Aggregate operator was used.")                                     \
+  M(SkipOperator, "Number of times Skip operator was used.")                                               \
+  M(LimitOperator, "Number of times Limit operator was used.")                                             \
+  M(OrderByOperator, "Number of times OrderBy operator was used.")                                         \
+  M(MergeOperator, "Number of times Merge operator was used.")                                             \
+  M(OptionalOperator, "Number of times Optional operator was used.")                                       \
+  M(UnwindOperator, "Number of times Unwind operator was used.")                                           \
+  M(DistinctOperator, "Number of times Distinct operator was used.")                                       \
+  M(UnionOperator, "Number of times Union operator was used.")                                             \
+  M(CartesianOperator, "Number of times Cartesian operator was used.")                                     \
+  M(CallProcedureOperator, "Number of times CallProcedure operator was used.")                             \
+  M(ForeachOperator, "Number of times Foreach operator was used.")                                         \
+                                                                                                           \
+  M(FailedQuery, "Number of times executing a query failed.")                                              \
+  M(LabelIndexCreated, "Number of times a label index was created.")                                       \
+  M(LabelPropertyIndexCreated, "Number of times a label property index was created.")                      \
+  M(StreamsCreated, "Number of Streams created.")                                                          \
+  M(MessagesConsumed, "Number of consumed streamed messages.")                                             \
+  M(TriggersCreated, "Number of Triggers created.")                                                        \
   M(TriggersExecuted, "Number of Triggers executed.")
 
 namespace EventCounter {

@@ -66,6 +66,7 @@ src/query/distributed/plan/ops.hpp
 src/query/v2/distributed/plan/ops.hpp
 src/query/plan/operator.hpp
 src/query/v2/plan/operator.hpp
+src/query/v2/plan/operator_distributed.hpp
 src/raft/log_entry.hpp
 src/raft/raft_rpc_messages.hpp
 src/raft/snapshot_metadata.hpp

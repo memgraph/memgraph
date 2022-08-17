@@ -46,6 +46,7 @@ class SymbolTable;
 cpp<#
 
 (lcp:namespace plan)
+(lcp:namespace distributed)
 
 #>cpp
 /// Base class for iteration cursors of @c LogicalOperator classes.
@@ -2299,6 +2300,7 @@ clauses.
   (:serialize (:slk))
   (:clone))
 
+(lcp:pop-namespace) ;; distributed
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; v2
 (lcp:pop-namespace) ;; query

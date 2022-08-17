@@ -21,7 +21,7 @@
 #include "io/simulator/simulator.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/operator_distributed.hpp"
 #include "query_v2_query_plan_common.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
@@ -84,7 +84,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3_scanAll) {
     auto property_index = 0;
     auto vertex_node = dba.InsertVertexAndValidate(schema_label, {},
                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
-    ASSERT_FALSE(vertex_node.HasValue());
+    ASSERT_TRUE(vertex_node.HasValue());
 
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -201,8 +201,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     ASSERT_EQ(results.size(), 1);
   }
 
-  // #NoCommit idea: should the ScanAllByLabel + Expand be done in a single call (perhaps more if some edges point to
-  // node in different shards) MATCH (p:Permission)
+  // MATCH (p:Permission)
   auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
   {
     /*

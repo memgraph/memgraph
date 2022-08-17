@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/v2/plan/operator.hpp"
+#include "query/v2/plan/operator_distributed.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -110,7 +110,7 @@ extern const Event CallProcedureOperator;
 extern const Event ForeachOperator;
 }  // namespace EventCounter
 
-namespace memgraph::query::v2::plan {
+namespace memgraph::query::v2::plan::distributed {
 
 namespace {
 
@@ -1071,7 +1071,7 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class STShortestPathCursor : public query::v2::plan::Cursor {
+class STShortestPathCursor : public query::v2::plan::distributed::Cursor {
  public:
   STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
@@ -1289,7 +1289,7 @@ class STShortestPathCursor : public query::v2::plan::Cursor {
   }
 };
 
-class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
+class SingleSourceShortestPathCursor : public query::v2::plan::distributed::Cursor {
  public:
   SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -1445,7 +1445,7 @@ class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
-class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
+class ExpandWeightedShortestPathCursor : public query::v2::plan::distributed::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
@@ -4092,4 +4092,4 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-}  // namespace memgraph::query::v2::plan
+}  // namespace memgraph::query::v2::plan::distributed
