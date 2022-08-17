@@ -121,11 +121,11 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
     if (labels_it_ != self_->labelspace_->end()) {
       self_->vertex_accessor.emplace(labels_it_->second.access());
       vertex_it_.emplace(self_->vertex_accessor->begin());
+      vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
+                                          self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
+                                          self_->config_, *self_->schema_validator_, *self_->schemas_);
+      return *this;
     }
-    vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
-                                        self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
-                                        self_->config_, *self_->schema_validator_, *self_->schemas_);
-    return *this;
   }
   end_ = true;
   return *this;
@@ -540,13 +540,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     }
   }
 
-  // for (const auto label : labels) {
-  //   const auto maybe_error = va.AddLabel(label);
-  //   if (maybe_error.HasError()) {
-  //     return {maybe_error.GetError()};
-  //   }
-  // }
-  // Set properties
+  // Get secondary properties
   std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties;
   for (const auto &[property_id, property_value] : properties) {
     if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
@@ -580,9 +574,8 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primar
   if (it == acc.end()) {
     return std::nullopt;
   }
-  auto vac = VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                    storage_->schema_validator_, storage_->schemas_, view);
-  return vac;
+  return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                storage_->schema_validator_, storage_->schemas_, view);
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
