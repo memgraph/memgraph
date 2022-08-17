@@ -41,85 +41,85 @@ class StorageV3 : public ::testing::Test {
   Storage store;
   const LabelId label{store.NameToLabel("label")};
   const PropertyId property{store.NameToProperty("property")};
+  const PropertyValue primary_property{1};
+  const std::vector<PropertyValue> pk{primary_property};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TEST_F(StorageV3, Commit) {
-//   std::vector<PropertyValue> pk{PropertyValue(0)};
-//   {
-//     auto acc = store.Access();
-//     CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(0)}});
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-//     ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
-//   {
-//     auto acc = store.Access();
-//     ASSERT_TRUE(acc.FindVertex(label, pk, View::OLD).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-//     ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
-//     acc.Abort();
-//   }
-//   {
-//     auto acc = store.Access();
-//     auto vertex = acc.FindVertex(label, pk, View::NEW);
-//     ASSERT_TRUE(vertex);
+TEST_F(StorageV3, Commit) {
+  {
+    auto acc = store.Access();
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    ASSERT_TRUE(acc.FindVertex(label, pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
+    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    ASSERT_TRUE(vertex);
 
-//     auto res = acc.DeleteVertex(&*vertex);
-//     ASSERT_FALSE(res.HasError());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+    auto res = acc.DeleteVertex(&*vertex);
+    ASSERT_FALSE(res.HasError());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
 
-//     acc.AdvanceCommand();
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+    acc.AdvanceCommand();
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
-//   {
-//     auto acc = store.Access();
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
-//     acc.Abort();
-//   }
-// }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+  {
+    auto acc = store.Access();
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+    acc.Abort();
+  }
+}
 
-// // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TEST_F(StorageV3, Abort) {
-//   std::vector<PropertyValue> pk{PropertyValue(0)};
-//   {
-//     auto acc = store.Access();
-//     auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(0)}});
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-//     ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
-//     acc.Abort();
-//   }
-//   {
-//     auto acc = store.Access();
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-//     ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
-//     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
-//     acc.Abort();
-//   }
-// }
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(StorageV3, Abort) {
+  {
+    auto acc = store.Access();
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
+    acc.Abort();
+  }
+  {
+    auto acc = store.Access();
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+    acc.Abort();
+  }
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, AdvanceCommandCommit) {
-  std::vector<PropertyValue> pk1{PropertyValue(1)};
+  std::vector<PropertyValue> pk1{primary_property};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
   {
     auto acc = store.Access();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
@@ -152,12 +152,12 @@ TEST_F(StorageV3, AdvanceCommandCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, AdvanceCommandAbort) {
-  std::vector<PropertyValue> pk1{PropertyValue(1)};
+  std::vector<PropertyValue> pk1{primary_property};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
   {
     auto acc = store.Access();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
@@ -192,9 +192,8 @@ TEST_F(StorageV3, AdvanceCommandAbort) {
 TEST_F(StorageV3, SnapshotIsolation) {
   auto acc1 = store.Access();
   auto acc2 = store.Access();
-  std::vector<PropertyValue> pk{PropertyValue(1)};
 
-  CreateVertexAndValidate(acc1, label, {}, {{property, PropertyValue(1)}});
+  CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
 
   ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
@@ -222,11 +221,9 @@ TEST_F(StorageV3, SnapshotIsolation) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, AccessorMove) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
@@ -254,14 +251,12 @@ TEST_F(StorageV3, AccessorMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteCommit) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   auto acc1 = store.Access();  // read transaction
   auto acc2 = store.Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc2, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(label, pk, View::NEW).has_value());
@@ -326,14 +321,12 @@ TEST_F(StorageV3, VertexDeleteCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteAbort) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   auto acc1 = store.Access();  // read transaction
   auto acc2 = store.Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc2, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(label, pk, View::NEW).has_value());
@@ -450,12 +443,10 @@ TEST_F(StorageV3, VertexDeleteAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteSerializationError) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   // Create vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -523,14 +514,14 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteSpecialCases) {
-  std::vector<PropertyValue> pk1{PropertyValue(1)};
+  std::vector<PropertyValue> pk1{primary_property};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
   // Create vertex and delete it in the same transaction, but abort the
   // transaction
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
@@ -580,12 +571,10 @@ TEST_F(StorageV3, VertexDeleteSpecialCases) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteLabel) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   // Create the vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
     ASSERT_FALSE(acc.Commit().HasError());
@@ -730,12 +719,10 @@ TEST_F(StorageV3, VertexDeleteLabel) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteProperty) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   // Create the vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
     ASSERT_FALSE(acc.Commit().HasError());
@@ -867,11 +854,9 @@ TEST_F(StorageV3, VertexDeleteProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelCommit) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
     auto label = acc.NameToLabel("label5");
 
@@ -981,12 +966,10 @@ TEST_F(StorageV3, VertexLabelCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelAbort) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   // Create the vertex.
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1227,11 +1210,9 @@ TEST_F(StorageV3, VertexLabelAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelSerializationError) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1334,11 +1315,9 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertyCommit) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
     auto property = acc.NameToProperty("property5");
 
@@ -1455,12 +1434,10 @@ TEST_F(StorageV3, VertexPropertyCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertyAbort) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   // Create the vertex.
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1731,11 +1708,9 @@ TEST_F(StorageV3, VertexPropertyAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertySerializationError) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1833,7 +1808,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelPropertyMixed) {
   auto acc = store.Access();
-  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
   auto label = acc.NameToLabel("label5");
   auto property = acc.NameToProperty("property5");
@@ -2070,13 +2045,11 @@ TEST_F(StorageV3, VertexLabelPropertyMixed) {
 }
 
 TEST_F(StorageV3, VertexPropertyClear) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   auto property1 = store.NameToProperty("property1");
   auto property2 = store.NameToProperty("property2");
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
     auto old_value = vertex.SetProperty(property1, PropertyValue("value"));
     ASSERT_TRUE(old_value.HasValue());
@@ -2176,10 +2149,9 @@ TEST_F(StorageV3, VertexPropertyClear) {
 TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto label1 = store.NameToLabel("label1");
   auto property1 = store.NameToProperty("property1");
-  std::vector<PropertyValue> pk{PropertyValue(1)};
 
   auto acc = store.Access();
-  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
 
   // Check state before (OLD view).
   ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
@@ -2230,12 +2202,10 @@ TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
 }
 
 TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   auto acc1 = store.Access();
   auto acc2 = store.Access();
 
-  auto vertex = CreateVertexAndValidate(acc1, label, {}, {{property, PropertyValue(1)}});
+  auto vertex = CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
 
   EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
   EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
@@ -2285,13 +2255,11 @@ TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
 }
 
 TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
-  std::vector<PropertyValue> pk{PropertyValue(1)};
-
   {
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
-    CreateVertexAndValidate(acc1, label, {}, {{property, PropertyValue(1)}});
+    CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
 
     EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
     EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
@@ -2525,12 +2493,11 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
 TEST_F(StorageV3, DeletedVertexAccessor) {
   const auto property1 = store.NameToProperty("property");
   const PropertyValue property_value{"property_value"};
-  std::vector<PropertyValue> pk{PropertyValue(1)};
 
   // Create the vertex
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
     ASSERT_FALSE(vertex.SetProperty(property1, property_value).HasError());
     ASSERT_FALSE(acc.Commit().HasError());
   }
