@@ -135,9 +135,14 @@ class OpaquePromise {
   std::unique_ptr<OpaquePromiseTraitBase> trait_;
 
  public:
-  OpaquePromise(OpaquePromise &&old) noexcept : ptr_(old.ptr_), trait_(std::move(old.trait_)) { old.ptr_ = nullptr; }
+  OpaquePromise(OpaquePromise &&old) noexcept : ptr_(old.ptr_), trait_(std::move(old.trait_)) {
+    MG_ASSERT(old.ptr_ != nullptr);
+    old.ptr_ = nullptr;
+  }
 
   OpaquePromise &operator=(OpaquePromise &&old) noexcept {
+    MG_ASSERT(ptr_ == nullptr);
+    MG_ASSERT(old.ptr_ != nullptr);
     MG_ASSERT(this != &old);
     ptr_ = old.ptr_;
     trait_ = std::move(old.trait_);

@@ -162,7 +162,7 @@ void RunSimulation() {
   auto srv_thread_3 = std::jthread(RunRaft<SimulatorTransport>, std::move(srv_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_3);
 
-  std::cout << "beginning test after servers have become quiescent" << std::endl;
+  spdlog::debug("beginning test after servers have become quiescent");
 
   std::mt19937 cli_rng_{0};
   std::vector<Address> server_addrs{srv_addr_1, srv_addr_2, srv_addr_3};
@@ -197,8 +197,8 @@ void RunSimulation() {
 
     bool cas_succeeded = cas_response.cas_success;
 
-    std::cout << "Client received CasResponse! success: " << cas_succeeded
-              << " last_known_value: " << (int)*last_known_value << std::endl;
+    spdlog::debug("Client received CasResponse! success: {} last_known_value {}", cas_succeeded,
+                  (int)*last_known_value);
 
     if (cas_succeeded) {
       last_known_value = i;
@@ -223,7 +223,7 @@ void RunSimulation() {
 
     MG_ASSERT(get_response.value == i);
 
-    std::cout << "client successfully cas'd a value and read it back! value: " << i << std::endl;
+    spdlog::debug("client successfully cas'd a value and read it back! value: {}", i);
 
     success = true;
   }
@@ -234,14 +234,14 @@ void RunSimulation() {
 
   SimulatorStats stats = simulator.Stats();
 
-  std::cout << "total messages:     " << stats.total_messages << std::endl;
-  std::cout << "dropped messages:   " << stats.dropped_messages << std::endl;
-  std::cout << "timed out requests: " << stats.timed_out_requests << std::endl;
-  std::cout << "total requests:     " << stats.total_requests << std::endl;
-  std::cout << "total responses:    " << stats.total_responses << std::endl;
-  std::cout << "simulator ticks:    " << stats.simulator_ticks << std::endl;
+  spdlog::debug("total messages:     ", stats.total_messages);
+  spdlog::debug("dropped messages:   ", stats.dropped_messages);
+  spdlog::debug("timed out requests: ", stats.timed_out_requests);
+  spdlog::debug("total requests:     ", stats.total_requests);
+  spdlog::debug("total responses:    ", stats.total_responses);
+  spdlog::debug("simulator ticks:    ", stats.simulator_ticks);
 
-  std::cout << "========================== SUCCESS :) ==========================" << std::endl;
+  spdlog::debug("========================== SUCCESS :) ==========================");
 
   /*
   this is implicit in jthread's dtor
@@ -255,12 +255,12 @@ int main() {
   int n_tests = 50;
 
   for (int i = 0; i < n_tests; i++) {
-    std::cout << "========================== NEW SIMULATION " << i << " ==========================" << std::endl;
-    std::cout << "\tTime\tTerm\tPort\tRole\t\tMessage\n";
+    spdlog::debug("========================== NEW SIMULATION {} ==========================", i);
+    spdlog::debug("\tTime\tTerm\tPort\tRole\t\tMessage\n");
     RunSimulation();
   }
 
-  std::cout << "passed " << n_tests << " tests!" << std::endl;
+  spdlog::debug("passed {} tests!", n_tests);
 
   return 0;
 }

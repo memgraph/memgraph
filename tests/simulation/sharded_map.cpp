@@ -193,8 +193,6 @@ int main() {
   auto b_thread_3 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[2]);
 
-  std::cout << "beginning test after servers have become quiescent" << std::endl;
-
   // Spin up coordinators
 
   Io<SimulatorTransport> c_io_1 = simulator.RegisterNew();
@@ -259,7 +257,9 @@ int main() {
     // Transaction ID to be used later...
     auto transaction_id = res.new_hlc;
 
-    client_shard_map = res.fresher_shard_map.value();
+    if (res.fresher_shard_map) {
+      client_shard_map = res.fresher_shard_map.value();
+    }
 
     // TODO(gabor) check somewhere in the call chain if the entries are actually valid
     // for (auto &[key, val] : client_shard_map.GetShards()) {
