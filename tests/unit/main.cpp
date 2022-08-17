@@ -9,11 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <folly/init/Init.h>
 #include <gtest/gtest.h>
 #include <utils/logging.hpp>
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
+
+  folly::Init(&argc, &argv);
+
   memgraph::logging::RedirectToStderr();
   spdlog::set_level(spdlog::level::trace);
   return RUN_ALL_TESTS();
