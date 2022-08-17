@@ -277,9 +277,6 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  // TODO Remove when query modules have been fixed
-  // [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
-
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
       const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {

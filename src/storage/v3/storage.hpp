@@ -538,7 +538,6 @@ class Storage final {
   // Main object storage
   Labelspace labelspace;
   utils::SkipList<Edge> edges_;
-  std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we

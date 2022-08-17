@@ -83,7 +83,7 @@ std::optional<VerticesSkipList::Iterator> AdvanceToVisibleVertex(
       ++it;
       continue;
     }
-    break;
+    return it;
   }
   return std::nullopt;
 }
@@ -404,7 +404,6 @@ Storage::Storage(Config config)
     //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
     //                         &wal_seq_num_);
     if (info) {
-      vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
@@ -528,12 +527,10 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  // TODO Maybe ensure that skip list always exists on schema creation
+  // TODO(jbajic) Maybe ensure that skip list always exists on schema creation
   if (!storage_->labelspace.contains(primary_label)) {
     storage_->labelspace[primary_label] = VerticesSkipList{};
   }
-  auto acc = storage_->labelspace[primary_label].access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
 
   // Extract key properties
   std::vector<PropertyValue> primary_properties;
@@ -543,34 +540,33 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     }
   }
 
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties}});
+  // for (const auto label : labels) {
+  //   const auto maybe_error = va.AddLabel(label);
+  //   if (maybe_error.HasError()) {
+  //     return {maybe_error.GetError()};
+  //   }
+  // }
+  // Set properties
+  std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties;
+  for (const auto &[property_id, property_value] : properties) {
+    if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      secondary_properties.emplace_back(property_id, property_value);
+    }
+  }
+
+  auto acc = storage_->labelspace[primary_label].access();
+  auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
-
-  auto va = VertexAccessor{&it->vertex,
-                           &transaction_,
-                           &storage_->indices_,
-                           &storage_->constraints_,
-                           config_,
-                           storage_->schema_validator_,
-                           storage_->schemas_};
-  for (const auto label : labels) {
-    const auto maybe_error = va.AddLabel(label);
-    if (maybe_error.HasError()) {
-      return {maybe_error.GetError()};
-    }
-  }
-  // Set properties
-  for (const auto &[property_id, property_value] : properties) {
-    if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
-      const auto maybe_error = va.SetProperty(property_id, property_value);
-      if (maybe_error.HasError()) {
-        return {maybe_error.GetError()};
-      }
-    }
-  }
-  return va;
+  return VertexAccessor{&it->vertex,
+                        &transaction_,
+                        &storage_->indices_,
+                        &storage_->constraints_,
+                        config_,
+                        storage_->schema_validator_,
+                        storage_->schemas_};
 }
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primary_label,
@@ -581,9 +577,12 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primar
   auto acc = storage_->labelspace[primary_label].access();
   // Later on use label space
   auto it = acc.find(primary_key);
-  if (it == acc.end()) return std::nullopt;
-  return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
-                                storage_->schema_validator_, storage_->schemas_, view);
+  if (it == acc.end()) {
+    return std::nullopt;
+  }
+  auto vac = VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
+                                    storage_->schema_validator_, storage_->schemas_, view);
+  return vac;
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -1192,7 +1191,6 @@ void Storage::Accessor::Abort() {
           deleted_vertices[primary_label] = {my_deleted_vertices_pk};
         }
       }
-      // deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices);
     });
     storage_->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
@@ -1664,24 +1662,20 @@ void Storage::CollectGarbage() {
         while (!garbage_vertices_.empty()) {
           // TODO Get back on the strategy of cleaning
           for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
-            if (timestamped_primary_keys.empty() || primary_label != garbage_primary_label) {
-              continue;
+            if (!timestamped_primary_keys.empty() && primary_label == garbage_primary_label) {
+              MG_ASSERT(vertex_acc.remove(timestamped_primary_keys.front().second), "Invalid database state!");
+              timestamped_primary_keys.pop_front();
             }
-            auto key = timestamped_primary_keys.front().second;
-            MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-            timestamped_primary_keys.pop_front();
           }
         }
       } else {
         while (!garbage_vertices_.empty()) {
           for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
-            if (timestamped_primary_keys.empty() || primary_label != garbage_primary_label ||
+            if (!timestamped_primary_keys.empty() && primary_label == garbage_primary_label &&
                 timestamped_primary_keys.front().first < oldest_active_start_timestamp) {
-              continue;
+              MG_ASSERT(vertex_acc.remove(timestamped_primary_keys.front().second), "Invalid database state!");
+              timestamped_primary_keys.pop_front();
             }
-            auto key = timestamped_primary_keys.front().second;
-            MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
-            timestamped_primary_keys.pop_front();
           }
         }
       }

@@ -181,7 +181,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
     storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
     storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
     const auto &recovery_info = recovered_snapshot.recovery_info;
-    storage_->vertex_id_ = recovery_info.next_vertex_id;
     storage_->edge_id_ = recovery_info.next_edge_id;
     storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
 
