@@ -74,6 +74,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distributed::Produce &produce,
                                                                 ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
+  auto frames = std::vector<Frame *>{&frame};
   // top level node in the operator tree is a produce (return)
   // so stream out results
 
@@ -85,7 +86,7 @@ std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distribute
   // stream out results
   auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
-  while (cursor->Pull(frame, *context)) {
+  while (cursor->Pull(frames, *context)) {  //#NoCommit
     std::vector<TypedValue> values;
     for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
     results.emplace_back(values);
@@ -279,25 +280,25 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
-ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
-                                               std::shared_ptr<distributed::LogicalOperator> input, Symbol input_symbol,
-                                               const std::string &edge_identifier, EdgeAtom::Direction direction,
-                                               const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
-                                               const std::string &node_identifier, bool existing_node,
-                                               memgraph::storage::v3::View view) {
-  auto edge = EDGE(edge_identifier, direction);
-  auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
-  edge->identifier_->MapTo(edge_sym);
+// ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
+//                                                std::shared_ptr<distributed::LogicalOperator> input, Symbol
+//                                                input_symbol, const std::string &edge_identifier, EdgeAtom::Direction
+//                                                direction, const std::vector<memgraph::storage::v3::EdgeTypeId>
+//                                                &edge_types, const std::string &node_identifier, bool existing_node,
+//                                                memgraph::storage::v3::View view) {
+//   auto edge = EDGE(edge_identifier, direction);
+//   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
+//   edge->identifier_->MapTo(edge_sym);
 
-  auto node = NODE(node_identifier);
-  auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
-  node->identifier_->MapTo(node_sym);
+//   auto node = NODE(node_identifier);
+//   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
+//   node->identifier_->MapTo(node_sym);
 
-  auto op = std::make_shared<distributed::Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types,
-                                                  existing_node, view);
+//   auto op = std::make_shared<distributed::Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types,
+//                                                   existing_node, view);
 
-  return ExpandTuple_distributed{edge, edge_sym, node, node_sym, op};
-}
+//   return ExpandTuple_distributed{edge, edge_sym, node, node_sym, op};
+// }
 struct UnwindTuple {
   Symbol sym_;
   std::shared_ptr<LogicalOperator> op_;
