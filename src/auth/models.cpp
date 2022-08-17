@@ -105,9 +105,13 @@ std::string PermissionLevelToString(PermissionLevel level) {
 LabelPermission PermissionToLabelPermission(uint64_t permission) {
   if (permission & LabelPermission::CREATE_DELETE) {
     return LabelPermission::CREATE_DELETE;
-  } else if (permission & LabelPermission::EDIT) {
+  }
+
+  if (permission & LabelPermission::EDIT) {
     return LabelPermission::EDIT;
-  } else if (permission & LabelPermission::READ) {
+  }
+
+  if (permission & LabelPermission::READ) {
     return LabelPermission::READ;
   }
 

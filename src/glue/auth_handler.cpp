@@ -233,8 +233,10 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForActor(const memgraph::a
                                                                const memgraph::query::AuthQuery::Privilege privilege,
                                                                const std::string actor) {
   PermissionForPrivilegeResult container;
-  container.permission = memgraph::glue::PrivilegeToPermission(privilege);
-  container.permission_level = permissions.Has(container.permission);
+
+  const auto permission = memgraph::glue::PrivilegeToPermission(privilege);
+  container.permission = memgraph::auth::PermissionToString(permission);
+  container.permission_level = permissions.Has(permission);
 
   switch (container.permission_level) {
     case memgraph::auth::PermissionLevel::GRANT:
@@ -251,11 +253,26 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForActor(const memgraph::a
   return container;
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(std::optional<memgraph::auth::User> user) {
+std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
+    std::vector<PermissionForPrivilegeResult> privileges) {
   std::vector<std::vector<memgraph::query::TypedValue>> grants;
+
+  grants.reserve(privileges.size());
+  for (const auto &permission : privileges) {
+    grants.push_back({memgraph::query::TypedValue(permission.permission),
+                      memgraph::query::TypedValue(memgraph::auth::PermissionLevelToString(permission.permission_level)),
+                      memgraph::query::TypedValue(permission.description)});
+  }
+
+  return grants;
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(std::optional<memgraph::auth::User> user) {
+  std::vector<PermissionForPrivilegeResult> privilege_results;
+
   const auto &permissions = user->GetPermissions();
 
-  for (const auto privilege : memgraph::query::kPrivilegesAll) {
+  for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto user_permission_result = GetPermissionForPrivilegeForActor(permissions, privilege, "USER");
 
     if (user_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
@@ -269,25 +286,56 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(std::op
         }
       }
 
-      grants.push_back(
-          {memgraph::query::TypedValue(memgraph::auth::PermissionToString(user_permission_result.permission)),
-           memgraph::query::TypedValue(
-               memgraph::auth::PermissionLevelToString(user_permission_result.permission_level)),
-           memgraph::query::TypedValue(memgraph::utils::Join(full_description, ", "))});
+      privilege_results.push_back(PermissionForPrivilegeResult{user_permission_result.permission,
+                                                               user_permission_result.permission_level,
+                                                               memgraph::utils::Join(full_description, ", ")});
     }
   }
-  return grants;
+
+  return ConstructPrivilegesResult(privilege_results);
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(std::optional<memgraph::auth::Role> role) {
-  std::vector<std::vector<memgraph::query::TypedValue>> grants;
+  std::vector<PermissionForPrivilegeResult> privilege_results;
   const auto &permissions = role->permissions();
-  for (const auto privilege : memgraph::query::kPrivilegesAll) {
+  for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto role_permission_result = GetPermissionForPrivilegeForActor(permissions, privilege, "ROLE");
-    grants.push_back(
-        {memgraph::query::TypedValue(memgraph::auth::PermissionToString(role_permission_result.permission)),
-         memgraph::query::TypedValue(memgraph::auth::PermissionLevelToString(role_permission_result.permission_level)),
-         memgraph::query::TypedValue(role_permission_result.description)});
+    privilege_results.push_back(role_permission_result);
+  }
+
+  return ConstructPrivilegesResult(privilege_results);
+}
+
+std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForActor(
+    const memgraph::auth::FineGrainedAccessPermissions &permissions, std::string actor) {
+  std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
+  const auto global_permission = permissions.global_permission();
+  if (global_permission.has_value()) {
+    auto permission_level = memgraph::auth::PermissionToLabelPermission(global_permission.value());
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
+        "ALL LABELS", permission_level, "GLOBAL LABEL PERMISSION GRANTED TO " + actor});
+  }
+
+  for (const auto &permission : permissions.permissions()) {
+    const auto label = permission.first;
+    auto permission_level = memgraph::auth::PermissionToLabelPermission(permission.second);
+
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
+        "LABEL :" + permission.first, permission_level, "LABEL PERMISSION GRANTED TO " + actor});
+  }
+
+  return fine_grained_permissions;
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivilegesResult(
+    std::vector<FineGrainedPermissionForPrivilegeResult> privileges) {
+  std::vector<std::vector<memgraph::query::TypedValue>> grants;
+
+  grants.reserve(privileges.size());
+  for (const auto &permission : privileges) {
+    grants.push_back({memgraph::query::TypedValue(permission.permission),
+                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission.permission_level)),
+                      memgraph::query::TypedValue(permission.description)});
   }
 
   return grants;
@@ -295,52 +343,20 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(std::op
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivileges(
     std::optional<memgraph::auth::User> user) {
-  std::vector<std::vector<memgraph::query::TypedValue>> grants;
   const auto &permissions = user->GetFineGrainedAccessPermissions();
 
-  const auto global_permission = permissions.global_permission();
-  if (global_permission.has_value()) {
-    auto permission_level = memgraph::auth::PermissionToLabelPermission(global_permission.value());
-    grants.push_back({memgraph::query::TypedValue("ALL LABELS"),
-                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission_level)),
-                      memgraph::query::TypedValue("GLOBAL LABEL PERMISSION GRANTED TO USER")});
-  }
+  const auto fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForActor(permissions, "USER");
 
-  for (const auto &permission : permissions.permissions()) {
-    const auto label = permission.first;
-    auto permission_level = memgraph::auth::PermissionToLabelPermission(permission.second);
-
-    grants.push_back({memgraph::query::TypedValue("LABEL :" + permission.first),
-                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission_level)),
-                      memgraph::query::TypedValue("LABEL PERMISSION GRANTED TO USER")});
-  }
-
-  return grants;
+  return ConstructFineGrainedPrivilegesResult(fine_grained_permissions);
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
     std::optional<memgraph::auth::Role> role) {
-  std::vector<std::vector<memgraph::query::TypedValue>> grants;
   const auto &permissions = role->fine_grained_access_permissions();
 
-  const auto global_permission = permissions.global_permission();
-  if (global_permission.has_value()) {
-    auto permission_level = memgraph::auth::PermissionToLabelPermission(global_permission.value());
-    grants.push_back({memgraph::query::TypedValue("ALL LABELS"),
-                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission_level)),
-                      memgraph::query::TypedValue("GLOBAL LABEL PERMISSION GRANTED TO ROLE")});
-  }
+  const auto fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForActor(permissions, "ROLE");
 
-  for (const auto &permission : permissions.permissions()) {
-    const auto label = permission.first;
-    auto permission_level = memgraph::auth::PermissionToLabelPermission(permission.second);
-
-    grants.push_back({memgraph::query::TypedValue("LABEL :" + permission.first),
-                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission_level)),
-                      memgraph::query::TypedValue("LABEL PERMISSION GRANTED TO ROLE")});
-  }
-
-  return grants;
+  return ConstructFineGrainedPrivilegesResult(fine_grained_permissions);
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role) {

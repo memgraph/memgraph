@@ -22,8 +22,14 @@
 namespace memgraph::glue {
 
 struct PermissionForPrivilegeResult {
-  memgraph::auth::Permission permission;
+  std::string permission;
   memgraph::auth::PermissionLevel permission_level;
+  std::string description;
+};
+
+struct FineGrainedPermissionForPrivilegeResult {
+  std::string permission;
+  memgraph::auth::LabelPermission permission_level;
   std::string description;
 };
 
