@@ -21,18 +21,6 @@
 
 namespace memgraph::glue {
 
-struct PermissionForPrivilegeResult {
-  std::string permission;
-  memgraph::auth::PermissionLevel permission_level;
-  std::string description;
-};
-
-struct FineGrainedPermissionForPrivilegeResult {
-  std::string permission;
-  memgraph::auth::LabelPermission permission_level;
-  std::string description;
-};
-
 inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
 
 class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
