@@ -80,7 +80,6 @@ int main() {
 
   auto res_f = cli_io.Request<ScanVerticesRequest, VerticesResponse>(srv_addr, req);
   auto res_rez = std::move(res_f).Wait();
-  // MG_ASSERT(res_rez.HasError());
   simulator.ShutDown();
   return 0;
 }

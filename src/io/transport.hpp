@@ -22,9 +22,10 @@
 #include "io/time.hpp"
 #include "utils/result.hpp"
 
+namespace memgraph::io {
+
 using memgraph::utils::BasicResult;
 
-namespace memgraph::io {
 // TODO(tyler) ensure that Message continues to represent
 // reasonable constraints around message types over time,
 // as we adapt things to use Thrift-generated message types.
@@ -71,51 +72,52 @@ class Io {
   /// without an explicit timeout set.
   void SetDefaultTimeout(Duration timeout) { default_timeout_ = timeout; }
 
-  /// Issue a request with an explicit timeout in microseconds provided.
+  /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {
-    uint64_t request_id = ++request_id_counter_;
+    const uint64_t request_id = ++request_id_counter_;
     return implementation_.template Request<Request, Response>(address, request_id, request, timeout);
   }
 
-  /// Issue a request that times out after the default timeout.
+  /// Issue a request that times out after the default timeout. This tends
+  /// to be used by clients.
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, Request request) {
-    uint64_t request_id = ++request_id_counter_;
-    Duration timeout = default_timeout_;
+    const uint64_t request_id = ++request_id_counter_;
+    const Duration timeout = default_timeout_;
     return implementation_.template Request<Request, Response>(address, request_id, std::move(request), timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
-  /// provided types to arrive.
+  /// provided types to arrive. This tends to be used by servers.
   template <Message... Ms>
   RequestResult<Ms...> ReceiveWithTimeout(Duration timeout) {
     return implementation_.template Receive<Ms...>(timeout);
   }
 
   /// Wait the default number of microseconds for a request of one of the
-  /// provided types to arrive.
+  /// provided types to arrive. This tends to be used by servers.
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
-    Duration timeout = default_timeout_;
+    const Duration timeout = default_timeout_;
     return implementation_.template Receive<Ms...>(timeout);
   }
 
-  /// Send a message in a best-effort fashion. If you need reliable delivery,
-  /// this must be built on-top. TCP is not enough for most use cases.
+  /// Send a message in a best-effort fashion. This is used for messaging where
+  /// responses are not necessarily expected, and for servers to respond to requests.
+  /// If you need reliable delivery, this must be built on-top. TCP is not enough for most use cases.
   template <Message M>
   void Send(Address address, uint64_t request_id, M message) {
     return implementation_.template Send<M>(address, request_id, std::move(message));
   }
 
-  /// The current system time in microseconds since the unix epoch.
-  /// This time source should be preferred over any other, because it
-  /// lets us deterministically control clocks from tests for making
+  /// The current system time. This time source should be preferred over any other,
+  /// because it lets us deterministically control clocks from tests for making
   /// things like timeouts deterministic.
-  Time Now() { return implementation_.Now(); }
+  Time Now() const { return implementation_.Now(); }
 
-  /// Returns true of the system should shut-down.
-  bool ShouldShutDown() { return implementation_.ShouldShutDown(); }
+  /// Returns true if the system should shut-down.
+  bool ShouldShutDown() const { return implementation_.ShouldShutDown(); }
 
   /// Returns a random number within the specified distribution.
   template <class D = std::poisson_distribution<>, class Return = uint64_t>

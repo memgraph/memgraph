@@ -27,11 +27,11 @@ namespace memgraph::io {
 // construct a Promise or Future is to pass a Shared in. This
 // ensures that Promises and Futures can only be constructed
 // in this translation unit.
-namespace {
+namespace details {
 template <typename T>
 class Shared {
-  std::condition_variable cv_;
-  std::mutex mu_;
+  mutable std::condition_variable cv_;
+  mutable std::mutex mu_;
   std::optional<T> item_;
   bool consumed_ = false;
   bool waiting_ = false;
@@ -47,8 +47,7 @@ class Shared {
   ~Shared() = default;
 
   /// Takes the item out of our optional item_ and returns it.
-  /// Requires caller holds mutex, proving it by passing reference.
-  T Take(std::unique_lock<std::mutex> &) {
+  T Take() {
     MG_ASSERT(item_, "Take called without item_ being present");
     MG_ASSERT(!consumed_, "Take called on already-consumed Future");
 
@@ -87,7 +86,7 @@ class Shared {
           break;
         }
       }
-      if (!simulator_progressed) {
+      if (!simulator_progressed) [[likely]] {
         cv_.wait(lock);
       }
       MG_ASSERT(!consumed_, "Future consumed twice!");
@@ -95,7 +94,7 @@ class Shared {
 
     waiting_ = false;
 
-    return Take(lock);
+    return Take();
   }
 
   bool IsReady() {
@@ -107,10 +106,10 @@ class Shared {
     std::unique_lock<std::mutex> lock(mu_);
 
     if (item_) {
-      return Take(lock);
-    } else {
-      return std::nullopt;
+      return Take();
     }
+
+    return std::nullopt;
   }
 
   void Fill(T item) {
@@ -131,25 +130,25 @@ class Shared {
     return waiting_;
   }
 };
-}  // namespace
+}  // namespace details
 
 template <typename T>
 class Future {
   bool consumed_or_moved_ = false;
-  std::shared_ptr<Shared<T>> shared_;
+  std::shared_ptr<details::Shared<T>> shared_;
 
  public:
-  explicit Future(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Future(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Future() = delete;
-  Future(Future &&old) {
+  Future(Future &&old) noexcept {
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
     old.consumed_or_moved_ = true;
   }
 
-  Future &operator=(Future &&old) {
+  Future &operator=(Future &&old) noexcept {
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     old.consumed_or_moved_ = true;
@@ -198,20 +197,20 @@ class Future {
 
 template <typename T>
 class Promise {
-  std::shared_ptr<Shared<T>> shared_;
+  std::shared_ptr<details::Shared<T>> shared_;
   bool filled_or_moved_ = false;
 
  public:
-  explicit Promise(std::shared_ptr<Shared<T>> shared) : shared_(shared) {}
+  explicit Promise(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
 
   Promise() = delete;
-  Promise(Promise &&old) {
+  Promise(Promise &&old) noexcept {
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
   }
 
-  Promise &operator=(Promise &&old) {
+  Promise &operator=(Promise &&old) noexcept {
     MG_ASSERT(!old.filled_or_moved_, "Promise moved from after already being moved from or filled.");
     shared_ = std::move(old.shared_);
     old.filled_or_moved_ = true;
@@ -242,7 +241,7 @@ class Promise {
 
 template <typename T>
 std::pair<Future<T>, Promise<T>> FuturePromisePair() {
-  std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>();
+  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>();
 
   Future<T> future = Future<T>(shared);
   Promise<T> promise = Promise<T>(shared);
@@ -252,7 +251,7 @@ std::pair<Future<T>, Promise<T>> FuturePromisePair() {
 
 template <typename T>
 std::pair<Future<T>, Promise<T>> FuturePromisePairWithNotifier(std::function<bool()> simulator_notifier) {
-  std::shared_ptr<Shared<T>> shared = std::make_shared<Shared<T>>(simulator_notifier);
+  std::shared_ptr<details::Shared<T>> shared = std::make_shared<details::Shared<T>>(simulator_notifier);
 
   Future<T> future = Future<T>(shared);
   Promise<T> promise = Promise<T>(shared);
