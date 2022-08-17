@@ -19,17 +19,21 @@
 #include <vector>
 
 #include "io/address.hpp"
+#include "io/errors.hpp"
 #include "io/rsm/coordinator_rsm.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "utils/result.hpp"
 #include "utils/rsm_client.hpp"
 
 using memgraph::coordinator::Address;
 using memgraph::coordinator::AddressAndStatus;
 using memgraph::coordinator::CompoundKey;
 using memgraph::coordinator::Coordinator;
+using memgraph::coordinator::HlcRequest;
+using memgraph::coordinator::HlcResponse;
 using memgraph::coordinator::Shard;
 using memgraph::coordinator::ShardMap;
 using memgraph::coordinator::Shards;
@@ -39,6 +43,7 @@ using memgraph::io::Io;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::Time;
+using memgraph::io::TimedOut;
 using memgraph::io::rsm::CoordinatorRsm;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
@@ -54,6 +59,7 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+using memgraph::utils::BasicResult;
 
 using StorageClient =
     RsmClient<Io<SimulatorTransport>, StorageWriteRequest, StorageWriteResponse, StorageGetRequest, StorageGetResponse>;
@@ -236,29 +242,27 @@ int main() {
 
   while (true) {
     // Create CompoundKey
-    auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
-    auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
+    const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
+    const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
 
-    CompoundKey cm_k = {cm_key_1, cm_key_2};
+    const CompoundKey cm_k = {cm_key_1, cm_key_2};
 
     // Look for Shard
-    auto read_res_opt = coordinator_client.SendReadRequest(req);
-    if (!read_res_opt) {
+    BasicResult<TimedOut, memgraph::coordinator::ReadResponses> read_res = coordinator_client.SendReadRequest(req);
+
+    if (read_res.HasError()) {
+      // timeout
       continue;
     }
 
-    if (!read_res_opt.value().success) {
-      continue;
-    }
+    auto coordinator_read_response = read_res.GetValue();
+    HlcResponse hlc_response = std::get<HlcResponse>(coordinator_read_response);
 
-    auto read_res = read_res_opt.value();
-
-    auto res = std::get<memgraph::coordinator::HlcResponse>(read_res.read_return);
     // Transaction ID to be used later...
-    auto transaction_id = res.new_hlc;
+    auto transaction_id = hlc_response.new_hlc;
 
-    if (res.fresher_shard_map) {
-      client_shard_map = res.fresher_shard_map.value();
+    if (hlc_response.fresher_shard_map) {
+      client_shard_map = hlc_response.fresher_shard_map.value();
     }
 
     // TODO(gabor) check somewhere in the call chain if the entries are actually valid
@@ -277,34 +281,38 @@ int main() {
     // Have client use shard map to decide which shard to communicate
     // with in order to write a new value
     // client_shard_map.
-    StorageWriteRequest storage_req;
     auto write_key_1 = memgraph::storage::PropertyValue(3);
     auto write_key_2 = memgraph::storage::PropertyValue(4);
+
+    StorageWriteRequest storage_req;
     storage_req.key = {write_key_1, write_key_2};
     storage_req.value = 1000;
-    auto write_res_opt = storage_client.SendWriteRequest(storage_req);
-    if (!write_res_opt) {
+
+    auto write_response_result = storage_client.SendWriteRequest(storage_req);
+    if (write_response_result.HasError()) {
+      // timed out
       continue;
     }
-    auto write_res = write_res_opt.value().write_return;
+    auto write_response = write_response_result.GetValue();
 
-    bool cas_succeeded = write_res.shard_rsm_success;
+    bool cas_succeeded = write_response.shard_rsm_success;
 
     if (!cas_succeeded) {
       continue;
     }
-
     // Have client use shard map to decide which shard to communicate
     // with to read that same value back
 
     StorageGetRequest storage_get_req;
     storage_get_req.key = {write_key_1, write_key_2};
-    auto get_res_opt = storage_client.SendReadRequest(storage_get_req);
-    if (!get_res_opt) {
+
+    auto get_response_result = storage_client.SendReadRequest(storage_get_req);
+    if (get_response_result.HasError()) {
+      // timed out
       continue;
     }
-    auto get_res = get_res_opt.value();
-    auto val = get_res.read_return.value.value();
+    auto get_response = get_response_result.GetValue();
+    auto val = get_response.value.value();
 
     MG_ASSERT(val == 1000);
     break;

@@ -72,6 +72,9 @@ class Io {
   /// without an explicit timeout set.
   void SetDefaultTimeout(Duration timeout) { default_timeout_ = timeout; }
 
+  /// Returns the current default timeout for this Io instance.
+  Duration GetDefaultTimeout() { return default_timeout_; }
+
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {

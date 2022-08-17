@@ -187,13 +187,12 @@ void RunSimulation() {
 
     cas_req.new_value = i;
 
-    auto write_cas_response_opt = client.SendWriteRequest(cas_req);
-    if (!write_cas_response_opt) {
+    auto write_cas_response_result = client.SendWriteRequest(cas_req);
+    if (write_cas_response_result.HasError()) {
+      // timed out
       continue;
     }
-    auto write_cas_response = write_cas_response_opt.value();
-
-    CasResponse cas_response = write_cas_response.write_return;
+    CasResponse cas_response = write_cas_response_result.GetValue();
 
     bool cas_succeeded = cas_response.cas_success;
 
@@ -213,13 +212,12 @@ void RunSimulation() {
     GetRequest get_req;
     get_req.key = key;
 
-    auto read_get_response_opt = client.SendReadRequest(get_req);
-    if (!read_get_response_opt) {
+    auto read_get_response_result = client.SendReadRequest(get_req);
+    if (read_get_response_result.HasError()) {
+      // timed out
       continue;
     }
-    auto read_get_response = read_get_response_opt.value();
-
-    GetResponse get_response = read_get_response.read_return;
+    GetResponse get_response = read_get_response_result.GetValue();
 
     MG_ASSERT(get_response.value == i);
 

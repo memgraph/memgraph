@@ -15,15 +15,20 @@
 
 #include "io/address.hpp"
 #include "io/rsm/raft.hpp"
+#include "utils/result.hpp"
 
 using memgraph::io::Address;
+using memgraph::io::Duration;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::ResponseResult;
+using memgraph::io::Time;
+using memgraph::io::TimedOut;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
+using memgraph::utils::BasicResult;
 
 template <typename IoImpl, typename WriteRequestT, typename WriteResponseT, typename ReadRequestT,
           typename ReadResponseT>
@@ -37,22 +42,21 @@ class RsmClient {
   ServerPool server_addrs_;
 
   template <typename ResponseT>
-  std::optional<ResponseT> CheckForCorrectLeader(ResponseT response) {
+  void PossiblyRedirectLeader(const ResponseT &response) {
     if (response.retry_leader) {
       MG_ASSERT(!response.success, "retry_leader should never be set for successful responses");
       leader_ = response.retry_leader.value();
-      std::cout << "client redirected to leader server " << leader_.last_known_port << std::endl;
+      spdlog::debug("client redirected to leader server {}", leader_.ToString());
     } else if (!response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
       size_t addr_index = addr_distrib(cli_rng_);
       leader_ = server_addrs_[addr_index];
 
-      std::cout << "client NOT redirected to leader server, trying a random one at index " << addr_index
-                << " with port " << leader_.last_known_port << std::endl;
-      return std::nullopt;
+      spdlog::debug(
+          "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
+          "a RSM Candidate) trying a random one at index {} with address {}",
+          addr_index, leader_.ToString());
     }
-
-    return response;
   }
 
  public:
@@ -61,52 +65,69 @@ class RsmClient {
 
   RsmClient() = delete;
 
-  std::optional<WriteResponse<WriteResponseT>> SendWriteRequest(WriteRequestT req) {
+  BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
     WriteRequest<WriteRequestT> client_req;
     client_req.operation = req;
 
-    std::cout << "client sending CasRequest to Leader " << leader_.last_known_port << std::endl;
-    ResponseFuture<WriteResponse<WriteResponseT>> response_future =
-        io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, client_req);
-    ResponseResult<WriteResponse<WriteResponseT>> response_result = std::move(response_future).Wait();
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+    const Time before = io_.Now();
 
-    if (response_result.HasError()) {
-      std::cout << "client timed out while trying to communicate with leader server " << std::endl;
-      // continue;
-      return std::nullopt;
-    }
+    do {
+      spdlog::debug("client sending CasRequest to Leader {}", leader_.ToString());
+      ResponseFuture<WriteResponse<WriteResponseT>> response_future =
+          io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, client_req);
+      ResponseResult<WriteResponse<WriteResponseT>> response_result = std::move(response_future).Wait();
 
-    ResponseEnvelope<WriteResponse<WriteResponseT>> response_envelope = response_result.GetValue();
-    WriteResponse<WriteResponseT> write_response = response_envelope.message;
+      if (response_result.HasError()) {
+        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+        // continue;
+        return response_result.GetError();
+      }
 
-    return CheckForCorrectLeader(write_response);
+      ResponseEnvelope<WriteResponse<WriteResponseT>> &&response_envelope = std::move(response_result.GetValue());
+      WriteResponse<WriteResponseT> &&write_response = std::move(response_envelope.message);
+
+      if (write_response.success) {
+        return std::move(write_response.write_return);
+      }
+
+      PossiblyRedirectLeader(write_response);
+    } while (io_.Now() < before + overall_timeout);
+
+    return TimedOut{};
   }
 
-  std::optional<ReadResponse<ReadResponseT>> SendReadRequest(ReadRequestT req) {
+  BasicResult<TimedOut, ReadResponseT> SendReadRequest(ReadRequestT req) {
     ReadRequest<ReadRequestT> read_req;
     read_req.operation = req;
 
-    std::cout << "client sending GetRequest to Leader " << leader_.last_known_port << std::endl;
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+    const Time before = io_.Now();
 
-    ResponseFuture<ReadResponse<ReadResponseT>> get_response_future =
-        io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
+    do {
+      spdlog::debug("client sending GetRequest to Leader {}", leader_.ToString());
 
-    // receive response
-    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(get_response_future).Wait();
+      ResponseFuture<ReadResponse<ReadResponseT>> get_response_future =
+          io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
 
-    if (get_response_result.HasError()) {
-      std::cout << "client timed out while trying to communicate with leader server " << std::endl;
-      return std::nullopt;
-    }
+      // receive response
+      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(get_response_future).Wait();
 
-    ResponseEnvelope<ReadResponse<ReadResponseT>> get_response_envelope = get_response_result.GetValue();
-    ReadResponse<ReadResponseT> read_get_response = get_response_envelope.message;
+      if (get_response_result.HasError()) {
+        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+        return get_response_result.GetError();
+      }
 
-    // if (!read_get_response.success) {
-    //   // sent to a non-leader
-    //   return {};
-    // }
+      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
+      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
 
-    return CheckForCorrectLeader(read_get_response);
+      if (read_get_response.success) {
+        return std::move(read_get_response.read_return);
+      }
+
+      PossiblyRedirectLeader(read_get_response);
+    } while (io_.Now() < before + overall_timeout);
+
+    return TimedOut{};
   }
 };
