@@ -29,6 +29,7 @@ function(copy_e2e_cpp_files TARGET_PREFIX FILE_NAME)
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME})
 endfunction()
 
+add_subdirectory(fine_grained_access)
 add_subdirectory(server)
 add_subdirectory(replication)
 add_subdirectory(memory)

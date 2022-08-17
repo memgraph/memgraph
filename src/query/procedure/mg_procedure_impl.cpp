@@ -2252,19 +2252,12 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 namespace {
 void NextPermitted(mgp_vertices_iterator &it) {
-  const auto *checker = it.graph->ctx->fine_grained_access_checker;
-
-  if (!checker) {
+  if (!it.graph->ctx->auth_checker) {
     return;
   }
 
   while (it.current_it != it.vertices.end()) {
-    auto labels = (*it.current_it).impl_.Labels(it.graph->view);
-    if (!labels.HasValue()) {
-      break;
-    }
-
-    if (checker->IsUserAuthorizedLabels(labels.GetValue(), it.graph->ctx->db_accessor)) {
+    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view)) {
       break;
     }
 

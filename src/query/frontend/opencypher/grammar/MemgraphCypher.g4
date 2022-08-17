@@ -46,6 +46,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE_TYPES
                       | EDIT
                       | EXECUTE
                       | FOR
@@ -230,11 +231,11 @@ setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeOrLabelPrivilegeList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeOrLabelPrivilegeList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeOrLabelsList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE
           | DELETE
@@ -259,33 +260,27 @@ privilege : CREATE
           | WEBSOCKET
           ;
 
-labelPrivilege : READ
-               | EDIT
-               | CREATE_DELETE
-               ;
+granularPrivilege : READ | EDIT | CREATE_DELETE ;
 
+entityType : LABELS | EDGE_TYPES ;
 
-privilegeOrLabelPrivileges : privilege
-                           | labelPrivileges=complexPrivilegeList
-                           ;
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
-privilegeOrLabelPrivilegeList : privilegeOrLabelPrivileges ( ',' privilegeOrLabelPrivileges )* ;
+privilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
-complexPrivilegeList : complexPrivilege ( ',' complexPrivilege )* ;
+entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-complexPrivilege : labelPrivilege ON LABELS labels=labelList ;
+entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
 
-privilegeOrLabels : privilege
-                  | LABELS labels=labelList
-                  ;
+privilegeOrEntities : privilege | entityType entities=entitiesList ;
 
-privilegeOrLabelsList : privilegeOrLabels ( ',' privilegeOrLabels )* ;
+revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
 
-labelList : ASTERISK | listOfLabels ;
+entitiesList : ASTERISK | listOfEntities ;
 
-listOfLabels : label ( ',' label )* ;
+listOfEntities : entity ( ',' entity )* ;
 
-label : COLON symbolicName ;
+entity : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
