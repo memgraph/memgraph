@@ -1342,9 +1342,16 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   if (ctx->revokePrivilegesList()) {
     for (auto *it : ctx->revokePrivilegesList()->privilegeOrEntities()) {
       if (it->entitiesList()) {
-        auth->label_privileges_.push_back(
-            {{AuthQuery::LabelPrivilege::CREATE_DELETE,
-              std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+        auto entity_type = std::any_cast<std::string>(it->entityType()->accept(this));
+        if (entity_type == "LABELS") {
+          auth->label_privileges_.push_back(
+              {{AuthQuery::LabelPrivilege::CREATE_DELETE,
+                std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+        } else {
+          auth->edge_type_privileges_.push_back(
+              {{AuthQuery::LabelPrivilege::CREATE_DELETE,
+                std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+        }
       } else {
         auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
       }
