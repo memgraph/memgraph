@@ -71,13 +71,17 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
   std::vector<PermissionForPrivilegeResult> privilege_results;
 
   const auto &permissions = user->GetPermissions();
+  const auto &user_level_permissions = user->permissions();
 
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto user_permission_result = GetPermissionForPrivilegeForActor(permissions, privilege, "USER");
+    auto user_only_permissions_result = GetPermissionForPrivilegeForActor(user_level_permissions, privilege, "USER");
 
     if (user_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
       std::vector<std::string> full_description;
-      full_description.emplace_back(user_permission_result.description);
+      if (user_only_permissions_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
+        full_description.emplace_back(user_only_permissions_result.description);
+      }
 
       if (const auto *role = user->role(); role != nullptr) {
         auto role_permission_result = GetPermissionForPrivilegeForActor(role->permissions(), privilege, "ROLE");
