@@ -507,8 +507,6 @@ class QueryPlanExpandVariable : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   // labels for layers in the double chain
   std::vector<memgraph::storage::LabelId> labels;
-  // for all the edges
-  memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -529,7 +527,10 @@ class QueryPlanExpandVariable : public testing::Test {
         ASSERT_TRUE(v_to.AddLabel(label).HasValue());
         for (size_t v_from_ind = 0; v_from_ind < layer.size(); v_from_ind++) {
           auto &v_from = layer[v_from_ind];
-          auto edge = dba.InsertEdge(&v_from, &v_to, edge_type);
+          auto edge_type = "edge_type_" + std::to_string(from_layer_ind + 1);
+          memgraph::storage::EdgeTypeId edge_type_id = dba.NameToEdgeType(edge_type);
+
+          auto edge = dba.InsertEdge(&v_from, &v_to, edge_type_id);
           ASSERT_TRUE(edge->SetProperty(dba.NameToProperty("p"),
                                         memgraph::storage::PropertyValue(fmt::format(
                                             "V{}{}->V{}{}", from_layer_ind, v_from_ind, from_layer_ind + 1, v_to_ind)))
@@ -611,10 +612,16 @@ class QueryPlanExpandVariable : public testing::Test {
   /**
    * Pulls from the given input and returns the results under the given symbol.
    */
-  auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
+  auto GetPathResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol, memgraph::auth::User *user = nullptr) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
-    auto context = MakeContext(storage, symbol_table, &dba);
+    ExecutionContext context;
+    if (user) {
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    } else {
+      context = MakeContext(storage, symbol_table, &dba);
+    }
     std::vector<Path> results;
     while (cursor->Pull(frame, context)) results.emplace_back(frame[symbol].ValuePath());
     return results;
@@ -765,6 +772,156 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto results = GetPathResults(create_path, path_symbol);
   ASSERT_EQ(results.size(), 8);
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
+}
+
+TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
+  auto e = Edge("r", EdgeAtom::Direction::OUT);
+  auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m",
+                                         memgraph::storage::View::OLD);
+  auto find_symbol = [this](const std::string &name) {
+    for (const auto &sym : symbol_table.table())
+      if (sym.second.name() == name) return sym.second;
+    throw std::runtime_error("Symbol not found");
+  };
+
+  auto path_symbol = symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
+  auto create_path = std::make_shared<ConstructNamedPath>(expand, path_symbol,
+                                                          std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
+
+  auto expand_filter = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m",
+                                                memgraph::storage::View::OLD);
+  auto create_path_filtered = std::make_shared<ConstructNamedPath>(
+      expand_filter, path_symbol, std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
+
+  // All labels and edge types granted
+  {
+    std::vector<memgraph::query::Path> expected_paths;
+    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
+      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+      auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+      for (const auto &e1 : *maybe_edges1) {
+        auto maybe_edges2 = e1.To().OutEdges(memgraph::storage::View::OLD);
+        for (const auto &e2 : *maybe_edges2) {
+          expected_paths.emplace_back(v, e1, e1.To(), e2, e2.To());
+        }
+      }
+    }
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+    user.fine_grained_access_handler().label_permissions().Grant("*");
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), expected_paths.size());
+    EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
+  }
+
+  // All labels and edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Deny("*");
+    user.fine_grained_access_handler().label_permissions().Deny("*");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // All labels denied, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+    user.fine_grained_access_handler().label_permissions().Deny("*");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // All labels granted, All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Deny("*");
+    user.fine_grained_access_handler().label_permissions().Grant("*");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // First vertices label denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+    user.fine_grained_access_handler().label_permissions().Deny("0");
+    user.fine_grained_access_handler().label_permissions().Grant("1");
+    user.fine_grained_access_handler().label_permissions().Grant("2");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // First layer label denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+    user.fine_grained_access_handler().label_permissions().Grant("0");
+    user.fine_grained_access_handler().label_permissions().Deny("1");
+    user.fine_grained_access_handler().label_permissions().Grant("2");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Second layer label denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+    user.fine_grained_access_handler().label_permissions().Grant("0");
+    user.fine_grained_access_handler().label_permissions().Grant("1");
+    user.fine_grained_access_handler().label_permissions().Deny("2");
+
+    auto results = GetPathResults(create_path_filtered, path_symbol, &user);
+    ASSERT_EQ(results.size(), 4);
+
+    std::vector<memgraph::query::Path> expected_paths;
+    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
+      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+      auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+      for (const auto &e1 : *maybe_edges1) {
+        expected_paths.emplace_back(v, e1, e1.To());
+      }
+    }
+    EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
+  }
+
+  // First layer edge type denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_1");
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2");
+    user.fine_grained_access_handler().label_permissions().Grant("*");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Second layer edge type denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1");
+    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_2");
+    user.fine_grained_access_handler().label_permissions().Grant("*");
+
+    auto results = GetPathResults(create_path, path_symbol, &user);
+    ASSERT_EQ(results.size(), 4);
+
+    std::vector<memgraph::query::Path> expected_paths;
+    for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) {
+      if (!*v.HasLabel(memgraph::storage::View::OLD, labels[0])) continue;
+      auto maybe_edges1 = v.OutEdges(memgraph::storage::View::OLD);
+      for (const auto &e1 : *maybe_edges1) {
+        expected_paths.emplace_back(v, e1, e1.To());
+      }
+    }
+
+    EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
+  }
 }
 
 TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
@@ -1331,6 +1488,15 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
+  // Denied first vertex label
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("l0");
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
 
   // Denied vertex label 2
   {
@@ -1372,7 +1538,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_filter");
     auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 4);
-  }
+  }  // ASSERT_EQ(results.size(), 2);
 }
 
 TEST(QueryPlan, ExpandOptional) {

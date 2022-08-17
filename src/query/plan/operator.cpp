@@ -1060,20 +1060,19 @@ class ExpandVariableCursor : public Cursor {
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
-      if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, current_edge.first)) continue;
+      VertexAccessor current_vertex =
+          current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
+
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, current_edge.first) ||
+           !context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD)))
+        continue;
 
       // Check edge-uniqueness.
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
-
-      VertexAccessor current_vertex =
-          current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
-
-      if (context.auth_checker &&
-          !context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD))
-        continue;
 
       AppendEdge(current_edge.first, &edges_on_frame);
 
