@@ -49,6 +49,8 @@ cpp<#
 (lcp:namespace distributed)
 
 #>cpp
+using Frames = std::vector<Frame*>;
+
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
 /// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
@@ -66,7 +68,7 @@ class Cursor {
   ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
-  virtual bool Pull(Frame &, ExecutionContext &) = 0;
+  virtual bool Pull(Frames &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -329,7 +331,7 @@ and false on every following Pull.")
    class OnceCursor : public Cursor {
     public:
      OnceCursor() {}
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -462,7 +464,7 @@ a preceding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    class CreateNodeCursor : public Cursor {
     public:
      CreateNodeCursor(const CreateNode &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -577,7 +579,7 @@ chained in cases when longer paths need creating.
    class CreateExpandCursor : public Cursor {
     public:
      CreateExpandCursor(const CreateExpand &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -586,7 +588,7 @@ chained in cases when longer paths need creating.
      const UniqueCursorPtr input_cursor_;
 
      // Get the existing node (if existing_node_ == true), or create a new node
-     VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context);
+     VertexAccessor &OtherVertex(Frames &frames, ExecutionContext &context);
    };
    cpp<#)
   (:serialize (:slk))
@@ -931,7 +933,7 @@ pulled.")
    class ExpandCursor : public Cursor {
     public:
      ExpandCursor(const Expand &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -954,7 +956,7 @@ pulled.")
      std::optional<OutEdgeT> out_edges_;
      std::optional<OutEdgeIteratorT> out_edges_it_;
 
-     bool InitEdges(Frame &, ExecutionContext &);
+     bool InitEdges(Frames &, ExecutionContext &);
    };
    cpp<#)
   (:serialize (:slk))
@@ -1152,7 +1154,7 @@ a boolean value.")
    class FilterCursor : public Cursor {
     public:
      FilterCursor(const Filter &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1203,7 +1205,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
    class ProduceCursor : public Cursor {
     public:
      ProduceCursor(const Produce &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1250,7 +1252,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
    class DeleteCursor : public Cursor {
     public:
      DeleteCursor(const Delete &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1300,7 +1302,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    class SetPropertyCursor : public Cursor {
     public:
      SetPropertyCursor(const SetProperty &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1359,7 +1361,7 @@ that the old properties are discarded and replaced with new ones.")
    class SetPropertiesCursor : public Cursor {
     public:
      SetPropertiesCursor(const SetProperties &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1402,7 +1404,7 @@ It does NOT remove labels that are already set on that Vertex.")
    class SetLabelsCursor : public Cursor {
     public:
      SetLabelsCursor(const SetLabels &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1445,7 +1447,7 @@ It does NOT remove labels that are already set on that Vertex.")
    class RemovePropertyCursor : public Cursor {
     public:
      RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1488,7 +1490,7 @@ If a label does not exist on a Vertex, nothing happens.")
    class RemoveLabelsCursor : public Cursor {
     public:
      RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1543,7 +1545,7 @@ edge lists).")
     public:
      EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &,
                                 utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1725,7 +1727,7 @@ operator's implementation does not expect this.")
    class SkipCursor : public Cursor {
     public:
      SkipCursor(const Skip &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1784,7 +1786,7 @@ input should be performed).")
    class LimitCursor : public Cursor {
     public:
      LimitCursor(const Limit &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1888,7 +1890,7 @@ documentation.")
    class MergeCursor : public Cursor {
     public:
      MergeCursor(const Merge &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1945,7 +1947,7 @@ and returns true, once.")
    class OptionalCursor : public Cursor {
     public:
      OptionalCursor(const Optional &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2069,7 +2071,7 @@ of symbols used by each of the inputs.")
    class UnionCursor : public Cursor {
     public:
      UnionCursor(const Union &, utils::MemoryResource *);
-     bool Pull(Frame &, ExecutionContext &) override;
+     bool Pull(Frames &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2120,7 +2122,7 @@ of symbols used by each of the inputs.")
 
 (lcp:define-class output-table (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
-   (callback "std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)>"
+   (callback "std::function<std::vector<std::vector<TypedValue>>(Frames &, ExecutionContext *)>"
              :scope :public :dont-save t :clone :copy))
   (:documentation "An operator that outputs a table, producing a single row on each pull")
   (:public
@@ -2128,7 +2130,7 @@ of symbols used by each of the inputs.")
    OutputTable() {}
    OutputTable(
        std::vector<Symbol> output_symbols,
-       std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)>
+       std::function<std::vector<std::vector<TypedValue>>(Frames &, ExecutionContext *)>
            callback);
    OutputTable(std::vector<Symbol> output_symbols,
                std::vector<std::vector<TypedValue>> rows);
@@ -2154,7 +2156,7 @@ of symbols used by each of the inputs.")
 
 (lcp:define-class output-table-stream (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
-   (callback "std::function<std::optional<std::vector<TypedValue>>(Frame *, ExecutionContext *)>"
+   (callback "std::function<std::optional<std::vector<TypedValue>>(Frames &, ExecutionContext *)>"
              :scope :public :dont-save t :clone :copy))
   (:documentation "An operator that outputs a table, producing a single row on each pull.
 This class is different from @c OutputTable in that its callback doesn't fetch all rows
@@ -2164,7 +2166,7 @@ at once. Instead, each call of the callback should return a single row of the ta
    OutputTableStream() {}
    OutputTableStream(
        std::vector<Symbol> output_symbols,
-       std::function<std::optional<std::vector<TypedValue>>(Frame *, ExecutionContext *)>
+       std::function<std::optional<std::vector<TypedValue>>(Frames &, ExecutionContext *)>
            callback);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &) override {
