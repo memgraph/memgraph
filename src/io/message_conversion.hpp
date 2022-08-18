@@ -38,6 +38,7 @@ struct PromiseKey {
 
 struct OpaqueMessage {
   Address from_address;
+  Address to_address;
   uint64_t request_id;
   std::any message;
 

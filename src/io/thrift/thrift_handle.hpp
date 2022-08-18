@@ -38,6 +38,11 @@ class ThriftHandle {
   // TODO(tyler) thrift clients for each outbound address combination
   std::map<Address, void *> clients_;
 
+  // TODO(gabor) make this to a threadpool
+  // uuid of the address -> port number where the given rsm is residing.
+  // TODO(gabor) The RSM map should not be a part of this class.
+  std::map<boost::uuids::uuid, uint16_t /*this should be the actual RSM*/> rsm_map_;
+
  public:
   template <Message M>
   void DeliverMessage(Address from_address, RequestId request_id, M &&message) {
@@ -62,6 +67,20 @@ class ThriftHandle {
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     // TODO(tyler) block for the specified duration on the Inbox's receipt of a message of this type.
+    std::unique_lock lock(mu_);
+    cv_.wait(lock, [this] { return !can_receive_.empty(); });
+
+    while (!can_receive_.empty()) {
+      auto current_message = can_receive_.back();
+      can_receive_.pop_back();
+
+      // Logic to determine who to send the message.
+      //
+      auto destination_id = current_message.to_address.unique_id;
+      auto destination_port = rsm_map_.at(destination_id);
+
+      // Send it to the port of the destination -how?
+    }
   }
 
   template <Message M>
