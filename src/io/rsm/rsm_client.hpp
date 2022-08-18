@@ -17,6 +17,8 @@
 #include "io/rsm/raft.hpp"
 #include "utils/result.hpp"
 
+namespace memgraph::io::rsm {
+
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::ResponseEnvelope;
@@ -131,3 +133,5 @@ class RsmClient {
     return TimedOut{};
   }
 };
+
+}  // namespace memgraph::io::rsm

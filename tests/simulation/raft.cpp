@@ -20,9 +20,9 @@
 
 #include "io/address.hpp"
 #include "io/rsm/raft.hpp"
+#include "io/rsm/rsm_client.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
-#include "utils/rsm_client.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Duration;
@@ -34,6 +34,7 @@ using memgraph::io::Time;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
+using memgraph::io::rsm::RsmClient;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::io::simulator::Simulator;

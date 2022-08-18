@@ -22,11 +22,11 @@
 #include "io/errors.hpp"
 #include "io/rsm/coordinator_rsm.hpp"
 #include "io/rsm/raft.hpp"
+#include "io/rsm/rsm_client.hpp"
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
 #include "utils/result.hpp"
-#include "utils/rsm_client.hpp"
 
 using memgraph::coordinator::Address;
 using memgraph::coordinator::AddressAndStatus;
@@ -48,6 +48,7 @@ using memgraph::io::rsm::CoordinatorRsm;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
+using memgraph::io::rsm::RsmClient;
 using memgraph::io::rsm::StorageGetRequest;
 using memgraph::io::rsm::StorageGetResponse;
 using memgraph::io::rsm::StorageRsm;
