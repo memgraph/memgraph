@@ -117,3 +117,4 @@ USER                : U S E R ;
 USERS               : U S E R S ;
 VERSION             : V E R S I O N ;
 WEBSOCKET           : W E B S O C K E T ;
+EDGE_TYPES          : E D G E UNDERSCORE T Y P E S ;

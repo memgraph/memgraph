@@ -56,22 +56,26 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) override;
 
-  memgraph::auth::User *GetUser(const std::string &username) override;
-
   void GrantPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
-          &label_privileges) override;
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override;
 
   void DenyPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
-          &label_privileges) override;
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override;
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
-          &label_privileges) override;
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override;
 
  private:
   template <class TEditFun, class TEditLabelPermisionsFun>
@@ -79,6 +83,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
           &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+          &edge_type_privileges,
       const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun);
 };
 }  // namespace memgraph::glue

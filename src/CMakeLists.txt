@@ -32,7 +32,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
-    memgraph.cpp
+        memgraph.cpp
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads

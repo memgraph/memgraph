@@ -19,6 +19,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <regex>
 #include <string>
@@ -32,9 +33,11 @@
 #include <spdlog/sinks/dist_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include "auth/models.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
 #include "py/py.hpp"
@@ -471,41 +474,6 @@ struct SessionData {
 DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::default_user_role_regex.data(),
               "Set to the regular expression that each user or role name must fulfill.");
 
-class AuthChecker final : public memgraph::query::AuthChecker {
- public:
-  explicit AuthChecker(
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
-      : auth_{auth} {}
-
-  static bool IsUserAuthorized(const memgraph::auth::User &user,
-                               const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
-    const auto user_permissions = user.GetPermissions();
-    return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
-      return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
-             memgraph::auth::PermissionLevel::GRANT;
-    });
-  }
-
-  bool IsUserAuthorized(const std::optional<std::string> &username,
-                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) const final {
-    std::optional<memgraph::auth::User> maybe_user;
-    {
-      auto locked_auth = auth_->ReadLock();
-      if (!locked_auth->HasUsers()) {
-        return true;
-      }
-      if (username.has_value()) {
-        maybe_user = locked_auth->GetUser(*username);
-      }
-    }
-
-    return maybe_user.has_value() && IsUserAuthorized(*maybe_user, privileges);
-  }
-
- private:
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
-};
-
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
@@ -548,7 +516,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #endif
     try {
       auto result = interpreter_.Prepare(query, params_pv, username);
-      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+      if (user_ && !memgraph::glue::AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
         interpreter_.Abort();
         throw memgraph::communication::bolt::ClientError(
             "You are not authorized to execute this query! Please contact "
@@ -897,7 +865,7 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
 
   memgraph::glue::AuthQueryHandler auth_handler(&auth, FLAGS_auth_user_or_role_name_regex);
-  AuthChecker auth_checker{&auth};
+  memgraph::glue::AuthChecker auth_checker{&auth};
   interpreter_context.auth = &auth_handler;
   interpreter_context.auth_checker = &auth_checker;
 

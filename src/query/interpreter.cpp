@@ -31,7 +31,6 @@
 #include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
-#include "query/fine_grained_access_checker.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -46,8 +45,9 @@
 #include "query/stream/common.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/edge.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
@@ -263,24 +263,6 @@ class ReplQueryHandler final : public query::ReplicationQueryHandler {
   storage::Storage *db_;
 };
 
-class FineGrainedAccessChecker final : public memgraph::query::FineGrainedAccessChecker {
- public:
-  explicit FineGrainedAccessChecker(memgraph::auth::User *user) : user_{user} {}
-
-  bool IsUserAuthorizedLabels(const std::vector<memgraph::storage::LabelId> &labels,
-                              const memgraph::query::DbAccessor *dba) const final {
-    auto labelPermissions = user_->GetFineGrainedAccessPermissions();
-
-    return std::any_of(labels.begin(), labels.end(), [&labelPermissions, dba](const auto label) {
-      return labelPermissions.Has(dba->LabelToName(label), memgraph::auth::LabelPermission::READ) ==
-             memgraph::auth::PermissionLevel::GRANT;
-    });
-  }
-
- private:
-  memgraph::auth::User *user_;
-};
-
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
 
@@ -295,6 +277,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
+
   evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::View::OLD);
 
@@ -304,6 +287,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
   std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges =
       auth_query->label_privileges_;
+  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges =
+      auth_query->edge_type_privileges_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -334,6 +319,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
           auth->GrantPrivilege(username, kPrivilegesAll,
+                               {{{AuthQuery::LabelPrivilege::CREATE_DELETE, {auth::kAsterisk}}}},
                                {{{AuthQuery::LabelPrivilege::CREATE_DELETE, {auth::kAsterisk}}}});
         }
 
@@ -409,20 +395,20 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, label_privileges] {
-        auth->GrantPrivilege(user_or_role, privileges, label_privileges);
+      callback.fn = [auth, user_or_role, privileges, label_privileges, edge_type_privileges] {
+        auth->GrantPrivilege(user_or_role, privileges, label_privileges, edge_type_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::DENY_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, label_privileges] {
-        auth->DenyPrivilege(user_or_role, privileges, label_privileges);
+      callback.fn = [auth, user_or_role, privileges, label_privileges, edge_type_privileges] {
+        auth->DenyPrivilege(user_or_role, privileges, label_privileges, edge_type_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges, label_privileges] {
-        auth->RevokePrivilege(user_or_role, privileges, label_privileges);
+      callback.fn = [auth, user_or_role, privileges, label_privileges, edge_type_privileges] {
+        auth->RevokePrivilege(user_or_role, privileges, label_privileges, edge_type_privileges);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -965,8 +951,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
   if (username.has_value()) {
-    memgraph::auth::User *user = interpreter_context->auth->GetUser(*username);
-    ctx_.fine_grained_access_checker = new FineGrainedAccessChecker{user};
+    ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username);
   }
 #endif
   if (interpreter_context->config.execution_timeout_sec > 0) {
@@ -1151,6 +1136,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
+
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::View::OLD);
   const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {

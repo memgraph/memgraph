@@ -453,6 +453,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitClearRole(MemgraphCypher::ClearRoleContext *ctx) override;
 
+  void extractPrivilege(AuthQuery *auth, antlropencypher::MemgraphCypher::PrivilegeContext *privilege);
+
   /**
    * @return AuthQuery*
    */
@@ -469,14 +471,24 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRevokePrivilege(MemgraphCypher::RevokePrivilegeContext *ctx) override;
 
   /**
-   * @return std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>
+   * @return AuthQuery*
    */
-  antlrcpp::Any visitComplexPrivilegeList(MemgraphCypher::ComplexPrivilegeListContext *ctx) override;
+  antlrcpp::Any visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) override;
 
   /**
-   * @return AuthQuery::LabelPrivilege
+   * @return std::vector<std::string>
    */
-  antlrcpp::Any visitLabelPrivilege(MemgraphCypher::LabelPrivilegeContext *ctx) override;
+  antlrcpp::Any visitEntitiesList(MemgraphCypher::EntitiesListContext *ctx) override;
+
+  /**
+   * @return AuthQuery::Privilege
+   */
+  antlrcpp::Any visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery::Privilege
+   */
+  antlrcpp::Any visitEntityType(MemgraphCypher::EntityTypeContext *ctx) override;
 
   /**
    * @return AuthQuery::Privilege
@@ -487,11 +499,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowPrivileges(MemgraphCypher::ShowPrivilegesContext *ctx) override;
-
-  /**
-   * @return AuthQuery::Privilege
-   */
-  antlrcpp::Any visitLabelList(MemgraphCypher::LabelListContext *ctx) override;
 
   /**
    * @return AuthQuery*
