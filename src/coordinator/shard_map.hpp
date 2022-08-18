@@ -108,13 +108,20 @@ struct ShardMap {
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
   Shard GetShardForKey(Label label, CompoundKey key) {
-    // return shards.at(label).at(key);
-    std::cout << "label" << std::endl;
-    auto asd1 = shards.at(label);
-    std::cout << "key" << std::endl;
-    auto asd2 = asd1[key];
+    auto shard_for_label = shards.at(label);
 
-    return asd2;
+    auto max = (--shard_for_label.end())->first;
+
+    if (key > max) {
+      return shard_for_label[max];
+    }
+
+    for (auto it = shard_for_label.lower_bound(key);; --it) {
+      MG_ASSERT(it->first <= key);
+      return it->second;
+    }
+
+    MG_ASSERT(false, "failed to find shard with a key that is less than or equal to the provided key");
   }
 
  private:
