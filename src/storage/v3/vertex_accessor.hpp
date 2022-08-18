@@ -74,20 +74,10 @@ class VertexAccessor final {
   bool IsVisible(View view) const;
 
   /// Add a label and return `true` if insertion took place.
-  /// `false` is returned if the label already existed.
-  /// @throw std::bad_alloc
-  Result<bool> AddLabel(LabelId label);
-
-  /// Add a label and return `true` if insertion took place.
   /// `false` is returned if the label already existed, or SchemaViolation
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
   ResultSchema<bool> AddLabelAndValidate(LabelId label);
-
-  /// Remove a label and return `true` if deletion took place.
-  /// `false` is returned if the vertex did not have a label already.
-  /// @throw std::bad_alloc
-  Result<bool> RemoveLabel(LabelId label);
 
   /// Remove a label and return `true` if deletion took place.
   /// `false` is returned if the vertex did not have a label already. or SchemaViolation
@@ -105,10 +95,6 @@ class VertexAccessor final {
   Result<LabelId> PrimaryLabel(View view) const;
 
   Result<PrimaryKey> PrimaryKey(View view) const;
-
-  /// Set a property value and return the old value.
-  /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
   /// Set a property value and return the old value or error.
   /// @throw std::bad_alloc
@@ -148,6 +134,20 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
  private:
+  /// Add a label and return `true` if insertion took place.
+  /// `false` is returned if the label already existed.
+  /// @throw std::bad_alloc
+  Result<bool> AddLabel(LabelId label);
+
+  /// Remove a label and return `true` if deletion took place.
+  /// `false` is returned if the vertex did not have a label already.
+  /// @throw std::bad_alloc
+  Result<bool> RemoveLabel(LabelId label);
+
+  /// Set a property value and return the old value.
+  /// @throw std::bad_alloc
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;

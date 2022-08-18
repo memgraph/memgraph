@@ -269,8 +269,12 @@ Result<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
         break;
     }
   });
-  if (!exists) return Error::NONEXISTENT_OBJECT;
-  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  if (!exists) {
+    return Error::NONEXISTENT_OBJECT;
+  }
+  if (!for_deleted_ && deleted) {
+    return Error::DELETED_OBJECT;
+  }
   return vertex_->keys.Keys();
 }
 
