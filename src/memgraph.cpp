@@ -774,7 +774,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           for (const auto &[privilege, entities] : privilege_collection) {
             const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
             for (const auto &entity : entities) {
-              fine_grained_permissions->Grant(entity, permission);
+              fine_grained_permissions.Grant(entity, permission);
             }
           }
         });
@@ -798,7 +798,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           for (const auto &[privilege, entities] : privilege_collection) {
             const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
             for (const auto &entity : entities) {
-              fine_grained_permissions->Deny(entity, permission);
+              fine_grained_permissions.Deny(entity, permission);
             }
           }
         });
@@ -818,10 +818,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           // unconditionally granting/denying/revoking it?
           permissions.Revoke(permission);
         },
-        [](auto *fine_grained_permissions, const auto &privilege_collection) {
+        [](auto &fine_grained_permissions, const auto &privilege_collection) {
           for (const auto &[_, entities] : privilege_collection) {
             for (const auto &entity : entities) {
-              fine_grained_permissions->Revoke(entity);
+              fine_grained_permissions.Revoke(entity);
             }
           }
         });
@@ -856,11 +856,11 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           edit_fun(user->permissions(), permission);
         }
         for (const auto &label_privilege_collection : label_privileges) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(),
+          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(),
                                     label_privilege_collection);
         }
         for (const auto &edge_type_privilege_collection : edge_type_privileges) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().edge_type_permissions(),
+          edit_label_permisions_fun(user->fine_grained_access_handler().edge_type_permissions(),
                                     edge_type_privilege_collection);
         }
 
@@ -870,10 +870,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           edit_fun(role->permissions(), permission);
         }
         for (const auto &label_privilege : label_privileges) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(), label_privilege);
+          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
         }
         for (const auto &edge_type_privilege : edge_type_privileges) {
-          edit_label_permisions_fun(&role->fine_grained_access_handler().edge_type_permissions(), edge_type_privilege);
+          edit_label_permisions_fun(role->fine_grained_access_handler().edge_type_permissions(), edge_type_privilege);
         }
 
         locked_auth->SaveRole(*role);
