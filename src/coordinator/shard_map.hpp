@@ -47,15 +47,8 @@ struct ShardMap {
   std::map<Label, Shards> shards;
 
   // TODO(gabor) later we will want to update the wallclock time with
-  // the given Io<impl>'s time as well. This function should just be
-  // replaced with operator== since it is already overloaded for Hlc
-  // objects.
-  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
-
- public:
-  // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
-  Hlc UpdateShardMapVersion() noexcept {
+  Hlc IncrementShardMapVersion() noexcept {
     ++shard_map_version.logical_id;
     return shard_map_version;
   }
@@ -83,10 +76,27 @@ struct ShardMap {
 
       // Apply the split
       shards_in_map[key] = shard_to_map_to;
+
       return true;
     }
 
     return false;
+  }
+
+  bool InitializeNewLabel(std::string label_name, Hlc last_shard_map_version) {
+    if (shard_map_version != last_shard_map_version) {
+      return false;
+    }
+
+    if (shards.contains(label_name)) {
+      return false;
+    }
+
+    shards.emplace(label_name, Shards{});
+
+    IncrementShardMapVersion();
+
+    return true;
   }
 
   void AddServer(Address server_address) {
@@ -106,6 +116,13 @@ struct ShardMap {
 
     return asd2;
   }
+
+ private:
+  // TODO(gabor) later we will want to update the wallclock time with
+  // the given Io<impl>'s time as well. This function should just be
+  // replaced with operator== since it is already overloaded for Hlc
+  // objects.
+  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
 };
 
 }  // namespace memgraph::coordinator

@@ -49,8 +49,8 @@ using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::RsmClient;
-using memgraph::io::rsm::StorageGetRequest;
-using memgraph::io::rsm::StorageGetResponse;
+using memgraph::io::rsm::StorageReadRequest;
+using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageRsm;
 using memgraph::io::rsm::StorageWriteRequest;
 using memgraph::io::rsm::StorageWriteResponse;
@@ -62,8 +62,8 @@ using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::utils::BasicResult;
 
-using StorageClient =
-    RsmClient<Io<SimulatorTransport>, StorageWriteRequest, StorageWriteResponse, StorageGetRequest, StorageGetResponse>;
+using StorageClient = RsmClient<Io<SimulatorTransport>, StorageWriteRequest, StorageWriteResponse, StorageReadRequest,
+                                StorageReadResponse>;
 namespace {
 
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
@@ -122,11 +122,12 @@ std::optional<StorageClient> DetermineShardLocation(Shard target_shard, const st
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
 using ConcreteStorageRsm = Raft<SimulatorTransport, StorageRsm, StorageWriteRequest, StorageWriteResponse,
-                                StorageGetRequest, StorageGetResponse>;
+                                StorageReadRequest, StorageReadResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, StorageRsm, StorageWriteRequest, StorageWriteResponse, StorageGetRequest, StorageGetResponse> server) {
+    Raft<IoImpl, StorageRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>
+        server) {
   server.Run();
 }
 
@@ -307,7 +308,7 @@ int main() {
     // Have client use shard map to decide which shard to communicate
     // with to read that same value back
 
-    StorageGetRequest storage_get_req;
+    StorageReadRequest storage_get_req;
     storage_get_req.key = {write_key_1, write_key_2};
 
     auto get_response_result = storage_client.SendReadRequest(storage_get_req);

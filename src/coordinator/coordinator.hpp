@@ -87,10 +87,22 @@ struct DeregisterStorageEngineResponse {
   bool success;
 };
 
-using WriteRequests = std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest,
-                                   RegisterStorageEngineRequest, DeregisterStorageEngineRequest>;
-using WriteResponses = std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                                    RegisterStorageEngineResponse, DeregisterStorageEngineResponse>;
+struct InitializeLabelRequest {
+  std::string label_name;
+  Hlc last_shard_map_version;
+};
+
+struct InitializeLabelResponse {
+  bool success;
+  std::optional<ShardMap> fresher_shard_map;
+};
+
+using WriteRequests =
+    std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
+                 DeregisterStorageEngineRequest, InitializeLabelRequest>;
+using WriteResponses =
+    std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                 RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse>;
 
 using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
 using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
@@ -123,7 +135,7 @@ class Coordinator {
 
     MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
 
-    res.new_hlc = shard_map_.UpdateShardMapVersion();
+    res.new_hlc = shard_map_.IncrementShardMapVersion();
 
     // res.fresher_shard_map = hlc_request.last_shard_map_version.logical_id < hlc_shard_map.logical_id
     //                             ? std::make_optional(shard_map_)
@@ -195,6 +207,23 @@ class Coordinator {
     // const Address &address = register_storage_engine_request.address;
     // storage_engine_pool_.erase(address);
     // res.success = true;
+
+    return res;
+  }
+
+  WriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
+    InitializeLabelResponse res{};
+
+    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name,
+                                                 initialize_label_request.last_shard_map_version);
+
+    if (success) {
+      res.fresher_shard_map = shard_map_;
+      res.success = false;
+    } else {
+      res.fresher_shard_map = std::nullopt;
+      res.success = true;
+    }
 
     return res;
   }
