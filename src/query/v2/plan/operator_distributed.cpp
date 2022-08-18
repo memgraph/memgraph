@@ -238,15 +238,20 @@ class ScanAllCursor : public Cursor {
 
   bool Pull(Frames &frames, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
-    auto &frame = *frames[0];  // #NoCommit
-    if (MustAbort(context)) throw HintedAbortError();
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
-      if (!input_cursor_->Pull(frames, context)) return false;
+      if (!input_cursor_->Pull(frames, context)) {
+        return false;
+      }
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frames, context);
-      if (!next_vertices) continue;
+      if (!next_vertices) {
+        continue;
+      }
       // Since vertices iterator isn't nothrow_move_assignable, we have to use
       // the roundabout assignment + emplace, instead of simple:
       // vertices _ = get_vertices_(frame, context);
@@ -254,8 +259,22 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
-    frame[output_symbol_] = *vertices_it_.value();
-    ++vertices_it_.value();
+    for (auto idx = 0; idx < frames.size(); ++idx) {
+      auto &frame = *frames[idx];
+      frame[output_symbol_] = *vertices_it_.value();
+      ++vertices_it_.value();
+
+      if (vertices_it_.value() == vertices_.value().end() && idx < frames.size() - 1) {
+        /*
+        'vertices_it_.value() == vertices_.value().end()' means we have exhausted all vertices
+        If 'idx < frames.size() - 1' means we do not have enough vertices to fill all frames and that we are at the last
+        batch. In that case, we can simply reduce the number of frames.
+        */
+        frames.resize(++idx);
+        break;
+      }
+    }
+
     return true;
   }
 
@@ -339,7 +358,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
   auto vertices =
       [this](Frames &frames, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
                                                             view_, label_, property_, storage::v3::PropertyValue()))> {
-    auto &frame = *frames[0];  // #NoCommit
+    auto &frame = *frames[0];  // #NoCommit to implement
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
@@ -503,7 +522,7 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 bool Produce::ProduceCursor::Pull(Frames &frames, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
-  auto &frame = *frames[0];  // #NoCommit
+  auto &frame = *frames[0];  // #NoCommit JBA
   if (input_cursor_->Pull(frames, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,

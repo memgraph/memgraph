@@ -26,6 +26,8 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 
+#include <random>
+
 using namespace memgraph::query::v2;
 using namespace memgraph::query::v2::plan;
 using test_common::ToIntList;
@@ -46,45 +48,50 @@ class QueryPlanHardCodedQueriesTest : public ::testing::Test {
   const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
 };
 
-TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3_scanAll) {
+class QueryPlanHardCodedQueriesTestFixture : public ::testing::TestWithParam<std::pair<size_t, size_t>> {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(
+        db_v3.CreateSchema(schema_label, {storage::v3::SchemaProperty{schema_property, common::SchemaType::INT}}));
+  }
+
+  bool GetRandomBool() {
+    const auto lower_bound = 0.0;
+    const auto upper_bound = 100.0;
+    std::uniform_real_distribution<double> unif(lower_bound, upper_bound);
+    std::random_device r;
+    std::default_random_engine re(r());
+    return unif(re) < 50.0;
+  }
+
+  storage::v3::Storage db_v3;
+  const storage::v3::LabelId schema_label{db_v3.NameToLabel("label")};
+  const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
+};
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
   /*
+    QUERY:
+      MATCH (n)
+      RETURN *;
 
-  QUERY:
-    MATCH (n)
-    RETURN *;
-
-  QUERY PLAN:
-    Produce {n}
-    ScanAll (n)
-    Once
+    QUERY PLAN:
+      Produce {n}
+      ScanAll (n)
+      Once
   */
-  // auto config = memgraph::io::simulator::SimulatorConfig{
-  //     .drop_percent = 0,
-  //     .perform_timeouts = false,
-  //     .scramble_messages = false,
-  //     .rng_seed = 0,
-  // };
-  // auto simulator = memgraph::io::simulator::Simulator(config);
-  // auto storage_address = memgraph::io::Address::TestAddress(1);
-  // memgraph::io::Io<memgraph::io::simulator::SimulatorTransport> storage_client = simulator.Register(storage_address);
 
-  // struct CoordinatorClient { // who we send request to and from
-  // } coordinator_client;
-
-  /*
-  low risk thing that wn't change:
-
-  Getting the shard map from the coordinator
-  I need a coordinator
-  */
+  const auto [number_of_vertices, size_of_batch] = GetParam();
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
 
     auto property_index = 0;
-    auto vertex_node = dba.InsertVertexAndValidate(schema_label, {},
-                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
-    ASSERT_TRUE(vertex_node.HasValue());
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = dba.InsertVertexAndValidate(schema_label, {},
+                                                     {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_node.HasValue());
+    }
 
     ASSERT_FALSE(dba.Commit().HasError());
   }
@@ -98,18 +105,161 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3_scanAll) {
   auto scan_all_1 = MakeScanAll_Distributed(storage, symbol_table, "n");
 
   {
-    /*
-    Checking temporary result from:
-      MATCH (n)
-    */
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context);
-    ASSERT_EQ(results.size(), 1);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), number_of_vertices);
   }
 }
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatching) {
+  /*
+    INDEXES:
+      CREATE INDEX ON :Node;
+
+    QUERY:
+      MATCH (n:Node)
+      RETURN *;
+
+    QUERY PLAN:
+      Produce {n}
+      ScanAll (n)
+      Once
+  */
+
+  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto number_of_vertices_with_label = number_of_vertices / 3;  // To have some filtering needed and measureable.
+
+  auto label_node = db_v3.NameToLabel("Node");
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+      if (property_index <= number_of_vertices_with_label) {
+        ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
+      }
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  // INDEX CREATION
+  db_v3.CreateIndex(label_node);
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (n:Node)
+  auto scan_all_1 = MakeScanAllByLabel_Distributed(storage, symbol_table, "n", label_node);
+
+  {
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), number_of_vertices_with_label);
+  }
+}
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilteringWhileBatching) {
+  /*
+    INDEXES:
+      CREATE INDEX ON :Node(someId);
+
+    QUERY:
+      MATCH (n:Node {someId:'expectedValue'})
+
+      RETURN *;
+
+    QUERY PLAN:
+      Produce {n}
+      ScanAll (n)
+      Once
+  */
+
+  const auto [number_of_vertices, size_of_batch] = GetParam();
+  auto number_of_vertices_with_label_and_property_and_expected_property_value =
+      0;  // To have some filtering needed and measureable.
+
+  auto label_node = db_v3.NameToLabel("Node");
+  auto property_node = db_v3.NameToProperty("someId");
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+      auto has_label = GetRandomBool();
+      auto has_property = GetRandomBool();
+      auto has_expected_property = GetRandomBool();
+      if (has_label) {
+        ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
+      }
+
+      if (has_property) {
+        if (has_expected_property) {
+          ASSERT_TRUE(vertex_node.SetProperty(property_node, storage::v3::PropertyValue("expectedValue")).HasValue());
+        } else {
+          ASSERT_TRUE(
+              vertex_node.SetProperty(property_node, storage::v3::PropertyValue("spanishInquisition")).HasValue());
+        }
+      }
+
+      if (has_label && has_property && has_expected_property) {
+        ++number_of_vertices_with_label_and_property_and_expected_property_value;
+      }
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  // INDEX CREATION
+  db_v3.CreateIndex(label_node);
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (n:Node {someId:'ExpectedValue'})
+  auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "n", label_node, property_node,
+                                                                "someId", LITERAL("expectedValue"));
+  {
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), number_of_vertices_with_label_and_property_and_expected_property_value);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
+    ::testing::Values(
+        std::make_pair(1, 1),     /* 1 vertex, 1 vertex per batch: simple case. */
+        std::make_pair(100, 1),   /* 100 vertices, 1 vertex per batch: to check previous
+                                     behavior (ie: pre-batching). */
+        std::make_pair(100, 100), /* 100 vertices, 100 vertices per batch: to check batching works with 1 iteration. */
+        std::make_pair(100, 50),  /* 100 vertices, 50 vertices per batch: to check batching works with 2 iterations. */
+        std::make_pair(37, 100), /* 37 vertices, 100 vertices per batch: to check resizing of frames works when having 1
+                                   iteration only. */
+        std::make_pair(342, 100) /* 342 vertices, 100 vertices per batch: to check resizing of frames works when having
+                                    several iterations. There will be only 42 vertices left on the last batch.*/
+        ));
 
 // TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
 //   /*

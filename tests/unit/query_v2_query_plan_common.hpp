@@ -72,9 +72,20 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 }
 
 std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distributed::Produce &produce,
-                                                                ExecutionContext *context) {
-  Frame frame(context->symbol_table.max_position());
-  auto frames = std::vector<Frame *>{&frame};
+                                                                ExecutionContext *context, size_t size_of_batch) {
+  auto frames_memory_owner =
+      std::vector<std::unique_ptr<Frame>>{};  // #NoCommit We could also pass it directly to
+                                              // operators, to be decided later. If so, remember we do a resize() in the
+                                              // cursors when processing the last batch.
+  frames_memory_owner.reserve(size_of_batch);
+  std::generate_n(std::back_inserter(frames_memory_owner), size_of_batch,
+                  [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
+
+  auto frames = std::vector<Frame *>();
+  frames.reserve(size_of_batch);
+  std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
+                 [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
+
   // top level node in the operator tree is a produce (return)
   // so stream out results
 
@@ -86,10 +97,14 @@ std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distribute
   // stream out results
   auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
-  while (cursor->Pull(frames, *context)) {  //#NoCommit
-    std::vector<TypedValue> values;
-    for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
-    results.emplace_back(values);
+  while (cursor->Pull(frames, *context)) {
+    for (auto *frame : frames) {
+      std::vector<TypedValue> values;
+      for (auto &symbol : symbols) {
+        values.emplace_back((*frame)[symbol]);
+      }
+      results.emplace_back(values);
+    }
   }
 
   return results;
