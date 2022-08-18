@@ -1,11 +1,10 @@
-# include(MgThrift)
+include(MgThrift)
 
 set(test_prefix memgraph__unit__)
 
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
-find_package(Folly REQUIRED)
 
 add_custom_target(memgraph__unit)
 
@@ -40,7 +39,7 @@ function(_add_unit_test test_cpp custom_main)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl mg-interface-echo-cpp2)
+  target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl)
 
   # register test
   if(TEST_COVERAGE)
@@ -400,4 +399,4 @@ target_link_libraries(${test_prefix}future mg-io)
 
 # Test Thrift transport echo
 add_unit_test(thrift_transport_echo.cpp)
-target_link_libraries(${test_prefix}thrift_transport_echo mg-io Threads::Threads mg-interface-echo-cpp2 fmt)
+target_link_libraries(${test_prefix}thrift_transport_echo mg-io fmt Threads::Threads FBThrift::thriftcpp2 mg-interface-echo-cpp2)
