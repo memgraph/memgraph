@@ -52,18 +52,20 @@ enum class LabelPermission : uint64_t {
 };
 // clang-format on
 
-inline uint64_t operator|(LabelPermission a, LabelPermission b) {
-  return static_cast<uint64_t>(a) | static_cast<uint64_t>(b);
+constexpr inline uint64_t operator|(LabelPermission lhs, LabelPermission rhs) {
+  return static_cast<uint64_t>(lhs) | static_cast<uint64_t>(rhs);
 }
 
-inline uint64_t operator|(uint64_t a, LabelPermission b) { return a | static_cast<uint64_t>(b); }
+constexpr inline uint64_t operator|(uint64_t lhs, LabelPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
 
-inline uint64_t operator&(uint64_t a, LabelPermission b) { return (a & static_cast<uint64_t>(b)) != 0; }
+constexpr inline uint64_t operator&(uint64_t lhs, LabelPermission rhs) {
+  return (lhs & static_cast<uint64_t>(rhs)) != 0;
+}
 
-const uint64_t LabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
-                                    memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
-const uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
-const uint64_t LabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
+constexpr uint64_t LabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
+                                        memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
+constexpr uint64_t LabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
+constexpr uint64_t LabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -123,7 +125,7 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
 
-  PermissionLevel Has(const std::string &permission, LabelPermission label_permission);
+  PermissionLevel Has(const std::string &permission, LabelPermission label_permission) const;
 
   void Grant(const std::string &permission, LabelPermission label_permission);
 
@@ -136,8 +138,8 @@ class FineGrainedAccessPermissions final {
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, uint64_t> &permissions() const;
-  const std::optional<uint64_t> &global_permission() const;
+  const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
+  const std::optional<uint64_t> &GetGlobalPermission() const;
 
  private:
   std::unordered_map<std::string, uint64_t> permissions_{};

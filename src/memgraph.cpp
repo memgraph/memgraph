@@ -759,14 +759,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                       const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
         user_or_role, privileges, labels, edge_types,
-        [](auto *permissions, const auto &permission) {
+        [](auto &permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
-          permissions->Grant(permission);
+          permissions.Grant(permission);
         },
-        [](auto *label_permissions, const auto &label) {
-          label_permissions->Grant(label, memgraph::auth::LabelPermission::CREATE_DELETE);
+        [](auto &label_permissions, const auto &label) {
+          label_permissions.Grant(label, memgraph::auth::LabelPermission::CREATE_DELETE);
         });
   }
 
@@ -775,14 +775,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                      const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
         user_or_role, privileges, labels, edge_types,
-        [](auto *permissions, const auto &permission) {
+        [](auto &permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
-          permissions->Deny(permission);
+          permissions.Deny(permission);
         },
-        [](auto *label_permissions, const auto &label) {
-          label_permissions->Deny(label, memgraph::auth::LabelPermission::READ);
+        [](auto &label_permissions, const auto &label) {
+          label_permissions.Deny(label, memgraph::auth::LabelPermission::READ);
         });
   }
 
@@ -791,13 +791,13 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                        const std::vector<std::string> &labels, const std::vector<std::string> &edge_types) override {
     EditPermissions(
         user_or_role, privileges, labels, edge_types,
-        [](auto *permissions, const auto &permission) {
+        [](auto &permissions, const auto &permission) {
           // TODO (mferencevic): should we first check that the
           // privilege is granted/denied/revoked before
           // unconditionally granting/denying/revoking it?
-          permissions->Revoke(permission);
+          permissions.Revoke(permission);
         },
-        [](auto *label_permissions, const auto &label) { label_permissions->Revoke(label); });
+        [](auto &label_permissions, const auto &label) { label_permissions.Revoke(label); });
   }
 
  private:
@@ -823,25 +823,25 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       if (user) {
         for (const auto &permission : permissions) {
-          edit_fun(&user->permissions(), permission);
+          edit_fun(user->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(), label);
+          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label);
         }
         for (const auto &edgeType : edgeTypes) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().edge_type_permissions(), edgeType);
+          edit_label_permisions_fun(user->fine_grained_access_handler().edge_type_permissions(), edgeType);
         }
 
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
-          edit_fun(&role->permissions(), permission);
+          edit_fun(role->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(&user->fine_grained_access_handler().label_permissions(), label);
+          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label);
         }
         for (const auto &edgeType : edgeTypes) {
-          edit_label_permisions_fun(&role->fine_grained_access_handler().edge_type_permissions(), edgeType);
+          edit_label_permisions_fun(role->fine_grained_access_handler().edge_type_permissions(), edgeType);
         }
 
         locked_auth->SaveRole(*role);

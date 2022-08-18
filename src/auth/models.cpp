@@ -102,16 +102,16 @@ std::string PermissionLevelToString(PermissionLevel level) {
 
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
-  std::unordered_map<std::string, uint64_t> permissions{first.permissions()};
-  std::optional<uint64_t> global_permission = std::nullopt;
+  std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
+  std::optional<uint64_t> global_permission;
 
-  if (second.global_permission().has_value()) {
-    global_permission = second.global_permission().value();
-  } else if (first.global_permission().has_value()) {
-    global_permission = first.global_permission().value();
+  if (second.GetGlobalPermission().has_value()) {
+    global_permission = second.GetGlobalPermission().value();
+  } else if (first.GetGlobalPermission().has_value()) {
+    global_permission = first.GetGlobalPermission().value();
   }
 
-  for (const auto &it : second.permissions()) {
+  for (const auto &it : second.GetPermissions()) {
     permissions[it.first] = it.second;
   }
 
@@ -208,12 +208,20 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
     : permissions_(permissions), global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
-                                                  const LabelPermission label_permission) {
-  uint64_t concrete_permission = permissions_.contains(permission)
-                                     ? permissions_[permission]
-                                     : (global_permission_.has_value() ? global_permission_.value() : 0);
+                                                  const LabelPermission label_permission) const {
+  const auto concrete_permission = std::invoke([&]() -> uint64_t {
+    if (permissions_.contains(permission)) {
+      return permissions_.at(permission);
+    }
 
-  auto temp_permission = concrete_permission & label_permission;
+    if (global_permission_.has_value()) {
+      return global_permission_.value();
+    }
+
+    return 0;
+  });
+
+  const auto temp_permission = concrete_permission & label_permission;
 
   return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
@@ -266,10 +274,10 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   return FineGrainedAccessPermissions(data["permissions"], global_permission);
 }
 
-const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::permissions() const {
+const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
   return permissions_;
 }
-const std::optional<uint64_t> &FineGrainedAccessPermissions::global_permission() const { return global_permission_; };
+const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
 uint64_t FineGrainedAccessPermissions::CalculateGrant(LabelPermission label_permission) {
   uint64_t shift{1};
@@ -298,7 +306,8 @@ uint64_t FineGrainedAccessPermissions::CalculateDeny(LabelPermission label_permi
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
-  return first.permissions() == second.permissions() && first.global_permission() == second.global_permission();
+  return first.GetPermissions() == second.GetPermissions() &&
+         first.GetGlobalPermission() == second.GetGlobalPermission();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
