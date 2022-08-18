@@ -801,11 +801,12 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
  private:
-  template <class TEditFun, class TEditLabelPermisionsFun>
+  template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
   void EditPermissions(const std::string &user_or_role,
                        const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                        const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes,
-                       const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun) {
+                       const TEditPermissionsFun &edit_permissions_fun,
+                       const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -823,25 +824,25 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       if (user) {
         for (const auto &permission : permissions) {
-          edit_fun(user->permissions(), permission);
+          edit_permissions_fun(user->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label);
         }
         for (const auto &edgeType : edgeTypes) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().edge_type_permissions(), edgeType);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(), edgeType);
         }
 
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
-          edit_fun(role->permissions(), permission);
+          edit_permissions_fun(role->permissions(), permission);
         }
         for (const auto &label : labels) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label);
         }
         for (const auto &edgeType : edgeTypes) {
-          edit_label_permisions_fun(role->fine_grained_access_handler().edge_type_permissions(), edgeType);
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(), edgeType);
         }
 
         locked_auth->SaveRole(*role);
