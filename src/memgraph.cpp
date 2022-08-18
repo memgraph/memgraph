@@ -828,14 +828,15 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   }
 
  private:
-  template <class TEditFun, class TEditLabelPermisionsFun>
+  template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
   void EditPermissions(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
           &label_privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
           &edge_type_privileges,
-      const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun) {
+      const TEditPermissionsFun &edit_permissions_fun,
+      const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -853,27 +854,28 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       if (user) {
         for (const auto &permission : permissions) {
-          edit_fun(user->permissions(), permission);
+          edit_permissions_fun(user->permissions(), permission);
         }
         for (const auto &label_privilege_collection : label_privileges) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(),
-                                    label_privilege_collection);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
+                                            label_privilege_collection);
         }
         for (const auto &edge_type_privilege_collection : edge_type_privileges) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().edge_type_permissions(),
-                                    edge_type_privilege_collection);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege_collection);
         }
 
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
-          edit_fun(role->permissions(), permission);
+          edit_permissions_fun(role->permissions(), permission);
         }
         for (const auto &label_privilege : label_privileges) {
-          edit_label_permisions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
         }
         for (const auto &edge_type_privilege : edge_type_privileges) {
-          edit_label_permisions_fun(role->fine_grained_access_handler().edge_type_permissions(), edge_type_privilege);
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege);
         }
 
         locked_auth->SaveRole(*role);

@@ -71,7 +71,7 @@ constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::L
 std::string PermissionToString(Permission permission);
 
 // Class that indicates what permission level the user/role has.
-enum class PermissionLevel : short { GRANT, NEUTRAL, DENY };
+enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
