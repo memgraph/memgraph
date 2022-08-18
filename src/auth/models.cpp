@@ -111,8 +111,8 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
     global_permission = first.GetGlobalPermission().value();
   }
 
-  for (const auto &it : second.GetPermissions()) {
-    permissions[it.first] = it.second;
+  for (const auto &[label_name, permission] : second.GetPermissions()) {
+    permissions[label_name] = permission;
   }
 
   return FineGrainedAccessPermissions(permissions, global_permission);
