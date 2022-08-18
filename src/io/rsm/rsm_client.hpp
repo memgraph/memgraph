@@ -75,7 +75,7 @@ class RsmClient {
     const Time before = io_.Now();
 
     do {
-      spdlog::debug("client sending CasRequest to Leader {}", leader_.ToString());
+      spdlog::debug("client sending WriteRequest to Leader {}", leader_.ToString());
       ResponseFuture<WriteResponse<WriteResponseT>> response_future =
           io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, client_req);
       ResponseResult<WriteResponse<WriteResponseT>> response_result = std::move(response_future).Wait();
@@ -107,7 +107,7 @@ class RsmClient {
     const Time before = io_.Now();
 
     do {
-      spdlog::debug("client sending GetRequest to Leader {}", leader_.ToString());
+      spdlog::debug("client sending ReadRequest to Leader {}", leader_.ToString());
 
       ResponseFuture<ReadResponse<ReadResponseT>> get_response_future =
           io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);

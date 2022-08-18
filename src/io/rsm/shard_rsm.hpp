@@ -11,6 +11,16 @@
 
 #pragma once
 
+/// The StorageRsm is a simple in-memory raft-backed kv store that can be used for simple testing
+/// and implementation of some query engine logic before storage engines are fully implemented.
+///
+/// To implement multiple read and write commands, change the StorageRead* and StorageWrite* requests
+/// and responses to a std::variant of the different options, and route them to specific handlers in
+/// the StorageRsm's Read and Apply methods. Remember that Read is called immediately when the Raft
+/// leader receives the request, and does not replicate anything over Raft. Apply is called only
+/// AFTER the StorageWriteRequest is replicated to a majority of Raft peers, and the result of calling
+/// StorageRsm::Apply(StorageWriteRequest) is returned to the client that submitted the request.
+
 #include <deque>
 #include <iostream>
 #include <map>
@@ -60,11 +70,11 @@ struct StorageWriteResponse {
   std::optional<Hlc> latest_known_shard_map_version{std::nullopt};
 };
 
-struct StorageGetRequest {
+struct StorageReadRequest {
   ShardRsmKey key;
 };
 
-struct StorageGetResponse {
+struct StorageReadResponse {
   bool shard_rsm_success;
   std::optional<int> value;
   // Only has a value if the given shard does not contain the requested key
@@ -86,8 +96,8 @@ class StorageRsm {
   }
 
  public:
-  StorageGetResponse Read(StorageGetRequest request) {
-    StorageGetResponse ret;
+  StorageReadResponse Read(StorageReadRequest request) {
+    StorageReadResponse ret;
 
     if (!IsKeyInRange(request.key)) {
       ret.latest_known_shard_map_version = shard_map_version_;
