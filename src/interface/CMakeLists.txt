@@ -33,3 +33,11 @@ mg_thrift_library(
   "${MG_INTERFACE_PATH}" #output_path
   "interface" #include_prefix
 )
+
+mg_thrift_library(
+  "ubermessage" #file_name
+  "UberServer" #services
+  "${MG_INTERFACE_PATH}" #file_path
+  "${MG_INTERFACE_PATH}" #output_path
+  "interface" #include_prefix
+)
