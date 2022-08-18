@@ -25,6 +25,8 @@
 
 #include "io/thrift/thrift_transport.hpp"
 
+#include "coward_the_cowardly_dog.h"
+
 using namespace memgraph::io;
 
 using namespace apache::thrift;
@@ -89,6 +91,12 @@ class EchoSvc : public EchoSvIf {
 TEST(ThriftTransport, Echo) {
   // TODO(tyler and gabor) use thrift-generated echo, and thrift transport, to send, reply, and receive the response for
   // a thrift-defined message
+  int argc = 1;
+  const char *arg2 = clahelper::g_command_line_arg.c_str();
+  char *arg = const_cast<char *>(arg2);
+  char **argv = &arg;
+  folly::Init(&argc, &argv);
+
   auto ptr1 = std::make_shared<EchoSvc>();
   auto ptr2 = std::make_shared<EchoSvc>();
 

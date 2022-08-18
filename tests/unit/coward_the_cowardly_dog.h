@@ -9,19 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gtest/gtest.h>
-#include <utils/logging.hpp>
+#include <string>
+#include "gtest/gtest.h"
 
-#include "coward_the_cowardly_dog.h"
-
-int main(int argc, char **argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-
-  std::string command_line_arg(argv[0]);
-  testing::InitGoogleTest(&argc, argv);
-  testing::AddGlobalTestEnvironment(new MyTestEnvironment(command_line_arg));
-
-  memgraph::logging::RedirectToStderr();
-  spdlog::set_level(spdlog::level::trace);
-  return RUN_ALL_TESTS();
+namespace clahelper {
+inline std::string g_command_line_arg;
 }
+
+class MyTestEnvironment : public testing::Environment {
+ public:
+  explicit MyTestEnvironment(const std::string &command_line_arg) { clahelper::g_command_line_arg = command_line_arg; }
+};
