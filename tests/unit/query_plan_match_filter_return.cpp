@@ -427,9 +427,11 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
 
   auto user = memgraph::auth::User("test");
 
-  user.fine_grained_access_handler().edge_type_permissions().Grant("Edge");
-  user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test");
-  user.fine_grained_access_handler().label_permissions().Grant("*");
+  user.fine_grained_access_handler().edge_type_permissions().Grant("Edge",
+                                                                   memgraph::auth::LabelPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test",
+                                                                  memgraph::auth::LabelPermission::READ);
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::LabelPermission::CREATE_DELETE);
   memgraph::storage::EdgeTypeId edge_type_test{db.NameToEdgeType("edge_type_test")};
 
   ASSERT_TRUE(dba.InsertEdge(&v1, &v2, edge_type_test).HasValue());
@@ -448,7 +450,8 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   EXPECT_EQ(2, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 
-  user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_test");
+  user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_test",
+                                                                   memgraph::auth::LabelPermission::CREATE_DELETE);
 
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::OUT, memgraph::storage::View::OLD));
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
