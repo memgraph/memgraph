@@ -1660,6 +1660,7 @@ void Storage::CollectGarbage() {
               timestamped_primary_keys.pop_front();
             }
           }
+          garbage_vertices_.clear();
         }
       } else {
         while (!garbage_vertices_.empty()) {
@@ -1670,6 +1671,7 @@ void Storage::CollectGarbage() {
               timestamped_primary_keys.pop_front();
             }
           }
+          garbage_vertices_.clear();
         }
       }
     }
