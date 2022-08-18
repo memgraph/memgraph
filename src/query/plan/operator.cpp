@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/operator.hpp"
+#include <pstl/glue_algorithm_defs.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -843,8 +844,7 @@ namespace {
  * @return See above.
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
-                      const ExecutionContext &context) {
+                      const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -856,13 +856,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context, &view](const auto &edge) {
-        return !context.auth_checker->Accept(*context.db_accessor, edge) ||
-               !context.auth_checker->Accept(*context.db_accessor, edge.From(), view);
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
@@ -870,13 +863,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (context.auth_checker) {
-      (void)std::remove_if(edges.begin(), edges.end(), [&context, &view](const auto &edge) {
-        return !context.auth_checker->Accept(*context.db_accessor, edge) ||
-               !context.auth_checker->Accept(*context.db_accessor, edge.To(), view);
-      });
-    }
-
     if (edges.begin() != edges.end()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -941,9 +927,8 @@ class ExpandVariableCursor : public Cursor {
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
-  using ExpandEdges =
-      decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
-                                utils::NewDeleteResource(), std::declval<ExecutionContext>()));
+  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
+                                                self_.common_.edge_types, utils::NewDeleteResource()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -984,8 +969,7 @@ class ExpandVariableCursor : public Cursor {
 
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
+        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1090,7 +1074,8 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
-            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, context));
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
+
         edges_it_.emplace_back(edges_.back().begin());
       }
 
