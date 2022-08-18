@@ -819,7 +819,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           permissions.Revoke(permission);
         },
         [](auto &fine_grained_permissions, const auto &privilege_collection) {
-          for (const auto &[_, entities] : privilege_collection) {
+          for ([[maybe_unused]] const auto &[privilege, entities] : privilege_collection) {
             for (const auto &entity : entities) {
               fine_grained_permissions.Revoke(entity);
             }
