@@ -13,8 +13,7 @@ import mgp
 
 
 @mgp.read_proc
-def underlying_graph_is_mutable(ctx: mgp.ProcCtx,
-                                object: mgp.Any) -> mgp.Record(mutable=bool):
+def underlying_graph_is_mutable(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record(mutable=bool):
     return mgp.Record(mutable=object.underlying_graph_is_mutable())
 
 
