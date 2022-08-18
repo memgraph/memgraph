@@ -485,10 +485,10 @@ TEST(AuthWithoutStorage, PermissionsMaskTest) {
 }
 
 TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
-  auto any_label = "AnyString";
-  auto check_label = "Label";
-  auto non_check_label = "OtherLabel";
-  auto asterisk = "*";
+  const std::string any_label = "AnyString";
+  const std::string check_label = "Label";
+  const std::string non_check_label = "OtherLabel";
+  const std::string asterisk = "*";
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
@@ -497,8 +497,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    ASSERT_TRUE(fga_permissions.permissions().empty());
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
 
     ASSERT_EQ(fga_permissions.Has(any_label, LabelPermission::CREATE_DELETE), PermissionLevel::DENY);
     ASSERT_EQ(fga_permissions.Has(any_label, LabelPermission::EDIT), PermissionLevel::DENY);
@@ -509,16 +509,16 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     FineGrainedAccessPermissions fga_permissions;
     fga_permissions.Grant(any_label, LabelPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_FALSE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_FALSE(fga_permissions.GetPermissions().empty());
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
     fga_permissions.Deny(any_label, LabelPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_FALSE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_FALSE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -526,8 +526,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(asterisk, LabelPermission::CREATE_DELETE);
     fga_permissions.Deny(any_label, LabelPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.global_permission(), kLabelPermissionAll);
-    ASSERT_FALSE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_FALSE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -535,8 +535,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(asterisk, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.global_permission(), kLabelPermissionAll);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -544,8 +544,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(any_label, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -553,8 +553,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Grant(any_label, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -562,8 +562,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Deny(asterisk, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.global_permission(), LabelPermission::EDIT | LabelPermission::READ);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), LabelPermission::EDIT | LabelPermission::READ);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -571,8 +571,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Deny(any_label, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -580,8 +580,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Deny(any_label, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -590,8 +590,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     fga_permissions.Deny(non_check_label, LabelPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.global_permission(), std::nullopt);
-    ASSERT_TRUE(fga_permissions.permissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
@@ -838,6 +838,7 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
     ASSERT_EQ(fga_permissions3.Has(check_label, LabelPermission::READ), PermissionLevel::GRANT);
   }
 }
+
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   auto user = User("test");
   user.permissions().Grant(Permission::MATCH);

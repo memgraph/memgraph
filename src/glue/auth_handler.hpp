@@ -78,13 +78,14 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           &edge_type_privileges) override;
 
  private:
-  template <class TEditFun, class TEditLabelPermisionsFun>
+  template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
   void EditPermissions(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
           &label_privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
           &edge_type_privileges,
-      const TEditFun &edit_fun, const TEditLabelPermisionsFun &edit_label_permisions_fun);
+      const TEditPermissionsFun &edit_permissions_fun,
+      const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun);
 };
 }  // namespace memgraph::glue
