@@ -13,6 +13,8 @@
 
 #include "gtest/gtest.h"
 
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
@@ -297,6 +299,170 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::Ed
   memgraph::query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
   memgraph::query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
 
+  std::vector<memgraph::query::VertexAccessor> vertices;
+  std::vector<memgraph::query::EdgeAccessor> edges;
+
+  std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
+
+  dba.AdvanceCommand();
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
+
+  memgraph::query::Expression *filter_expr;
+
+  // First build a filter lambda and an operator yielding blocked entities.
+  switch (filter_lambda_type) {
+    case FilterLambdaType::NONE:
+      // No filter lambda, nothing is ever blocked.
+      input_op = std::make_shared<Yield>(
+          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
+      filter_expr = nullptr;
+      break;
+    case FilterLambdaType::USE_FRAME:
+      // We block each entity in the graph and run BFS.
+      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
+      filter_expr = AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked));
+      break;
+    case FilterLambdaType::USE_FRAME_NULL:
+      // We block each entity in the graph and run BFS.
+      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
+      filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true),
+                       LITERAL(memgraph::storage::PropertyValue()));
+      break;
+    case FilterLambdaType::USE_CTX:
+      // We only block vertex #5 and run BFS.
+      input_op = std::make_shared<Yield>(
+          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(vertices[5])}});
+      filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")), PARAMETER_LOOKUP(0));
+      context.evaluation_context.parameters.Add(0, memgraph::storage::PropertyValue(5));
+      break;
+    case FilterLambdaType::ERROR:
+      // Evaluate to 42 for vertex #5 which is on worker 1.
+      filter_expr = IF(EQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")), LITERAL(5)), LITERAL(42), LITERAL(true));
+  }
+
+  // We run BFS once from each vertex for each blocked entity.
+  input_op = YieldVertices(&dba, vertices, source_sym, input_op);
+
+  // If the sink is known, we run BFS for all posible combinations of source,
+  // sink and blocked entity.
+  if (known_sink) {
+    input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
+  }
+
+  std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
+  for (const auto &t : edge_types) {
+    storage_edge_types.push_back(dba.NameToEdgeType(t));
+  }
+
+  input_op = db->MakeBfsOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, known_sink,
+                                 lower_bound == -1 ? nullptr : LITERAL(lower_bound),
+                                 upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+                                 memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, filter_expr});
+
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
+  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+  std::vector<std::vector<memgraph::query::TypedValue>> results;
+
+  // An exception should be thrown on one of the pulls.
+  if (filter_lambda_type == FilterLambdaType::ERROR) {
+    EXPECT_THROW(PullResults(input_op.get(), &context,
+                             std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
+                 memgraph::query::QueryRuntimeException);
+    return;
+  }
+
+  results = PullResults(input_op.get(), &context,
+                        std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+
+  // Group results based on blocked entity and compare them to results
+  // obtained by running Floyd-Warshall.
+  for (size_t i = 0; i < results.size();) {
+    int j = i;
+    auto blocked = results[j][3];
+    while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][3], blocked)) ++j;
+
+    SCOPED_TRACE(fmt::format("blocked entity = {}", ToString(blocked, dba)));
+
+    // When an edge is blocked, it is blocked in both directions so we remove
+    // it before modifying edge list to account for direction and edge types;
+    auto edges = kEdges;
+    if (blocked.IsEdge()) {
+      int from = GetProp(blocked.ValueEdge(), "from", &dba).ValueInt();
+      int to = GetProp(blocked.ValueEdge(), "to", &dba).ValueInt();
+      edges.erase(std::remove_if(edges.begin(), edges.end(),
+                                 [from, to](const auto &e) { return std::get<0>(e) == from && std::get<1>(e) == to; }),
+                  edges.end());
+    }
+
+    // Now add edges in opposite direction if necessary.
+    auto edges_blocked = GetEdgeList(edges, direction, edge_types);
+
+    // When a vertex is blocked, we remove all edges that lead into it.
+    if (blocked.IsVertex()) {
+      int id = GetProp(blocked.ValueVertex(), "id", &dba).ValueInt();
+      edges_blocked.erase(
+          std::remove_if(edges_blocked.begin(), edges_blocked.end(), [id](const auto &e) { return e.second == id; }),
+          edges_blocked.end());
+    }
+
+    auto correct_with_bounds = FloydWarshall(kVertexCount, edges_blocked);
+
+    if (lower_bound == -1) lower_bound = 0;
+    if (upper_bound == -1) upper_bound = kVertexCount;
+
+    // Remove paths whose length doesn't satisfy given length bounds.
+    for (int a = 0; a < kVertexCount; ++a) {
+      for (int b = 0; b < kVertexCount; ++b) {
+        if (a != b && (correct_with_bounds[a][b] < lower_bound || correct_with_bounds[a][b] > upper_bound))
+          correct_with_bounds[a][b] = -1;
+      }
+    }
+
+    int num_results = 0;
+    for (int a = 0; a < kVertexCount; ++a)
+      for (int b = 0; b < kVertexCount; ++b)
+        if (a != b && correct_with_bounds[a][b] != -1) {
+          ++num_results;
+        }
+    // There should be exactly 1 successful pull for each existing path.
+    EXPECT_EQ(j - i, num_results);
+
+    auto distances = CheckPathsAndExtractDistances(
+        &dba, edges_blocked,
+        std::vector<std::vector<memgraph::query::TypedValue>>(results.begin() + i, results.begin() + j));
+
+    // The distances should also match.
+    EXPECT_EQ(distances, correct_with_bounds);
+
+    i = j;
+  }
+
+  dba.Abort();
+}
+
+void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bound,
+                                     memgraph::query::EdgeAtom::Direction direction,
+                                     std::vector<std::string> edge_types, bool known_sink,
+                                     FilterLambdaType filter_lambda_type, memgraph::auth::User &user) {
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+  memgraph::query::AstStorage storage;
+  memgraph::query::ExecutionContext context{&dba};
+  memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
+  memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
+  memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
+  memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
+  memgraph::query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
+  memgraph::query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
+  memgraph::query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_sym);
+  memgraph::query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
+  memgraph::query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
   std::vector<memgraph::query::VertexAccessor> vertices;
   std::vector<memgraph::query::EdgeAccessor> edges;
 
