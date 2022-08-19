@@ -10,13 +10,18 @@
 // licenses/APL.txt.
 
 #include <limits>
+#include <variant>
 
 #include <gmock/gmock.h>
+#include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 
 #include "storage/v3/delta.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage_v3_test_utils.hpp"
@@ -2527,6 +2532,86 @@ TEST_F(StorageV3, DeletedVertexAccessor) {
     const auto maybe_property = deleted_vertex->GetProperty(property1, View::OLD);
     ASSERT_FALSE(maybe_property.HasError());
     ASSERT_EQ(property_value, *maybe_property);
+  }
+}
+
+TEST_F(StorageV3, TestCreateVertexAndValidate) {
+  {
+    auto acc = store.Access();
+    const auto label1 = store.NameToLabel("label1");
+    const auto prop1 = store.NameToProperty("prop1");
+    auto vertex = acc.CreateVertexAndValidate(primary_label, {label1},
+                                              {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
+    ASSERT_TRUE(vertex.HasValue());
+    ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
+    EXPECT_EQ(vertex->PrimaryLabel(View::NEW).GetValue(), primary_label);
+    ASSERT_TRUE(vertex->PrimaryKey(View::NEW).HasValue());
+    EXPECT_EQ(vertex->PrimaryKey(View::NEW).GetValue(), PrimaryKey{{PropertyValue(0)}});
+    ASSERT_TRUE(vertex->Properties(View::NEW).HasValue());
+    EXPECT_EQ(vertex->Properties(View::NEW).GetValue(),
+              (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
+  }
+  {
+    const auto label1 = store.NameToLabel("new_primary_label");
+    const auto prop1 = store.NameToProperty("key1");
+    const auto prop2 = store.NameToProperty("key2");
+    ASSERT_TRUE(store.CreateSchema(
+        label1, {SchemaProperty{prop1, common::SchemaType::INT}, SchemaProperty{prop2, common::SchemaType::STRING}}));
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertexAndValidate(label1, {}, {{prop1, PropertyValue(21)}, {prop2, PropertyValue("test")}});
+    ASSERT_TRUE(vertex.HasValue());
+    ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
+    EXPECT_EQ(vertex->PrimaryLabel(View::NEW).GetValue(), label1);
+    ASSERT_TRUE(vertex->PrimaryKey(View::NEW).HasValue());
+    EXPECT_EQ(vertex->PrimaryKey(View::NEW).GetValue(), (PrimaryKey{{PropertyValue(21), PropertyValue("test")}}));
+    ASSERT_TRUE(vertex->Properties(View::NEW).HasValue());
+    EXPECT_TRUE(vertex->Properties(View::NEW).GetValue().empty());
+  }
+  {
+    ASSERT_DEATH(
+        {
+          Storage store;
+          ASSERT_TRUE(store.CreateSchema(primary_label,
+                                         {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+          auto acc = store.Access();
+          auto vertex1 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
+          auto vertex2 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
+        },
+        "");
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertexAndValidate(primary_label, {primary_label}, {{primary_property, PropertyValue(0)}});
+    ASSERT_TRUE(vertex.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, primary_label));
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertexAndValidate(primary_label, {primary_label}, {{primary_property, PropertyValue(0)}});
+    ASSERT_TRUE(vertex.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, primary_label));
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {});
+    ASSERT_TRUE(vertex.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY, primary_label,
+                              {primary_property, common::SchemaType::INT}));
+  }
+  {
+    auto acc = store.Access();
+    auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue("test")}});
+    ASSERT_TRUE(vertex.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label,
+                              {primary_property, common::SchemaType::INT}, PropertyValue("test")));
   }
 }
 }  // namespace memgraph::storage::v3::tests

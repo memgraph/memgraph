@@ -281,13 +281,13 @@ TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdateLabel) {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label1);
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label1));
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label1));
   }
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label2);
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label2));
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label2));
   }
   EXPECT_EQ(schema_validator.ValidateLabelUpdate(NameToLabel("test")), std::nullopt);
 }
