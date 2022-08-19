@@ -28,7 +28,8 @@ namespace memgraph::storage::v3::tests {
 class StorageV3 : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_TRUE(store.CreateSchema(label, {storage::v3::SchemaProperty{property, common::SchemaType::INT}}));
+    ASSERT_TRUE(
+        store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
   VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
@@ -40,34 +41,33 @@ class StorageV3 : public ::testing::Test {
   }
 
   Storage store;
-  const LabelId label{store.NameToLabel("label")};
-  const PropertyId property{store.NameToProperty("property")};
-  const PropertyValue primary_property{1};
-  const std::vector<PropertyValue> pk{primary_property};
+  const LabelId primary_label{store.NameToLabel("label")};
+  const PropertyId primary_property{store.NameToProperty("property")};
+  const std::vector<PropertyValue> pk{PropertyValue{0}};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, Commit) {
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     acc.Abort();
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    auto vertex = acc.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
 
     auto res = acc.DeleteVertex(&*vertex);
@@ -83,9 +83,9 @@ TEST_F(StorageV3, Commit) {
   }
   {
     auto acc = store.Access();
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
     acc.Abort();
   }
@@ -95,18 +95,18 @@ TEST_F(StorageV3, Commit) {
 TEST_F(StorageV3, Abort) {
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     acc.Abort();
   }
   {
     auto acc = store.Access();
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
     acc.Abort();
   }
@@ -114,37 +114,37 @@ TEST_F(StorageV3, Abort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, AdvanceCommandCommit) {
-  std::vector<PropertyValue> pk1{primary_property};
+  std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
   {
     auto acc = store.Access();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
 
     acc.AdvanceCommand();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(2)}});
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-    ASSERT_TRUE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 2U);
 
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
   {
     auto acc = store.Access();
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk2, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 2U);
     EXPECT_EQ(CountVertices(acc, View::NEW), 2U);
     acc.Abort();
@@ -153,36 +153,36 @@ TEST_F(StorageV3, AdvanceCommandCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, AdvanceCommandAbort) {
-  std::vector<PropertyValue> pk1{primary_property};
+  std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
   {
     auto acc = store.Access();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
 
     acc.AdvanceCommand();
 
-    CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(2)}});
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::OLD).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-    ASSERT_TRUE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 2U);
 
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
 
     acc.Abort();
   }
   {
     auto acc = store.Access();
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::NEW).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::OLD).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
     acc.Abort();
@@ -194,28 +194,28 @@ TEST_F(StorageV3, SnapshotIsolation) {
   auto acc1 = store.Access();
   auto acc2 = store.Access();
 
-  CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
+  CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-  ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
   EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
-  ASSERT_FALSE(acc2.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 1U);
   EXPECT_EQ(CountVertices(acc2, View::NEW), 0U);
 
   ASSERT_FALSE(acc1.Commit().HasError());
 
-  ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
-  ASSERT_FALSE(acc2.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc2, View::NEW), 0U);
 
   acc2.Abort();
 
   auto acc3 = store.Access();
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
   acc3.Abort();
 }
@@ -224,27 +224,27 @@ TEST_F(StorageV3, SnapshotIsolation) {
 TEST_F(StorageV3, AccessorMove) {
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
 
     Storage::Accessor moved(std::move(acc));
 
-    ASSERT_FALSE(moved.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_FALSE(moved.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(moved, View::OLD), 0U);
-    ASSERT_TRUE(moved.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(moved.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(moved, View::NEW), 1U);
 
     ASSERT_FALSE(moved.Commit().HasError());
   }
   {
     auto acc = store.Access();
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     acc.Abort();
   }
@@ -257,10 +257,10 @@ TEST_F(StorageV3, VertexDeleteCommit) {
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
+    CreateVertexAndValidate(acc2, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
-    ASSERT_TRUE(acc2.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc2, View::NEW), 1U);
     ASSERT_FALSE(acc2.Commit().HasError());
   }
@@ -269,20 +269,20 @@ TEST_F(StorageV3, VertexDeleteCommit) {
   auto acc4 = store.Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
 
   // Delete the vertex in transaction 4
   {
-    auto vertex = acc4.FindVertex(label, pk, View::NEW);
+    auto vertex = acc4.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
     EXPECT_EQ(CountVertices(acc4, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc4, View::NEW), 1U);
@@ -302,21 +302,21 @@ TEST_F(StorageV3, VertexDeleteCommit) {
   auto acc5 = store.Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_FALSE(acc5.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc5.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc5, View::OLD), 0U);
-  ASSERT_FALSE(acc5.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc5.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc5, View::NEW), 0U);
 }
 
@@ -327,10 +327,10 @@ TEST_F(StorageV3, VertexDeleteAbort) {
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc2.FindVertex(label, pk, View::OLD).has_value());
+    CreateVertexAndValidate(acc2, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
-    ASSERT_TRUE(acc2.FindVertex(label, pk, View::NEW).has_value());
+    ASSERT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc2, View::NEW), 1U);
     ASSERT_FALSE(acc2.Commit().HasError());
   }
@@ -339,20 +339,20 @@ TEST_F(StorageV3, VertexDeleteAbort) {
   auto acc4 = store.Access();  // write transaction (aborted)
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
 
   // Delete the vertex in transaction 4, but abort the transaction
   {
-    auto vertex = acc4.FindVertex(label, pk, View::NEW);
+    auto vertex = acc4.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
     EXPECT_EQ(CountVertices(acc4, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc4, View::NEW), 1U);
@@ -373,26 +373,26 @@ TEST_F(StorageV3, VertexDeleteAbort) {
   auto acc6 = store.Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_TRUE(acc5.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc5.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc5, View::OLD), 1U);
-  ASSERT_TRUE(acc5.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc5.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc5, View::NEW), 1U);
 
   // Delete the vertex in transaction 6
   {
-    auto vertex = acc6.FindVertex(label, pk, View::NEW);
+    auto vertex = acc6.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
     EXPECT_EQ(CountVertices(acc6, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc6, View::NEW), 1U);
@@ -412,27 +412,27 @@ TEST_F(StorageV3, VertexDeleteAbort) {
   auto acc7 = store.Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
-  ASSERT_FALSE(acc1.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc1, View::NEW), 0U);
 
   // Check whether the vertex exists in transaction 3
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
-  ASSERT_TRUE(acc3.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 5
-  ASSERT_TRUE(acc5.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_TRUE(acc5.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc5, View::OLD), 1U);
-  ASSERT_TRUE(acc5.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_TRUE(acc5.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc5, View::NEW), 1U);
 
   // Check whether the vertex exists in transaction 7
-  ASSERT_FALSE(acc7.FindVertex(label, pk, View::OLD).has_value());
+  ASSERT_FALSE(acc7.FindVertex(primary_label, pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc7, View::OLD), 0U);
-  ASSERT_FALSE(acc7.FindVertex(label, pk, View::NEW).has_value());
+  ASSERT_FALSE(acc7.FindVertex(primary_label, pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc7, View::NEW), 0U);
 
   // Commit all accessors
@@ -447,7 +447,7 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
   // Create vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -456,7 +456,7 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
 
   // Delete vertex in accessor 1
   {
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
     EXPECT_EQ(CountVertices(acc1, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc1, View::NEW), 1U);
@@ -484,7 +484,7 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
 
   // Delete vertex in accessor 2
   {
-    auto vertex = acc2.FindVertex(label, pk, View::OLD);
+    auto vertex = acc2.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
     EXPECT_EQ(CountVertices(acc2, View::OLD), 1U);
     EXPECT_EQ(CountVertices(acc2, View::NEW), 1U);
@@ -505,7 +505,7 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
   // Check whether the vertex exists
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_FALSE(vertex);
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
@@ -515,17 +515,17 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexDeleteSpecialCases) {
-  std::vector<PropertyValue> pk1{primary_property};
+  std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
   // Create vertex and delete it in the same transaction, but abort the
   // transaction
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk1, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
@@ -541,10 +541,10 @@ TEST_F(StorageV3, VertexDeleteSpecialCases) {
   // Create vertex and delete it in the same transaction
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, PropertyValue(2)}});
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::OLD).has_value());
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_TRUE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     auto res = acc.DeleteVertex(&vertex);
     ASSERT_TRUE(res.HasValue());
@@ -560,10 +560,10 @@ TEST_F(StorageV3, VertexDeleteSpecialCases) {
   // Check whether the vertices exist
   {
     auto acc = store.Access();
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::OLD).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk1, View::NEW).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::OLD).has_value());
-    ASSERT_FALSE(acc.FindVertex(label, pk2, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk1, View::NEW).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::OLD).has_value());
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk2, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
     acc.Abort();
@@ -583,16 +583,16 @@ TEST_F(StorageV3, VertexDeleteLabel) {
   // Create the vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Add label, delete the vertex and check the label API (same command)
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    auto vertex = acc.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
 
     auto label5 = acc.NameToLabel("label5");
@@ -643,7 +643,7 @@ TEST_F(StorageV3, VertexDeleteLabel) {
   // Add label, delete the vertex and check the label API (different command)
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    auto vertex = acc.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
 
     auto label5 = acc.NameToLabel("label5");
@@ -727,16 +727,16 @@ TEST_F(StorageV3, VertexDeleteProperty) {
   // Create the vertex
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
-    ASSERT_FALSE(acc.FindVertex(label, pk, View::OLD).has_value());
-    ASSERT_TRUE(acc.FindVertex(label, pk, View::NEW).has_value());
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(primary_label, pk, View::OLD).has_value());
+    ASSERT_TRUE(acc.FindVertex(primary_label, pk, View::NEW).has_value());
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Set property, delete the vertex and check the property API (same command)
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    auto vertex = acc.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
 
     auto property5 = acc.NameToProperty("property5");
@@ -782,7 +782,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
   // command)
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::NEW);
+    auto vertex = acc.FindVertex(primary_label, pk, View::NEW);
     ASSERT_TRUE(vertex);
 
     auto property5 = acc.NameToProperty("property5");
@@ -859,7 +859,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
 TEST_F(StorageV3, VertexLabelCommit) {
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
     auto label = acc.NameToLabel("label5");
 
@@ -889,7 +889,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -917,7 +917,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -948,7 +948,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -972,14 +972,14 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Create the vertex.
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Add label 5, but abort the transaction.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1012,7 +1012,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Check that label 5 doesn't exist.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1033,7 +1033,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Add label 5.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1066,7 +1066,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Check that label 5 exists.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1096,7 +1096,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Remove label 5, but abort the transaction.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1129,7 +1129,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Check that label 5 exists.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1159,7 +1159,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Remove label 5.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1192,7 +1192,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
   // Check that label 5 doesn't exist.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label = acc.NameToLabel("label5");
@@ -1215,7 +1215,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
 TEST_F(StorageV3, VertexLabelSerializationError) {
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1224,7 +1224,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 
   // Add label 1 in accessor 1.
   {
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label1 = acc1.NameToLabel("label1");
@@ -1263,7 +1263,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 
   // Add label 2 in accessor 2.
   {
-    auto vertex = acc2.FindVertex(label, pk, View::OLD);
+    auto vertex = acc2.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label1 = acc2.NameToLabel("label1");
@@ -1289,7 +1289,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
   // Check which labels exist.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto label1 = acc.NameToLabel("label1");
@@ -1319,7 +1319,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 TEST_F(StorageV3, VertexPropertyCommit) {
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
     auto property = acc.NameToProperty("property5");
 
@@ -1356,7 +1356,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1384,7 +1384,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1415,7 +1415,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1439,14 +1439,14 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Create the vertex.
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
   // Set property 5 to "nandare", but abort the transaction.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1486,7 +1486,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Check that property 5 is null.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1507,7 +1507,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Set property 5 to "nandare".
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1547,7 +1547,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Check that property 5 is "nandare".
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1577,7 +1577,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Set property 5 to null, but abort the transaction.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1618,7 +1618,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Check that property 5 is "nandare".
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1648,7 +1648,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Set property 5 to null.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1689,7 +1689,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
   // Check that property 5 is null.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property = acc.NameToProperty("property5");
@@ -1712,7 +1712,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
 TEST_F(StorageV3, VertexPropertySerializationError) {
   {
     auto acc = store.Access();
-    CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
@@ -1721,7 +1721,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 
   // Set property 1 to 123 in accessor 1.
   {
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property1 = acc1.NameToProperty("property1");
@@ -1754,7 +1754,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 
   // Set property 2 to "nandare" in accessor 2.
   {
-    auto vertex = acc2.FindVertex(label, pk, View::OLD);
+    auto vertex = acc2.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property1 = acc2.NameToProperty("property1");
@@ -1780,7 +1780,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
   // Check which properties exist.
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto property1 = acc.NameToProperty("property1");
@@ -1809,7 +1809,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelPropertyMixed) {
   auto acc = store.Access();
-  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+  auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
   auto label = acc.NameToLabel("label5");
   auto property = acc.NameToProperty("property5");
@@ -2050,7 +2050,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   auto property2 = store.NameToProperty("property2");
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
     auto old_value = vertex.SetPropertyAndValidate(property1, PropertyValue("value"));
     ASSERT_TRUE(old_value.HasValue());
@@ -2060,7 +2060,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_EQ(vertex->GetProperty(property1, View::OLD)->ValueString(), "value");
@@ -2092,7 +2092,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     auto old_value = vertex->SetPropertyAndValidate(property2, PropertyValue(42));
@@ -2103,7 +2103,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_EQ(vertex->GetProperty(property1, View::OLD)->ValueString(), "value");
@@ -2136,7 +2136,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   }
   {
     auto acc = store.Access();
-    auto vertex = acc.FindVertex(label, pk, View::OLD);
+    auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(vertex->GetProperty(property1, View::NEW)->IsNull());
@@ -2152,7 +2152,7 @@ TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto property1 = store.NameToProperty("property1");
 
   auto acc = store.Access();
-  auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+  auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
   // Check state before (OLD view).
   ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
@@ -2206,49 +2206,49 @@ TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
   auto acc1 = store.Access();
   auto acc2 = store.Access();
 
-  auto vertex = CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
+  auto vertex = CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-  EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
 
   ASSERT_TRUE(vertex.AddLabelAndValidate(acc1.NameToLabel("label1")).HasValue());
 
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-  EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
 
   ASSERT_TRUE(vertex.SetPropertyAndValidate(acc1.NameToProperty("meaning"), PropertyValue(42)).HasValue());
 
   auto acc3 = store.Access();
 
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-  EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::NEW));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::NEW));
 
   ASSERT_TRUE(acc1.DeleteVertex(&vertex).HasValue());
 
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::NEW));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::NEW));
 
   acc1.AdvanceCommand();
   acc3.AdvanceCommand();
 
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::OLD));
-  EXPECT_FALSE(acc3.FindVertex(label, pk, View::NEW));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::OLD));
+  EXPECT_FALSE(acc3.FindVertex(primary_label, pk, View::NEW));
 
   acc1.Abort();
   acc2.Abort();
@@ -2260,26 +2260,26 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
-    CreateVertexAndValidate(acc1, label, {}, {{property, primary_property}});
+    CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     acc2.AdvanceCommand();
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     acc1.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     ASSERT_FALSE(acc1.Commit().HasError());
     ASSERT_FALSE(acc2.Commit().HasError());
@@ -2289,72 +2289,72 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     ASSERT_TRUE(vertex->AddLabelAndValidate(acc1.NameToLabel("label1")).HasValue());
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     acc1.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     acc2.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
 
     ASSERT_TRUE(vertex->SetPropertyAndValidate(acc1.NameToProperty("meaning"), PropertyValue(42)).HasValue());
 
     auto acc3 = store.Access();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc1.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc2.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc3.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     ASSERT_FALSE(acc1.Commit().HasError());
     ASSERT_FALSE(acc2.Commit().HasError());
@@ -2365,46 +2365,46 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1.DeleteVertex(&*vertex).HasValue());
 
     auto acc3 = store.Access();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc2.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc1.AdvanceCommand();
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc3.AdvanceCommand();
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc1.Abort();
     acc2.Abort();
@@ -2414,13 +2414,13 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
   {
     auto acc = store.Access();
 
-    EXPECT_TRUE(acc.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc.FindVertex(primary_label, pk, View::NEW));
 
     acc.AdvanceCommand();
 
-    EXPECT_TRUE(acc.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc.FindVertex(primary_label, pk, View::NEW));
 
     acc.Abort();
   }
@@ -2429,46 +2429,46 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     auto acc1 = store.Access();
     auto acc2 = store.Access();
 
-    auto vertex = acc1.FindVertex(label, pk, View::OLD);
+    auto vertex = acc1.FindVertex(primary_label, pk, View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1.DeleteVertex(&*vertex).HasValue());
 
     auto acc3 = store.Access();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc2.AdvanceCommand();
 
-    EXPECT_TRUE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_TRUE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc1.AdvanceCommand();
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     acc3.AdvanceCommand();
 
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc1.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc2.FindVertex(label, pk, View::NEW));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::OLD));
-    EXPECT_TRUE(acc3.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc1.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc2.FindVertex(primary_label, pk, View::NEW));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_TRUE(acc3.FindVertex(primary_label, pk, View::NEW));
 
     ASSERT_FALSE(acc1.Commit().HasError());
     ASSERT_FALSE(acc2.Commit().HasError());
@@ -2478,13 +2478,13 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
   {
     auto acc = store.Access();
 
-    EXPECT_FALSE(acc.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc.FindVertex(primary_label, pk, View::NEW));
 
     acc.AdvanceCommand();
 
-    EXPECT_FALSE(acc.FindVertex(label, pk, View::OLD));
-    EXPECT_FALSE(acc.FindVertex(label, pk, View::NEW));
+    EXPECT_FALSE(acc.FindVertex(primary_label, pk, View::OLD));
+    EXPECT_FALSE(acc.FindVertex(primary_label, pk, View::NEW));
 
     acc.Abort();
   }
@@ -2498,13 +2498,13 @@ TEST_F(StorageV3, DeletedVertexAccessor) {
   // Create the vertex
   {
     auto acc = store.Access();
-    auto vertex = CreateVertexAndValidate(acc, label, {}, {{property, primary_property}});
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(vertex.SetPropertyAndValidate(property1, property_value).HasError());
     ASSERT_FALSE(acc.Commit().HasError());
   }
 
   auto acc = store.Access();
-  auto vertex = acc.FindVertex(label, pk, View::OLD);
+  auto vertex = acc.FindVertex(primary_label, pk, View::OLD);
   ASSERT_TRUE(vertex);
   auto maybe_deleted_vertex = acc.DeleteVertex(&*vertex);
   ASSERT_FALSE(maybe_deleted_vertex.HasError());
