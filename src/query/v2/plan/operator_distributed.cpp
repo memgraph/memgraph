@@ -413,41 +413,6 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
 }  // namespace
 
-Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
-    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
-
-ACCEPT_WITH_INPUT(Filter)
-
-UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::FilterOperator);
-
-  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
-}
-
-std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
-
-Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
-    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
-
-bool Filter::FilterCursor::Pull(Frames &frames, ExecutionContext &context) {
-  // #NoCommit this will moved to storage. Not sure we'll need it
-  SCOPED_PROFILE_OP("Filter");
-  MG_ASSERT(!frames.empty());
-  auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
-  // Like all filters, newly set values should not affect filtering of old
-  // nodes and edges.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::v3::View::OLD);
-  while (input_cursor_->Pull(frames, context)) {
-    if (EvaluateFilter(evaluator, self_.expression_)) return true;
-  }
-  return false;
-}
-
-void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
-
-void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
-
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
 

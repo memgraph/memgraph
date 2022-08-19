@@ -661,52 +661,6 @@ that has already been expanded and should be just validated in the frame."))
   (:serialize (:slk :load-args '((ast-storage "query::v2::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
-(lcp:define-class filter (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>" :scope :public
-          :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer)
-   (expression "Expression *" :scope :public
-               :slk-save #'slk-save-ast-pointer
-               :slk-load (slk-load-ast-pointer "Expression")))
-  (:documentation
-   "Filter whose Pull returns true only when the given expression
-evaluates into true.
-
-The given expression is assumed to return either NULL (treated as false) or
-a boolean value.")
-  (:public
-   #>cpp
-   Filter() {}
-
-   Filter(const std::shared_ptr<LogicalOperator> &input_,
-          Expression *expression_);
-   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-   bool HasSingleInput() const override { return true; }
-   std::shared_ptr<LogicalOperator> input() const override { return input_; }
-   void set_input(std::shared_ptr<LogicalOperator> input) override {
-     input_ = input;
-   }
-   cpp<#)
-  (:private
-   #>cpp
-   class FilterCursor : public Cursor {
-    public:
-     FilterCursor(const Filter &, utils::MemoryResource *);
-     bool Pull(Frames &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Filter &self_;
-     const UniqueCursorPtr input_cursor_;
-   };
-   cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class produce (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
