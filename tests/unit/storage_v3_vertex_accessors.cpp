@@ -124,9 +124,54 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
     ASSERT_TRUE(vertex.HasValue());
     const auto schema_violation = vertex->AddLabelAndValidate(label1);
     ASSERT_TRUE(schema_violation.HasError());
-    const auto sasa = std::get<SchemaViolation>(schema_violation.GetError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(schema_violation.GetError()));
-    EXPECT_EQ(sasa, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label1));
+    EXPECT_EQ(std::get<SchemaViolation>(schema_violation.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label1));
+  }
+}
+
+TEST_F(StorageV3Accessor, TestRemoveLabels) {
+  {
+    auto acc = storage.Access();
+    const auto label1 = storage.NameToLabel("label1");
+    const auto label2 = storage.NameToLabel("label2");
+    const auto label3 = storage.NameToLabel("label3");
+    auto vertex =
+        CreateVertexAndValidate(acc, primary_label, {label1, label2, label3}, {{primary_property, PropertyValue(0)}});
+    ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
+    EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label1, label2, label3));
+    const auto res1 = vertex.RemoveLabelAndValidate(label2);
+    ASSERT_TRUE(res1.HasValue());
+    EXPECT_TRUE(res1.GetValue());
+    EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label1, label3));
+    const auto res2 = vertex.RemoveLabelAndValidate(label1);
+    ASSERT_TRUE(res2.HasValue());
+    EXPECT_TRUE(res2.GetValue());
+    EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label3));
+    const auto res3 = vertex.RemoveLabelAndValidate(label3);
+    ASSERT_TRUE(res3.HasValue());
+    ASSERT_TRUE(res3.HasValue());
+    EXPECT_TRUE(res3.GetValue());
+    EXPECT_TRUE(vertex.Labels(View::NEW).GetValue().empty());
+  }
+  {
+    auto acc = storage.Access();
+    const auto label1 = storage.NameToLabel("label1");
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
+    ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
+    EXPECT_TRUE(vertex.Labels(View::NEW).GetValue().empty());
+    const auto res1 = vertex.RemoveLabelAndValidate(label1);
+    ASSERT_TRUE(res1.HasValue());
+    EXPECT_FALSE(res1.GetValue());
+  }
+  {
+    auto acc = storage.Access();
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    const auto res1 = vertex.RemoveLabelAndValidate(primary_label);
+    ASSERT_TRUE(res1.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res1.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(res1.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, primary_label));
   }
 }
 
