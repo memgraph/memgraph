@@ -20,9 +20,41 @@ template_cluster: &template_cluster
       ]
       validation_queries: []
 
+show_privileges_cluster: &show_privileges_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries: [
+        "Create User Josip;",
+
+        "Grant Read On Labels * to Josip;",
+
+        "Grant Read On Labels :Label1 to Josip;",
+
+        "Deny Read On Labels :Label2 to Josip;",
+
+        "Grant Edit On Labels :Label3 to Josip;",
+
+        "Deny Edit On Labels :Label4 to Josip;",
+
+        "Grant Create_Delete On Labels :Label5 to Josip;",
+
+        "Deny Create_Delete On Labels :Label6 to Josip;",
+
+        "Grant Create_Delete On Labels :Label7 to Josip;",
+        "Deny Read On Labels :Label7 to Josip;",
+      ]
+
 workloads:
   - name: "Label-based auth"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/lba_procedures.py"]
     <<: *template_cluster
+
+  - name: "show-privileges"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/show_privileges.py"]
+    <<: *show_privileges_cluster
