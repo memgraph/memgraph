@@ -80,6 +80,11 @@ class ThriftHandle {
       auto destination_port = rsm_map_.at(destination_id);
 
       // Send it to the port of the destination -how?
+      // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
+      // than asserting that the last item in can_rx matches.
+      auto m_opt = std::move(current_message).Take<Ms...>();
+
+      return (std::move(m_opt));
     }
   }
 

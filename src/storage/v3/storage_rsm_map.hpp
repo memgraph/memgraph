@@ -16,7 +16,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
-#include "../rsm/shard_rsm.hpp"
+#include "src/io/rsm/shard_rsm.hpp"
 
 namespace memgraph::io {
 
