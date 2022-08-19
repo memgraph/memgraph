@@ -16,7 +16,9 @@ namespace clahelper {
 inline std::string g_command_line_arg;
 }
 
-class MyTestEnvironment : public testing::Environment {
+class InjectedClaEnvironment : public testing::Environment {
  public:
-  explicit MyTestEnvironment(const std::string &command_line_arg) { clahelper::g_command_line_arg = command_line_arg; }
+  explicit InjectedClaEnvironment(const std::string &command_line_arg) {
+    clahelper::g_command_line_arg = command_line_arg;
+  }
 };

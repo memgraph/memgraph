@@ -12,14 +12,14 @@
 #include <gtest/gtest.h>
 #include <utils/logging.hpp>
 
-#include "coward_the_cowardly_dog.h"
+#include "cla_helper.hpp"
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
 
   std::string command_line_arg(argv[0]);
   testing::InitGoogleTest(&argc, argv);
-  testing::AddGlobalTestEnvironment(new MyTestEnvironment(command_line_arg));
+  testing::AddGlobalTestEnvironment(new InjectedClaEnvironment(command_line_arg));
 
   memgraph::logging::RedirectToStderr();
   spdlog::set_level(spdlog::level::trace);

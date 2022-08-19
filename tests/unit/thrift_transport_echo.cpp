@@ -25,7 +25,7 @@
 
 #include "io/thrift/thrift_transport.hpp"
 
-#include "coward_the_cowardly_dog.h"
+#include "cla_helper.hpp"
 
 using namespace memgraph::io;
 
