@@ -45,7 +45,7 @@ namespace memgraph::query::frontend {
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
-enum class EntityType { LABELS, EDGE_TYPES };
+enum class EntityType : uint8_t { LABELS, EDGE_TYPES };
 
 template <typename TVisitor>
 std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit(
