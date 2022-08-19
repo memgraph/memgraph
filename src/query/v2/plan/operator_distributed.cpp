@@ -358,11 +358,14 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
   auto vertices =
       [this](Frames &frames, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
                                                             view_, label_, property_, storage::v3::PropertyValue()))> {
-    auto &frame = *frames[0];  // #NoCommit to implement
+    MG_ASSERT(!frames.empty());
+    auto &frame = *frames[0];
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
+    if (value.IsNull()) {
+      return std::nullopt;
+    }
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
     }

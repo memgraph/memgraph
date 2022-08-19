@@ -202,9 +202,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
       auto vertex_node = *dba.InsertVertexAndValidate(
           schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
 
-      auto has_label = GetRandomBool();
-      auto has_property = GetRandomBool();
-      auto has_expected_property = GetRandomBool();
+      auto has_label = true;              // GetRandomBool();
+      auto has_property = true;           // GetRandomBool();
+      auto has_expected_property = true;  // GetRandomBool();
       if (has_label) {
         ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
       }
@@ -227,7 +227,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
   }
 
   // INDEX CREATION
-  db_v3.CreateIndex(label_node);
+  db_v3.CreateIndex(label_node, property_node);
 
   auto storage_dba = db_v3.Access();
   DbAccessor dba(&storage_dba);
