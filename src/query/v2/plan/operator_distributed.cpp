@@ -277,9 +277,6 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
                                                                 std::move(vertices), "ScanAllByLabel");
 }
 
-// TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
-// vertices that have the label and some value for the given property.
-
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                          Symbol output_symbol, storage::v3::LabelId label,
                                                          storage::v3::PropertyId property,
@@ -330,15 +327,22 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
 
   auto vertices = [this](Frames &frames, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    auto &frame = *frames[0];  // #NoCommit
+    MG_ASSERT(!frames.empty());
+    auto &frame = *frames[0];
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
+    if (!value.IsNumeric()) {
+      return std::nullopt;
+    }
     int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+    if (value.IsDouble() && id != value.ValueDouble()) {
+      return std::nullopt;
+    }
     auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_);
-    if (!maybe_vertex) return std::nullopt;
+    if (!maybe_vertex) {
+      return std::nullopt;
+    }
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
