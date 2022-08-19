@@ -573,7 +573,7 @@ given label.
   ((label "::storage::v3::LabelId" :scope :public)
    (property "::storage::v3::PropertyId" :scope :public)
    (property-name "std::string" :scope :public)
-   (expression "Expression *" :scope :public
+   (expression-property-value "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
   (:documentation
@@ -600,7 +600,7 @@ property value.
                                Symbol output_symbol, storage::v3::LabelId label,
                                storage::v3::PropertyId property,
                                const std::string &property_name,
-                               Expression *expression,
+                               Expression *expression_property_value_,
                                storage::v3::View view = storage::v3::View::OLD);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -610,7 +610,7 @@ property value.
   (:clone))
 
 (lcp:define-class scan-all-by-id (scan-all)
-  ((expression "Expression *" :scope :public
+  ((expression-id "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
   (:documentation
@@ -619,7 +619,7 @@ property value.
     #>cpp
     ScanAllById() {}
     ScanAllById(const std::shared_ptr<LogicalOperator> &input,
-                Symbol output_symbol, Expression *expression,
+                Symbol output_symbol, Expression *expression_id,
                 storage::v3::View view = storage::v3::View::OLD);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;

@@ -280,14 +280,14 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                          Symbol output_symbol, storage::v3::LabelId label,
                                                          storage::v3::PropertyId property,
-                                                         const std::string &property_name, Expression *expression,
-                                                         storage::v3::View view)
+                                                         const std::string &property_name,
+                                                         Expression *expression_property_value, storage::v3::View view)
     : ScanAll(input, output_symbol, view),
       label_(label),
       property_(property),
       property_name_(property_name),
-      expression_(expression) {
-  DMG_ASSERT(expression, "Expression is not optional.");
+      expression_property_value_(expression_property_value) {
+  DMG_ASSERT(expression_property_value, "Expression is not optional.");
 }
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
@@ -299,10 +299,24 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
       [this](Frames &frames, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
                                                             view_, label_, property_, storage::v3::PropertyValue()))> {
     MG_ASSERT(!frames.empty());
-    auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
+    auto &frame = *frames[0];
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
+    auto value = expression_property_value_->Accept(evaluator);
+
+    MG_ASSERT(std::all_of(frames.begin(), frames.end(),
+                          [&value, &view = view_, &expression_property_value = expression_property_value_,
+                           &context](auto *frame) -> bool {
+                            ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context,
+                                                          context.db_accessor, view);
+                            auto other_value = expression_property_value->Accept(evaluator);
+                            auto result = value == other_value;
+                            if (!result.IsBool()) {
+                              return false;
+                            }
+                            return result.ValueBool();
+                          }));
+
     if (value.IsNull()) {
       return std::nullopt;
     }
@@ -315,10 +329,10 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue");
 }
 
-ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
+ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression_id,
                          storage::v3::View view)
-    : ScanAll(input, output_symbol, view), expression_(expression) {
-  MG_ASSERT(expression);
+    : ScanAll(input, output_symbol, view), expression_id_(expression_id) {
+  MG_ASSERT(expression_id);
 }
 
 ACCEPT_WITH_INPUT(ScanAllById)
@@ -331,13 +345,13 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     auto &frame = *frames[0];
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
+    auto value = expression_id_->Accept(evaluator);
 
     MG_ASSERT(std::all_of(frames.begin(), frames.end(),
-                          [&value, &view = view_, &expression = expression_, &context](auto *frame) -> bool {
+                          [&value, &view = view_, &expression_id = expression_id_, &context](auto *frame) -> bool {
                             ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context,
                                                           context.db_accessor, view);
-                            auto other_value = expression->Accept(evaluator);
+                            auto other_value = expression_id->Accept(evaluator);
                             auto result = value == other_value;
                             if (!result.IsBool()) {
                               return false;
