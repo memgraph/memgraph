@@ -37,7 +37,7 @@ class ThriftTransport {
 
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request, Duration timeout) {
-    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>();
+    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<Response>>();
 
     thrift_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout, std::move(promise));
 

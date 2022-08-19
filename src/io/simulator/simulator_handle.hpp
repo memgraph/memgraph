@@ -36,6 +36,7 @@ using memgraph::io::Duration;
 using memgraph::io::OpaqueMessage;
 using memgraph::io::OpaquePromise;
 using memgraph::io::Time;
+using memgraph::io::TimedOut;
 
 class SimulatorHandle {
   mutable std::mutex mu_{};

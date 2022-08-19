@@ -400,3 +400,7 @@ target_link_libraries(${test_prefix}future mg-io)
 # Test Thrift transport echo
 add_unit_test(thrift_transport_echo.cpp)
 target_link_libraries(${test_prefix}thrift_transport_echo mg-io fmt Threads::Threads FBThrift::thriftcpp2 mg-interface-echo-cpp2)
+
+# Test Thrift transport echo
+add_unit_test(thrift_handle.cpp)
+target_link_libraries(${test_prefix}thrift_handle mg-io fmt Threads::Threads)
