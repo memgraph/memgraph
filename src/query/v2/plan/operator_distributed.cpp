@@ -328,10 +328,23 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
 
   auto vertices = [this](Frames &frames, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     MG_ASSERT(!frames.empty());
-    auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
+    auto &frame = *frames[0];
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
+
+    MG_ASSERT(std::all_of(frames.begin(), frames.end(),
+                          [&value, &view = view_, &expression = expression_, &context](auto *frame) -> bool {
+                            ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context,
+                                                          context.db_accessor, view);
+                            auto other_value = expression->Accept(evaluator);
+                            auto result = value == other_value;
+                            if (!result.IsBool()) {
+                              return false;
+                            }
+                            return result.ValueBool();
+                          }));
+
     if (!value.IsNumeric()) {
       return std::nullopt;
     }

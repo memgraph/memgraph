@@ -247,6 +247,53 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatching) {
+  /*
+    QUERY:
+      MATCH (n)
+      WHERE id(n)=1
+      RETURN *;
+
+    QUERY PLAN:
+      Produce {n}
+      ScanAllById (n)
+      Once
+  */
+
+  const auto [number_of_vertices, size_of_batch] = GetParam();
+  storage::v3::Gid id;  // We just want to have an idea of any vertex
+  {                     // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      id = vertex_node.Gid();
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (n) WHERE id(n)=1
+  auto scan_all_1 = MakeScanAllById_Distributed(storage, symbol_table, "n", LITERAL(id.AsInt()));
+
+  {
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), 1);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
