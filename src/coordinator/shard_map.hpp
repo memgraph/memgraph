@@ -47,15 +47,8 @@ struct ShardMap {
   std::map<Label, Shards> shards;
 
   // TODO(gabor) later we will want to update the wallclock time with
-  // the given Io<impl>'s time as well. This function should just be
-  // replaced with operator== since it is already overloaded for Hlc
-  // objects.
-  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
-
- public:
-  // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
-  Hlc UpdateShardMapVersion() noexcept {
+  Hlc IncrementShardMapVersion() noexcept {
     ++shard_map_version.logical_id;
     return shard_map_version;
   }
@@ -83,10 +76,27 @@ struct ShardMap {
 
       // Apply the split
       shards_in_map[key] = shard_to_map_to;
+
       return true;
     }
 
     return false;
+  }
+
+  bool InitializeNewLabel(std::string label_name, Hlc last_shard_map_version) {
+    if (shard_map_version != last_shard_map_version) {
+      return false;
+    }
+
+    if (shards.contains(label_name)) {
+      return false;
+    }
+
+    shards.emplace(label_name, Shards{});
+
+    IncrementShardMapVersion();
+
+    return true;
   }
 
   void AddServer(Address server_address) {
@@ -98,14 +108,28 @@ struct ShardMap {
   Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
 
   Shard GetShardForKey(Label label, CompoundKey key) {
-    // return shards.at(label).at(key);
-    std::cout << "label" << std::endl;
-    auto asd1 = shards.at(label);
-    std::cout << "key" << std::endl;
-    auto asd2 = asd1[key];
+    auto shard_for_label = shards.at(label);
 
-    return asd2;
+    auto max = (--shard_for_label.end())->first;
+
+    if (key > max) {
+      return shard_for_label[max];
+    }
+
+    for (auto it = shard_for_label.lower_bound(key);; --it) {
+      MG_ASSERT(it->first <= key);
+      return it->second;
+    }
+
+    MG_ASSERT(false, "failed to find shard with a key that is less than or equal to the provided key");
   }
+
+ private:
+  // TODO(gabor) later we will want to update the wallclock time with
+  // the given Io<impl>'s time as well. This function should just be
+  // replaced with operator== since it is already overloaded for Hlc
+  // objects.
+  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
 };
 
 }  // namespace memgraph::coordinator

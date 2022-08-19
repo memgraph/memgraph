@@ -87,10 +87,22 @@ struct DeregisterStorageEngineResponse {
   bool success;
 };
 
-using WriteRequests = std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest,
-                                   RegisterStorageEngineRequest, DeregisterStorageEngineRequest>;
-using WriteResponses = std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                                    RegisterStorageEngineResponse, DeregisterStorageEngineResponse>;
+struct InitializeLabelRequest {
+  std::string label_name;
+  Hlc last_shard_map_version;
+};
+
+struct InitializeLabelResponse {
+  bool success;
+  std::optional<ShardMap> fresher_shard_map;
+};
+
+using WriteRequests =
+    std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
+                 DeregisterStorageEngineRequest, InitializeLabelRequest>;
+using WriteResponses =
+    std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                 RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse>;
 
 using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
 using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
@@ -116,14 +128,14 @@ class Coordinator {
   uint64_t highest_allocated_edge_id_;
 
   /// Increment our
-  ReadResponses Read(HlcRequest hlc_request) {
+  ReadResponses HandleRead(HlcRequest &&hlc_request) {
     HlcResponse res{};
 
     auto hlc_shard_map = shard_map_.GetHlc();
 
     MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
 
-    res.new_hlc = shard_map_.UpdateShardMapVersion();
+    res.new_hlc = shard_map_.IncrementShardMapVersion();
 
     // res.fresher_shard_map = hlc_request.last_shard_map_version.logical_id < hlc_shard_map.logical_id
     //                             ? std::make_optional(shard_map_)
@@ -135,7 +147,7 @@ class Coordinator {
     return res;
   }
 
-  GetShardMapResponse Read(GetShardMapRequest &&get_shard_map_request) {
+  ReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
     GetShardMapResponse res;
     res.shard_map = shard_map_;
     return res;
@@ -199,27 +211,28 @@ class Coordinator {
     return res;
   }
 
+  WriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
+    InitializeLabelResponse res{};
+
+    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name,
+                                                 initialize_label_request.last_shard_map_version);
+
+    if (success) {
+      res.fresher_shard_map = shard_map_;
+      res.success = false;
+    } else {
+      res.fresher_shard_map = std::nullopt;
+      res.success = true;
+    }
+
+    return res;
+  }
+
  public:
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
   ReadResponses Read(ReadRequests requests) {
-    // if (std::get_if<HlcRequest>(&requests)) {
-    //   std::cout << "HlcRequest" << std::endl;
-    // } else if (std::get_if<GetShardMapRequest>(&requests)) {
-    //   std::cout << "GetShardMapRequest" << std::endl;
-    // } else {
-    //   std::cout << "idk requests" << std::endl;
-    // }
-    // std::cout << "Coordinator Read()" << std::endl;
-    auto ret = std::visit([&](auto requests) { return Read(requests); }, (requests));
-    // if (std::get_if<HlcResponse>(&ret)) {
-    //   std::cout << "HlcResponse" << std::endl;
-    // } else if (std::get_if<GetShardMapResponse>(&ret)) {
-    //   std::cout << "GetShardMapResponse" << std::endl;
-    // } else {
-    //   std::cout << "idk response" << std::endl;
-    // }
-    return ret;
+    return std::visit([&](auto &&requests) { return HandleRead(std::move(requests)); }, std::move(requests));
   }
 
   WriteResponses Apply(WriteRequests requests) {
