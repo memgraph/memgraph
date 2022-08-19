@@ -209,6 +209,8 @@ class Role final {
   Permissions &permissions();
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
+  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
 
   nlohmann::json Serialize() const;
 

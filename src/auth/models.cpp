@@ -399,6 +399,14 @@ Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions() const {
+  return fine_grained_access_handler_.label_permissions();
+}
+
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions() const {
+  return fine_grained_access_handler_.edge_type_permissions();
+}
+
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
