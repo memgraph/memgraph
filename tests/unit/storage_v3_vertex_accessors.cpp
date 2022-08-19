@@ -15,7 +15,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "common/types.hpp"
 #include "storage/v3/delta.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
@@ -30,8 +32,7 @@ namespace memgraph::storage::v3::tests {
 class StorageV3Accessor : public ::testing::Test {
  protected:
   void SetUp() override {
-    ASSERT_TRUE(
-        storage.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+    ASSERT_TRUE(storage.CreateSchema(primary_label, {SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
   VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
@@ -172,6 +173,36 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res1.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(res1.GetError()),
               SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, primary_label));
+  }
+}
+
+TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
+  {
+    auto acc = storage.Access();
+    const PropertyId prop1{storage.NameToProperty("prop1")};
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(0)}});
+    const auto res = vertex.SetPropertyAndValidate(prop1, PropertyValue(1));
+    ASSERT_TRUE(res.HasValue());
+  }
+  {
+    auto acc = storage.Access();
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
+    const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue(1));
+    ASSERT_TRUE(res.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(res.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
+                              SchemaProperty{primary_property, common::SchemaType::INT}));
+  }
+  {
+    auto acc = storage.Access();
+    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue());
+    ASSERT_TRUE(res.HasError());
+    ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));
+    EXPECT_EQ(std::get<SchemaViolation>(res.GetError()),
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY, primary_label,
+                              SchemaProperty{primary_property, common::SchemaType::INT}));
   }
 }
 
