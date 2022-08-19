@@ -14,12 +14,10 @@
 #include "coordinator/coordinator.hpp"
 #include "io/rsm/raft.hpp"
 
-namespace memgraph::io::rsm {
-
-// TODO(tyler) don't
-using namespace memgraph::coordinator;
+namespace memgraph::coordinator {
 
 template <typename IoImpl>
-using CoordinatorRsm = io::rsm::Raft<IoImpl, Coordinator, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
+using CoordinatorRsm =
+    memgraph::io::rsm::Raft<IoImpl, Coordinator, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
-}  // namespace memgraph::io::rsm
+}  // namespace memgraph::coordinator

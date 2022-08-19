@@ -18,9 +18,10 @@
 #include <thread>
 #include <vector>
 
+#include "coordinator/coordinator_client.hpp"
+#include "coordinator/coordinator_rsm.hpp"
 #include "io/address.hpp"
 #include "io/errors.hpp"
-#include "io/rsm/coordinator_rsm.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "io/rsm/shard_rsm.hpp"
@@ -28,10 +29,11 @@
 #include "io/simulator/simulator_transport.hpp"
 #include "utils/result.hpp"
 
-using memgraph::coordinator::Address;
 using memgraph::coordinator::AddressAndStatus;
 using memgraph::coordinator::CompoundKey;
 using memgraph::coordinator::Coordinator;
+using memgraph::coordinator::CoordinatorClient;
+using memgraph::coordinator::CoordinatorRsm;
 using memgraph::coordinator::HlcRequest;
 using memgraph::coordinator::HlcResponse;
 using memgraph::coordinator::Shard;
@@ -44,7 +46,6 @@ using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseFuture;
 using memgraph::io::Time;
 using memgraph::io::TimedOut;
-using memgraph::io::rsm::CoordinatorRsm;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
@@ -62,8 +63,8 @@ using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::utils::BasicResult;
 
-using StorageClient = RsmClient<Io<SimulatorTransport>, StorageWriteRequest, StorageWriteResponse, StorageReadRequest,
-                                StorageReadResponse>;
+using StorageClient =
+    RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
 
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
@@ -231,10 +232,7 @@ int main() {
 
   // Have client contact coordinator RSM for a new transaction ID and
   // also get the current shard map
-  using CoordinatorClient =
-      RsmClient<Io<SimulatorTransport>, memgraph::coordinator::WriteRequests, memgraph::coordinator::WriteResponses,
-                memgraph::coordinator::ReadRequests, memgraph::coordinator::ReadResponses>;
-  CoordinatorClient coordinator_client(cli_io, c_addrs[0], c_addrs);
+  CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
   StorageClient shard_a_client(cli_io, a_addrs[0], a_addrs);
   StorageClient shard_b_client(cli_io, b_addrs[0], b_addrs);
