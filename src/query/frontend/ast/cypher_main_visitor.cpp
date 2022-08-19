@@ -45,8 +45,7 @@ namespace memgraph::query::frontend {
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 namespace {
-const std::string kLabels = "LABELS";
-const std::string kEdgeTypes = "EDGE_TYPES";
+enum class EntityType { LABELS, EDGE_TYPES };
 
 template <typename TVisitor>
 std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit(
@@ -1356,8 +1355,8 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   if (ctx->revokePrivilegesList()) {
     for (auto *it : ctx->revokePrivilegesList()->privilegeOrEntities()) {
       if (it->entitiesList()) {
-        auto entity_type = std::any_cast<std::string>(it->entityType()->accept(this));
-        if (entity_type == "LABELS") {
+        auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
+        if (entity_type == EntityType::LABELS) {
           auth->label_privileges_.push_back(
               {{AuthQuery::LabelPrivilege::CREATE_DELETE,
                 std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
@@ -1384,14 +1383,14 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) {
   std::pair<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>,
             std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>
-      result{{}, {}};
+      result;
 
   for (auto *it : ctx->entityPrivilege()) {
     auto key = std::any_cast<AuthQuery::LabelPrivilege>(it->granularPrivilege()->accept(this));
     auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
-    auto entityType = std::any_cast<std::string>(it->entityType()->accept(this));
+    auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
 
-    if (entityType == kLabels) {
+    if (entityType == EntityType::LABELS) {
       result.first[key] = value;
     } else {
       result.second[key] = value;
@@ -1455,11 +1454,11 @@ antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::Granular
 }
 
 /**
- * @return std::string
+ * @return EntityType
  */
 antlrcpp::Any CypherMainVisitor::visitEntityType(MemgraphCypher::EntityTypeContext *ctx) {
-  if (ctx->LABELS()) return kLabels;
-  if (ctx->EDGE_TYPES()) return kEdgeTypes;
+  if (ctx->LABELS()) return EntityType::LABELS;
+  if (ctx->EDGE_TYPES()) return EntityType::EDGE_TYPES;
   LOG_FATAL("Should not get here - unknown entity type!");
 }
 
