@@ -466,15 +466,17 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 bool Produce::ProduceCursor::Pull(Frames &frames, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
-  MG_ASSERT(!frames.empty());
-  auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
+
   if (input_cursor_->Pull(frames, context)) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::v3::View::NEW);
-    for (auto named_expr : self_.named_expressions_) {
-      named_expr->Accept(evaluator);
+    for (auto *frame : frames) {
+      ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::v3::View::NEW);
+      for (auto named_expr : self_.named_expressions_) {
+        named_expr->Accept(evaluator);
+      }
     }
+
     return true;
   }
   return false;
