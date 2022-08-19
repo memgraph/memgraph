@@ -53,3 +53,24 @@ def subgraph_get_2_hop_edges(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record
 def subgraph_get_out_edges_vertex_id(ctx: mgp.ProcCtx, vertex: mgp.Vertex) -> mgp.Record(edge=mgp.Edge):
     vertex = ctx.graph.get_vertex_by_id(vertex.id)
     return [mgp.Record(edge=edge) for edge in vertex.out_edges]
+
+
+@mgp.read_proc
+def subgraph_get_path_vertices(ctx: mgp.ProcCtx, path: mgp.Path) -> mgp.Record(node=mgp.Vertex):
+    return [mgp.Record(node=node) for node in path.vertices]
+
+
+@mgp.read_proc
+def subgraph_get_path_edges(ctx: mgp.ProcCtx, path: mgp.Path) -> mgp.Record(edge=mgp.Edge):
+    return [mgp.Record(edge=edge) for edge in path.edges]
+
+
+@mgp.read_proc
+def subgraph_get_path_vertices_in_subgraph(ctx: mgp.ProcCtx, path: mgp.Path) -> mgp.Record(node=mgp.Vertex):
+    path_vertices = path.vertices
+    graph_vertices = ctx.graph.vertices
+    records = []
+    for path_vertex in path_vertices:
+        if path_vertex in graph_vertices:
+            records.append(mgp.Record(node=path_vertex))
+    return records
