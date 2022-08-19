@@ -123,8 +123,15 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_representation = "ALL " + permission_type + "S";
     const auto &permission_level_representation =
         permission_level == memgraph::auth::LabelPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
-    const auto &permission_description =
-        "GLOBAL " + permission_type + " PERMISSION " + permission_level_representation + " TO " + actor;
+
+    std::string permission_description;
+    permission_description.append("GLOBAL ");
+    permission_description.append(permission_type);
+    permission_description.append(" PERMISSION ");
+    permission_description.append(permission_level_representation);
+    permission_description.append(" TO ");
+    permission_description.append(actor);
+
     fine_grained_permissions.push_back(
         FineGrainedPermissionForPrivilegeResult{permission_representation, permission_level, permission_description});
   }
@@ -136,8 +143,14 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_representation = permission_type + " :" + permission.first;
     const auto &permission_level_representation =
         permission_level == memgraph::auth::LabelPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
-    const auto &permission_description =
-        permission_type + " PERMISSION " + permission_level_representation + " TO " + actor;
+
+    std::string permission_description;
+    permission_description.append(permission_type);
+    permission_description.append(" PERMISSION ");
+    permission_description.append(permission_level_representation);
+    permission_description.append(" TO ");
+    permission_description.append(actor);
+
     fine_grained_permissions.push_back(
         FineGrainedPermissionForPrivilegeResult{permission_representation, permission_level, permission_description});
   }
