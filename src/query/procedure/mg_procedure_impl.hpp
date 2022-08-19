@@ -448,10 +448,30 @@ struct mgp_vertex {
       : memory(memory), impl(v), graph(graph) {}
 
   mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+      : memory(memory), impl(other.impl), graph(other.graph) {
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               other.impl);
+
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               this->impl);
+  }
 
   mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+      : memory(memory), impl(other.impl), graph(other.graph) {
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               other.impl);
+
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               this->impl);
+  }
 
   mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
 
@@ -495,6 +515,34 @@ struct mgp_vertex {
   memgraph::utils::MemoryResource *memory;
   std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor> impl;
   mgp_graph *graph;
+};
+
+struct mgp_graph {
+  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
+  memgraph::storage::View view;
+  // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
+  // `ctx` field is out of place here.
+  memgraph::query::ExecutionContext *ctx;
+
+  // memgraph:::query::Graph *subraph;
+
+  static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
+
+  static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
 };
 
 struct mgp_edge {
@@ -607,34 +655,6 @@ struct mgp_func_result {
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error
   std::optional<memgraph::utils::pmr::string> error_msg;
-};
-
-struct mgp_graph {
-  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
-  memgraph::storage::View view;
-  // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
-  // `ctx` field is out of place here.
-  memgraph::query::ExecutionContext *ctx;
-
-  // memgraph:::query::Graph *subraph;
-
-  static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
-                                 memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
-  }
-
-  static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
-  }
-
-  static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
-                                 memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
-  }
-
-  static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
-  }
 };
 
 // Prevents user to use ExecutionContext in writable callables

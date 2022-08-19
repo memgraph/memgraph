@@ -476,8 +476,18 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
     }
     case MGP_VALUE_TYPE_EDGE: {
       memgraph::utils::Allocator<mgp_edge> allocator(m);
-      // todo(antoniofilipovic) fix
-      // edge_v = allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
+
+      edge_v = std::visit(
+          memgraph::utils::Overloaded{
+              [&tv, graph, &allocator](memgraph::query::DbAccessor *db_impl) {
+                return allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
+              },
+              [&tv, graph, &allocator](memgraph::query::SubgraphDbAccessor *db_impl) {
+                return allocator.new_object<mgp_edge>(
+                    tv.ValueEdge(), memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().From(), db_impl->getGraph()),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().To(), db_impl->getGraph()), graph);
+              }},
+          graph->impl);
       break;
     }
     case MGP_VALUE_TYPE_PATH: {
@@ -487,13 +497,28 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       // released.
       mgp_path tmp_path(m);
       tmp_path.vertices.reserve(tv.ValuePath().vertices().size());
+      // todo(antoniofilipovic) check if this works correctly -> test valuepath created as parameter
       for (const auto &v : tv.ValuePath().vertices()) {
-        tmp_path.vertices.emplace_back(v, graph);
+        // tmp_path.vertices.emplace_back(v, graph);
+        std::visit(
+            memgraph::utils::Overloaded{
+                [&v, graph, &tmp_path](memgraph::query::DbAccessor *impl) { tmp_path.vertices.emplace_back(v, graph); },
+                [&v, graph, &tmp_path](memgraph::query::SubgraphDbAccessor *impl) {
+                  tmp_path.vertices.emplace_back(memgraph::query::SubgraphVertexAccessor(v, impl->getGraph()), graph);
+                }},
+            graph->impl);
       }
       tmp_path.edges.reserve(tv.ValuePath().edges().size());
       for (const auto &e : tv.ValuePath().edges()) {
-        // todo(antoniofilipovic) fix this
-        // tmp_path.edges.emplace_back(e, graph);
+        std::visit(
+            memgraph::utils::Overloaded{
+                [&e, graph, &tmp_path](memgraph::query::DbAccessor *db_impl) { tmp_path.edges.emplace_back(e, graph); },
+                [&e, graph, &tmp_path](memgraph::query::SubgraphDbAccessor *db_impl) {
+                  tmp_path.edges.emplace_back(e, memgraph::query::SubgraphVertexAccessor(e.From(), db_impl->getGraph()),
+                                              memgraph::query::SubgraphVertexAccessor(e.To(), db_impl->getGraph()),
+                                              graph);
+                }},
+            graph->impl);
       }
       memgraph::utils::Allocator<mgp_path> allocator(m);
       path_v = allocator.new_object<mgp_path>(std::move(tmp_path));
@@ -818,19 +843,15 @@ mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : ty
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
-  // return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
-
   return std::visit(
       memgraph::utils::Overloaded{
           [&](memgraph::query::DbAccessor *db_impl) {
             return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
-            // return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.From(), edge.impl.To(), edge.to.graph,
-            // memory.impl);
           },
           [&](memgraph::query::SubgraphDbAccessor *db_impl) {
-            const auto &from_v = memgraph::query::SubgraphVertexAccessor(edge.impl.From(), db_impl->getGraph());
-            const auto &to_v = memgraph::query::SubgraphVertexAccessor(edge.impl.To(), db_impl->getGraph());
-            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, from_v, to_v, edge.to.graph, memory.impl);
+            return NewRawMgpObject<mgp_edge>(
+                &memory, edge.impl, memgraph::query::SubgraphVertexAccessor(edge.impl.From(), db_impl->getGraph()),
+                memgraph::query::SubgraphVertexAccessor(edge.impl.To(), db_impl->getGraph()), edge.to.graph);
           }},
       edge.to.graph->impl);
 }
@@ -2443,23 +2464,18 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         if (ctx->trigger_context_collector) {
           ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
-        // check what does this method call
-        // todo(antoniofilipovic)
-        // return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
-        return std::visit(memgraph::utils::Overloaded{
-                              [memory, edge, from](memgraph::query::DbAccessor *db_impl) {
-                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), from->graph);
-                              },
-                              [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
-                                const auto &v_from =
-                                    memgraph::query::SubgraphVertexAccessor::MakeSubgraphVertexAccessor(
-                                        edge.GetValue().From(), db_impl->getGraph());
-                                const auto &v_to = memgraph::query::SubgraphVertexAccessor::MakeSubgraphVertexAccessor(
-                                    edge.GetValue().To(), db_impl->getGraph());
-                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to,
-                                                                 from->graph, memory->impl);
-                              }},
-                          graph->impl);
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [memory, edge, from](memgraph::query::DbAccessor *db_impl) {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), from->graph);
+                },
+                [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
+                  const auto &v_from =
+                      memgraph::query::SubgraphVertexAccessor(edge.GetValue().From(), db_impl->getGraph());
+                  const auto &v_to = memgraph::query::SubgraphVertexAccessor(edge.GetValue().To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, from->graph);
+                }},
+            graph->impl);
       },
       result);
 }
