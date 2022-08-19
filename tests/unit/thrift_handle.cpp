@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <string>
 #include <thread>
 
@@ -26,6 +27,7 @@ using memgraph::io::FuturePromisePair;
 using memgraph::io::RequestEnvelope;
 using memgraph::io::ResponseEnvelope;
 using memgraph::io::ResponseResult;
+using memgraph::io::Time;
 using memgraph::io::thrift::ThriftHandle;
 
 struct TestMessage {
@@ -37,8 +39,19 @@ TEST(Thrift, ThriftHandleTimeout) {
   auto handle = ThriftHandle{our_address};
 
   // assert timeouts fire
-  auto should_timeout = handle.Receive<TestMessage>(Duration{});
-  MG_ASSERT(should_timeout.HasError());
+  Duration zero_timeout = Duration{};
+  auto should_timeout_1 = handle.Receive<TestMessage>(zero_timeout);
+  MG_ASSERT(should_timeout_1.HasError());
+
+  Duration ten_ms = std::chrono::microseconds{10000};
+  Time before = handle.Now();
+
+  auto should_timeout_2 = handle.Receive<TestMessage>(ten_ms);
+  MG_ASSERT(should_timeout_2.HasError());
+
+  Time after = handle.Now();
+
+  MG_ASSERT(after - before >= ten_ms);
 }
 
 TEST(Thrift, ThriftHandleReceive) {

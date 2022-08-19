@@ -54,10 +54,7 @@ class ThriftTransport {
     return thrift_handle_->template Send<M>(address, address_, request_id, message);
   }
 
-  Time Now() const {
-    auto nano_time = std::chrono::system_clock::now();
-    return std::chrono::time_point_cast<std::chrono::microseconds>(nano_time);
-  }
+  Time Now() const { return thrift_handle_->Now(); }
 
   bool ShouldShutDown() const { return false; }
 

@@ -46,16 +46,13 @@ class ThriftHandle {
   // TODO(gabor) The RSM map should not be a part of this class.
   // std::map<boost::uuids::uuid, uint16_t /*this should be the actual RSM*/> rsm_map_;
 
-  // this is duplicated between the ThriftTransport and here
-  // because it's relatively simple and there's no need to
-  // avoid the duplication as of the time of implementation.
+ public:
+  ThriftHandle(Address our_address) : address_(our_address) {}
+
   Time Now() const {
     auto nano_time = std::chrono::system_clock::now();
     return std::chrono::time_point_cast<std::chrono::microseconds>(nano_time);
   }
-
- public:
-  ThriftHandle(Address our_address) : address_(our_address) {}
 
   template <Message M>
   void DeliverMessage(Address to_address, Address from_address, RequestId request_id, M &&message) {
@@ -114,8 +111,23 @@ class ThriftHandle {
     // TODO(tyler) block for the specified duration on the Inbox's receipt of a message of this type.
     std::unique_lock lock(mu_);
 
+    Time before = Now();
+
     while (can_receive_.empty()) {
-      std::cv_status cv_status_value = cv_.wait_for(lock, timeout);
+      Time now = Now();
+
+      // protection against non-monotonic timesources
+      auto maxed_now = std::max(now, before);
+      auto elapsed = maxed_now - before;
+
+      if (timeout < elapsed) {
+        return TimedOut{};
+      }
+
+      Duration relative_timeout = timeout - elapsed;
+
+      std::cv_status cv_status_value = cv_.wait_for(lock, relative_timeout);
+
       if (cv_status_value == std::cv_status::timeout) {
         return TimedOut{};
       }
