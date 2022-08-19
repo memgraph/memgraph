@@ -209,7 +209,6 @@ inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 class DbAccessor final {
   storage::v3::Storage::Accessor *accessor_;
 
- public:  // #NoCommit temporary to continue working
   class VerticesIterable final {
     storage::v3::VerticesIterable iterable_;
 
