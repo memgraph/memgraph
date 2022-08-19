@@ -111,6 +111,9 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() { return impl_; }
+static SubgraphVertexAccessor MakeSubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) {
+  return SubgraphVertexAccessor(impl, graph_);
+}
 
 auto SubgraphVertexAccessor::OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
   // todo antoniofilipovic add filtering here

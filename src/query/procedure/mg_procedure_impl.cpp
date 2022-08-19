@@ -476,7 +476,8 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
     }
     case MGP_VALUE_TYPE_EDGE: {
       memgraph::utils::Allocator<mgp_edge> allocator(m);
-      edge_v = allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
+      // todo(antoniofilipovic) fix
+      // edge_v = allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
       break;
     }
     case MGP_VALUE_TYPE_PATH: {
@@ -491,7 +492,8 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       }
       tmp_path.edges.reserve(tv.ValuePath().edges().size());
       for (const auto &e : tv.ValuePath().edges()) {
-        tmp_path.edges.emplace_back(e, graph);
+        // todo(antoniofilipovic) fix this
+        // tmp_path.edges.emplace_back(e, graph);
       }
       memgraph::utils::Allocator<mgp_path> allocator(m);
       path_v = allocator.new_object<mgp_path>(std::move(tmp_path));
@@ -816,7 +818,21 @@ mgp_value::mgp_value(mgp_value &&other, memgraph::utils::MemoryResource *m) : ty
 mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
-  return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
+  // return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
+
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [&](memgraph::query::DbAccessor *db_impl) {
+            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
+            // return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.From(), edge.impl.To(), edge.to.graph,
+            // memory.impl);
+          },
+          [&](memgraph::query::SubgraphDbAccessor *db_impl) {
+            const auto &from_v = memgraph::query::SubgraphVertexAccessor(edge.impl.From(), db_impl->getGraph());
+            const auto &to_v = memgraph::query::SubgraphVertexAccessor(edge.impl.To(), db_impl->getGraph());
+            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, from_v, to_v, edge.to.graph, memory.impl);
+          }},
+      edge.to.graph->impl);
 }
 
 void mgp_value_destroy(mgp_value *val) { DeleteRawMgpObject(val); }
@@ -2428,7 +2444,22 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
           ctx->trigger_context_collector->RegisterCreatedObject(*edge);
         }
         // check what does this method call
-        return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
+        // todo(antoniofilipovic)
+        // return NewRawMgpObject<mgp_edge>(memory, edge.GetValue(), from->graph);
+        return std::visit(memgraph::utils::Overloaded{
+                              [memory, edge, from](memgraph::query::DbAccessor *db_impl) {
+                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), from->graph);
+                              },
+                              [memory, edge, from](memgraph::query::SubgraphDbAccessor *db_impl) {
+                                const auto &v_from =
+                                    memgraph::query::SubgraphVertexAccessor::MakeSubgraphVertexAccessor(
+                                        edge.GetValue().From(), db_impl->getGraph());
+                                const auto &v_to = memgraph::query::SubgraphVertexAccessor::MakeSubgraphVertexAccessor(
+                                    edge.GetValue().To(), db_impl->getGraph());
+                                return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to,
+                                                                 from->graph, memory->impl);
+                              }},
+                          graph->impl);
       },
       result);
 }

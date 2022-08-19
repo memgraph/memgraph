@@ -193,6 +193,7 @@ class SubgraphVertexAccessor final {
   query::VertexAccessor impl_;
   query::Graph *graph_;
 
+  static SubgraphVertexAccessor MakeSubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_);
   explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) : impl_(impl), graph_(graph_) {}
 
   bool operator==(const SubgraphVertexAccessor &v) const noexcept {
