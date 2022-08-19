@@ -109,13 +109,10 @@ inline void HandleSchemaViolation(const storage::v3::SchemaViolation &schema_vio
                                                  *schema_violation.violated_property_value,
                                                  dba.LabelToName(schema_violation.label)));
     }
-    case storage::v3::SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL: {
-      throw SchemaViolationException(fmt::format("Cannot add or remove label :{} since it is a primary label",
-                                                 dba.LabelToName(schema_violation.label)));
-    }
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY: {
       throw SchemaViolationException(
-          fmt::format("Cannot create vertex with secondary label :{}", dba.LabelToName(schema_violation.label)));
+          fmt::format("Cannot add primary label as secondary label, nor remove primary label :{}",
+                      dba.LabelToName(schema_violation.label)));
     }
   }
 }
