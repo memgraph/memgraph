@@ -169,63 +169,6 @@ void Once::OnceCursor::Shutdown() {}
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-// Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
-// frame.
-VertexAccessor &CreateLocalVertexAtomically(const NodeCreationInfo &node_info, Frame *frame,
-                                            ExecutionContext &context) {
-  auto &dba = *context.db_accessor;
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::v3::View::NEW);
-
-  std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> properties;
-  if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
-    properties.reserve(node_info_properties->size());
-    for (const auto &[key, value_expression] : *node_info_properties) {
-      properties.emplace_back(key, storage::v3::PropertyValue(value_expression->Accept(evaluator)));
-    }
-  } else {
-    auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties)).ValueMap();
-    properties.reserve(property_map.size());
-
-    for (const auto &[key, value] : property_map) {
-      auto property_id = dba.NameToProperty(key);
-      properties.emplace_back(property_id, value);
-    }
-  }
-
-  if (node_info.labels.empty()) {
-    throw QueryRuntimeException("Primary label must be defined!");
-  }
-  const auto primary_label = node_info.labels[0];
-  std::vector<storage::v3::LabelId> secondary_labels(node_info.labels.begin() + 1, node_info.labels.end());
-  auto maybe_new_node = dba.InsertVertexAndValidate(primary_label, secondary_labels, properties);
-  if (maybe_new_node.HasError()) {
-    std::visit(utils::Overloaded{[&dba](const storage::v3::SchemaViolation &schema_violation) {
-                                   HandleSchemaViolation(schema_violation, dba);
-                                 },
-                                 [](const storage::v3::Error error) {
-                                   switch (error) {
-                                     case storage::v3::Error::SERIALIZATION_ERROR:
-                                       throw TransactionSerializationException();
-                                     case storage::v3::Error::DELETED_OBJECT:
-                                       throw QueryRuntimeException("Trying to set a label on a deleted node.");
-                                     case storage::v3::Error::VERTEX_HAS_EDGES:
-                                     case storage::v3::Error::PROPERTIES_DISABLED:
-                                     case storage::v3::Error::NONEXISTENT_OBJECT:
-                                       throw QueryRuntimeException("Unexpected error when setting a label.");
-                                   }
-                                 }},
-               maybe_new_node.GetError());
-  }
-
-  context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-
-  (*frame)[node_info.symbol] = *maybe_new_node;
-  return (*frame)[node_info.symbol].ValueVertex();
-}
-
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
