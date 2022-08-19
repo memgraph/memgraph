@@ -61,7 +61,7 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
   }
 }
 
-auth::LabelPermission LabelPrivilegeToLabelPermission(query::AuthQuery::LabelPrivilege label_privilege) {
+auth::LabelPermission LabelPrivilegeToLabelPermission(const query::AuthQuery::LabelPrivilege label_privilege) {
   switch (label_privilege) {
     case query::AuthQuery::LabelPrivilege::READ:
       return auth::LabelPermission::READ;
