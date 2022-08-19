@@ -1320,9 +1320,9 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
                     std::vector<memgraph::query::AuthQuery::Privilege>>
  */
 antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesListContext *ctx) {
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges{};
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges{};
-  std::vector<memgraph::query::AuthQuery::Privilege> privileges{};
+  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges;
+  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges;
+  std::vector<memgraph::query::AuthQuery::Privilege> privileges;
   for (auto *it : ctx->privilegeOrEntityPrivileges()) {
     if (it->entityPrivilegeList()) {
       auto result = std::any_cast<std::pair<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>,
