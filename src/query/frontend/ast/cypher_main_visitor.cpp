@@ -1279,7 +1279,7 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegesList()) {
-    auto [label_privileges, edge_type_privileges, privileges] =
+    const auto [label_privileges, edge_type_privileges, privileges] =
         std::any_cast<std::tuple<std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>,
                                  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>,
                                  std::vector<memgraph::query::AuthQuery::Privilege>>>(
@@ -1325,9 +1325,10 @@ antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesL
   std::vector<memgraph::query::AuthQuery::Privilege> privileges;
   for (auto *it : ctx->privilegeOrEntityPrivileges()) {
     if (it->entityPrivilegeList()) {
-      auto result = std::any_cast<std::pair<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>,
-                                            std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>>(
-          it->entityPrivilegeList()->accept(this));
+      const auto result =
+          std::any_cast<std::pair<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>,
+                                  std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>>(
+              it->entityPrivilegeList()->accept(this));
       if (!result.first.empty()) {
         label_privileges.emplace_back(result.first);
       }
@@ -1355,7 +1356,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
   if (ctx->revokePrivilegesList()) {
     for (auto *it : ctx->revokePrivilegesList()->privilegeOrEntities()) {
       if (it->entitiesList()) {
-        auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
+        const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
         if (entity_type == EntityType::LABELS) {
           auth->label_privileges_.push_back(
               {{AuthQuery::LabelPrivilege::CREATE_DELETE,
@@ -1386,9 +1387,9 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       result;
 
   for (auto *it : ctx->entityPrivilege()) {
-    auto key = std::any_cast<AuthQuery::LabelPrivilege>(it->granularPrivilege()->accept(this));
-    auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
-    auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
+    const auto key = std::any_cast<AuthQuery::LabelPrivilege>(it->granularPrivilege()->accept(this));
+    const auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
+    const auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
 
     if (entityType == EntityType::LABELS) {
       result.first[key] = value;
