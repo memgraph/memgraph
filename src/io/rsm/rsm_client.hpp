@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#pragma once
+
 #include <iostream>
 #include <optional>
 #include <vector>
@@ -37,7 +39,7 @@ template <typename IoImpl, typename WriteRequestT, typename WriteResponseT, type
 class RsmClient {
   using ServerPool = std::vector<Address>;
 
-  IoImpl io_;
+  Io<IoImpl> io_;
   Address leader_;
 
   std::mt19937 cli_rng_{0};
@@ -62,7 +64,7 @@ class RsmClient {
   }
 
  public:
-  RsmClient(IoImpl io, Address leader, ServerPool server_addrs)
+  RsmClient(Io<IoImpl> io, Address leader, ServerPool server_addrs)
       : io_{io}, leader_{leader}, server_addrs_{server_addrs} {}
 
   RsmClient() = delete;
