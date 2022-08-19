@@ -648,6 +648,87 @@ the given types are valid.")
 that has already been expanded and should be just validated in the frame."))
   (:serialize (:slk)))
 
+(lcp:define-class expand (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public)
+   (view "::storage::v3::View" :scope :public
+         :documentation
+         "State from which the input node should get expanded."))
+  (:documentation
+   "Expansion operator. For a node existing in the frame it
+expands one edge and one node and places them on the frame.
+
+This class does not handle node/edge filtering based on
+properties, labels and edge types. However, it does handle
+filtering on existing node / edge.
+
+Filtering on existing means that for a pattern that references
+an already declared node or edge (for example in
+MATCH (a) MATCH (a)--(b)),
+only expansions that match defined equalities are successfully
+pulled.")
+  (:public
+   #>cpp
+   /**
+    * Creates an expansion. All parameters except input and input_symbol are
+    * forwarded to @c ExpandCommon and are documented there.
+    *
+    * @param input Optional logical operator that preceeds this one.
+    * @param input_symbol Symbol that points to a VertexAccessor in the frame
+    *    that expansion should emanate from.
+    */
+   Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+          Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+          const std::vector<storage::v3::EdgeTypeId> &edge_types, bool existing_node,
+          storage::v3::View view);
+
+   Expand() {}
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+
+   class ExpandCursor : public Cursor {
+    public:
+     ExpandCursor(const Expand &, utils::MemoryResource *);
+     bool Pull(Frames &, ExecutionContext &) override;
+     void Shutdown() override;
+     void Reset() override;
+
+    private:
+     using InEdgeT = std::remove_reference_t<decltype(
+         *std::declval<VertexAccessor>().InEdges(storage::v3::View::OLD))>;
+     using InEdgeIteratorT = decltype(std::declval<InEdgeT>().begin());
+     using OutEdgeT = std::remove_reference_t<decltype(
+         *std::declval<VertexAccessor>().OutEdges(storage::v3::View::OLD))>;
+     using OutEdgeIteratorT = decltype(std::declval<OutEdgeT>().begin());
+
+     const Expand &self_;
+     const UniqueCursorPtr input_cursor_;
+
+     // The iterable over edges and the current edge iterator are referenced via
+     // optional because they can not be initialized in the constructor of
+     // this class. They are initialized once for each pull from the input.
+     std::optional<InEdgeT> in_edges_;
+     std::optional<InEdgeIteratorT> in_edges_it_;
+     std::optional<OutEdgeT> out_edges_;
+     std::optional<OutEdgeIteratorT> out_edges_it_;
+
+     bool InitEdges(Frames &, ExecutionContext &);
+   };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
 (lcp:define-struct expansion-lambda ()
   ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
    (inner-node-symbol "Symbol" :documentation "Currently expanded node symbol.")
