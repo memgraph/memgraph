@@ -299,7 +299,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
       [this](Frames &frames, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
                                                             view_, label_, property_, storage::v3::PropertyValue()))> {
     MG_ASSERT(!frames.empty());
-    auto &frame = *frames[0];
+    auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
@@ -328,7 +328,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
 
   auto vertices = [this](Frames &frames, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     MG_ASSERT(!frames.empty());
-    auto &frame = *frames[0];
+    auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
@@ -430,8 +430,10 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
 bool Filter::FilterCursor::Pull(Frames &frames, ExecutionContext &context) {
+  // #NoCommit this will moved to storage. Not sure we'll need it
   SCOPED_PROFILE_OP("Filter");
-  auto &frame = *frames[0];  // #NoCommit
+  MG_ASSERT(!frames.empty());
+  auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -472,13 +474,15 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 
 bool Produce::ProduceCursor::Pull(Frames &frames, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
-  auto &frame = *frames[0];  // #NoCommit JBA
+  MG_ASSERT(!frames.empty());
+  auto &frame = *frames[0];  // #NoCommit double check w.r.t ExpressionEvaluator, not sure this is correct.
   if (input_cursor_->Pull(frames, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::v3::View::NEW);
-    for (auto named_expr : self_.named_expressions_) named_expr->Accept(evaluator);
-
+    for (auto named_expr : self_.named_expressions_) {
+      named_expr->Accept(evaluator);
+    }
     return true;
   }
   return false;
@@ -487,74 +491,6 @@ bool Produce::ProduceCursor::Pull(Frames &frames, ExecutionContext &context) {
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
-
-Union::Union(const std::shared_ptr<LogicalOperator> &left_op, const std::shared_ptr<LogicalOperator> &right_op,
-             const std::vector<Symbol> &union_symbols, const std::vector<Symbol> &left_symbols,
-             const std::vector<Symbol> &right_symbols)
-    : left_op_(left_op),
-      right_op_(right_op),
-      union_symbols_(union_symbols),
-      left_symbols_(left_symbols),
-      right_symbols_(right_symbols) {}
-
-UniqueCursorPtr Union::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::UnionOperator);
-
-  return MakeUniqueCursorPtr<Union::UnionCursor>(mem, *this, mem);
-}
-
-bool Union::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
-    if (left_op_->Accept(visitor)) {
-      right_op_->Accept(visitor);
-    }
-  }
-  return visitor.PostVisit(*this);
-}
-
-std::vector<Symbol> Union::OutputSymbols(const SymbolTable &) const { return union_symbols_; }
-
-std::vector<Symbol> Union::ModifiedSymbols(const SymbolTable &) const { return union_symbols_; }
-
-WITHOUT_SINGLE_INPUT(Union);
-
-Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
-    : self_(self), left_cursor_(self.left_op_->MakeCursor(mem)), right_cursor_(self.right_op_->MakeCursor(mem)) {}
-
-bool Union::UnionCursor::Pull(Frames &frames, ExecutionContext &context) {
-  SCOPED_PROFILE_OP("Union");
-  auto &frame = *frames[0];  // #NoCommit
-  utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
-  if (left_cursor_->Pull(frames, context)) {
-    // collect values from the left child
-    for (const auto &output_symbol : self_.left_symbols_) {
-      results[output_symbol.name()] = frame[output_symbol];
-    }
-  } else if (right_cursor_->Pull(frames, context)) {
-    // collect values from the right child
-    for (const auto &output_symbol : self_.right_symbols_) {
-      results[output_symbol.name()] = frame[output_symbol];
-    }
-  } else {
-    return false;
-  }
-
-  // put collected values on frame under union symbols
-  for (const auto &symbol : self_.union_symbols_) {
-    frame[symbol] = results[symbol.name()];
-  }
-  return true;
-}
-
-void Union::UnionCursor::Shutdown() {
-  left_cursor_->Shutdown();
-  right_cursor_->Shutdown();
-}
-
-void Union::UnionCursor::Reset() {
-  left_cursor_->Reset();
-  right_cursor_->Reset();
-}
 
 OutputTable::OutputTable(std::vector<Symbol> output_symbols, std::vector<std::vector<TypedValue>> rows)
     : output_symbols_(std::move(output_symbols)), callback_([rows](Frames &, ExecutionContext *) { return rows; }) {}

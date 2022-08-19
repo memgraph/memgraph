@@ -758,57 +758,6 @@ RETURN clause) the Produce's pull succeeds exactly once.")
   (:serialize (:slk))
   (:clone))
 
-(lcp:define-class union (logical-operator)
-  ((left-op "std::shared_ptr<LogicalOperator>" :scope :public
-            :slk-save #'slk-save-operator-pointer
-            :slk-load #'slk-load-operator-pointer)
-   (right-op "std::shared_ptr<LogicalOperator>" :scope :public
-             :slk-save #'slk-save-operator-pointer
-             :slk-load #'slk-load-operator-pointer)
-   (union-symbols "std::vector<Symbol>" :scope :public)
-   (left-symbols "std::vector<Symbol>" :scope :public)
-   (right-symbols "std::vector<Symbol>" :scope :public))
-  (:documentation
-   "A logical operator that applies UNION operator on inputs and places the
-result on the frame.
-
-This operator takes two inputs, a vector of symbols for the result, and vectors
-of symbols used by each of the inputs.")
-  (:public
-   #>cpp
-   Union() {}
-
-   Union(const std::shared_ptr<LogicalOperator> &left_op,
-         const std::shared_ptr<LogicalOperator> &right_op,
-         const std::vector<Symbol> &union_symbols,
-         const std::vector<Symbol> &left_symbols,
-         const std::vector<Symbol> &right_symbols);
-   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
-   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-   bool HasSingleInput() const override;
-   std::shared_ptr<LogicalOperator> input() const override;
-   void set_input(std::shared_ptr<LogicalOperator>) override;
-   cpp<#)
-  (:private
-   #>cpp
-   class UnionCursor : public Cursor {
-    public:
-     UnionCursor(const Union &, utils::MemoryResource *);
-     bool Pull(Frames &, ExecutionContext &) override;
-     void Shutdown() override;
-     void Reset() override;
-
-    private:
-     const Union &self_;
-     const UniqueCursorPtr left_cursor_, right_cursor_;
-   };
-   cpp<#)
-  (:serialize (:slk))
-  (:clone))
-
 (lcp:define-class output-table (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
    (callback "std::function<std::vector<std::vector<TypedValue>>(Frames &, ExecutionContext *)>"
