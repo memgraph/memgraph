@@ -1388,13 +1388,13 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 
   for (auto *it : ctx->entityPrivilege()) {
     const auto key = std::any_cast<AuthQuery::LabelPrivilege>(it->granularPrivilege()->accept(this));
-    const auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
     const auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
+    auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
 
     if (entityType == EntityType::LABELS) {
-      result.first[key] = value;
+      result.first[key] = std::move(value);
     } else {
-      result.second[key] = value;
+      result.second[key] = std::move(value);
     }
   }
   return result;
