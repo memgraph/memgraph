@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
 #include "query/db_accessor.hpp"
 
 #include "query/graph.hpp"
@@ -73,7 +71,7 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
 }
 
 storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
-SubgraphDbAccessor::DetachRemoveVertex(VertexAccessor *vertex_accessor) {
+SubgraphDbAccessor::DetachRemoveVertex(VertexAccessor *) {
   throw std::logic_error{"Such operation not possible on subgraph"};
 }
 
@@ -93,14 +91,9 @@ SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
   return SubgraphVertexAccessor(vertex, this->getGraph());
 }
 
-VerticesIterable SubgraphDbAccessor::Vertices(storage::View view) {
-  // todo antoniofilipovic change to get vertices from subgraph
-  return VerticesIterable(graph_->vertices());
-  // return db_accessor_->Vertices(view);
-}
+VerticesIterable SubgraphDbAccessor::Vertices(storage::View) { return VerticesIterable(graph_->vertices()); }
 
 std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, storage::View view) {
-  // todo antoniofilipovic change to return SubgraphVertexAccessor && add check that vertex exists in subgraph
   std::optional<VertexAccessor> maybe_vertex = db_accessor_->FindVertex(gid, view);
   if (maybe_vertex && this->graph_->ContainsVertex(*maybe_vertex)) {
     return *maybe_vertex;
@@ -110,11 +103,9 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
-VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() { return impl_; }
+VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
-auto SubgraphVertexAccessor::OutEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
-  // todo antoniofilipovic add filtering here
-
+auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view)) {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
   auto edges = std::move(*maybe_edges);
@@ -136,9 +127,7 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) -> decltype(impl_.OutE
   return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
 }
 
-auto SubgraphVertexAccessor::InEdges(storage::View view) -> decltype(impl_.OutEdges(view)) const {
-  // todo antoniofilipovic add filtering here
-
+auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_.InEdges(view)) {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
   auto edges = std::move(*maybe_edges);

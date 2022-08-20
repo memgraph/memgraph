@@ -65,11 +65,13 @@ class Graph final {
 
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
+  /** Copy assign other, utils::MemoryResource of `this` is used */
+  Graph &operator=(const Graph &);
+
   /** Move assign other, utils::MemoryResource of `this` is used. */
   Graph &operator=(Graph &&);
 
-  /** Returns the number of expansions (edges) in this path. */
-  auto size() const;
+  ~Graph();
 
   utils::pmr::unordered_set<VertexAccessor> &vertices();
   utils::pmr::unordered_set<EdgeAccessor> &edges();

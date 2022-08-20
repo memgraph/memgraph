@@ -2918,7 +2918,7 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Path:
         return;
       default:
-        throw QueryRuntimeException("Only path values allowed in PROJECT and PROJECT_TRANSITIVE aggregations.");
+        throw QueryRuntimeException("Only path values allowed in PROJECT aggregation.");
     }
   }
 };
@@ -3735,11 +3735,9 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
 
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
-    // TypedValue subgraph_typed = TypedValue(args_list.front(), args_list.front().ValueGraph().GetMemoryResource());
-    query::Graph *subgraph =
+    auto *subgraph =
         new query::Graph(std::move(args_list.front().ValueGraph()), args_list.front().ValueGraph().GetMemoryResource());
     args_list.erase(args_list.begin());
-    // query::Graph *subgraph = new query::Graph(std::move(graph), args_list.front().ValueGraph().GetMemoryResource())
 
     graph.impl = query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);
   }

@@ -764,15 +764,14 @@ struct mgp_vertices_iterator {
                             graph->impl)),
         current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
-      std::visit(memgraph::utils::Overloaded{[this, graph, memory](memgraph::query::DbAccessor *impl) {
-                                               current_v.emplace(*current_it, graph, memory);
-                                             },
-                                             [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
-                                               current_v.emplace(memgraph::query::SubgraphVertexAccessor(
-                                                                     *current_it, impl->getGraph()),
-                                                                 graph, memory);
-                                             }},
-                 graph->impl);
+      std::visit(
+          memgraph::utils::Overloaded{
+              [this, graph, memory](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, memory); },
+              [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
+                current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph,
+                                  memory);
+              }},
+          graph->impl);
     }
   }
 
