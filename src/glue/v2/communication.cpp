@@ -133,7 +133,8 @@ storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value, const
 
 storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const storage::v3::VertexAccessor &vertex,
                                                               const storage::v3::Storage &db, storage::v3::View view) {
-  auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
+  // TODO(jbajic) Fix bolt communication
+  auto id = communication::bolt::Id::FromUint(0);
   auto maybe_labels = vertex.Labels(view);
   if (maybe_labels.HasError()) return maybe_labels.GetError();
   std::vector<std::string> labels;
@@ -152,9 +153,10 @@ storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const storage::v3:
 
 storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::EdgeAccessor &edge,
                                                           const storage::v3::Storage &db, storage::v3::View view) {
-  auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
-  auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
-  auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
+  // TODO(jbajic) Fix bolt communication
+  auto id = communication::bolt::Id::FromUint(0);
+  auto from = communication::bolt::Id::FromUint(1);
+  auto to = communication::bolt::Id::FromUint(2);
   const auto &type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();

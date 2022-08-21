@@ -86,6 +86,18 @@ concept AccessorWithSetProperty = requires(T accessor, const storage::v3::Proper
   { accessor.SetProperty(key, new_value) } -> std::same_as<storage::v3::Result<storage::v3::PropertyValue>>;
 };
 
+template <typename T>
+concept AccessorWithSetPropertyAndValidate = requires(T accessor, const storage::v3::PropertyId key,
+                                                      const storage::v3::PropertyValue new_value) {
+  {
+    accessor.SetPropertyAndValidate(key, new_value)
+    } -> std::same_as<storage::v3::ResultSchema<storage::v3::PropertyValue>>;
+};
+
+template <typename TRecordAccessor>
+concept RecordAccessor =
+    AccessorWithSetProperty<TRecordAccessor> || AccessorWithSetPropertyAndValidate<TRecordAccessor>;
+
 inline void HandleSchemaViolation(const storage::v3::SchemaViolation &schema_violation, const DbAccessor &dba) {
   switch (schema_violation.status) {
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY: {
@@ -138,7 +150,7 @@ inline void HandleErrorOnPropertyUpdate(const storage::v3::Error error) {
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
-template <AccessorWithSetProperty T>
+template <RecordAccessor T>
 storage::v3::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, const storage::v3::PropertyId &key,
                                            const TypedValue &value) {
   try {

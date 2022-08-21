@@ -33,7 +33,7 @@
 #include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
 
-namespace {
+namespace memgraph::query::v2::tests {
 
 auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
   std::vector<memgraph::communication::bolt::Edge> list;
@@ -90,17 +90,14 @@ struct InterpreterFaker {
   memgraph::query::v2::Interpreter interpreter;
 };
 
-}  // namespace
-
 // TODO: This is not a unit test, but tests/integration dir is chaotic at the
 // moment. After tests refactoring is done, move/rename this.
 
 class InterpreterTest : public ::testing::Test {
  protected:
-  memgraph::storage::v3::Storage db_;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
-
-  InterpreterFaker default_interpreter{&db_, {}, data_directory};
+  void SetUp() override {
+    ASSERT_TRUE(db_.CreateSchema(label, {storage::v3::SchemaProperty{property, common::SchemaType::INT}}));
+  }
 
   auto Prepare(const std::string &query,
                const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
@@ -115,6 +112,12 @@ class InterpreterTest : public ::testing::Test {
                  const std::map<std::string, memgraph::storage::v3::PropertyValue> &params = {}) {
     return default_interpreter.Interpret(query, params);
   }
+
+  memgraph::storage::v3::Storage db_;
+  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
+  const storage::v3::LabelId label{db_.NameToLabel("label")};
+  const storage::v3::PropertyId property{db_.NameToProperty("property")};
+  InterpreterFaker default_interpreter{&db_, {}, data_directory};
 };
 
 TEST_F(InterpreterTest, MultiplePulls) {
@@ -345,10 +348,14 @@ TEST_F(InterpreterTest, Bfs) {
     auto storage_dba = db_.Access();
     memgraph::query::v2::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
-      auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::v3::PropertyValue(id++)).HasValue());
+      auto maybe_node = dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}});
+      MG_ASSERT(maybe_node.HasValue());
+      auto node = maybe_node.GetValue();
       MG_ASSERT(
-          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::v3::PropertyValue(reachable)).HasValue());
+          node.SetPropertyAndValidate(dba.NameToProperty(kId), memgraph::storage::v3::PropertyValue(id++)).HasValue());
+      MG_ASSERT(
+          node.SetPropertyAndValidate(dba.NameToProperty(kReachable), memgraph::storage::v3::PropertyValue(reachable))
+              .HasValue());
       levels[level].push_back(node);
       return node;
     };
@@ -1643,3 +1650,4 @@ TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
   ASSERT_EQ(primary_key_split.size(), 2);
   ASSERT_TRUE(primary_key_split == result_table[key1]);
 }
+}  // namespace memgraph::query::v2::tests

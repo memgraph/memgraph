@@ -1586,17 +1586,19 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto prop_key = v->graph->impl->NameToProperty(property_name);
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
-      switch (result.GetError()) {
-        case memgraph::storage::v3::Error::DELETED_OBJECT:
-          throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
-        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
-        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-          LOG_FATAL("Unexpected error when setting a property of a vertex.");
-        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-          throw SerializationException{"Cannot serialize setting a property of a vertex."};
-      }
+      // TODO(jbajic) Fix query modules
+      //  switch (result.GetError()) {
+      //    case memgraph::storage::v3::Error::DELETED_OBJECT:
+      //      throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
+      //    case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
+      //      LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a
+      //      vertex!");
+      //    case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+      //    case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+      //      LOG_FATAL("Unexpected error when setting a property of a vertex.");
+      //    case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
+      //      throw SerializationException{"Cannot serialize setting a property of a vertex."};
+      //  }
     }
 
     auto &ctx = v->graph->ctx;
@@ -1627,17 +1629,18 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     const auto result = v->impl.AddLabel(label_id);
 
     if (result.HasError()) {
-      switch (result.GetError()) {
-        case memgraph::storage::v3::Error::DELETED_OBJECT:
-          throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
-        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when adding a label to a vertex!");
-        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-          LOG_FATAL("Unexpected error when adding a label to a vertex.");
-        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-          throw SerializationException{"Cannot serialize adding a label to a vertex."};
-      }
+      // TODO(jbajic) Fix query modules
+      //  switch (result.GetError()) {
+      //    case memgraph::storage::v3::Error::DELETED_OBJECT:
+      //      throw DeletedObjectException{"Cannot add a label to a deleted vertex!"};
+      //    case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
+      //      LOG_FATAL("Query modules shouldn't have access to nonexistent objects when adding a label to a vertex!");
+      //    case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+      //    case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+      //      LOG_FATAL("Unexpected error when adding a label to a vertex.");
+      //    case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
+      //      throw SerializationException{"Cannot serialize adding a label to a vertex."};
+      //  }
     }
 
     auto &ctx = v->graph->ctx;
@@ -1659,17 +1662,19 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     const auto result = v->impl.RemoveLabel(label_id);
 
     if (result.HasError()) {
-      switch (result.GetError()) {
-        case memgraph::storage::v3::Error::DELETED_OBJECT:
-          throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
-        case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
-          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a label from a vertex!");
-        case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
-        case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
-          LOG_FATAL("Unexpected error when removing a label from a vertex.");
-        case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
-          throw SerializationException{"Cannot serialize removing a label from a vertex."};
-      }
+      // TODO(jbajic) Fix query modules
+      //  switch (result.GetError()) {
+      //    case memgraph::storage::v3::Error::DELETED_OBJECT:
+      //      throw DeletedObjectException{"Cannot remove a label from a deleted vertex!"};
+      //    case memgraph::storage::v3::Error::NONEXISTENT_OBJECT:
+      //      LOG_FATAL("Query modules shouldn't have access to nonexistent objects when removing a label from a
+      //      vertex!");
+      //    case memgraph::storage::v3::Error::PROPERTIES_DISABLED:
+      //    case memgraph::storage::v3::Error::VERTEX_HAS_EDGES:
+      //      LOG_FATAL("Unexpected error when removing a label from a vertex.");
+      //    case memgraph::storage::v3::Error::SERIALIZATION_ERROR:
+      //      throw SerializationException{"Cannot serialize removing a label from a vertex."};
+      //  }
     }
 
     auto &ctx = v->graph->ctx;

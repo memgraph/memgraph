@@ -2137,7 +2137,7 @@ concept AccessorWithProperties = requires(T value, storage::v3::PropertyId prope
 ///
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
-template <AccessorWithProperties TRecordAccessor>
+template <RecordAccessor TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
                            ExecutionContext *context) {
   std::optional<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> old_values;
@@ -2199,25 +2199,38 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
-  auto set_props = [&, record](auto properties) {
+  auto set_props = [&, record ]<bool vertex = true>(auto properties) {
     for (auto &kv : properties) {
-      auto maybe_error = record->SetProperty(kv.first, kv.second);
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::v3::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-          case storage::v3::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::v3::Error::PROPERTIES_DISABLED:
-            throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-          case storage::v3::Error::VERTEX_HAS_EDGES:
-          case storage::v3::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting properties.");
+      if constexpr (std::is_same_v<TRecordAccessor, VertexAccessor>) {
+        const auto maybe_error = record->SetPropertyAndValidate(kv.first, storage::v3::PropertyValue(kv.second));
+        if (maybe_error.HasError()) {
+          std::visit(utils::Overloaded{[](const storage::v3::Error error) { HandleErrorOnPropertyUpdate(error); },
+                                       [&context](const storage::v3::SchemaViolation &schema_violation) {
+                                         HandleSchemaViolation(schema_violation, *context->db_accessor);
+                                       }},
+                     maybe_error.GetError());
         }
-      }
-
-      if (should_register_change) {
-        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        if (should_register_change) {
+          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        }
+      } else {
+        auto maybe_error = record->SetProperty(kv.first, kv.second);
+        if (maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case storage::v3::Error::DELETED_OBJECT:
+              throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
+            case storage::v3::Error::SERIALIZATION_ERROR:
+              throw TransactionSerializationException();
+            case storage::v3::Error::PROPERTIES_DISABLED:
+              throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
+            case storage::v3::Error::VERTEX_HAS_EDGES:
+            case storage::v3::Error::NONEXISTENT_OBJECT:
+              throw QueryRuntimeException("Unexpected error when setting properties.");
+          }
+        }
+        if (should_register_change) {
+          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        }
       }
     }
   };

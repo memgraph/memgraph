@@ -113,13 +113,15 @@ class VertexAccessor final {
 
   auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
 
-  storage::v3::Result<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabel(label); }
+  storage::v3::ResultSchema<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabelAndValidate(label); }
 
   storage::v3::ResultSchema<bool> AddLabelAndValidate(storage::v3::LabelId label) {
     return impl_.AddLabelAndValidate(label);
   }
 
-  storage::v3::Result<bool> RemoveLabel(storage::v3::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::v3::ResultSchema<bool> RemoveLabel(storage::v3::LabelId label) {
+    return impl_.RemoveLabelAndValidate(label);
+  }
 
   storage::v3::ResultSchema<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
     return impl_.RemoveLabelAndValidate(label);
@@ -136,9 +138,9 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::Result<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                              const storage::v3::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::v3::ResultSchema<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
+                                                                    const storage::v3::PropertyValue &value) {
+    return impl_.SetPropertyAndValidate(key, value);
   }
 
   storage::v3::ResultSchema<storage::v3::PropertyValue> SetPropertyAndValidate(
