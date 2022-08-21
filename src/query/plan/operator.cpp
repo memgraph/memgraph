@@ -31,6 +31,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/graph.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
@@ -2611,6 +2612,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
+    case Aggregation::Op::PROJECT:
+      return TypedValue(query::Graph(memory));
   }
 }
 }  // namespace
@@ -2773,7 +2776,6 @@ class AggregateCursor : public Cursor {
                "Expected as much AggregationValue.counts_ as there are "
                "aggregations.");
 
-    // we iterate over counts, values and aggregation info at the same time
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto agg_elem_it = self_.aggregations_.begin();
@@ -2812,6 +2814,11 @@ class AggregateCursor : public Cursor {
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(input_value);
             break;
+          case Aggregation::Op::PROJECT: {
+            EnsureOkForProject(input_value);
+            value_it->ValueGraph().Expand(input_value.ValuePath());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
             auto key = agg_elem_it->key->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -2860,6 +2867,11 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_LIST:
           value_it->ValueList().push_back(input_value);
           break;
+        case Aggregation::Op::PROJECT: {
+          EnsureOkForProject(input_value);
+          value_it->ValueGraph().Expand(input_value.ValuePath());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem_it->key->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
@@ -2894,6 +2906,18 @@ class AggregateCursor : public Cursor {
         return;
       default:
         throw QueryRuntimeException("Only numeric values allowed in SUM and AVG aggregations.");
+    }
+  }
+
+  /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
+   * an appropriate exception is thrown. */
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  void EnsureOkForProject(const TypedValue &value) const {
+    switch (value.type()) {
+      case TypedValue::Type::Path:
+        return;
+      default:
+        throw QueryRuntimeException("Only path values allowed in PROJECT aggregation.");
     }
   }
 };
@@ -3708,6 +3732,15 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   for (auto *expression : args) {
     args_list.emplace_back(expression->Accept(*evaluator));
   }
+
+  if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
+    auto *subgraph =
+        new query::Graph(std::move(args_list.front().ValueGraph()), args_list.front().ValueGraph().GetMemoryResource());
+    args_list.erase(args_list.begin());
+
+    graph.impl = query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);
+  }
+
   procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
   if (memory_limit) {
     SPDLOG_INFO("Running '{}' with memory limit of {}", fully_qualified_procedure_name,

@@ -2117,6 +2117,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COLLECT_LIST));
     }
+    if (function_name == Aggregation::kProject) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT));
+    }
   }
 
   if (expressions.size() == 2U && function_name == Aggregation::kCollect) {

@@ -20,6 +20,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "utils/pmr/unordered_set.hpp"
+#include "utils/variant_helpers.hpp"
 
 ///////////////////////////////////////////////////////////
 // Our communication layer and query engine don't mix
@@ -45,6 +47,7 @@
 
 namespace memgraph::query {
 
+class Graph;
 class VertexAccessor;
 
 class EdgeAccessor final {
@@ -185,37 +188,114 @@ inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.F
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
-class DbAccessor final {
-  storage::Storage::Accessor *accessor_;
+class SubgraphVertexAccessor final {
+ public:
+  query::VertexAccessor impl_;
+  query::Graph *graph_;
 
-  class VerticesIterable final {
-    storage::VerticesIterable iterable_;
+  explicit SubgraphVertexAccessor(query::VertexAccessor impl, query::Graph *graph_) : impl_(impl), graph_(graph_) {}
+
+  bool operator==(const SubgraphVertexAccessor &v) const noexcept {
+    static_assert(noexcept(impl_ == v.impl_));
+    return impl_ == v.impl_;
+  }
+
+  auto InEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
+
+  auto OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view));
+
+  auto Labels(storage::View view) const { return impl_.Labels(view); }
+
+  storage::Result<bool> AddLabel(storage::LabelId label) { return impl_.AddLabel(label); }
+
+  storage::Result<bool> RemoveLabel(storage::LabelId label) { return impl_.RemoveLabel(label); }
+
+  storage::Result<bool> HasLabel(storage::View view, storage::LabelId label) const {
+    return impl_.HasLabel(view, label);
+  }
+
+  auto Properties(storage::View view) const { return impl_.Properties(view); }
+
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
+    return impl_.GetProperty(view, key);
+  }
+
+  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
+    return impl_.SetProperty(key, value);
+  }
+  VertexAccessor GetVertexAccessor() const;
+};
+}  // namespace memgraph::query
+
+namespace std {
+
+template <>
+struct hash<memgraph::query::VertexAccessor> {
+  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
+};
+
+template <>
+struct hash<memgraph::query::EdgeAccessor> {
+  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
+};
+
+}  // namespace std
+
+namespace memgraph::query {
+
+class VerticesIterable final {
+  std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
+                                                             std::equal_to<void>, utils::Allocator<VertexAccessor>>>
+      iterable_;
+
+ public:
+  class Iterator final {
+    std::variant<storage::VerticesIterable::Iterator,
+                 std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                    utils::Allocator<VertexAccessor>>::iterator>
+        it_;
 
    public:
-    class Iterator final {
-      storage::VerticesIterable::Iterator it_;
+    explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    explicit Iterator(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                         utils::Allocator<VertexAccessor>>::iterator it)
+        : it_(it) {}
 
-     public:
-      explicit Iterator(storage::VerticesIterable::Iterator it) : it_(it) {}
+    VertexAccessor operator*() const {
+      return std::visit(memgraph::utils::Overloaded{[](auto it_) { return VertexAccessor(*it_); }}, it_);
+    }
 
-      VertexAccessor operator*() const { return VertexAccessor(*it_); }
+    Iterator &operator++() {
+      std::visit(memgraph::utils::Overloaded{[this](auto it_) { this->it_ = ++it_; }}, it_);
+      return *this;
+    }
 
-      Iterator &operator++() {
-        ++it_;
-        return *this;
-      }
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
 
-      bool operator==(const Iterator &other) const { return it_ == other.it_; }
-
-      bool operator!=(const Iterator &other) const { return !(other == *this); }
-    };
-
-    explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
-
-    Iterator begin() { return Iterator(iterable_.begin()); }
-
-    Iterator end() { return Iterator(iterable_.end()); }
+    bool operator!=(const Iterator &other) const { return !(other == *this); }
   };
+
+  explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
+  explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                               utils::Allocator<VertexAccessor>>
+                                vertices)
+      : iterable_(vertices) {}
+
+  Iterator begin() {
+    return std::visit(memgraph::utils::Overloaded{[](auto &iterable_) { return Iterator(iterable_.begin()); }},
+                      iterable_);
+  }
+
+  Iterator end() {
+    return std::visit(memgraph::utils::Overloaded{[](auto &iterable_) { return Iterator(iterable_.end()); }},
+                      iterable_);
+  }
+};
+
+class DbAccessor final {
+  storage::Storage::Accessor *accessor_;
 
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
@@ -358,18 +438,44 @@ class DbAccessor final {
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 };
 
+class SubgraphDbAccessor final {
+  DbAccessor *db_accessor_;
+  Graph *graph_;
+
+ public:
+  explicit SubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+
+  static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+
+  storage::PropertyId NameToProperty(std::string_view name);
+
+  storage::LabelId NameToLabel(std::string_view name);
+
+  storage::EdgeTypeId NameToEdgeType(std::string_view name);
+
+  const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &LabelToName(storage::LabelId label) const;
+
+  const std::string &EdgeTypeToName(storage::EdgeTypeId type) const;
+
+  storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge);
+
+  storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
+                                           const storage::EdgeTypeId &edge_type);
+
+  storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
+      VertexAccessor *vertex_accessor);
+
+  storage::Result<std::optional<VertexAccessor>> RemoveVertex(SubgraphVertexAccessor *vertex_accessor);
+
+  SubgraphVertexAccessor InsertVertex();
+
+  VerticesIterable Vertices(storage::View view);
+
+  std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
+
+  Graph *getGraph();
+};
+
 }  // namespace memgraph::query
-
-namespace std {
-
-template <>
-struct hash<memgraph::query::VertexAccessor> {
-  size_t operator()(const memgraph::query::VertexAccessor &v) const { return std::hash<decltype(v.impl_)>{}(v.impl_); }
-};
-
-template <>
-struct hash<memgraph::query::EdgeAccessor> {
-  size_t operator()(const memgraph::query::EdgeAccessor &e) const { return std::hash<decltype(e.impl_)>{}(e.impl_); }
-};
-
-}  // namespace std

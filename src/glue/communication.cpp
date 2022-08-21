@@ -127,6 +127,10 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
+    case query::TypedValue::Type::Graph:
+      auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
+      if (maybe_graph.HasError()) return maybe_graph.GetError();
+      return Value(std::move(*maybe_graph));
   }
 }
 
@@ -181,6 +185,30 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
     edges.emplace_back(std::move(*maybe_edge));
   }
   return communication::bolt::Path(vertices, edges);
+}
+
+storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
+                                                          storage::View view) {
+  std::map<std::string, Value> map;
+  std::vector<Value> vertices;
+  vertices.reserve(graph.vertices().size());
+  for (const auto &v : graph.vertices()) {
+    auto maybe_vertex = ToBoltVertex(v, db, view);
+    if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+    vertices.emplace_back(Value(std::move(*maybe_vertex)));
+  }
+  map.emplace(std::make_pair("nodes", Value(vertices)));
+
+  std::vector<Value> edges;
+  edges.reserve(graph.edges().size());
+  for (const auto &e : graph.edges()) {
+    auto maybe_edge = ToBoltEdge(e, db, view);
+    if (maybe_edge.HasError()) return maybe_edge.GetError();
+    edges.emplace_back(Value(std::move(*maybe_edge)));
+  }
+  map.emplace(std::make_pair("edges", Value(edges)));
+
+  return std::move(map);
 }
 
 storage::PropertyValue ToPropertyValue(const Value &value) {

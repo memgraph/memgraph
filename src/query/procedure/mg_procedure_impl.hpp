@@ -32,6 +32,7 @@
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
+#include "utils/variant_helpers.hpp"
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = memgraph::utils::MemoryResource`, but that's
@@ -442,13 +443,44 @@ struct mgp_vertex {
   mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(v), graph(graph) {}
 
+  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph,
+             memgraph::utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(v), graph(graph) {}
+
   mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+      : memory(memory), impl(other.impl), graph(other.graph) {
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               other.impl);
+
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               this->impl);
+  }
 
   mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+      : memory(memory), impl(other.impl), graph(other.graph) {
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               other.impl);
+
+    std::visit(memgraph::utils::Overloaded{
+                   [](memgraph::query::VertexAccessor) { std::cout << "VertexAccessor" << std::endl; },
+                   [](memgraph::query::SubgraphVertexAccessor) { std::cout << "SubgraphVertexAccessor" << std::endl; }},
+               this->impl);
+  }
 
   mgp_vertex(mgp_vertex &&other) noexcept : memory(other.memory), impl(other.impl), graph(other.graph) {}
+
+  memgraph::query::VertexAccessor getImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::VertexAccessor impl) { return impl; },
+                                    [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
+        this->impl);
+  }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_vertex(const mgp_vertex &) = delete;
@@ -456,7 +488,24 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
-  bool operator==(const mgp_vertex &other) const noexcept { return this->impl == other.impl; }
+  bool operator==(const mgp_vertex &other) const noexcept {
+    return std::visit(memgraph::utils::Overloaded{
+                          [&other](memgraph::query::VertexAccessor impl) {
+                            if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(other.impl)) {
+                              return false;
+                            }
+                            return impl == std::get<memgraph::query::VertexAccessor>(other.impl);
+                          },
+                          [&other](memgraph::query::SubgraphVertexAccessor impl) -> bool {
+                            if (std::holds_alternative<memgraph::query::VertexAccessor>(other.impl)) {
+                              return false;
+                            }
+                            return impl == std::get<memgraph::query::SubgraphVertexAccessor>(other.impl);
+                          },
+                      },
+                      this->impl);
+  }
+
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
 
   ~mgp_vertex() = default;
@@ -464,8 +513,36 @@ struct mgp_vertex {
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
   memgraph::utils::MemoryResource *memory;
-  memgraph::query::VertexAccessor impl;
+  std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor> impl;
   mgp_graph *graph;
+};
+
+struct mgp_graph {
+  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
+  memgraph::storage::View view;
+  // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
+  // `ctx` field is out of place here.
+  memgraph::query::ExecutionContext *ctx;
+
+  // memgraph:::query::Graph *subraph;
+
+  static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
+
+  static mgp_graph WritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view,
+                                 memgraph::query::ExecutionContext &ctx) {
+    return mgp_graph{&acc, view, &ctx};
+  }
+
+  static mgp_graph NonWritableGraph(memgraph::query::SubgraphDbAccessor &acc, memgraph::storage::View view) {
+    return mgp_graph{&acc, view, nullptr};
+  }
 };
 
 struct mgp_edge {
@@ -483,6 +560,16 @@ struct mgp_edge {
   mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph,
            memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
+
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::VertexAccessor &from_v,
+           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph,
+           memgraph::utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
+
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::SubgraphVertexAccessor &from_v,
+           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph,
+           memgraph::utils::MemoryResource *memory) noexcept
+      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
 
   mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory) noexcept
       : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
@@ -570,23 +657,6 @@ struct mgp_func_result {
   std::optional<memgraph::utils::pmr::string> error_msg;
 };
 
-struct mgp_graph {
-  memgraph::query::DbAccessor *impl;
-  memgraph::storage::View view;
-  // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
-  // `ctx` field is out of place here.
-  memgraph::query::ExecutionContext *ctx;
-
-  static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
-                                 memgraph::query::ExecutionContext &ctx) {
-    return mgp_graph{&acc, view, &ctx};
-  }
-
-  static mgp_graph NonWritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view) {
-    return mgp_graph{&acc, view, nullptr};
-  }
-};
-
 // Prevents user to use ExecutionContext in writable callables
 struct mgp_func_context {
   memgraph::query::DbAccessor *impl;
@@ -615,8 +685,18 @@ struct mgp_properties_iterator {
   mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, memgraph::utils::MemoryResource *memory)
       : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
-      current.emplace(memgraph::utils::pmr::string(graph->impl->PropertyToName(current_it->first), memory),
-                      mgp_value(current_it->second, memory));
+      auto value =
+          std::visit(memgraph::utils::Overloaded{
+                         [this, memory](const memgraph::query::DbAccessor *impl) {
+                           return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
+                         },
+                         [this, memory](const memgraph::query::SubgraphDbAccessor *impl) {
+                           return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
+                         },
+                     },
+                     graph->impl);
+
+      current.emplace(value, mgp_value(current_it->second, memory));
       property.name = current->first.c_str();
       property.value = &current->second;
     }
@@ -635,7 +715,6 @@ struct mgp_properties_iterator {
 
 struct mgp_edges_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_edges_iterator>;
-
   // Hopefully mgp_vertex copy constructor remains noexcept, so that we can
   // have everything noexcept here.
   static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &, memgraph::utils::MemoryResource *>);
@@ -662,9 +741,14 @@ struct mgp_edges_iterator {
 
   memgraph::utils::MemoryResource *memory;
   mgp_vertex source_vertex;
-  std::optional<std::remove_reference_t<decltype(*source_vertex.impl.InEdges(source_vertex.graph->view))>> in;
+
+  std::optional<std::remove_reference_t<
+      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).InEdges(source_vertex.graph->view))>>
+      in;
   std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<decltype(*source_vertex.impl.OutEdges(source_vertex.graph->view))>> out;
+  std::optional<std::remove_reference_t<
+      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).InEdges(source_vertex.graph->view))>>
+      out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;
 };
@@ -674,9 +758,20 @@ struct mgp_vertices_iterator {
 
   /// @throw anything VerticesIterable may throw
   mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
+      : memory(memory),
+        graph(graph),
+        vertices(std::visit(memgraph::utils::Overloaded{[graph](auto *impl) { return impl->Vertices(graph->view); }},
+                            graph->impl)),
+        current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
-      current_v.emplace(*current_it, graph, memory);
+      std::visit(
+          memgraph::utils::Overloaded{
+              [this, graph, memory](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, memory); },
+              [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
+                current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph,
+                                  memory);
+              }},
+          graph->impl);
     }
   }
 
@@ -684,7 +779,7 @@ struct mgp_vertices_iterator {
 
   memgraph::utils::MemoryResource *memory;
   mgp_graph *graph;
-  decltype(graph->impl->Vertices(graph->view)) vertices;
+  memgraph::query::VerticesIterable vertices;
   decltype(vertices.begin()) current_it;
   std::optional<mgp_vertex> current_v;
 };
