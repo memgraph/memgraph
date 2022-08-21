@@ -2913,6 +2913,7 @@ class AggregateCursor : public Cursor {
 
   /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
    * an appropriate exception is thrown. */
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   void EnsureOkForProject(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Path:

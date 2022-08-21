@@ -37,6 +37,16 @@ class Graph final {
    */
   explicit Graph(utils::MemoryResource *memory);
 
+  /**
+   * Construct a copy of other.
+   * utils::MemoryResource is obtained by calling
+   * std::allocator_traits<>::
+   *     select_on_container_copy_construction(other.GetMemoryResource()).
+   * Since we use utils::Allocator, which does not propagate, this means that we
+   * will default to utils::NewDeleteResource().
+   */
+  Graph(const Graph &other);
+
   /** Construct a copy using the given utils::MemoryResource */
   Graph(const Graph &other, utils::MemoryResource *memory);
 
@@ -57,19 +67,30 @@ class Graph final {
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path);
+
+  /** Inserts the vertex in the graph. */
   void InsertVertex(const VertexAccessor &vertex);
+
+  /** Inserts the edge in the graph. */
   void InsertEdge(const EdgeAccessor &edge);
+
+  /** Checks whether the graph contains the vertex. */
   bool ContainsVertex(const VertexAccessor &vertex);
+
+  /** Removes the vertex from the graph if the vertex is in the graph. */
   std::optional<VertexAccessor> RemoveVertex(const VertexAccessor &vertex);
+
+  /** Removes the vertex from the graph if the vertex is in the graph. */
   std::optional<EdgeAccessor> RemoveEdge(const EdgeAccessor &edge);
 
+  /** Return the out edges of the given vertex. */
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   Graph &operator=(const Graph &);
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  Graph &operator=(Graph &&);
+  Graph &operator=(Graph &&) noexcept;
 
   ~Graph();
 

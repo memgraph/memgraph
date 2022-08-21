@@ -71,7 +71,8 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
 }
 
 storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
-SubgraphDbAccessor::DetachRemoveVertex(VertexAccessor *) {
+SubgraphDbAccessor::DetachRemoveVertex(
+    VertexAccessor *) {  // NOLINT(hicpp-named-parameter, readability-convert-member-functions-to-static)
   throw std::logic_error{"Such operation not possible on subgraph"};
 }
 
@@ -91,7 +92,9 @@ SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
   return SubgraphVertexAccessor(vertex, this->getGraph());
 }
 
-VerticesIterable SubgraphDbAccessor::Vertices(storage::View) { return VerticesIterable(graph_->vertices()); }
+VerticesIterable SubgraphDbAccessor::Vertices(storage::View) {
+  return VerticesIterable(graph_->vertices());
+}  // NOLINT(hicpp-named-parameter)
 
 std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, storage::View view) {
   std::optional<VertexAccessor> maybe_vertex = db_accessor_->FindVertex(gid, view);

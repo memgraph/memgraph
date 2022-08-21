@@ -21,6 +21,11 @@ Graph::Graph(const Graph &other, utils::MemoryResource *memory)
 
 Graph::Graph(Graph &&other) noexcept : Graph(std::move(other), other.GetMemoryResource()) {}
 
+Graph::Graph(const Graph &other)
+    : Graph(other,
+            std::allocator_traits<allocator_type>::select_on_container_copy_construction(other.GetMemoryResource())
+                .GetMemoryResource()) {}
+
 Graph::Graph(Graph &&other, utils::MemoryResource *memory)
     : vertices_(std::move(other.vertices_), memory), edges_(std::move(other.edges_), memory) {}
 
@@ -36,10 +41,7 @@ void Graph::InsertVertex(const VertexAccessor &vertex) { vertices_.insert(vertex
 void Graph::InsertEdge(const EdgeAccessor &edge) { edges_.insert(edge); }
 
 bool Graph::ContainsVertex(const VertexAccessor &vertex) {
-  if (std::find(begin(vertices_), end(vertices_), vertex) != std::end(vertices_)) {
-    return true;
-  }
-  return false;
+  return std::find(begin(vertices_), end(vertices_), vertex) != std::end(vertices_);
 }
 
 std::optional<VertexAccessor> Graph::RemoveVertex(const VertexAccessor &vertex) {
@@ -75,7 +77,7 @@ std::vector<EdgeAccessor> Graph::OutEdges(VertexAccessor vertex_accessor) {
 Graph &Graph::operator=(const Graph &) = default;
 
 /** Move assign other, utils::MemoryResource of `this` is used. */
-Graph &Graph::operator=(Graph &&) = default;
+Graph &Graph::operator=(Graph &&) noexcept = default;
 
 Graph::~Graph() = default;
 
