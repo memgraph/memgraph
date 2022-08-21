@@ -30,9 +30,11 @@ using memgraph::io::ResponseResult;
 using memgraph::io::Time;
 using memgraph::io::thrift::ThriftHandle;
 
+namespace {
 struct TestMessage {
   int value;
 };
+}  // namespace
 
 TEST(Thrift, ThriftHandleTimeout) {
   auto our_address = Address::TestAddress(0);

@@ -1,5 +1,12 @@
 //include "address.thrift"
 
+// TODO(gvolfing) remove this once the include problem is resolved
+struct Address{
+    1: string unique_id;
+    2: string last_known_ip;
+    3: i32 last_known_port;
+}
+
 struct HeartbeatRequest {
   1: bool test;
 }
@@ -38,6 +45,8 @@ union HighLevelUnion {
 struct UberMessage {
     //1: address.Address to_address;
     //2: address.Address from_address;
+    1: Address to_address;
+    2: Address from_address;
     3: i64 request_id;
     4: HighLevelUnion high_level_union;
 }
