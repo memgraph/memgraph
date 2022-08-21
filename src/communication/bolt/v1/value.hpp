@@ -167,7 +167,6 @@ class Value {
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
   Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
-
   Value(const utils::Date &date) : type_(Type::Date) { new (&date_v) utils::Date(date); }
   Value(const utils::LocalTime &time) : type_(Type::LocalTime) { new (&local_time_v) utils::LocalTime(time); }
   Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {

@@ -2122,9 +2122,6 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
                 [e](const auto *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); },
             },
             e->from.graph->impl);
-        // static_assert(std::is_lvalue_reference_v<decltype(e->from.graph->impl->EdgeTypeToName(e->impl.EdgeType()))>,
-        //               "Expected EdgeTypeToName to return a pointer or reference, so we "
-        //               "don't have to take a copy and manage memory.");
         return name.c_str();
       },
       &result->name);
@@ -2356,15 +2353,13 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
         std::visit(memgraph::utils::Overloaded{
                        [vertex](memgraph::query::DbAccessor *impl) {
                          if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Wrong type"};
+                           throw std::logic_error{"Can't procede with operation due to inner type error."};
                          }
                          return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
                        },
                        [vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                         // todo antoniofilipovic change this, it is wrong here since it needs to be
-                         // SubgraphVertexAccessor
                          if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Wrong type"};
+                           throw std::logic_error{"Can't procede with operation due to inner type error."};
                          }
                          return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
                        }},
@@ -2420,7 +2415,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
                            [from, to, type](memgraph::query::DbAccessor *impl) {
                              if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) ||
                                  std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl)) {
-                               throw std::logic_error{"Both vertices must be of VertexAccessor type"};
+                               throw std::logic_error{"Can't procede with operation due to inner type error."};
                              }
                              return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
                                                      &std::get<memgraph::query::VertexAccessor>(to->impl),
@@ -2429,7 +2424,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
                            [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
                              if (std::holds_alternative<memgraph::query::VertexAccessor>(from->impl) ||
                                  std::holds_alternative<memgraph::query::VertexAccessor>(to->impl)) {
-                               throw std::logic_error{"Both vertices must be of SubgraphVertexAccessor type"};
+                               throw std::logic_error{"Can't procede with operation due to inner type error."};
                              }
                              return impl->InsertEdge(&std::get<memgraph::query::SubgraphVertexAccessor>(from->impl),
                                                      &std::get<memgraph::query::SubgraphVertexAccessor>(to->impl),
@@ -2544,7 +2539,6 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
         std::visit(memgraph::utils::Overloaded{[it](memgraph::query::DbAccessor *) {
                                                  it->current_v.emplace(*it->current_it, it->graph,
                                                                        it->GetMemoryResource());
-                                                 ;
                                                },
                                                [it](memgraph::query::SubgraphDbAccessor *impl) {
                                                  it->current_v.emplace(memgraph::query::SubgraphVertexAccessor(
