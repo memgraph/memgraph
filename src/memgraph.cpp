@@ -26,6 +26,7 @@
 #include <thread>
 
 #include <fmt/format.h>
+#include <folly/init/Init.h>
 #include <gflags/gflags.h>
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
@@ -1053,6 +1054,8 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  folly::Init(&argc, &argv);
 
   InitializeLogger();
 
