@@ -255,7 +255,6 @@ TEST_F(InterpreterTest, Parameters) {
 // Run CREATE/MATCH/MERGE queries with property map
 TEST_F(InterpreterTest, ParametersAsPropertyMap) {
   {
-    EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)"));
     std::map<std::string, memgraph::storage::v3::PropertyValue> property_map{};
     property_map["name"] = memgraph::storage::v3::PropertyValue("name1");
     property_map["age"] = memgraph::storage::v3::PropertyValue(25);
@@ -348,7 +347,7 @@ TEST_F(InterpreterTest, Bfs) {
     auto storage_dba = db_.Access();
     memgraph::query::v2::DbAccessor dba(&storage_dba);
     auto add_node = [&](int level, bool reachable) {
-      auto maybe_node = dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}});
+      auto maybe_node = dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(id)}});
       MG_ASSERT(maybe_node.HasValue());
       auto node = maybe_node.GetValue();
       MG_ASSERT(
