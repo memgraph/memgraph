@@ -169,38 +169,43 @@ class ThriftHandle {
     return std::move(m_opt).value();
   }
 
+  // This method is used for communication for in-between different
+  // machines and processes, its exact functionality will be
+  // implemented later after the shape of the Thrift generated
+  // UberMessage is specified as this is not needed for M1.
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M message) {
-    // TODO(tyler) call thrift client for address (or create one if it doesn't exist yet)
+    MG_ASSERT(false, "Communication in-between different machines and processes is not yet implemented!");
 
-    cpp2::UberMessage uber_message;
+    //   // TODO(tyler) call thrift client for address (or create one if it doesn't exist yet)
+    //   cpp2::UberMessage uber_message;
 
-    uber_message.to_address_ref() = convertToUberAddress(to_address);
-    uber_message.from_address_ref() = convertToUberAddress(from_address);
-    uber_message.request_id_ref() = static_cast<int64_t>(request_id);
-    // uber_message.high_level_union() = message;
+    //   uber_message.to_address_ref() = convertToUberAddress(to_address);
+    //   uber_message.from_address_ref() = convertToUberAddress(from_address);
+    //   uber_message.request_id_ref() = static_cast<int64_t>(request_id);
+    //   uber_message.high_level_union_ref() = message;
 
-    // cpp2::UberMessage uber_message = {
-    //   .to_address = convertToUberAddress(to_address),
-    //   .from_address = convertToUberAddress(from_address),
-    //   .request_id = static_cast<int64_t>(request_id),
-    //   .high_level_union = message
-    // };
+    //   // cpp2::UberMessage uber_message = {
+    //   //   .to_address = convertToUberAddress(to_address),
+    //   //   .from_address = convertToUberAddress(from_address),
+    //   //   .request_id = static_cast<int64_t>(request_id),
+    //   //   .high_level_union = message
+    //   // };
 
-    if (clients_.contains(to_address)) {
-      auto &client = clients_[to_address];
-      client->sync_ReceiveUberMessage(uber_message);
-    } else {
-      // maybe make this into a member var
-      const auto &other_ip = to_address.last_known_ip.to_string();
-      const auto &other_port = to_address.last_known_port;
-      auto socket(folly::AsyncSocket::newSocket(&base_, other_ip, other_port));
-      auto client_channel = HeaderClientChannel::newChannel(std::move(socket));
-      // Create a client object
-      cpp2::UberServerAsyncClient client(std::move(client_channel));
+    //   if (clients_.contains(to_address)) {
+    //     auto &client = clients_[to_address];
+    //     client->sync_ReceiveUberMessage(uber_message);
+    //   } else {
+    //     // maybe make this into a member var
+    //     const auto &other_ip = to_address.last_known_ip.to_string();
+    //     const auto &other_port = to_address.last_known_port;
+    //     auto socket(folly::AsyncSocket::newSocket(&base_, other_ip, other_port));
+    //     auto client_channel = HeaderClientChannel::newChannel(std::move(socket));
+    //     // Create a client object
+    //     cpp2::UberServerAsyncClient client(std::move(client_channel));
 
-      client.sync_ReceiveUberMessage(uber_message);
-    }
+    //     client.sync_ReceiveUberMessage(uber_message);
+    //   }
   }
 };
 
