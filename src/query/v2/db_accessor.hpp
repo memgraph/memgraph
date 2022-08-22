@@ -194,7 +194,7 @@ class VertexAccessor final {
 
   storage::v3::Result<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
 
-  // TODO Fix Remove Gid
+  // TODO(jbajic) Fix Remove Gid
   int64_t CypherId() const { return 1; }
 
   bool operator==(const VertexAccessor &v) const noexcept {
@@ -246,7 +246,7 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  // TODO Fix Remove Gid
+  // TODO(jbajic) Fix Remove Gid
   std::optional<VertexAccessor> FindVertex(uint64_t) { return std::nullopt; }
 
   std::optional<VertexAccessor> FindVertex(storage::v3::LabelId primary_label, storage::v3::PrimaryKey &primary_key,

@@ -1509,7 +1509,7 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
       result);
 }
 
-// TODO Fix Remove Gid
+// TODO(jbajic) Fix Remove Gid
 mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
   return WrapExceptions([v] { return mgp_vertex_id{.as_int = 0}; }, result);
 }
@@ -2078,7 +2078,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        // TODO Fix Remove Gid
+        // TODO(jbajic) Fix Remove Gid
         auto maybe_vertex = graph->impl->FindVertex(0);
         if (maybe_vertex) {
           return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
@@ -2093,7 +2093,7 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   return mgp_error::MGP_ERROR_NO_ERROR;
 };
 
-//  TODO Fix Remove Gid
+//  TODO(jbajic) Fix Remove Gid
 // mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
 //   return WrapExceptions(
 //       [=] {
@@ -2182,7 +2182,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (!trigger_ctx_collector) {
       return;
     }
-    // TODO Fix Remove Gid
+    // TODO(jbajic) Fix Remove Gid
     // trigger_ctx_collector->RegisterDeletedObject((*result)->first);
     // if (!trigger_ctx_collector->ShouldRegisterDeletedObject<memgraph::query::v2::EdgeAccessor>()) {
     //   return;

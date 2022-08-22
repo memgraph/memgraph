@@ -1957,75 +1957,74 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   // delete vertices
-  // for (TypedValue &expression_result : expression_results) {
-  //   if (MustAbort(context)) throw HintedAbortError();
-  //   switch (expression_result.type()) {
-  //     case TypedValue::Type::Vertex: {
-  //       auto &va = expression_result.ValueVertex();
-  //       if (self_.detach_) {
-  //         auto res = dba.DetachRemoveVertex(&va);
-  //         if (res.HasError()) {
-  //           switch (res.GetError()) {
-  //             case storage::v3::Error::SERIALIZATION_ERROR:
-  //               throw TransactionSerializationException();
-  //             case storage::v3::Error::DELETED_OBJECT:
-  //             case storage::v3::Error::VERTEX_HAS_EDGES:
-  //             case storage::v3::Error::PROPERTIES_DISABLED:
-  //             case storage::v3::Error::NONEXISTENT_OBJECT:
-  //               throw QueryRuntimeException("Unexpected error when deleting a node.");
-  //           }
-  //         }
+  for (TypedValue &expression_result : expression_results) {
+    if (MustAbort(context)) throw HintedAbortError();
+    switch (expression_result.type()) {
+      case TypedValue::Type::Vertex: {
+        auto &va = expression_result.ValueVertex();
+        if (self_.detach_) {
+          auto res = dba.DetachRemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::v3::Error::SERIALIZATION_ERROR:
+                throw TransactionSerializationException();
+              case storage::v3::Error::DELETED_OBJECT:
+              case storage::v3::Error::VERTEX_HAS_EDGES:
+              case storage::v3::Error::PROPERTIES_DISABLED:
+              case storage::v3::Error::NONEXISTENT_OBJECT:
+                throw QueryRuntimeException("Unexpected error when deleting a node.");
+            }
+          }
 
-  //         context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-  //         if (*res) {
-  //           context.execution_stats[ExecutionStats::Key::DELETED_EDGES] +=
-  //           static_cast<int64_t>((*res)->second.size());
-  //         }
-  //         std::invoke([&] {
-  //           if (!context.trigger_context_collector || !*res) {
-  //             return;
-  //           }
+          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
+          if (*res) {
+            context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+          }
+          std::invoke([&] {
+            if (!context.trigger_context_collector || !*res) {
+              return;
+            }
 
-  //           context.trigger_context_collector->RegisterDeletedObject((*res)->first);
-  //           if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::v2::EdgeAccessor>()) {
-  //             return;
-  //           }
-  //           for (const auto &edge : (*res)->second) {
-  //             context.trigger_context_collector->RegisterDeletedObject(edge);
-  //           }
-  //         });
-  //       } else {
-  //         auto res = dba.RemoveVertex(&va);
-  //         if (res.HasError()) {
-  //           switch (res.GetError()) {
-  //             case storage::v3::Error::SERIALIZATION_ERROR:
-  //               throw TransactionSerializationException();
-  //             case storage::v3::Error::VERTEX_HAS_EDGES:
-  //               throw RemoveAttachedVertexException();
-  //             case storage::v3::Error::DELETED_OBJECT:
-  //             case storage::v3::Error::PROPERTIES_DISABLED:
-  //             case storage::v3::Error::NONEXISTENT_OBJECT:
-  //               throw QueryRuntimeException("Unexpected error when deleting a node.");
-  //           }
-  //         }
-  //         context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
-  //         if (context.trigger_context_collector && res.GetValue()) {
-  //           context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
-  //         }
-  //       }
-  //       break;
-  //     }
+            context.trigger_context_collector->RegisterDeletedObject((*res)->first);
+            if (!context.trigger_context_collector->ShouldRegisterDeletedObject<query::v2::EdgeAccessor>()) {
+              return;
+            }
+            for (const auto &edge : (*res)->second) {
+              context.trigger_context_collector->RegisterDeletedObject(edge);
+            }
+          });
+        } else {
+          auto res = dba.RemoveVertex(&va);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::v3::Error::SERIALIZATION_ERROR:
+                throw TransactionSerializationException();
+              case storage::v3::Error::VERTEX_HAS_EDGES:
+                throw RemoveAttachedVertexException();
+              case storage::v3::Error::DELETED_OBJECT:
+              case storage::v3::Error::PROPERTIES_DISABLED:
+              case storage::v3::Error::NONEXISTENT_OBJECT:
+                throw QueryRuntimeException("Unexpected error when deleting a node.");
+            }
+          }
+          context.execution_stats[ExecutionStats::Key::DELETED_NODES] += 1;
+          if (context.trigger_context_collector && res.GetValue()) {
+            context.trigger_context_collector->RegisterDeletedObject(*res.GetValue());
+          }
+        }
+        break;
+      }
 
-  //     // skip Edges (already deleted) and Nulls (can occur in optional
-  //     // match)
-  //     case TypedValue::Type::Edge:
-  //     case TypedValue::Type::Null:
-  //       break;
-  //     // check we're not trying to delete anything except vertices and edges
-  //     default:
-  //       throw QueryRuntimeException("Only edges and vertices can be deleted.");
-  //   }
-  // }
+      // skip Edges (already deleted) and Nulls (can occur in optional
+      // match)
+      case TypedValue::Type::Edge:
+      case TypedValue::Type::Null:
+        break;
+      // check we're not trying to delete anything except vertices and edges
+      default:
+        throw QueryRuntimeException("Only edges and vertices can be deleted.");
+    }
+  }
 
   return true;
 }
@@ -2199,7 +2198,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
         *record, key, TypedValue(std::move(old_value)), TypedValue(std::forward<decltype(new_value)>(new_value)));
   };
 
-  auto set_props = [&, record ]<bool vertex = true>(auto properties) {
+  auto set_props = [&, record](auto properties) {
     for (auto &kv : properties) {
       if constexpr (std::is_same_v<TRecordAccessor, VertexAccessor>) {
         const auto maybe_error = record->SetPropertyAndValidate(kv.first, storage::v3::PropertyValue(kv.second));
@@ -2216,17 +2215,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
       } else {
         auto maybe_error = record->SetProperty(kv.first, kv.second);
         if (maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::v3::Error::DELETED_OBJECT:
-              throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-            case storage::v3::Error::SERIALIZATION_ERROR:
-              throw TransactionSerializationException();
-            case storage::v3::Error::PROPERTIES_DISABLED:
-              throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-            case storage::v3::Error::VERTEX_HAS_EDGES:
-            case storage::v3::Error::NONEXISTENT_OBJECT:
-              throw QueryRuntimeException("Unexpected error when setting properties.");
-          }
+          HandleErrorOnPropertyUpdate(maybe_error.GetError());
         }
         if (should_register_change) {
           register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));

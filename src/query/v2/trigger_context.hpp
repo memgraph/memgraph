@@ -30,7 +30,7 @@
 
 namespace memgraph::query::v2 {
 
-// TODO Replace all mentions with PrimaryKey when we have hasing od the same
+// TODO(jbajic) Fix triggers
 constexpr uint64_t kFakeVertexGid{0};
 namespace detail {
 template <typename T>
@@ -227,7 +227,7 @@ class TriggerContextCollector {
   struct HashPairWithAccessor {
     template <detail::ObjectAccessor TAccessor, typename T2>
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
-      // TODO Fix Remove Gid
+      // TODO(jbajic) Fix Remove Gid
       if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
         static uint64_t i{0};
         return utils::HashCombine<uint64_t, T2>{}(i++, pair.second);
@@ -302,7 +302,7 @@ class TriggerContextCollector {
   }
 
   void RegisterDeletedObject(const VertexAccessor &deleted_object) {
-    // TODO Fix Remove Gid
+    // TODO(jbajic) Fix Remove Gid
   }
 
   template <detail::ObjectAccessor TAccessor>
