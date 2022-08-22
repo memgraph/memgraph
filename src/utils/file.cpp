@@ -370,7 +370,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
 }
 
 void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
-void OutputFile::Write(const std::string_view &data) { Write(data.data(), data.size()); }
+void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence;

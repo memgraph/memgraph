@@ -4,10 +4,10 @@ services:
     build:
       context: centos-7
     container_name: "mgbuild_centos-7"
-  mgbuild_centos-8:
+  mgbuild_centos-9:
     build:
-      context: centos-8
-    container_name: "mgbuild_centos-8"
+      context: centos-9
+    container_name: "mgbuild_centos-9"
   mgbuild_debian-10:
     build:
       context: debian-10
@@ -24,3 +24,7 @@ services:
     build:
       context: ubuntu-20.04
     container_name: "mgbuild_ubuntu-20.04"
+  mgbuild_ubuntu-22.04:
+    build:
+      context: ubuntu-22.04
+    container_name: "mgbuild_ubuntu-22.04"

@@ -169,7 +169,7 @@ TEST(StorageV2Gc, Indices) {
   memgraph::storage::Storage storage(memgraph::storage::Config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
-  ASSERT_TRUE(storage.CreateIndex(storage.NameToLabel("label")));
+  ASSERT_FALSE(storage.CreateIndex(storage.NameToLabel("label")).HasError());
 
   {
     auto acc0 = storage.Access();

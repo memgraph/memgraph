@@ -55,4 +55,16 @@ class TopicNotFoundException : public PulsarStreamException {
   TopicNotFoundException(const std::string &consumer_name, const std::string &topic_name)
       : PulsarStreamException("Pulsar consumer {} cannot find topic {}", consumer_name, topic_name) {}
 };
+
+class ConsumerReadMessagesFailedException : public PulsarStreamException {
+ public:
+  ConsumerReadMessagesFailedException(const std::string_view consumer_name, const std::string_view error)
+      : PulsarStreamException("Error happened in consumer {} while fetching messages: {}", consumer_name, error) {}
+};
+
+class ConsumerAcknowledgeMessagesFailedException : public PulsarStreamException {
+ public:
+  explicit ConsumerAcknowledgeMessagesFailedException(const std::string_view consumer_name)
+      : PulsarStreamException("Acknowledging a message of consumer {} has failed!", consumer_name) {}
+};
 }  // namespace memgraph::integrations::pulsar

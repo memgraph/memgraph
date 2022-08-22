@@ -1747,6 +1747,26 @@ TEST_F(FunctionTest, ToStringBool) {
   EXPECT_EQ(EvaluateFunction("TOSTRING", false).ValueString(), "false");
 }
 
+TEST_F(FunctionTest, ToStringDate) {
+  const auto date = memgraph::utils::Date({1970, 1, 2});
+  EXPECT_EQ(EvaluateFunction("TOSTRING", date).ValueString(), "1970-01-02");
+}
+
+TEST_F(FunctionTest, ToStringLocalTime) {
+  const auto lt = memgraph::utils::LocalTime({13, 2, 40, 100, 50});
+  EXPECT_EQ(EvaluateFunction("TOSTRING", lt).ValueString(), "13:02:40.100050");
+}
+
+TEST_F(FunctionTest, ToStringLocalDateTime) {
+  const auto ldt = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59});
+  EXPECT_EQ(EvaluateFunction("TOSTRING", ldt).ValueString(), "1970-01-02T23:02:59.000000");
+}
+
+TEST_F(FunctionTest, ToStringDuration) {
+  memgraph::utils::Duration duration{{.minute = 2, .second = 2, .microsecond = 33}};
+  EXPECT_EQ(EvaluateFunction("TOSTRING", duration).ValueString(), "P0DT0H2M2.000033S");
+}
+
 TEST_F(FunctionTest, ToStringExceptions) { EXPECT_THROW(EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException); }
 
 TEST_F(FunctionTest, TimestampVoid) {

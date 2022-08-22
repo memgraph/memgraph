@@ -1521,6 +1521,10 @@ enum mgp_error mgp_module_add_transformation(struct mgp_module *module, const ch
 ///
 ///@{
 
+/// State of the database that is exposed to magic functions. Currently it is unused, but it enables extending the
+/// functionalities of magic functions in future without breaking the API.
+struct mgp_func_context;
+
 /// Add a required argument to a function.
 ///
 /// The order of the added arguments corresponds to the signature of the openCypher function.

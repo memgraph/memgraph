@@ -2600,13 +2600,13 @@ namespace {
  * when there are */
 TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::MemoryResource *memory) {
   switch (element.op) {
-    case Aggregation::Op::COUNT:
-      return TypedValue(0, memory);
-    case Aggregation::Op::SUM:
     case Aggregation::Op::MIN:
     case Aggregation::Op::MAX:
     case Aggregation::Op::AVG:
       return TypedValue(memory);
+    case Aggregation::Op::COUNT:
+    case Aggregation::Op::SUM:
+      return TypedValue(0, memory);
     case Aggregation::Op::COLLECT_LIST:
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
@@ -2628,9 +2628,7 @@ class AggregateCursor : public Cursor {
       pulled_all_input_ = true;
       aggregation_it_ = aggregation_.begin();
 
-      // in case there is no input and no group_bys we need to return true
-      // just this once
-      if (aggregation_.empty() && self_.group_by_.empty()) {
+      if (aggregation_.empty()) {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_)
@@ -3697,7 +3695,7 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
 
 namespace {
 
-void CallCustomProcedure(const std::string_view &fully_qualified_procedure_name, const mgp_proc &proc,
+void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, const mgp_proc &proc,
                          const std::vector<Expression *> &args, mgp_graph &graph, ExpressionEvaluator *evaluator,
                          utils::MemoryResource *memory, std::optional<size_t> memory_limit, mgp_result *result) {
   static_assert(std::uses_allocator_v<mgp_value, utils::Allocator<mgp_value>>,

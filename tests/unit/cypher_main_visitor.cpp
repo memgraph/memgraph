@@ -2322,16 +2322,12 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
                              const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
-                             const std::optional<TypedValue> timeout = {}, const std::optional<TypedValue> port = {}) {
+                             const std::optional<TypedValue> port = {}) {
   EXPECT_EQ(query->replica_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
     ast_generator->CheckLiteral(query->socket_address_, *socket_address);
-  }
-  ASSERT_EQ(static_cast<bool>(query->timeout_), static_cast<bool>(timeout));
-  if (timeout) {
-    ast_generator->CheckLiteral(query->timeout_, *timeout);
   }
   ASSERT_EQ(static_cast<bool>(query->port_), static_cast<bool>(port));
   if (port) {
@@ -2390,20 +2386,22 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
-  const std::string faulty_query = "REGISTER REPLICA WITH TIMEOUT TO";
+  const std::string faulty_query = "REGISTER REPLICA TO";
   ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
 
-  const std::string no_timeout_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
-  auto *no_timeout_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(no_timeout_query));
-  ASSERT_TRUE(no_timeout_query_parsed);
-  check_replication_query(&ast_generator, no_timeout_query_parsed, "replica1", TypedValue("127.0.0.1"),
+  const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+
+  const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
+  auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+  check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
                           ReplicationQuery::SyncMode::SYNC);
 
-  std::string full_query = R"(REGISTER REPLICA replica2 SYNC WITH TIMEOUT 0.5 TO "1.1.1.1:10000")";
+  std::string full_query = R"(REGISTER REPLICA replica2 SYNC TO "1.1.1.1:10000")";
   auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
   ASSERT_TRUE(full_query_parsed);
   check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
-                          ReplicationQuery::SyncMode::SYNC, TypedValue(0.5));
+                          ReplicationQuery::SyncMode::SYNC);
 }
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
@@ -3044,7 +3042,7 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
   }
   std::vector<std::string> args_as_str{};
   std::transform(args.begin(), args.end(), std::back_inserter(args_as_str),
-                 [](const std::string_view &arg) { return std::string{arg}; });
+                 [](const std::string_view arg) { return std::string{arg}; });
   EXPECT_EQ(identifier_names, args_as_str);
   EXPECT_EQ(identifier_names, call_proc->result_fields_);
   ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
@@ -4124,6 +4122,24 @@ TEST_P(CypherMainVisitorTest, VersionQuery) {
   TestInvalidQuery("SHOW VER", ast_generator);
   TestInvalidQuery("SHOW VERSIONS", ast_generator);
   ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW VERSION"));
+}
+
+TEST_P(CypherMainVisitorTest, ConfigQuery) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQuery("SHOW CF", ast_generator);
+  TestInvalidQuery("SHOW CFG", ast_generator);
+  TestInvalidQuery("SHOW CFGS", ast_generator);
+  TestInvalidQuery("SHOW CONF", ast_generator);
+  TestInvalidQuery("SHOW CONFIGS", ast_generator);
+  TestInvalidQuery("SHOW CONFIGURATION", ast_generator);
+  TestInvalidQuery("SHOW CONFIGURATIONS", ast_generator);
+
+  Query *query = ast_generator.ParseQuery("SHOW CONFIG");
+  auto *ptr = dynamic_cast<ShowConfigQuery *>(query);
+  ASSERT_TRUE(ptr != nullptr);
+
+  ASSERT_NO_THROW(ast_generator.ParseQuery("SHOW CONFIG"));
 }
 
 TEST_P(CypherMainVisitorTest, ForeachThrow) {
