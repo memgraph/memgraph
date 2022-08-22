@@ -294,10 +294,78 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
+  /*
+    QUERY:
+      MATCH ()-[]->(n)
+      RETURN *;
+
+    QUERY PLAN:
+      Produce {n}
+      Expand (n)<-[anon2]-(anon1)
+      ScanAll (n)
+      Once
+  */
+  const auto [number_of_vertices, size_of_batch] = GetParam();  // #NoCommit create several vertices
+
+  storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
+
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    auto vertex_center = *dba.InsertVertexAndValidate(
+        schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto other_vertex = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+      ASSERT_TRUE(dba.InsertEdge(&vertex_center, &other_vertex, edge_type).HasValue());
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // ScanAll (anon1)
+  auto scan_all = MakeScanAll_Distributed(storage, symbol_table, "anon1");
+
+  {
+    auto output = NEXPR("anon1", IDENT("anon1")->MapTo(scan_all.sym_))
+                      ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), 1 + number_of_vertices);  // Center node + number_of_vertices
+  }
+
+  // Expand (n)<-[anon2]-(anon1)
+  auto expand =
+      MakeExpand_distributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
+                             {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+
+  {
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(expand.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    ASSERT_EQ(results.size(), number_of_vertices);
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
         std::make_pair(1, 1),     /* 1 vertex, 1 vertex per batch: simple case. */
+        std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
+        std::make_pair(4, 2),     /* 4 vertices, 2 vertices per batch. */
         std::make_pair(100, 1),   /* 100 vertices, 1 vertex per batch: to check previous
                                      behavior (ie: pre-batching). */
         std::make_pair(100, 100), /* 100 vertices, 100 vertices per batch: to check batching works with 1 iteration. */

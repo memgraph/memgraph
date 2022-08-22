@@ -91,8 +91,9 @@ std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distribute
 
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
-  for (auto named_expression : produce.named_expressions_)
+  for (auto named_expression : produce.named_expressions_) {
     symbols.emplace_back(context->symbol_table.at(*named_expression));
+  }
 
   // stream out results
   auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
@@ -304,6 +305,26 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
       std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types, existing_node, view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
+}
+
+ExpandTuple_distributed MakeExpand_distributed(AstStorage &storage, SymbolTable &symbol_table,
+                                               std::shared_ptr<distributed::LogicalOperator> input, Symbol input_symbol,
+                                               const std::string &edge_identifier, EdgeAtom::Direction direction,
+                                               const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
+                                               const std::string &node_identifier, bool existing_node,
+                                               memgraph::storage::v3::View view) {
+  auto edge = EDGE(edge_identifier, direction);
+  auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
+  edge->identifier_->MapTo(edge_sym);
+
+  auto node = NODE(node_identifier);
+  auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
+  node->identifier_->MapTo(node_sym);
+
+  auto op = std::make_shared<distributed::Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types,
+                                                  existing_node, view);
+
+  return ExpandTuple_distributed{edge, edge_sym, node, node_sym, op};
 }
 
 // ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
