@@ -2059,8 +2059,8 @@ TEST_P(CypherMainVisitorTest, UnionAll) {
 void check_auth_query(
     Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::string role,
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
-    std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges,
-    std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges) {
+    std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges,
+    std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges) {
   auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator->ParseQuery(input));
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
@@ -2224,47 +2224,47 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges{};
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"*"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::UPDATE}, {{"*"}}}});
   check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
                    "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"*"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "",
                    "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::GRANT_PRIVILEGE,
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS :Label1, :Label2 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::LabelPrivilege::UPDATE}, {{"Label3"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}},
+                              {{AuthQuery::EntityPrivilege::UPDATE}, {{"Label3"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator,
                    "GRANT READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
@@ -2311,47 +2311,47 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges{};
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"*"}}}});
   check_auth_query(&ast_generator, "DENY READ ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::UPDATE}, {{"*"}}}});
   check_auth_query(&ast_generator, "DENY UPDATE ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"*"}}}});
   check_auth_query(&ast_generator, "DENY CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "",
                    "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "DENY UPDATE ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "DENY CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
                    AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::LabelPrivilege::UPDATE}, {{"Label3"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}},
+                              {{AuthQuery::EntityPrivilege::UPDATE}, {{"Label3"}}}});
   check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
                    AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::EntityPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator,
                    "DENY READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
                    AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
@@ -2400,21 +2400,21 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
                    {}, {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> label_privileges{};
-  std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>> edge_type_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges{};
+  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"*"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"*"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2 FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
                    "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
+  label_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
+  edge_type_privileges.push_back({{{AuthQuery::EntityPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2, EDGE_TYPES :Edge1, :Edge2, :Edge3 FROM user",
                    AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
 

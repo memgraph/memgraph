@@ -45,28 +45,28 @@ enum class Permission : uint64_t {
 // clang-format on
 
 // clang-format off
-enum class LabelPermission : uint64_t {
+enum class EntityPermission : uint64_t {
   READ          = 1,
   UPDATE          = 1U << 1U,
   CREATE_DELETE = 1U << 2U
 };
 // clang-format on
 
-constexpr inline uint64_t operator|(LabelPermission lhs, LabelPermission rhs) {
+constexpr inline uint64_t operator|(EntityPermission lhs, EntityPermission rhs) {
   return static_cast<uint64_t>(lhs) | static_cast<uint64_t>(rhs);
 }
 
-constexpr inline uint64_t operator|(uint64_t lhs, LabelPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
+constexpr inline uint64_t operator|(uint64_t lhs, EntityPermission rhs) { return lhs | static_cast<uint64_t>(rhs); }
 
-constexpr inline uint64_t operator&(uint64_t lhs, LabelPermission rhs) {
+constexpr inline uint64_t operator&(uint64_t lhs, EntityPermission rhs) {
   return (lhs & static_cast<uint64_t>(rhs)) != 0;
 }
 
-constexpr uint64_t kLabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
-                                         memgraph::auth::LabelPermission::UPDATE |
-                                         memgraph::auth::LabelPermission::READ;
-constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
-constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
+constexpr uint64_t kLabelPermissionAll = memgraph::auth::EntityPermission::CREATE_DELETE |
+                                         memgraph::auth::EntityPermission::UPDATE |
+                                         memgraph::auth::EntityPermission::READ;
+constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::EntityPermission::CREATE_DELETE);
+constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::EntityPermission::READ);
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -126,13 +126,13 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
 
-  PermissionLevel Has(const std::string &permission, LabelPermission label_permission) const;
+  PermissionLevel Has(const std::string &permission, EntityPermission label_permission) const;
 
-  void Grant(const std::string &permission, LabelPermission label_permission);
+  void Grant(const std::string &permission, EntityPermission label_permission);
 
   void Revoke(const std::string &permission);
 
-  void Deny(const std::string &permission, LabelPermission label_permission);
+  void Deny(const std::string &permission, EntityPermission label_permission);
 
   nlohmann::json Serialize() const;
 
@@ -146,8 +146,8 @@ class FineGrainedAccessPermissions final {
   std::unordered_map<std::string, uint64_t> permissions_{};
   std::optional<uint64_t> global_permission_;
 
-  static uint64_t CalculateGrant(LabelPermission label_permission);
-  static uint64_t CalculateDeny(LabelPermission label_permission);
+  static uint64_t CalculateGrant(EntityPermission label_permission);
+  static uint64_t CalculateDeny(EntityPermission label_permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);

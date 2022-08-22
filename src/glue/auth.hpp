@@ -21,9 +21,9 @@ namespace memgraph::glue {
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
 /**
- * Converts query::AuthQuery::LabelPrivilege to its corresponding
- * auth::LabelPermission.
+ * Converts query::AuthQuery::EntityPrivilege to its corresponding
+ * auth::EntityPermission.
  */
-auth::LabelPermission LabelPrivilegeToLabelPermission(query::AuthQuery::LabelPrivilege label_privilege);
+auth::EntityPermission EntityPrivilegeToEntityPermission(query::AuthQuery::EntityPrivilege label_privilege);
 
 }  // namespace memgraph::glue

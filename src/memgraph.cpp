@@ -510,8 +510,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
         GrantPrivilege(username, memgraph::query::kPrivilegesAll,
-                       {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
-                       {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
+                       {{{memgraph::query::AuthQuery::EntityPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
+                       {{{memgraph::query::AuthQuery::EntityPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
       }
 
       return user_added;
@@ -758,9 +758,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void GrantPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &label_privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &edge_type_privileges) override {
     EditPermissions(
         user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -772,7 +772,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         },
         [](auto &fine_grained_permissions, const auto &privilege_collection) {
           for (const auto &[privilege, entities] : privilege_collection) {
-            const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
+            const auto &permission = memgraph::glue::EntityPrivilegeToEntityPermission(privilege);
             for (const auto &entity : entities) {
               fine_grained_permissions.Grant(entity, permission);
             }
@@ -782,9 +782,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void DenyPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &label_privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &edge_type_privileges) override {
     EditPermissions(
         user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -796,7 +796,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
         },
         [](auto &fine_grained_permissions, const auto &privilege_collection) {
           for (const auto &[privilege, entities] : privilege_collection) {
-            const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
+            const auto &permission = memgraph::glue::EntityPrivilegeToEntityPermission(privilege);
             for (const auto &entity : entities) {
               fine_grained_permissions.Deny(entity, permission);
             }
@@ -806,9 +806,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &label_privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &edge_type_privileges) override {
     EditPermissions(
         user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -831,9 +831,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
   void EditPermissions(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &label_privileges,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::EntityPrivilege, std::vector<std::string>>>
           &edge_type_privileges,
       const TEditPermissionsFun &edit_permissions_fun,
       const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {
