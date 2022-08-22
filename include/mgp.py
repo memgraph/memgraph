@@ -1611,7 +1611,10 @@ def _wrap_exceptions():
 
 
 class Logger:
-    """Represents a Logger."""
+    """Represents a Logger through which it is possible
+    to send logs via API to the graph database.
+
+    The best way to use this Logger is to have one per query module."""
 
     __slots__ = ("_logger",)
 
@@ -1619,21 +1622,69 @@ class Logger:
         self._logger = _mgp._LOGGER
 
     def info(self, out: str) -> None:
+        """
+        Log message on INFO level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.info("Hello from query module.")```
+        """
         self._logger.info(out)
 
     def warning(self, out: str) -> None:
+        """
+        Log message on WARNING level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.warning("Hello from query module.")```
+        """
         self._logger.warning(out)
 
     def critical(self, out: str) -> None:
+        """
+        Log message on CRITICAL level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.critical("Hello from query module.")```
+        """
         self._logger.critical(out)
 
     def error(self, out: str) -> None:
+        """
+        Log message on ERROR level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.error("Hello from query module.")```
+        """
         self._logger.error(out)
 
     def trace(self, out: str) -> None:
+        """
+        Log message on TRACE level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.trace("Hello from query module.")```
+        """
         self._logger.trace(out)
 
     def debug(self, out: str) -> None:
+        """
+        Log message on DEBUG level..
+        Args:
+            out: String message to be logged.
+
+        Examples:
+            ```logger.debug("Hello from query module.")```
+        """
         self._logger.debug(out)
 
 
