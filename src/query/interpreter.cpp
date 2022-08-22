@@ -285,9 +285,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
-  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges =
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
       auth_query->label_privileges_;
-  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges =
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
       auth_query->edge_type_privileges_;
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
@@ -319,8 +319,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
           auth->GrantPrivilege(username, kPrivilegesAll,
-                               {{{AuthQuery::EntityPrivilege::CREATE_DELETE, {auth::kAsterisk}}}},
-                               {{{AuthQuery::EntityPrivilege::CREATE_DELETE, {auth::kAsterisk}}}});
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {auth::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {auth::kAsterisk}}}});
         }
 
         return std::vector<std::vector<TypedValue>>();

@@ -1279,11 +1279,10 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(MemgraphCypher::GrantPrivil
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegesList()) {
-    const auto [label_privileges, edge_type_privileges, privileges] =
-        std::any_cast<std::tuple<std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                                 std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                                 std::vector<memgraph::query::AuthQuery::Privilege>>>(
-            ctx->privilegesList()->accept(this));
+    const auto [label_privileges, edge_type_privileges, privileges] = std::any_cast<
+        std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                   std::vector<memgraph::query::AuthQuery::Privilege>>>(ctx->privilegesList()->accept(this));
     auth->label_privileges_ = label_privileges;
     auth->edge_type_privileges_ = edge_type_privileges;
     auth->privileges_ = privileges;
@@ -1302,11 +1301,10 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
   if (ctx->privilegesList()) {
-    std::tie(auth->label_privileges_, auth->edge_type_privileges_, auth->privileges_) =
-        std::any_cast<std::tuple<std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                                 std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                                 std::vector<memgraph::query::AuthQuery::Privilege>>>(
-            ctx->privilegesList()->accept(this));
+    std::tie(auth->label_privileges_, auth->edge_type_privileges_, auth->privileges_) = std::any_cast<
+        std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                   std::vector<memgraph::query::AuthQuery::Privilege>>>(ctx->privilegesList()->accept(this));
   } else {
     /* deny all privileges */
     auth->privileges_ = kPrivilegesAll;
@@ -1315,19 +1313,19 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(MemgraphCypher::DenyPrivileg
 }
 
 /**
- * @return std::tuple<std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                    std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
+ * @return std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
                     std::vector<memgraph::query::AuthQuery::Privilege>>
  */
 antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesListContext *ctx) {
-  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> label_privileges;
-  std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>> edge_type_privileges;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges;
+  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges;
   for (auto *it : ctx->privilegeOrEntityPrivileges()) {
     if (it->entityPrivilegeList()) {
       const auto result =
-          std::any_cast<std::pair<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>,
-                                  std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>>(
+          std::any_cast<std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
+                                  std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>>(
               it->entityPrivilegeList()->accept(this));
       if (!result.first.empty()) {
         label_privileges.emplace_back(result.first);
@@ -1340,8 +1338,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilegesList(MemgraphCypher::PrivilegesL
     }
   }
 
-  return std::tuple<std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
-                    std::vector<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>,
+  return std::tuple<std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
+                    std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>,
                     std::vector<memgraph::query::AuthQuery::Privilege>>(label_privileges, edge_type_privileges,
                                                                         privileges);
 }
@@ -1359,11 +1357,11 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
         const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
         if (entity_type == EntityType::LABELS) {
           auth->label_privileges_.push_back(
-              {{AuthQuery::EntityPrivilege::CREATE_DELETE,
+              {{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
                 std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
         } else {
           auth->edge_type_privileges_.push_back(
-              {{AuthQuery::EntityPrivilege::CREATE_DELETE,
+              {{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
                 std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
         }
       } else {
@@ -1378,16 +1376,16 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(MemgraphCypher::RevokePriv
 }
 
 /**
- * @return std::pair<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>,
-                     std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>
+ * @return std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
+                     std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
  */
 antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::EntityPrivilegeListContext *ctx) {
-  std::pair<std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>,
-            std::unordered_map<AuthQuery::EntityPrivilege, std::vector<std::string>>>
+  std::pair<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>,
+            std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
       result;
 
   for (auto *it : ctx->entityPrivilege()) {
-    const auto key = std::any_cast<AuthQuery::EntityPrivilege>(it->granularPrivilege()->accept(this));
+    const auto key = std::any_cast<AuthQuery::FineGrainedPrivilege>(it->granularPrivilege()->accept(this));
     const auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
     auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
 
@@ -1448,12 +1446,12 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
 }
 
 /**
- * @return AuthQuery::EntityPrivilege
+ * @return AuthQuery::FineGrainedPrivilege
  */
 antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) {
-  if (ctx->READ()) return AuthQuery::EntityPrivilege::READ;
-  if (ctx->UPDATE()) return AuthQuery::EntityPrivilege::UPDATE;
-  if (ctx->CREATE_DELETE()) return AuthQuery::EntityPrivilege::CREATE_DELETE;
+  if (ctx->READ()) return AuthQuery::FineGrainedPrivilege::READ;
+  if (ctx->UPDATE()) return AuthQuery::FineGrainedPrivilege::UPDATE;
+  if (ctx->CREATE_DELETE()) return AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
   LOG_FATAL("Should not get here - unknown label privilege!");
 }
 

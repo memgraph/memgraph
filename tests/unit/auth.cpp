@@ -177,29 +177,32 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
             user->GetFineGrainedAccessEdgeTypePermissions());
 
   // Grant one label to user .
-  user->fine_grained_access_handler().label_permissions().Grant("labelTest", EntityPermission::CREATE_DELETE);
+  user->fine_grained_access_handler().label_permissions().Grant("labelTest", FineGrainedPermission::CREATE_DELETE);
   // Grant one edge type to user .
-  user->fine_grained_access_handler().edge_type_permissions().Grant("edgeTypeTest", EntityPermission::CREATE_DELETE);
+  user->fine_grained_access_handler().edge_type_permissions().Grant("edgeTypeTest",
+                                                                    FineGrainedPermission::CREATE_DELETE);
 
   // Check permissions.
-  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest", EntityPermission::READ),
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest", FineGrainedPermission::READ),
             PermissionLevel::GRANT);
-  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest", EntityPermission::READ),
-            PermissionLevel::GRANT);
+  ASSERT_EQ(
+      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest", FineGrainedPermission::READ),
+      PermissionLevel::GRANT);
   ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
   ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
             user->GetFineGrainedAccessEdgeTypePermissions());
 
   // Deny one label to user .
-  user->fine_grained_access_handler().label_permissions().Deny("labelTest1", EntityPermission::READ);
+  user->fine_grained_access_handler().label_permissions().Deny("labelTest1", FineGrainedPermission::READ);
   // Deny one edge type to user .
-  user->fine_grained_access_handler().edge_type_permissions().Deny("edgeTypeTest1", EntityPermission::READ);
+  user->fine_grained_access_handler().edge_type_permissions().Deny("edgeTypeTest1", FineGrainedPermission::READ);
 
   // Check permissions.
-  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest1", EntityPermission::READ),
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest1", FineGrainedPermission::READ),
             PermissionLevel::DENY);
-  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest1", EntityPermission::READ),
-            PermissionLevel::DENY);
+  ASSERT_EQ(
+      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest1", FineGrainedPermission::READ),
+      PermissionLevel::DENY);
   ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
   ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
             user->GetFineGrainedAccessEdgeTypePermissions());
@@ -210,29 +213,29 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
   ASSERT_NE(role, std::nullopt);
 
   // Grant label and edge type to role and role to user.
-  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", EntityPermission::CREATE_DELETE);
+  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", FineGrainedPermission::CREATE_DELETE);
   role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest",
-                                                                    EntityPermission::CREATE_DELETE);
+                                                                    FineGrainedPermission::CREATE_DELETE);
   user->SetRole(*role);
 
   // Check permissions.
   {
-    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest", EntityPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest", FineGrainedPermission::READ),
               PermissionLevel::GRANT);
-    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest", EntityPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest", FineGrainedPermission::READ),
               PermissionLevel::GRANT);
   }
 
   // Deny label and edge type to role and role to user.
-  role->fine_grained_access_handler().label_permissions().Deny("roleLabelTest1", EntityPermission::READ);
-  role->fine_grained_access_handler().edge_type_permissions().Deny("roleEdgeTypeTest1", EntityPermission::READ);
+  role->fine_grained_access_handler().label_permissions().Deny("roleLabelTest1", FineGrainedPermission::READ);
+  role->fine_grained_access_handler().edge_type_permissions().Deny("roleEdgeTypeTest1", FineGrainedPermission::READ);
   user->SetRole(*role);
 
   // Check permissions.
   {
-    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1", EntityPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1", FineGrainedPermission::READ),
               PermissionLevel::DENY);
-    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", EntityPermission::READ),
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", FineGrainedPermission::READ),
               PermissionLevel::DENY);
   }
 }
@@ -501,14 +504,14 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
     ASSERT_FALSE(fga_permissions.GetPermissions().empty());
@@ -516,7 +519,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Deny(any_label, FineGrainedPermission::CREATE_DELETE);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
     ASSERT_FALSE(fga_permissions.GetPermissions().empty());
@@ -524,8 +527,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(any_label, FineGrainedPermission::CREATE_DELETE);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
     ASSERT_FALSE(fga_permissions.GetPermissions().empty());
@@ -533,7 +536,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
@@ -542,7 +545,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
@@ -551,7 +554,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
@@ -560,16 +563,16 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
-    ASSERT_EQ(fga_permissions.GetGlobalPermission(), EntityPermission::UPDATE | EntityPermission::READ);
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), FineGrainedPermission::UPDATE | FineGrainedPermission::READ);
     ASSERT_TRUE(fga_permissions.GetPermissions().empty());
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Deny(any_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(any_label);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
@@ -578,7 +581,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(any_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Deny(any_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
@@ -587,8 +590,8 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(check_label, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(non_check_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(check_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(non_check_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
     ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
@@ -597,180 +600,180 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::UPDATE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(asterisk, EntityPermission::UPDATE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Deny(asterisk, EntityPermission::READ);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::READ);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::READ);
-    fga_permissions.Grant(check_label, EntityPermission::UPDATE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions.Grant(check_label, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::READ);
-    fga_permissions.Deny(check_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions.Deny(check_label, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(check_label, EntityPermission::UPDATE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(check_label, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(check_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(check_label, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(asterisk, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(asterisk, EntityPermission::UPDATE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::UPDATE);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(asterisk, EntityPermission::READ);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(asterisk, FineGrainedPermission::READ);
 
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(any_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(check_label, EntityPermission::READ);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(check_label, FineGrainedPermission::READ);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(check_label, EntityPermission::UPDATE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(check_label, FineGrainedPermission::UPDATE);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions;
-    fga_permissions.Grant(asterisk, EntityPermission::CREATE_DELETE);
-    fga_permissions.Deny(check_label, EntityPermission::CREATE_DELETE);
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Deny(check_label, FineGrainedPermission::CREATE_DELETE);
     fga_permissions.Revoke(asterisk);
 
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(check_label, EntityPermission::READ), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions.Has(non_check_label, EntityPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 }
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
@@ -780,63 +783,63 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, EntityPermission::READ);
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions2.Grant(asterisk, EntityPermission::READ);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::READ);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, EntityPermission::READ);
-    fga_permissions2.Grant(asterisk, EntityPermission::UPDATE);
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions3.Has(any_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, EntityPermission::READ);
-    fga_permissions1.Grant(check_label, EntityPermission::UPDATE);
-    fga_permissions2.Grant(asterisk, EntityPermission::UPDATE);
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions1.Grant(check_label, FineGrainedPermission::UPDATE);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::UPDATE), PermissionLevel::GRANT);
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 
   {
     FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
-    fga_permissions1.Grant(asterisk, EntityPermission::READ);
-    fga_permissions1.Grant(check_label, EntityPermission::CREATE_DELETE);
-    fga_permissions2.Grant(asterisk, EntityPermission::UPDATE);
-    fga_permissions2.Grant(check_label, EntityPermission::READ);
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions1.Grant(check_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+    fga_permissions2.Grant(check_label, FineGrainedPermission::READ);
 
     auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
 
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::CREATE_DELETE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::UPDATE), PermissionLevel::DENY);
-    ASSERT_EQ(fga_permissions3.Has(check_label, EntityPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 }
 

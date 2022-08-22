@@ -22,7 +22,7 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
                             const std::vector<memgraph::storage::LabelId> &labels) {
   return std::all_of(labels.begin(), labels.end(), [&dba, &user](const auto label) {
     return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label),
-                                                           memgraph::auth::EntityPermission::READ) ==
+                                                           memgraph::auth::FineGrainedPermission::READ) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
 }
@@ -30,7 +30,7 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
 bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const memgraph::storage::EdgeTypeId &edgeType) {
   return user.GetFineGrainedAccessEdgeTypePermissions().Has(dba.EdgeTypeToName(edgeType),
-                                                            memgraph::auth::EntityPermission::READ) ==
+                                                            memgraph::auth::FineGrainedPermission::READ) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
