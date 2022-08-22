@@ -2259,7 +2259,7 @@ cpp<#
          websocket)
       (:serialize))
     (lcp:define-enum label-privilege
-        (read edit create_delete)
+        (read update create_delete)
       (:serialize))
     #>cpp
     AuthQuery() = default;

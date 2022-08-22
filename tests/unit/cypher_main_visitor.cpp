@@ -2232,9 +2232,9 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::EDIT}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT EDIT ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user",
-                   {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
+                   "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"*"}}}});
@@ -2247,9 +2247,9 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::EDIT}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "GRANT EDIT ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::GRANT_PRIVILEGE,
-                   "", "", "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::LabelPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
@@ -2258,8 +2258,8 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::LabelPrivilege::EDIT}, {{"Label3"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, EDIT ON LABELS :Label3 TO user",
+                              {{AuthQuery::LabelPrivilege::UPDATE}, {{"Label3"}}}});
+  check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
@@ -2319,8 +2319,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::EDIT}, {{"*"}}}});
-  check_auth_query(&ast_generator, "DENY EDIT ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
+  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "DENY UPDATE ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
@@ -2334,8 +2334,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::LabelPrivilege::EDIT}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "DENY EDIT ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
+  label_privileges.push_back({{{AuthQuery::LabelPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "DENY UPDATE ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
                    "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
@@ -2345,8 +2345,8 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::LabelPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::LabelPrivilege::EDIT}, {{"Label3"}}}});
-  check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2, EDIT ON LABELS :Label3 TO user",
+                              {{AuthQuery::LabelPrivilege::UPDATE}, {{"Label3"}}}});
+  check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
                    AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 

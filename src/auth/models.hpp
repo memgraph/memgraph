@@ -47,7 +47,7 @@ enum class Permission : uint64_t {
 // clang-format off
 enum class LabelPermission : uint64_t {
   READ          = 1,
-  EDIT          = 1U << 1U,
+  UPDATE          = 1U << 1U,
   CREATE_DELETE = 1U << 2U
 };
 // clang-format on
@@ -63,7 +63,8 @@ constexpr inline uint64_t operator&(uint64_t lhs, LabelPermission rhs) {
 }
 
 constexpr uint64_t kLabelPermissionAll = memgraph::auth::LabelPermission::CREATE_DELETE |
-                                         memgraph::auth::LabelPermission::EDIT | memgraph::auth::LabelPermission::READ;
+                                         memgraph::auth::LabelPermission::UPDATE |
+                                         memgraph::auth::LabelPermission::READ;
 constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::LabelPermission::CREATE_DELETE);
 constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::LabelPermission::READ);
 

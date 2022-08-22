@@ -65,8 +65,8 @@ auth::LabelPermission LabelPrivilegeToLabelPermission(const query::AuthQuery::La
   switch (label_privilege) {
     case query::AuthQuery::LabelPrivilege::READ:
       return auth::LabelPermission::READ;
-    case query::AuthQuery::LabelPrivilege::EDIT:
-      return auth::LabelPermission::EDIT;
+    case query::AuthQuery::LabelPrivilege::UPDATE:
+      return auth::LabelPermission::UPDATE;
     case query::AuthQuery::LabelPrivilege::CREATE_DELETE:
       return auth::LabelPermission::CREATE_DELETE;
   }

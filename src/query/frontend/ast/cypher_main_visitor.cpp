@@ -1452,7 +1452,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
  */
 antlrcpp::Any CypherMainVisitor::visitGranularPrivilege(MemgraphCypher::GranularPrivilegeContext *ctx) {
   if (ctx->READ()) return AuthQuery::LabelPrivilege::READ;
-  if (ctx->EDIT()) return AuthQuery::LabelPrivilege::EDIT;
+  if (ctx->UPDATE()) return AuthQuery::LabelPrivilege::UPDATE;
   if (ctx->CREATE_DELETE()) return AuthQuery::LabelPrivilege::CREATE_DELETE;
   LOG_FATAL("Should not get here - unknown label privilege!");
 }

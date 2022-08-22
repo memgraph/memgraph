@@ -53,7 +53,6 @@ DIRECTORY           : D I R E C T O R Y ;
 DROP                : D R O P ;
 DUMP                : D U M P ;
 DURABILITY          : D U R A B I L I T Y ;
-EDIT                : E D I T ;
 EXECUTE             : E X E C U T E ;
 FOR                 : F O R ;
 FOREACH             : F O R E A C H;

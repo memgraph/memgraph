@@ -47,7 +47,6 @@ memgraphCypherKeyword : cypherKeyword
                       | DROP
                       | DUMP
                       | EDGE_TYPES
-                      | EDIT
                       | EXECUTE
                       | FOR
                       | FOREACH
@@ -260,7 +259,7 @@ privilege : CREATE
           | WEBSOCKET
           ;
 
-granularPrivilege : READ | EDIT | CREATE_DELETE ;
+granularPrivilege : READ | UPDATE | CREATE_DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 
