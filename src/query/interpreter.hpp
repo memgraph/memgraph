@@ -99,16 +99,28 @@ class AuthQueryHandler {
   virtual std::vector<std::vector<TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void GrantPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                              const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
+  virtual void GrantPrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                             const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
+  virtual void DenyPrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RevokePrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-                               const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) = 0;
+  virtual void RevokePrivilege(
+      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) = 0;
 };
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
