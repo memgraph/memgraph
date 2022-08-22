@@ -191,6 +191,15 @@ std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::quer
 
 enum class FilterLambdaType { NONE, USE_FRAME, USE_FRAME_NULL, USE_CTX, ERROR };
 
+enum class FineGrainedTestType {
+  ALL_GRANTED,
+  ALL_DENIED,
+  EDGE_TYPE_A_DENIED,
+  EDGE_TYPE_B_DENIED,
+  LABEL_0_DENIED,
+  LABEL_3_DENIED
+};
+
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
@@ -204,7 +213,6 @@ class Database {
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
-
   virtual ~Database() {}
 };
 
@@ -446,7 +454,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::Ed
 void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bound,
                                      memgraph::query::EdgeAtom::Direction direction,
                                      std::vector<std::string> edge_types, bool known_sink,
-                                     FilterLambdaType filter_lambda_type, memgraph::auth::User &user) {
+                                     FineGrainedTestType fine_grained_test_type) {
   auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(&storage_dba);
   memgraph::query::AstStorage storage;
@@ -457,12 +465,7 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
   memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
   memgraph::query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
   memgraph::query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
-  memgraph::query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_sym);
-  memgraph::query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
-  memgraph::query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
 
-  memgraph::glue::FineGrainedAuthChecker auth_checker{user};
-  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
   std::vector<memgraph::query::VertexAccessor> vertices;
   std::vector<memgraph::query::EdgeAccessor> edges;
 
@@ -472,41 +475,53 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
 
-  memgraph::query::Expression *filter_expr;
+  memgraph::query::Expression *filter_expr = nullptr;
 
-  // First build a filter lambda and an operator yielding blocked entities.
-  switch (filter_lambda_type) {
-    case FilterLambdaType::NONE:
-      // No filter lambda, nothing is ever blocked.
-      input_op = std::make_shared<Yield>(
-          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
-          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
-      filter_expr = nullptr;
+  input_op =
+      std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+                              std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
+
+  memgraph::auth::User user{"test"};
+
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      user.fine_grained_access_handler().label_permissions().Grant("*");
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
       break;
-    case FilterLambdaType::USE_FRAME:
-      // We block each entity in the graph and run BFS.
-      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
-      filter_expr = AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked));
+    case FineGrainedTestType::ALL_DENIED:
+      user.fine_grained_access_handler().label_permissions().Deny("*");
+      user.fine_grained_access_handler().edge_type_permissions().Deny("*");
       break;
-    case FilterLambdaType::USE_FRAME_NULL:
-      // We block each entity in the graph and run BFS.
-      input_op = YieldEntities(&dba, vertices, edges, blocked_sym, nullptr);
-      filter_expr = IF(AND(NEQ(inner_node, blocked), NEQ(inner_edge, blocked)), LITERAL(true),
-                       LITERAL(memgraph::storage::PropertyValue()));
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      user.fine_grained_access_handler().label_permissions().Grant("*");
+      user.fine_grained_access_handler().edge_type_permissions().Grant("b");
+      user.fine_grained_access_handler().edge_type_permissions().Deny("a");
       break;
-    case FilterLambdaType::USE_CTX:
-      // We only block vertex #5 and run BFS.
-      input_op = std::make_shared<Yield>(
-          nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
-          std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue(vertices[5])}});
-      filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")), PARAMETER_LOOKUP(0));
-      context.evaluation_context.parameters.Add(0, memgraph::storage::PropertyValue(5));
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      user.fine_grained_access_handler().label_permissions().Grant("*");
+      user.fine_grained_access_handler().edge_type_permissions().Grant("a");
+      user.fine_grained_access_handler().edge_type_permissions().Deny("b");
       break;
-    case FilterLambdaType::ERROR:
-      // Evaluate to 42 for vertex #5 which is on worker 1.
-      filter_expr = IF(EQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")), LITERAL(5)), LITERAL(42), LITERAL(true));
+    case FineGrainedTestType::LABEL_0_DENIED:
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+      user.fine_grained_access_handler().label_permissions().Grant("1");
+      user.fine_grained_access_handler().label_permissions().Grant("2");
+      user.fine_grained_access_handler().label_permissions().Grant("3");
+      user.fine_grained_access_handler().label_permissions().Grant("4");
+      user.fine_grained_access_handler().label_permissions().Deny("0");
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+      user.fine_grained_access_handler().label_permissions().Grant("0");
+      user.fine_grained_access_handler().label_permissions().Grant("1");
+      user.fine_grained_access_handler().label_permissions().Grant("2");
+      user.fine_grained_access_handler().label_permissions().Grant("4");
+      user.fine_grained_access_handler().label_permissions().Deny("3");
+      break;
   }
 
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
   // We run BFS once from each vertex for each blocked entity.
   input_op = YieldVertices(&dba, vertices, source_sym, input_op);
 
@@ -530,78 +545,112 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
   context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
   std::vector<std::vector<memgraph::query::TypedValue>> results;
 
-  // An exception should be thrown on one of the pulls.
-  if (filter_lambda_type == FilterLambdaType::ERROR) {
-    EXPECT_THROW(PullResults(input_op.get(), &context,
-                             std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym}),
-                 memgraph::query::QueryRuntimeException);
-    return;
-  }
-
   results = PullResults(input_op.get(), &context,
                         std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
 
-  // Group results based on blocked entity and compare them to results
-  // obtained by running Floyd-Warshall.
-  for (size_t i = 0; i < results.size();) {
-    int j = i;
-    auto blocked = results[j][3];
-    while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][3], blocked)) ++j;
-
-    SCOPED_TRACE(fmt::format("blocked entity = {}", ToString(blocked, dba)));
-
-    // When an edge is blocked, it is blocked in both directions so we remove
-    // it before modifying edge list to account for direction and edge types;
-    auto edges = kEdges;
-    if (blocked.IsEdge()) {
-      int from = GetProp(blocked.ValueEdge(), "from", &dba).ValueInt();
-      int to = GetProp(blocked.ValueEdge(), "to", &dba).ValueInt();
-      edges.erase(std::remove_if(edges.begin(), edges.end(),
-                                 [from, to](const auto &e) { return std::get<0>(e) == from && std::get<1>(e) == to; }),
-                  edges.end());
-    }
-
-    // Now add edges in opposite direction if necessary.
-    auto edges_blocked = GetEdgeList(edges, direction, edge_types);
-
-    // When a vertex is blocked, we remove all edges that lead into it.
-    if (blocked.IsVertex()) {
-      int id = GetProp(blocked.ValueVertex(), "id", &dba).ValueInt();
-      edges_blocked.erase(
-          std::remove_if(edges_blocked.begin(), edges_blocked.end(), [id](const auto &e) { return e.second == id; }),
-          edges_blocked.end());
-    }
-
-    auto correct_with_bounds = FloydWarshall(kVertexCount, edges_blocked);
-
-    if (lower_bound == -1) lower_bound = 0;
-    if (upper_bound == -1) upper_bound = kVertexCount;
-
-    // Remove paths whose length doesn't satisfy given length bounds.
-    for (int a = 0; a < kVertexCount; ++a) {
-      for (int b = 0; b < kVertexCount; ++b) {
-        if (a != b && (correct_with_bounds[a][b] < lower_bound || correct_with_bounds[a][b] > upper_bound))
-          correct_with_bounds[a][b] = -1;
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          EXPECT_EQ(results.size(), 21);
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          EXPECT_EQ(results.size(), 21);
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          EXPECT_EQ(results.size(), 30);
+          break;
       }
-    }
-
-    int num_results = 0;
-    for (int a = 0; a < kVertexCount; ++a)
-      for (int b = 0; b < kVertexCount; ++b)
-        if (a != b && correct_with_bounds[a][b] != -1) {
-          ++num_results;
-        }
-    // There should be exactly 1 successful pull for each existing path.
-    EXPECT_EQ(j - i, num_results);
-
-    auto distances = CheckPathsAndExtractDistances(
-        &dba, edges_blocked,
-        std::vector<std::vector<memgraph::query::TypedValue>>(results.begin() + i, results.begin() + j));
-
-    // The distances should also match.
-    EXPECT_EQ(distances, correct_with_bounds);
-
-    i = j;
+      break;
+    case FineGrainedTestType::ALL_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          EXPECT_EQ(results.size(), 0);
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          EXPECT_EQ(results.size(), 0);
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          EXPECT_EQ(results.size(), 0);
+          break;
+      }
+      break;
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          EXPECT_EQ(results.size(), 4);
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          EXPECT_EQ(results.size(), 4);
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          EXPECT_EQ(results.size(), 8);
+          break;
+      }
+      break;
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          EXPECT_EQ(results.size(), 8);
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          EXPECT_EQ(results.size(), 8);
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          EXPECT_EQ(results.size(), 20);
+          break;
+      }
+      break;
+    case FineGrainedTestType::LABEL_0_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 6);
+          } else {
+            EXPECT_EQ(results.size(), 9);
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 6);
+          } else {
+            EXPECT_EQ(results.size(), 13);
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 6);
+          } else {
+            EXPECT_EQ(results.size(), 13);
+          }
+          break;
+      }
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 9);
+          } else {
+            EXPECT_EQ(results.size(), 13);
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 9);
+          } else {
+            EXPECT_EQ(results.size(), 12);
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          if (known_sink) {
+            EXPECT_EQ(results.size(), 12);
+          } else {
+            EXPECT_EQ(results.size(), 16);
+          }
+          break;
+      }
+      break;
   }
 
   dba.Abort();
