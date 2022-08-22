@@ -20,4 +20,11 @@ namespace memgraph::glue {
  */
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
+/**
+ * Converts query::AuthQuery::FineGrainedPrivilege to its corresponding
+ * auth::EntityPermission.
+ */
+auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
+    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege);
+
 }  // namespace memgraph::glue
