@@ -718,10 +718,14 @@ pulled.")
      // The iterable over edges and the current edge iterator are referenced via
      // optional because they can not be initialized in the constructor of
      // this class. They are initialized once for each pull from the input.
-     std::optional<InEdgeT> in_edges_;
-     std::optional<InEdgeIteratorT> in_edges_it_;
-     std::optional<OutEdgeT> out_edges_;
-     std::optional<OutEdgeIteratorT> out_edges_it_;
+     struct InOutEdgesAndIterators {
+        std::optional<InEdgeT> in_edges_;
+        std::optional<InEdgeIteratorT> in_edges_it_;
+        std::optional<OutEdgeT> out_edges_;
+        std::optional<OutEdgeIteratorT> out_edges_it_;
+      };
+
+      std::vector<std::optional<InOutEdgesAndIterators>> in_out_edges_and_iterators_;
 
      bool InitEdges(Frames &, ExecutionContext &);
    };
