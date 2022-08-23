@@ -13,7 +13,6 @@
 
 #include "coordinator/coordinator.hpp"
 #include "io/rsm/rsm_client.hpp"
-#include "io/transport.hpp"
 
 namespace memgraph::coordinator {
 
