@@ -6,8 +6,8 @@ import pytest
 def test_weighted_shortest_path_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON READ ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
@@ -74,7 +74,7 @@ def test_weighted_shortest_path_denied_label_1():
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
@@ -172,7 +172,7 @@ def test_dfs_denied_label_1():
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_paths = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN nodes(p);"
@@ -263,7 +263,7 @@ def test_bfs_sts_denied_label_1():
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
@@ -352,7 +352,7 @@ def test_bfs_singe_source_denied_label_1():
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
