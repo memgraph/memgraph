@@ -42,6 +42,7 @@ COMMITTED           : C O M M I T T E D ;
 CONFIG              : C O N F I G ;
 CONFIGS             : C O N F I G S;
 CONSUMER_GROUP      : C O N S U M E R UNDERSCORE G R O U P ;
+CREATE_DELETE       : C R E A T E UNDERSCORE D E L E T E ;
 CREDENTIALS         : C R E D E N T I A L S ;
 CSV                 : C S V ;
 DATA                : D A T A ;

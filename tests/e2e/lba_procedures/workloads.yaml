@@ -16,7 +16,7 @@ template_cluster: &template_cluster
         "Create (:Label2 {id: 4}) ;",
         "Create User Josip ;",
         "Create User Boris ;",
-        "Grant Labels :Label1 to Boris;",
+        "Grant Read On Labels :Label1 to Boris;",
       ]
       validation_queries: []
 

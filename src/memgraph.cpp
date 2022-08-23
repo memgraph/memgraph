@@ -509,7 +509,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
       if (first_user) {
         spdlog::info("{} is first created user. Granting all privileges.", username);
-        GrantPrivilege(username, memgraph::query::kPrivilegesAll, {"*"}, {"*"});
+        GrantPrivilege(
+            username, memgraph::query::kPrivilegesAll,
+            {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
+            {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
       }
 
       return user_added;
@@ -754,45 +757,87 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
     }
   }
 
-  void GrantPrivilege(const std::string &user_or_role,
-                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                      const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) override {
-    EditPermissions(user_or_role, privileges, labels, edgeTypes, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Grant(permission);
-    });
+  void GrantPrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override {
+    EditPermissions(
+        user_or_role, privileges, label_privileges, edge_type_privileges,
+        [](auto &permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions.Grant(permission);
+        },
+        [](auto &fine_grained_permissions, const auto &privilege_collection) {
+          for (const auto &[privilege, entities] : privilege_collection) {
+            const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+            for (const auto &entity : entities) {
+              fine_grained_permissions.Grant(entity, permission);
+            }
+          }
+        });
   }
 
-  void DenyPrivilege(const std::string &user_or_role,
-                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                     const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) override {
-    EditPermissions(user_or_role, privileges, labels, edgeTypes, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Deny(permission);
-    });
+  void DenyPrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override {
+    EditPermissions(
+        user_or_role, privileges, label_privileges, edge_type_privileges,
+        [](auto &permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions.Deny(permission);
+        },
+        [](auto &fine_grained_permissions, const auto &privilege_collection) {
+          for (const auto &[privilege, entities] : privilege_collection) {
+            const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
+            for (const auto &entity : entities) {
+              fine_grained_permissions.Deny(entity, permission);
+            }
+          }
+        });
   }
 
-  void RevokePrivilege(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes) override {
-    EditPermissions(user_or_role, privileges, labels, edgeTypes, [](auto *permissions, const auto &permission) {
-      // TODO (mferencevic): should we first check that the
-      // privilege is granted/denied/revoked before
-      // unconditionally granting/denying/revoking it?
-      permissions->Revoke(permission);
-    });
+  void RevokePrivilege(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges) override {
+    EditPermissions(
+        user_or_role, privileges, label_privileges, edge_type_privileges,
+        [](auto &permissions, const auto &permission) {
+          // TODO (mferencevic): should we first check that the
+          // privilege is granted/denied/revoked before
+          // unconditionally granting/denying/revoking it?
+          permissions.Revoke(permission);
+        },
+        [](auto &fine_grained_permissions, const auto &privilege_collection) {
+          for ([[maybe_unused]] const auto &[privilege, entities] : privilege_collection) {
+            for (const auto &entity : entities) {
+              fine_grained_permissions.Revoke(entity);
+            }
+          }
+        });
   }
 
  private:
-  template <class TEditFun>
-  void EditPermissions(const std::string &user_or_role,
-                       const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                       const std::vector<std::string> &labels, const std::vector<std::string> &edgeTypes,
-                       const TEditFun &edit_fun) {
+  template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
+  void EditPermissions(
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &label_privileges,
+      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+          &edge_type_privileges,
+      const TEditPermissionsFun &edit_permissions_fun,
+      const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {
     if (!std::regex_match(user_or_role, name_regex_)) {
       throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
     }
@@ -810,25 +855,27 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
       }
       if (user) {
         for (const auto &permission : permissions) {
-          edit_fun(&user->permissions(), permission);
+          edit_permissions_fun(user->permissions(), permission);
         }
-        for (const auto &label : labels) {
-          edit_fun(&user->fine_grained_access_handler().label_permissions(), label);
+        for (const auto &label_privilege_collection : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
+                                            label_privilege_collection);
         }
-        for (const auto &edgeType : edgeTypes) {
-          edit_fun(&user->fine_grained_access_handler().edge_type_permissions(), edgeType);
+        for (const auto &edge_type_privilege_collection : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege_collection);
         }
-
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {
-          edit_fun(&role->permissions(), permission);
+          edit_permissions_fun(role->permissions(), permission);
         }
-        for (const auto &label : labels) {
-          edit_fun(&user->fine_grained_access_handler().label_permissions(), label);
+        for (const auto &label_privilege : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
         }
-        for (const auto &edgeType : edgeTypes) {
-          edit_fun(&role->fine_grained_access_handler().edge_type_permissions(), edgeType);
+        for (const auto &edge_type_privilege : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege);
         }
 
         locked_auth->SaveRole(*role);
