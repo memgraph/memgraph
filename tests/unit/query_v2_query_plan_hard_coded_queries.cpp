@@ -81,7 +81,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
       Once
   */
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
-  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -110,7 +110,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -136,7 +136,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
       Once
   */
 
-  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
   const auto number_of_vertices_with_label = number_of_vertices / 3;  // To have some filtering needed and measureable.
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
@@ -176,7 +176,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -203,7 +203,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
       Once
   */
 
-  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
 
   auto label_node = db_v3.NameToLabel("Node");
   auto property_node = db_v3.NameToProperty("someId");
@@ -258,7 +258,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -282,7 +282,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
       Once
   */
 
-  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
   storage::v3::Gid id;  // We just want to have an idea of any vertex
   {                     // Inserting data
     auto storage_dba = db_v3.Access();
@@ -311,7 +311,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_TRUE(results[0][0].IsVertex());
     ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
@@ -330,7 +330,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
       ScanAll (n)
       Once
   */
-  const auto [number_of_vertices, size_of_batch] = GetParam();
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
@@ -367,13 +367,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
                       ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(scan_all.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), 1 + number_of_vertices);  // Center node + number_of_vertices
   }
 
   // Expand (n)<-[anon2]-(anon1)
   auto expand =
-      MakeExpand_distributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
+      MakeExpand_Distributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
                              {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   {
@@ -381,7 +381,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
         NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce_Distributed(expand.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
+    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -395,198 +395,201 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
-        std::make_pair(1, 1),     /* 1 vertex, 1 vertex per batch: simple case. */
-        std::make_pair(2, 1),     /* 2 vertices, 2 vertex per batch: simple case. */
+        std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
+        std::make_pair(2, 1),     /* 2 vertices, 2 frame per batch: simple case. */
         std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
-        std::make_pair(4, 2),     /* 4 vertices, 2 vertices per batch. */
-        std::make_pair(100, 1),   /* 100 vertices, 1 vertex per batch: to check previous
+        std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
+        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
                                      behavior (ie: pre-batching). */
-        std::make_pair(100, 100), /* 100 vertices, 100 vertices per batch: to check batching works with 1 iteration. */
-        std::make_pair(100, 50),  /* 100 vertices, 50 vertices per batch: to check batching works with 2 iterations. */
-        std::make_pair(37, 100), /* 37 vertices, 100 vertices per batch: to check resizing of frames works when having 1
-                                   iteration only. */
-        std::make_pair(342, 100) /* 342 vertices, 100 vertices per batch: to check resizing of frames works when having
-                                    several iterations. There will be only 42 vertices left on the last batch.*/
+        std::make_pair(100, 100), /* 100 vertices, 100 frames per batch: to check batching works with 1 iteration. */
+        std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
+        std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
+                                    iteration only. */
+        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when having
+                                     several iterations. There will be only 42 vertices left on the last batch.*/
         ));
 
-// TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
-//   /*
-//   INDEXES:
-//     CREATE INDEX ON :Node(platformId);
-//     CREATE INDEX ON :Permission;
-//     CREATE INDEX ON :Identity(email);
+TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
+  /*
+  INDEXES:
+    CREATE INDEX ON :Node(platformId);
+    CREATE INDEX ON :Permission;
+    CREATE INDEX ON :Identity(email);
 
-//   QUERY:
-//     MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-//     MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-//     MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//     RETURN *;
+  QUERY:
+    MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
+    MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+    MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+    RETURN *;
 
-//   QUERY PLAN:
-//     Produce {i, n, p}
-//     Expand (p)-[anon1:IS_FOR_IDENTITY]->(i)
-//     ScanAllByLabelPropertyValue (i :Identity {email})
-//     Expand (n)<-[anon3:IS_FOR_NODE]-(p)
-//     ScanAllByLabel (p :Permission)
-//     ScanAllByLabelPropertyValue (n :Node {platformId})
-//     Once
-//   */
-//   auto label_node = db_v3.NameToLabel("Node");
-//   auto property_node_platformId = db_v3.NameToProperty("platformId");
+  QUERY PLAN:
+    Produce {i, n, p}
+    Expand (p)-[anon1:IS_FOR_IDENTITY]->(i)
+    ScanAllByLabelPropertyValue (i :Identity {email})
+    Expand (n)<-[anon3:IS_FOR_NODE]-(p)
+    ScanAllByLabel (p :Permission)
+    ScanAllByLabelPropertyValue (n :Node {platformId})
+    Once
+  */
+  const auto number_of_frames_per_batch = 1;
+  auto label_node = db_v3.NameToLabel("Node");
+  auto property_node_platformId = db_v3.NameToProperty("platformId");
 
-//   auto label_permission = db_v3.NameToLabel("Permission");
+  auto label_permission = db_v3.NameToLabel("Permission");
 
-//   auto label_identity = db_v3.NameToLabel("Idendity");
-//   auto property_identity_email = db_v3.NameToProperty("email");
+  auto label_identity = db_v3.NameToLabel("Idendity");
+  auto property_identity_email = db_v3.NameToProperty("email");
 
-//   storage::v3::EdgeTypeId edge_is_for_node{db_v3.NameToEdgeType("IS_FOR_NODE")};
-//   storage::v3::EdgeTypeId edge_is_for_identity{db_v3.NameToEdgeType("IS_FOR_IDENTITY")};
+  storage::v3::EdgeTypeId edge_is_for_node{db_v3.NameToEdgeType("IS_FOR_NODE")};
+  storage::v3::EdgeTypeId edge_is_for_identity{db_v3.NameToEdgeType("IS_FOR_IDENTITY")};
 
-//   {  // Inserting data
-//     auto storage_dba = db_v3.Access();
-//     DbAccessor dba(&storage_dba);
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
 
-//     auto property_index = 0;
-//     auto vertex_node = *dba.InsertVertexAndValidate(schema_label, {},
-//                                                     {{schema_property,
-//                                                     storage::v3::PropertyValue(++property_index)}});
-//     ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
-//     ASSERT_TRUE(vertex_node.SetProperty(property_node_platformId,
-//     storage::v3::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ"))
-//                     .HasValue());
+    auto property_index = 0;
+    auto vertex_node = *dba.InsertVertexAndValidate(schema_label, {},
+                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
+    ASSERT_TRUE(vertex_node.SetProperty(property_node_platformId, storage::v3::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ"))
+                    .HasValue());
 
-//     auto vertex_permission = *dba.InsertVertexAndValidate(
-//         schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-//     ASSERT_TRUE(vertex_permission.AddLabel(label_permission).HasValue());
+    auto vertex_permission = *dba.InsertVertexAndValidate(
+        schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    ASSERT_TRUE(vertex_permission.AddLabel(label_permission).HasValue());
 
-//     auto edge_permission_to_node = dba.InsertEdge(&vertex_permission, &vertex_node, edge_is_for_node);
-//     ASSERT_TRUE(edge_permission_to_node.HasValue());
+    auto edge_permission_to_node = dba.InsertEdge(&vertex_permission, &vertex_node, edge_is_for_node);
+    ASSERT_TRUE(edge_permission_to_node.HasValue());
 
-//     auto vertex_identity = *dba.InsertVertexAndValidate(
-//         schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-//     ASSERT_TRUE(vertex_identity.AddLabel(label_identity).HasValue());
-//     ASSERT_TRUE(vertex_identity.SetProperty(property_identity_email,
-//     storage::v3::PropertyValue("rrr@clientdrive.com"))
-//                     .HasValue());
+    auto vertex_identity = *dba.InsertVertexAndValidate(
+        schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+    ASSERT_TRUE(vertex_identity.AddLabel(label_identity).HasValue());
+    ASSERT_TRUE(vertex_identity.SetProperty(property_identity_email, storage::v3::PropertyValue("rrr@clientdrive.com"))
+                    .HasValue());
 
-//     auto edge_permission_to_identity = dba.InsertEdge(&vertex_permission, &vertex_identity, edge_is_for_identity);
-//     ASSERT_TRUE(edge_permission_to_identity.HasValue());
+    auto edge_permission_to_identity = dba.InsertEdge(&vertex_permission, &vertex_identity, edge_is_for_identity);
+    ASSERT_TRUE(edge_permission_to_identity.HasValue());
 
-//     ASSERT_FALSE(dba.Commit().HasError());
-//   }
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
 
-//   // INDEX CREATION
-//   db_v3.CreateIndex(label_node, property_node_platformId);
-//   db_v3.CreateIndex(label_permission);
-//   db_v3.CreateIndex(label_identity, property_identity_email);
+  // INDEX CREATION
+  db_v3.CreateIndex(label_node, property_node_platformId);
+  db_v3.CreateIndex(label_permission);
+  db_v3.CreateIndex(label_identity, property_identity_email);
 
-//   auto storage_dba = db_v3.Access();
-//   DbAccessor dba(&storage_dba);
-//   AstStorage storage;
-//   SymbolTable symbol_table;
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
 
-//   // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//   auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(
-//       storage, symbol_table, "n", label_node, property_node_platformId, "platformId",
-//       LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
+  // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+  auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(
+      storage, symbol_table, "n", label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
 
-//   {
-//     /*
-//     Checking temporary result from:
-//       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//     */
-//     auto output =
-//         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-//     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-//     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-//     auto results = CollectProduce_Distributed(*produce, &context);
-//     ASSERT_EQ(results.size(), 1);
-//   }
+  {
+    /*
+    Checking temporary result from:
+      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+    */
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    ASSERT_EQ(results.size(), 1);
+    // #NoCommit check specific results based on gid
+  }
 
-//   // MATCH (p:Permission)
-//   auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
-//   {
-//     /*
-//     Checking temporary result from:
-//       MATCH (p:Permission)
-//       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//       RETURN *;
-//     */
-//     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
-//     auto output_p =
-//         NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
-//     auto produce = MakeProduce_Distributed(scan_all_2.op_, output_n, output_p);
-//     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-//     auto results = CollectProduce_Distributed(*produce, &context);
-//     ASSERT_EQ(results.size(), 1);
-//     ASSERT_EQ(results[0].size(), 2);
-//   }
+  // MATCH (p:Permission)
+  auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
+  {
+    /*
+    Checking temporary result from:
+      MATCH (p:Permission)
+      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+      RETURN *;
+    */
+    auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto output_p =
+        NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+    auto produce = MakeProduce_Distributed(scan_all_2.op_, output_n, output_p);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 2);
+    // #NoCommit check specific results based on gid
+  }
 
-//   // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-//   auto expand_1 =
-//       MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
-//                              {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
-//   {
-//     /*
-//     Checking temporary result from:
-//       MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-//       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//       RETURN *;
-//     */
-//     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
-//     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-//     auto produce = MakeProduce_Distributed(expand_1.op_, output_n, output_p);
-//     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-//     auto results = CollectProduce_Distributed(*produce, &context);
-//     ASSERT_EQ(results.size(), 1);
-//     ASSERT_EQ(results[0].size(), 2);
-//   }
+  // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+  auto expand_1 =
+      MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
+                             {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  {
+    /*
+    Checking temporary result from:
+      MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+      RETURN *;
+    */
+    auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto produce = MakeProduce_Distributed(expand_1.op_, output_n, output_p);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 2);
+    // #NoCommit check specific results based on gid
+  }
 
-//   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-//   auto scan_all_3 =
-//       MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "i", label_identity,
-//       property_identity_email,
-//                                                   "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
+  // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
+  auto scan_all_3 =
+      MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "i", label_identity, property_identity_email,
+                                                  "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
 
-//   {
-//     /*
-//     Checking temporary result from:
-//       MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-//       MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-//       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//       RETURN *;
-//     */
-//     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
-//     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-//     auto output_i = NEXPR("i", IDENT("i")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("i", true));
+  {
+    /*
+    Checking temporary result from:
+      MATCH (i:Identity {email: 'rrr@clientdrive.com'})
+      MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+      RETURN *;
+    */
+    auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto output_i = NEXPR("i", IDENT("i")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("i", true));
 
-//     auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
-//     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-//     auto results = CollectProduce_Distributed(*produce, &context);
-//     ASSERT_EQ(results.size(), 1);
-//     ASSERT_EQ(results[0].size(), 3);
-//   }
+    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 3);
+    // #NoCommit check specific results based on gid
+  }
 
-//   // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-//   auto expand_2 =
-//       MakeExpand_Distributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
-//                              {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
-//   {
-//     /*
-//     Checking temporary result from:
-//       MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-//       MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-//       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-//       RETURN *;
-//     */
-//     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
-//     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-//     auto output_i = NEXPR("i", IDENT("i")->MapTo(expand_2.node_sym_))->MapTo(symbol_table.CreateSymbol("i", true));
-//     auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
-//     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-//     auto results = CollectProduce_Distributed(*produce, &context);
-//     ASSERT_EQ(results.size(), 1);
-//     ASSERT_EQ(results[0].size(), 3);
-//   }
-// }
+  // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
+  auto expand_2 =
+      MakeExpand_Distributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
+                             {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  {
+    /*
+    Checking temporary result from:
+      MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
+      MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+      RETURN *;
+    */
+    auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
+    auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
+    auto output_i = NEXPR("i", IDENT("i")->MapTo(expand_2.node_sym_))->MapTo(symbol_table.CreateSymbol("i", true));
+    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    ASSERT_EQ(results.size(), 1);
+    ASSERT_EQ(results[0].size(), 3);
+    // #NoCommit check specific results based on gid
+  }
+}
+
+// #NoCommit + test with more batch ?
 }  // namespace memgraph::query::v2::tests

@@ -302,7 +302,7 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
-ExpandTuple_distributed MakeExpand_distributed(AstStorage &storage, SymbolTable &symbol_table,
+ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
                                                std::shared_ptr<distributed::LogicalOperator> input, Symbol input_symbol,
                                                const std::string &edge_identifier, EdgeAtom::Direction direction,
                                                const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
