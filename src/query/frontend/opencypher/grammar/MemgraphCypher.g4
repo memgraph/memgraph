@@ -47,7 +47,6 @@ memgraphCypherKeyword : cypherKeyword
                       | DROP
                       | DUMP
                       | EDGE_TYPES
-                      | EDIT
                       | EXECUTE
                       | FOR
                       | FOREACH
