@@ -11,18 +11,6 @@
 
 #include "query/v2/plan/operator_distributed.hpp"
 
-#include <algorithm>
-#include <cstdint>
-#include <limits>
-#include <queue>
-#include <random>
-#include <string>
-#include <tuple>
-#include <type_traits>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-
 #include "query/v2/interpret/eval.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "utils/event_counter.hpp"
