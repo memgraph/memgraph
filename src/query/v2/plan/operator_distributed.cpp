@@ -46,6 +46,23 @@ extern const Event ProduceOperator;
 
 namespace memgraph::query::v2::plan::distributed {
 
+template <class TCursor, class... TArgs>
+std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator,
+                                                                           TArgs &&...args) {
+  auto *ptr = allocator.allocate(1);
+  try {
+    auto *cursor = new (ptr) TCursor(std::forward<TArgs>(args)...);
+    return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, [allocator](Cursor *base_ptr) mutable {
+      auto *p = static_cast<TCursor *>(base_ptr);
+      p->~TCursor();
+      allocator.deallocate(p, 1);
+    });
+  } catch (...) {
+    allocator.deallocate(ptr, 1);
+    throw;
+  }
+}
+
 namespace {
 
 template <typename T>
