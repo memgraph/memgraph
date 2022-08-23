@@ -143,6 +143,12 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
+void ResizeFrames(Frames &frames, int last_filled_frame) {
+  MG_ASSERT(last_filled_frame >= 0);
+  MG_ASSERT(frames.size() > last_filled_frame);
+
+  frames.resize(last_filled_frame + 1);
+}
 }  // namespace
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
@@ -202,10 +208,12 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
+    auto last_filled_frame = 0;
     for (auto idx = 0; idx < frames.size(); ++idx) {
       auto &frame = *frames[idx];
       frame[output_symbol_] = *vertices_it_.value();
       ++vertices_it_.value();
+      last_filled_frame = idx;
 
       if (vertices_it_.value() == vertices_.value().end() && idx < frames.size() - 1) {
         /*
@@ -213,10 +221,11 @@ class ScanAllCursor : public Cursor {
         If 'idx < frames.size() - 1' means we do not have enough vertices to fill all frames and that we are at the last
         batch. In that case, we can simply reduce the number of frames.
         */
-        frames.resize(++idx);
         break;
       }
     }
+
+    ResizeFrames(frames, last_filled_frame);
 
     return true;
   }
@@ -444,6 +453,8 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
     }
   };
 
+  in_out_edges_and_iterators_.clear();
+
   while (true) {
     if (MustAbort(context)) {
       throw HintedAbortError();
@@ -492,7 +503,6 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
 
     // If we are here, either the edges have not been initialized,
     // or they have been exhausted. Attempt to initialize the edges.
-    in_out_edges_and_iterators_.clear();
     if (!InitEdges(frames, context)) {
       return false;
     };
@@ -509,6 +519,7 @@ void Expand::ExpandCursor::Reset() {
 }
 
 bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) {
+  in_out_edges_and_iterators_.clear();
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
   while (true) {
@@ -516,6 +527,7 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
       return false;
     }
 
+    auto last_filled_frame = 0;
     for (auto idx = 0; idx < frames.size(); ++idx) {
       auto &frame = *frames[idx];
       TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -542,13 +554,17 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
           TypedValue &existing_node = frame[self_.common_.node_symbol];
           // old_node_value may be Null when using optional matching
           if (!existing_node.IsNull()) {
+            // #NoCommit not ok yet, because self_.common_.existing_node is true doesn't mean we get the node from every
+            // frame does it?
             ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
             in_out_edges_and_iterators.in_edges_.emplace(
                 UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+            last_filled_frame = idx;
           }
         } else {
           in_out_edges_and_iterators.in_edges_.emplace(
               UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+          last_filled_frame = idx;
         }
         if (in_out_edges_and_iterators.in_edges_) {
           in_out_edges_and_iterators.in_edges_it_.emplace(in_out_edges_and_iterators.in_edges_->begin());
@@ -563,16 +579,20 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
             ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
             in_out_edges_and_iterators.out_edges_.emplace(
                 UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
+            last_filled_frame = idx;
           }
         } else {
           in_out_edges_and_iterators.out_edges_.emplace(
               UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+          last_filled_frame = idx;
         }
         if (in_out_edges_and_iterators.out_edges_) {
           in_out_edges_and_iterators.out_edges_it_.emplace(in_out_edges_and_iterators.out_edges_->begin());
         }
       }
     }
+
+    ResizeFrames(frames, last_filled_frame);
 
     return true;
   }
