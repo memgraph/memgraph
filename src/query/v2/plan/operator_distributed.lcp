@@ -14,30 +14,12 @@
 
 #pragma once
 
-#include <memory>
-#include <optional>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
-#include <variant>
-#include <vector>
-
 #include "query/v2/common.hpp"
-#include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
-#include "query/v2/typed_value.hpp"
-#include "storage/v3/id_types.hpp"
-#include "utils/bound.hpp"
-#include "utils/fnv.hpp"
-#include "utils/memory.hpp"
-#include "utils/visitor.hpp"
-#include "utils/logging.hpp"
 cpp<#
 
 (lcp:namespace memgraph)
 (lcp:namespace query)
 (lcp:namespace v2)
-
 #>cpp
 struct ExecutionContext;
 class ExpressionEvaluator;
@@ -45,6 +27,13 @@ class Frame;
 class SymbolTable;
 cpp<#
 
+(lcp:pop-namespace) ;; v2
+(lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; memgraph
+
+(lcp:namespace memgraph)
+(lcp:namespace query)
+(lcp:namespace v2)
 (lcp:namespace plan)
 (lcp:namespace distributed)
 
@@ -102,49 +91,15 @@ std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(
 }
 
 class Once;
-class CreateNode;
-class CreateExpand;
 class ScanAll;
 class ScanAllByLabel;
-class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
-class ScanAllByLabelProperty;
 class ScanAllById;
 class Expand;
-class ExpandVariable;
-class ConstructNamedPath;
-class Filter;
 class Produce;
-class Delete;
-class SetProperty;
-class SetProperties;
-class SetLabels;
-class RemoveProperty;
-class RemoveLabels;
-class EdgeUniquenessFilter;
-class Accumulate;
-class Aggregate;
-class Skip;
-class Limit;
-class OrderBy;
-class Merge;
-class Optional;
-class Unwind;
-class Distinct;
-class Union;
-class Cartesian;
-class CallProcedure;
-class LoadCsv;
-class Foreach;
 
-using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
-    ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById,
-    Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-    Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach>;
+using LogicalOperatorCompositeVisitor =
+    utils::CompositeVisitor<Once, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyValue, ScanAllById, Expand, Produce>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
