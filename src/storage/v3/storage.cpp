@@ -41,6 +41,7 @@
 #include "storage/v3/replication/replication_client.hpp"
 #include "storage/v3/replication/replication_server.hpp"
 #include "storage/v3/replication/rpc.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -64,76 +65,39 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
-void InsertVertexPKIntoMap(auto &container, const LabelId primary_label, const PrimaryKey &primary_key) {
-  if (container.contains(primary_label)) {
-    container[primary_label].push_back(primary_key);
-  } else {
-    container[primary_label] = {primary_key};
-  }
-}
+void InsertVertexPKIntoList(auto &container, const PrimaryKey &primary_key) { container.push_back(primary_key); }
 }  // namespace
 
-std::optional<VerticesSkipList::Iterator> AdvanceToVisibleVertex(
-    VerticesSkipList::Iterator it, VerticesSkipList::Iterator end, std::optional<VertexAccessor> *vertex,
-    Transaction *tx, View view, Indices *indices, Constraints *constraints, Config::Items config,
-    const SchemaValidator &schema_validator, const Schemas &schemas) {
+auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
+                            std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
+                            Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
+                            const Schemas &schemas) {
   while (it != end) {
     *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, schema_validator, schemas, view);
     if (!*vertex) {
       ++it;
       continue;
     }
-    return it;
+    break;
   }
-  return std::nullopt;
+  return it;
 }
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it)
-    : self_(self), labels_it_{labelspace_it} {
-  if (labels_it_ != self_->labelspace_->end()) {
-    self_->vertex_accessor.emplace(labelspace_it->second.access());
-    vertex_it_ = AdvanceToVisibleVertex(self_->vertex_accessor->begin(), self_->vertex_accessor->end(), &self_->vertex_,
-                                        self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
-                                        self_->config_, *self_->schema_validator_, *self_->schemas_);
-    if (vertex_it_ == std::nullopt) {
-      end_ = true;
-    }
-  }
-}
-
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, bool end)
-    : self_(self), labels_it_{labelspace_it}, end_{end} {}
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
+    : self_(self),
+      it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
+                                 self->indices_, self_->constraints_, self->config_, *self_->schema_validator_,
+                                 *self_->schemas_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  while (labels_it_ != self_->labelspace_->end() && vertex_it_) {
-    ++*vertex_it_;
-    if (*vertex_it_ != self_->vertex_accessor->end()) {
-      vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
-                                          self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
-                                          self_->config_, *self_->schema_validator_, *self_->schemas_);
-      if (vertex_it_) {
-        return *this;
-      }
-    }
-    ++labels_it_;
-    if (labels_it_ != self_->labelspace_->end()) {
-      self_->vertex_accessor.emplace(labels_it_->second.access());
-      vertex_it_.emplace(self_->vertex_accessor->begin());
-      vertex_it_ = AdvanceToVisibleVertex(*vertex_it_, self_->vertex_accessor->end(), &self_->vertex_,
-                                          self_->transaction_, self_->view_, self_->indices_, self_->constraints_,
-                                          self_->config_, *self_->schema_validator_, *self_->schemas_);
-      return *this;
-    }
-  }
-  end_ = true;
+  ++it_;
+  it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
+                               self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_,
+                               *self_->schemas_);
   return *this;
 }
-
-AllVerticesIterable::Iterator AllVerticesIterable::begin() noexcept { return {this, labelspace_->begin()}; }
-
-AllVerticesIterable::Iterator AllVerticesIterable::end() noexcept { return {this, labelspace_->end(), true}; }
 
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
   new (&all_vertices_) AllVerticesIterable(std::move(vertices));
@@ -527,11 +491,6 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  // TODO(jbajic) Maybe ensure that skip list always exists on schema creation
-  if (!storage_->labelspace.contains(primary_label)) {
-    storage_->labelspace[primary_label] = VerticesSkipList{};
-  }
-
   // Extract key properties
   std::vector<PropertyValue> primary_properties;
   for (const auto &[property_id, property_value] : properties) {
@@ -548,7 +507,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     }
   }
 
-  auto acc = storage_->labelspace[primary_label].access();
+  auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -565,10 +524,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primary_label,
                                                             std::vector<PropertyValue> primary_key, View view) {
-  if (!storage_->labelspace.contains(primary_label)) {
-    return std::nullopt;
-  }
-  auto acc = storage_->labelspace[primary_label].access();
+  auto acc = storage_->vertices_.access();
   // Later on use label space
   auto it = acc.find(primary_key);
   if (it == acc.end()) {
@@ -1025,7 +981,7 @@ void Storage::Accessor::Abort() {
   // We collect vertices and edges we've created here and then splice them into
   // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
   // by one and acquiring lock every time.
-  std::map<LabelId, std::list<PrimaryKey>> my_deleted_vertices;
+  std::list<PrimaryKey> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
   for (const auto &delta : transaction_.deltas) {
@@ -1101,7 +1057,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              InsertVertexPKIntoMap(my_deleted_vertices, vertex->primary_label, vertex->keys.Keys());
+              InsertVertexPKIntoList(my_deleted_vertices, vertex->keys.Keys());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1175,16 +1131,8 @@ void Storage::Accessor::Abort() {
       engine_guard.unlock();
       garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas));
     });
-    storage_->deleted_vertices_.WithLock([&](auto &deleted_vertices) {
-      // Go over each of labels in
-      for (auto &[primary_label, my_deleted_vertices_pk] : my_deleted_vertices) {
-        if (deleted_vertices.contains(primary_label)) {
-          deleted_vertices[primary_label].splice(deleted_vertices[primary_label].begin(), my_deleted_vertices_pk);
-        } else {
-          deleted_vertices[primary_label] = {my_deleted_vertices_pk};
-        }
-      }
-    });
+    storage_->deleted_vertices_.WithLock(
+        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.begin(), my_deleted_vertices); });
     storage_->deleted_edges_.WithLock(
         [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.begin(), my_deleted_edges); });
   }
@@ -1225,7 +1173,6 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
 bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
   // TODO Fix Index
-  // if (!indices_.label_index.CreateIndex(label, labelspace.access())) return false;
   return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
@@ -1352,11 +1299,11 @@ bool Storage::CreateSchema(const LabelId primary_label, const std::vector<Schema
 bool Storage::DropSchema(const LabelId primary_label) { return schemas_.DropSchema(primary_label); }
 
 StorageInfo Storage::GetInfo() const {
-  auto vertex_count = labelspace.size();
+  auto vertex_count = vertices_.size();
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
-    average_degree = 2.0 * static_cast<double>(edge_count) / static_cast<double>(vertex_count);
+    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
   }
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};
@@ -1456,7 +1403,7 @@ void Storage::CollectGarbage() {
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
-  std::map<LabelId, std::list<PrimaryKey>> current_deleted_vertices;
+  std::list<PrimaryKey> current_deleted_vertices;
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
@@ -1528,7 +1475,7 @@ void Storage::CollectGarbage() {
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              InsertVertexPKIntoMap(current_deleted_vertices, vertex->primary_label, vertex->keys.Keys());
+              InsertVertexPKIntoList(current_deleted_vertices, vertex->keys.Keys());
             }
             break;
           }
@@ -1624,13 +1571,8 @@ void Storage::CollectGarbage() {
       }
       garbage_undo_buffers.splice(garbage_undo_buffers.end(), unlinked_undo_buffers);
     });
-    for (auto &[primary_label, primary_keys] : current_deleted_vertices) {
-      if (!garbage_vertices_.contains(primary_label)) {
-        garbage_vertices_[primary_label] = {};
-      }
-      for (auto &pk : primary_keys) {
-        garbage_vertices_[primary_label].emplace_back(mark_timestamp, pk);
-      }
+    for (auto vertex : current_deleted_vertices) {
+      garbage_vertices_.emplace_back(mark_timestamp, vertex);
     }
   }
 
@@ -1647,32 +1589,18 @@ void Storage::CollectGarbage() {
   });
 
   {
-    for (auto &[primary_label, vertices] : labelspace) {
-      auto vertex_acc = vertices.access();
-      if constexpr (force) {
-        // if force is set to true, then we have unique_lock and no transactions are active
-        // so we can clean all of the deleted vertices
-        while (!garbage_vertices_.empty()) {
-          // TODO Get back on the strategy of cleaning
-          for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
-            if (!timestamped_primary_keys.empty() && primary_label == garbage_primary_label) {
-              MG_ASSERT(vertex_acc.remove(timestamped_primary_keys.front().second), "Invalid database state!");
-              timestamped_primary_keys.pop_front();
-            }
-          }
-          garbage_vertices_.clear();
-        }
-      } else {
-        while (!garbage_vertices_.empty()) {
-          for (auto &[garbage_primary_label, timestamped_primary_keys] : garbage_vertices_) {
-            if (!timestamped_primary_keys.empty() && primary_label == garbage_primary_label &&
-                timestamped_primary_keys.front().first < oldest_active_start_timestamp) {
-              MG_ASSERT(vertex_acc.remove(timestamped_primary_keys.front().second), "Invalid database state!");
-              timestamped_primary_keys.pop_front();
-            }
-          }
-          garbage_vertices_.clear();
-        }
+    auto vertex_acc = vertices_.access();
+    if constexpr (force) {
+      // if force is set to true, then we have unique_lock and no transactions are active
+      // so we can clean all of the deleted vertices
+      while (!garbage_vertices_.empty()) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
+      }
+    } else {
+      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+        garbage_vertices_.pop_front();
       }
     }
   }
@@ -1961,9 +1889,7 @@ void Storage::FreeMemory() {
   CollectGarbage<true>();
 
   // SkipList is already threadsafe
-  for (auto &[primary_label, labeled_vertices] : labelspace) {
-    labeled_vertices.run_gc();
-  }
+  vertices_.run_gc();
   edges_.run_gc();
   indices_.label_index.RunGC();
   indices_.label_property_index.RunGC();

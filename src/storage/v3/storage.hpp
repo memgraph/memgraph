@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <numeric>
@@ -62,8 +63,6 @@
 
 namespace memgraph::storage::v3 {
 
-using Labelspace = std::map<LabelId, VerticesSkipList>;
-
 // The storage is based on this paper:
 // https://db.in.tum.de/~muehlbau/papers/mvcc.pdf
 // The paper implements a fully serializable storage, in our implementation we
@@ -74,8 +73,7 @@ using Labelspace = std::map<LabelId, VerticesSkipList>;
 /// An instance of this will be usually be wrapped inside VerticesIterable for
 /// generic, public use.
 class AllVerticesIterable final {
-  Labelspace *labelspace_;
-  std::optional<VerticesSkipList::Accessor> vertex_accessor;
+  VerticesSkipList::Accessor vertices_accessor_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -88,33 +86,24 @@ class AllVerticesIterable final {
  public:
   class Iterator final {
     AllVerticesIterable *self_;
-
-    Labelspace::iterator labels_it_;
+    VerticesSkipList::Iterator it_;
 
    public:
-    std::optional<VerticesSkipList::Iterator> vertex_it_;
-    bool end_{false};
-
-    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it);
-
-    Iterator(AllVerticesIterable *self, Labelspace::iterator labelspace_it, bool end);
+    Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it);
 
     VertexAccessor operator*() const;
 
     Iterator &operator++();
 
-    bool operator==(const Iterator &other) const {
-      return (self_ == other.self_ && labels_it_ == other.labels_it_ && vertex_it_ == other.vertex_it_) ||
-             (end_ == other.end_ && self_ == other.self_);
-    }
+    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
 
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(Labelspace &labelspace, Transaction *transaction, View view, Indices *indices,
-                      Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator,
-                      const Schemas &schemas)
-      : labelspace_(&labelspace),
+  AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
+                      Indices *indices, Constraints *constraints, Config::Items config,
+                      const SchemaValidator &schema_validator, const Schemas &schemas)
+      : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
@@ -123,9 +112,8 @@ class AllVerticesIterable final {
         schema_validator_{&schema_validator},
         schemas_{&schemas} {}
 
-  Iterator begin() noexcept;
-
-  Iterator end() noexcept;
+  Iterator begin() { return {this, vertices_accessor_.begin()}; }
+  Iterator end() { return {this, vertices_accessor_.end()}; }
 };
 
 /// Generic access to different kinds of vertex iterations.
@@ -252,8 +240,8 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(LabelId primary_label, std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(storage_->labelspace, &transaction_, view, &storage_->indices_,
-                                                  &storage_->constraints_, storage_->config_.items,
+      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
+                                                  &storage_->indices_, &storage_->constraints_, storage_->config_.items,
                                                   storage_->schema_validator_, storage_->schemas_));
     }
 
@@ -269,11 +257,7 @@ class Storage final {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const {
-      return std::accumulate(
-          storage_->labelspace.begin(), storage_->labelspace.end(), 0,
-          [](size_t sum, const auto &labelled_vertices) { return sum + labelled_vertices.second.size(); });
-    }
+    int64_t ApproximateVertexCount() const { return static_cast<int64_t>(storage_->vertices_.size()); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
@@ -536,7 +520,7 @@ class Storage final {
   mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
 
   // Main object storage
-  Labelspace labelspace;
+  VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
@@ -573,11 +557,11 @@ class Storage final {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::map<LabelId, std::list<PrimaryKey>>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<std::list<PrimaryKey>, utils::SpinLock> deleted_vertices_;
 
   // Vertices that are logically deleted and removed from indices and now wait
   // to be removed from the main storage.
-  std::map<LabelId, std::list<std::pair<uint64_t, PrimaryKey>>> garbage_vertices_;
+  std::list<std::pair<uint64_t, PrimaryKey>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.

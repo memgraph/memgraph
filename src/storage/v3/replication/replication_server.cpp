@@ -159,7 +159,7 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
 
   std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
-  storage_->labelspace.clear();
+  storage_->vertices_.clear();
   storage_->edges_.clear();
 
   storage_->constraints_ = Constraints();
