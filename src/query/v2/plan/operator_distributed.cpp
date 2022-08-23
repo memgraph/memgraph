@@ -459,16 +459,14 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
 
     auto at_least_one_result = false;
     auto last_idx_of_frame_with_vertex = 0;
-    for (auto idx = 0; idx < std::min(frames.size(), in_out_edges_and_iterators_.size());
-         ++idx) {  // #NoCommit min between frames + in_out_edges_and_iterators_?
+    for (auto idx = 0; idx < std::min(frames.size(), in_out_edges_and_iterators_.size()); ++idx) {
       MG_ASSERT(idx < in_out_edges_and_iterators_.size());
-      auto &first =
-          in_out_edges_and_iterators_[idx];  // #NoCommit of course changte this; this will only work for single frame
-      auto &frame = *frames[idx];            // #NoCommit impl
+      auto &it = in_out_edges_and_iterators_[idx];
+      auto &frame = *frames[idx];
 
       // attempt to get a value from the incoming edges
-      if (!in_out_edges_and_iterators_.empty() && first->in_edges_ && *first->in_edges_it_ != first->in_edges_->end()) {
-        auto edge = *(*first->in_edges_it_)++;
+      if (!in_out_edges_and_iterators_.empty() && it->in_edges_ && *it->in_edges_it_ != it->in_edges_->end()) {
+        auto edge = *(*it->in_edges_it_)++;
         frame[self_.common_.edge_symbol] = edge;
         pull_node_from_edge(edge, EdgeAtom::Direction::IN, frame);
         at_least_one_result = true;
@@ -476,9 +474,8 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
       }
 
       // attempt to get a value from the outgoing edges
-      if (!in_out_edges_and_iterators_.empty() && first->out_edges_ &&
-          *first->out_edges_it_ != first->out_edges_->end()) {
-        auto edge = *(*first->out_edges_it_)++;
+      if (!in_out_edges_and_iterators_.empty() && it->out_edges_ && *it->out_edges_it_ != it->out_edges_->end()) {
+        auto edge = *(*it->out_edges_it_)++;
         // when expanding in EdgeAtom::Direction::BOTH directions
         // we should do only one expansion for cycles, and it was
         // already done in the block above
@@ -529,9 +526,8 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
       TypedValue &vertex_value = frame[self_.input_symbol_];
       // Null check due to possible failed optional match.
       if (vertex_value.IsNull()) {
+        in_out_edges_and_iterators_.emplace_back(std::nullopt);
         continue;
-        //#NoCommit add nullopt? in case they are all IsNull, probably we want to clear in_out_edges_and_iterators_ and
-        // continue with another pull
       }
       in_out_edges_and_iterators_.emplace_back(InOutEdgesAndIterators{});
       auto &in_out_edges_and_iterators = *in_out_edges_and_iterators_.back();
