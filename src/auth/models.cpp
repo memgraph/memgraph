@@ -209,7 +209,7 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
     : permissions_(permissions), global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
-                                                  const FineGrainedPermission label_permission) const {
+                                                  const FineGrainedPermission fine_grained_permission) const {
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
     if (permissions_.contains(permission)) {
       return permissions_.at(permission);
@@ -222,16 +222,17 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
     return 0;
   });
 
-  const auto temp_permission = concrete_permission & label_permission;
+  const auto temp_permission = concrete_permission & fine_grained_permission;
 
   return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission, const FineGrainedPermission label_permission) {
+void FineGrainedAccessPermissions::Grant(const std::string &permission,
+                                         const FineGrainedPermission fine_grained_permission) {
   if (permission == kAsterisk) {
-    global_permission_ = CalculateGrant(label_permission);
+    global_permission_ = CalculateGrant(fine_grained_permission);
   } else {
-    permissions_[permission] |= CalculateGrant(label_permission);
+    permissions_[permission] |= CalculateGrant(fine_grained_permission);
   }
 }
 
@@ -244,11 +245,12 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   }
 }
 
-void FineGrainedAccessPermissions::Deny(const std::string &permission, const FineGrainedPermission label_permission) {
+void FineGrainedAccessPermissions::Deny(const std::string &permission,
+                                        const FineGrainedPermission fine_grained_permission) {
   if (permission == kAsterisk) {
-    global_permission_ = CalculateDeny(label_permission);
+    global_permission_ = CalculateDeny(fine_grained_permission);
   } else {
-    permissions_[permission] = CalculateDeny(label_permission);
+    permissions_[permission] = CalculateDeny(fine_grained_permission);
   }
 }
 

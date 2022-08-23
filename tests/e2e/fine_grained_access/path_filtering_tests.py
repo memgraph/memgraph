@@ -6,6 +6,8 @@ import pytest
 def test_weighted_shortest_path_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
@@ -24,6 +26,8 @@ def test_weighted_shortest_path_all_edge_types_all_labels_granted():
 def test_weighted_shortest_path_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
@@ -37,6 +41,8 @@ def test_weighted_shortest_path_all_edge_types_all_labels_denied():
 def test_weighted_shortest_path_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
     )
@@ -54,6 +60,8 @@ def test_weighted_shortest_path_denied_start():
 def test_weighted_shortest_path_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
     )
@@ -71,6 +79,8 @@ def test_weighted_shortest_path_denied_destination():
 def test_weighted_shortest_path_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
@@ -92,6 +102,8 @@ def test_weighted_shortest_path_denied_label_1():
 def test_weighted_shortest_path_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
@@ -113,6 +125,8 @@ def test_weighted_shortest_path_denied_edge_type_3():
 def test_dfs_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
@@ -126,6 +140,8 @@ def test_dfs_all_edge_types_all_labels_granted():
 def test_dfs_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
@@ -137,6 +153,8 @@ def test_dfs_all_edge_types_all_labels_denied():
 def test_dfs_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
     )
@@ -153,6 +171,8 @@ def test_dfs_denied_start():
 def test_dfs_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
     )
@@ -169,6 +189,8 @@ def test_dfs_denied_destination():
 def test_dfs_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
@@ -185,6 +207,9 @@ def test_dfs_denied_label_1():
 def test_dfs_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
+
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
@@ -202,6 +227,8 @@ def test_dfs_denied_edge_type_3():
 def test_bfs_sts_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
@@ -215,6 +242,8 @@ def test_bfs_sts_all_edge_types_all_labels_granted():
 def test_bfs_sts_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
@@ -228,6 +257,8 @@ def test_bfs_sts_all_edge_types_all_labels_denied():
 def test_bfs_sts_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
     )
@@ -244,6 +275,8 @@ def test_bfs_sts_denied_start():
 def test_bfs_sts_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
     )
@@ -260,6 +293,8 @@ def test_bfs_sts_denied_destination():
 def test_bfs_sts_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
@@ -276,6 +311,8 @@ def test_bfs_sts_denied_label_1():
 def test_bfs_sts_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
@@ -293,6 +330,8 @@ def test_bfs_sts_denied_edge_type_3():
 def test_bfs_single_source_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
@@ -306,6 +345,8 @@ def test_bfs_single_source_all_edge_types_all_labels_granted():
 def test_bfs_single_source_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
@@ -317,6 +358,8 @@ def test_bfs_single_source_all_edge_types_all_labels_denied():
 def test_bfs_single_source_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
     )
@@ -333,6 +376,8 @@ def test_bfs_single_source_denied_start():
 def test_bfs_single_source_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
     )
@@ -349,6 +394,8 @@ def test_bfs_single_source_denied_destination():
 def test_bfs_single_source_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
     )
@@ -365,6 +412,8 @@ def test_bfs_single_source_denied_label_1():
 def test_bfs_single_source_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE EDGE_TYPES * FROM user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
