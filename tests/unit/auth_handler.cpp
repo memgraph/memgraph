@@ -337,7 +337,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "EDIT");
+  ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
@@ -424,7 +424,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "EDIT");
+  ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -512,7 +512,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "EDIT");
+  ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -600,7 +600,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "EDIT");
+  ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -694,7 +694,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedEditThenOneIsDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
   read_permission.Deny(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
