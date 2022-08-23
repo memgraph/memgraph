@@ -24,7 +24,7 @@
 
 #include "io/address.hpp"
 #include "io/errors.hpp"
-#include "io/simulator/message_conversion.hpp"
+#include "io/message_conversion.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
