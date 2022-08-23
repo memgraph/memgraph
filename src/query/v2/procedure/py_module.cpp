@@ -336,6 +336,7 @@ PyObject *PyGraphCreateVertex(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   MG_ASSERT(self->memory);
   MgpUniquePtr<mgp_vertex> new_vertex{nullptr, mgp_vertex_destroy};
+  // TODO(jbajic) Fix query module
   // if (RaiseExceptionFromErrorCode(CreateMgpObject(new_vertex, mgp_graph_create_vertex, self->graph, self->memory))) {
   //   return nullptr;
   // }

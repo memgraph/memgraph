@@ -23,12 +23,6 @@ namespace memgraph::storage::v3 {
 // Primary key is a collection of primary properties.
 using PrimaryKey = std::vector<PropertyValue>;
 
-// Primary identifier is a pair of primary label and a collection of primary
-// properties.
-// TODO PrimaryIdentifier should not be here, move this when introducing
-// LabelSpace
-using LabeledPrimaryKey = std::pair<LabelId, PrimaryKey>;
-
 class KeyStore {
  public:
   explicit KeyStore(const PrimaryKey &key_values);
