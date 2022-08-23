@@ -404,6 +404,7 @@ INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
         std::make_pair(1, 1),     /* 1 vertex, 1 vertex per batch: simple case. */
+        std::make_pair(2, 1),     /* 2 vertices, 2 vertex per batch: simple case. */
         std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
         std::make_pair(4, 2),     /* 4 vertices, 2 vertices per batch. */
         std::make_pair(100, 1),   /* 100 vertices, 1 vertex per batch: to check previous
