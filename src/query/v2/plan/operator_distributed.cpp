@@ -75,67 +75,17 @@
 
 namespace EventCounter {
 extern const Event OnceOperator;
-extern const Event CreateExpandOperator;
 extern const Event ScanAllOperator;
 extern const Event ScanAllByLabelOperator;
-extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
-extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
-extern const Event ExpandVariableOperator;
-extern const Event ConstructNamedPathOperator;
-extern const Event FilterOperator;
 extern const Event ProduceOperator;
-extern const Event DeleteOperator;
-extern const Event SetPropertyOperator;
-extern const Event SetPropertiesOperator;
-extern const Event SetLabelsOperator;
-extern const Event RemovePropertyOperator;
-extern const Event RemoveLabelsOperator;
-extern const Event EdgeUniquenessFilterOperator;
-extern const Event AccumulateOperator;
-extern const Event AggregateOperator;
-extern const Event SkipOperator;
-extern const Event LimitOperator;
-extern const Event OrderByOperator;
-extern const Event MergeOperator;
-extern const Event OptionalOperator;
-extern const Event UnwindOperator;
-extern const Event DistinctOperator;
-extern const Event UnionOperator;
-extern const Event CartesianOperator;
-extern const Event CallProcedureOperator;
-extern const Event ForeachOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::v2::plan::distributed {
 
 namespace {
-
-// Custom equality function for a vector of typed values.
-// Used in unordered_maps in Aggregate and Distinct operators.
-struct TypedValueVectorEqual {
-  template <class TAllocator>
-  bool operator()(const std::vector<TypedValue, TAllocator> &left,
-                  const std::vector<TypedValue, TAllocator> &right) const {
-    MG_ASSERT(left.size() == right.size(),
-              "TypedValueVector comparison should only be done over vectors "
-              "of the same size");
-    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
-  }
-};
-
-// Returns boolean result of evaluating filter expression. Null is treated as
-// false. Other non boolean values raise a QueryRuntimeException.
-bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
-  TypedValue result = filter->Accept(evaluator);
-  // Null is treated like false.
-  if (result.IsNull()) return false;
-  if (result.type() != TypedValue::Type::Bool)
-    throw QueryRuntimeException("Filter expression must evaluate to bool or null, got {}.", result.type());
-  return result.ValueBool();
-}
 
 template <typename T>
 uint64_t ComputeProfilingKey(const T *obj) {
@@ -582,49 +532,6 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
     // else we want to continue and do an extra pull, there is nothing to conclude from this round
   }
 }
-
-namespace {
-
-/**
- * Helper function that returns an iterable over
- * <EdgeAtom::Direction, EdgeAccessor> pairs
- * for the given params.
- *
- * @param vertex - The vertex to expand from.
- * @param direction - Expansion direction. All directions (IN, OUT, BOTH)
- *    are supported.
- * @param memory - Used to allocate the result.
- * @return See above.
- */
-auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::v3::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
-  // wraps an EdgeAccessor into a pair <accessor, direction>
-  auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
-    return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
-                      std::forward<decltype(edges)>(edges));
-  };
-
-  storage::v3::View view = storage::v3::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
-
-  if (direction != EdgeAtom::Direction::OUT) {
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (edges.begin() != edges.end()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
-    }
-  }
-  if (direction != EdgeAtom::Direction::IN) {
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (edges.begin() != edges.end()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
-    }
-  }
-
-  // TODO: Investigate whether itertools perform heap allocation?
-  return iter::chain.from_iterable(std::move(chain_elements));
-}
-
-}  // namespace
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
