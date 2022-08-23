@@ -1271,17 +1271,6 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   return auth;
 }
 
-void CypherMainVisitor::extractPrivilege(AuthQuery *auth,
-                                         antlropencypher::MemgraphCypher::PrivilegeContext *privilege) {
-  if (privilege->EDGE_TYPES()) {
-    auth->edge_types_ = std::any_cast<std::vector<std::string>>(privilege->edgeTypeList()->accept(this));
-  } else if (privilege->LABELS()) {
-    auth->labels_ = std::any_cast<std::vector<std::string>>(privilege->labelList()->accept(this));
-  } else {
-    auth->privileges_.push_back(std::any_cast<AuthQuery::Privilege>(privilege->accept(this)));
-  }
-}
-
 /**
  * @return AuthQuery*
  */
@@ -1426,22 +1415,6 @@ antlrcpp::Any CypherMainVisitor::visitEntitiesList(MemgraphCypher::EntitiesListC
   }
 
   return entities;
-}
-
-/**
- * @return AuthQuery*
- */
-antlrcpp::Any CypherMainVisitor::visitEdgeTypeList(MemgraphCypher::EdgeTypeListContext *ctx) {
-  std::vector<std::string> edgeTypes;
-  if (ctx->listOfEdgeTypes()) {
-    for (auto *edgeType : ctx->listOfEdgeTypes()->edgeType()) {
-      edgeTypes.push_back(std::any_cast<std::string>(edgeType->symbolicName()->accept(this)));
-    }
-  } else {
-    edgeTypes.emplace_back("*");
-  }
-
-  return edgeTypes;
 }
 
 /**

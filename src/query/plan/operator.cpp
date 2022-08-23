@@ -420,7 +420,8 @@ class ScanAllCursor : public Cursor {
 
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD)) {
+      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
+                                       memgraph::auth::FineGrainedPermission::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -702,8 +703,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
+                                         memgraph::auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -719,8 +722,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
+                                         memgraph::auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -1049,8 +1054,10 @@ class ExpandVariableCursor : public Cursor {
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
 
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, current_edge.first) ||
-           !context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD)))
+          (!context.auth_checker->Accept(*context.db_accessor, current_edge.first,
+                                         memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD,
+                                         memgraph::auth::FineGrainedPermission::READ)))
         continue;
 
       // Check edge-uniqueness.
@@ -1218,15 +1225,18 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD))
+        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                                                  memgraph::auth::FineGrainedPermission::READ))
           continue;
 
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD)))
+                (!context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) ||
+                 !context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                               memgraph::auth::FineGrainedPermission::READ)))
               continue;
 
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
@@ -1247,8 +1257,10 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD)))
+                (!context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) ||
+                 !context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                               memgraph::auth::FineGrainedPermission::READ)))
               continue;
 
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
@@ -1279,15 +1291,18 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD))
+        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                                                  memgraph::auth::FineGrainedPermission::READ))
           continue;
 
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD))) {
+                (!context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) ||
+                 !context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                               memgraph::auth::FineGrainedPermission::READ))) {
               continue;
             }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
@@ -1308,8 +1323,10 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD))) {
+                (!context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) ||
+                 !context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                               memgraph::auth::FineGrainedPermission::READ))) {
               continue;
             }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
@@ -1362,8 +1379,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge)))
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ)))
         return;
 
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1523,8 +1542,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                            int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
 
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge)))
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ)))
         return;
 
       if (self_.filter_lambda_.expression) {

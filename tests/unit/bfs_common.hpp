@@ -485,38 +485,43 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
 
   switch (fine_grained_test_type) {
     case FineGrainedTestType::ALL_GRANTED:
-      user.fine_grained_access_handler().label_permissions().Grant("*");
-      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
       break;
     case FineGrainedTestType::ALL_DENIED:
-      user.fine_grained_access_handler().label_permissions().Deny("*");
-      user.fine_grained_access_handler().edge_type_permissions().Deny("*");
+      user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
       break;
     case FineGrainedTestType::EDGE_TYPE_A_DENIED:
-      user.fine_grained_access_handler().label_permissions().Grant("*");
-      user.fine_grained_access_handler().edge_type_permissions().Grant("b");
-      user.fine_grained_access_handler().edge_type_permissions().Deny("a");
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("b",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("a", memgraph::auth::FineGrainedPermission::READ);
       break;
     case FineGrainedTestType::EDGE_TYPE_B_DENIED:
-      user.fine_grained_access_handler().label_permissions().Grant("*");
-      user.fine_grained_access_handler().edge_type_permissions().Grant("a");
-      user.fine_grained_access_handler().edge_type_permissions().Deny("b");
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("a",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("b", memgraph::auth::FineGrainedPermission::READ);
       break;
     case FineGrainedTestType::LABEL_0_DENIED:
-      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
-      user.fine_grained_access_handler().label_permissions().Grant("1");
-      user.fine_grained_access_handler().label_permissions().Grant("2");
-      user.fine_grained_access_handler().label_permissions().Grant("3");
-      user.fine_grained_access_handler().label_permissions().Grant("4");
-      user.fine_grained_access_handler().label_permissions().Deny("0");
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny("0", memgraph::auth::FineGrainedPermission::READ);
       break;
     case FineGrainedTestType::LABEL_3_DENIED:
-      user.fine_grained_access_handler().edge_type_permissions().Grant("*");
-      user.fine_grained_access_handler().label_permissions().Grant("0");
-      user.fine_grained_access_handler().label_permissions().Grant("1");
-      user.fine_grained_access_handler().label_permissions().Grant("2");
-      user.fine_grained_access_handler().label_permissions().Grant("4");
-      user.fine_grained_access_handler().label_permissions().Deny("3");
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny("3", memgraph::auth::FineGrainedPermission::READ);
       break;
   }
 

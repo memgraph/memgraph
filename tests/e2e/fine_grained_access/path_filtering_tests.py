@@ -6,8 +6,8 @@ import pytest
 def test_weighted_shortest_path_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
@@ -24,8 +24,8 @@ def test_weighted_shortest_path_all_edge_types_all_labels_granted():
 def test_weighted_shortest_path_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
     results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
@@ -37,9 +37,11 @@ def test_weighted_shortest_path_all_edge_types_all_labels_denied():
 def test_weighted_shortest_path_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label0 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label0 TO user;")
 
     path_length_result = common.execute_and_fetch_all(
         user_connnection.cursor(),
@@ -52,9 +54,11 @@ def test_weighted_shortest_path_denied_start():
 def test_weighted_shortest_path_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label1, :label2, :label3 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label4 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label4 TO user;")
 
     path_length_result = common.execute_and_fetch_all(
         user_connnection.cursor(),
@@ -67,9 +71,11 @@ def test_weighted_shortest_path_denied_destination():
 def test_weighted_shortest_path_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "Deny LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
@@ -86,11 +92,11 @@ def test_weighted_shortest_path_denied_label_1():
 def test_weighted_shortest_path_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES :edge_type_3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
@@ -107,8 +113,8 @@ def test_weighted_shortest_path_denied_edge_type_3():
 def test_dfs_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN p;"
@@ -120,8 +126,8 @@ def test_dfs_all_edge_types_all_labels_granted():
 def test_dfs_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH p=(n)-[*]->(m) RETURN p;")
 
@@ -131,9 +137,11 @@ def test_dfs_all_edge_types_all_labels_denied():
 def test_dfs_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label0 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label0 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN p;"
@@ -145,9 +153,11 @@ def test_dfs_denied_start():
 def test_dfs_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label1, :label2, :label3 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label4 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label4 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN p;"
@@ -159,9 +169,11 @@ def test_dfs_denied_destination():
 def test_dfs_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "Deny LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_paths = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN nodes(p);"
     )
@@ -173,11 +185,11 @@ def test_dfs_denied_label_1():
 def test_dfs_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES :edge_type_3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     source_destination_paths = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *]->(m:label4) RETURN r;"
@@ -190,8 +202,8 @@ def test_dfs_denied_edge_type_3():
 def test_bfs_sts_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -203,8 +215,8 @@ def test_bfs_sts_all_edge_types_all_labels_granted():
 def test_bfs_sts_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n)-[r *BFS]->(m) RETURN p;"
@@ -216,9 +228,11 @@ def test_bfs_sts_all_edge_types_all_labels_denied():
 def test_bfs_sts_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label0 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label0 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -230,9 +244,11 @@ def test_bfs_sts_denied_start():
 def test_bfs_sts_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label1, :label2, :label3 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label4 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label4 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -244,9 +260,11 @@ def test_bfs_sts_denied_destination():
 def test_bfs_sts_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "Deny LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
     )
@@ -258,11 +276,11 @@ def test_bfs_sts_denied_label_1():
 def test_bfs_sts_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES :edge_type_3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN r;"
@@ -275,8 +293,8 @@ def test_bfs_sts_denied_edge_type_3():
 def test_bfs_singe_source_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -288,8 +306,8 @@ def test_bfs_singe_source_all_edge_types_all_labels_granted():
 def test_bfs_singe_source_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH p=(n)-[r *BFS]->(m) RETURN p;")
 
@@ -299,9 +317,11 @@ def test_bfs_singe_source_all_edge_types_all_labels_denied():
 def test_bfs_singe_source_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label1, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label0 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label0 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -313,9 +333,11 @@ def test_bfs_singe_source_denied_start():
 def test_bfs_singe_source_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label1, :label2, :label3 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY LABELS :label4 TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label1, :label2, :label3 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label4 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
@@ -327,9 +349,11 @@ def test_bfs_singe_source_denied_destination():
 def test_bfs_singe_source_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS :label0, :label2, :label3, :label4 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "Deny LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(
+        admin_connection.cursor(), "GRANT READ ON LABELS :label0, :label2, :label3, :label4 TO user;"
+    )
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON READ ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
     )
@@ -341,11 +365,11 @@ def test_bfs_singe_source_denied_label_1():
 def test_bfs_singe_source_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(
-        admin_connection.cursor(), "GRANT EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
+        admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edge_type_1, :edge_type_2, :edge_type_4 TO user;"
     )
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY EDGE_TYPES :edge_type_3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
         user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN r;"
