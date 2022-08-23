@@ -288,7 +288,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::READ);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -316,8 +316,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::EDIT);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -345,9 +345,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::EDIT);
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::CREATE_DELETE);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::UPDATE);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -375,7 +375,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -403,8 +403,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::EDIT);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -432,9 +432,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::EDIT);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::CREATE_DELETE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -463,7 +463,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
 // EDGE_TYPES
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -491,8 +491,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::EDIT);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -520,9 +520,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::EDIT);
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::CREATE_DELETE);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -550,7 +550,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -578,8 +578,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::EDIT);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -608,9 +608,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant("*", memgraph::auth::LabelPermission::READ);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::EDIT);
-  read_permission.Grant("*", memgraph::auth::LabelPermission::CREATE_DELETE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -638,8 +638,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(label_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Deny(label_repr, memgraph::auth::LabelPermission::READ);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Deny(label_repr, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -667,8 +667,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Deny(edge_type_repr, memgraph::auth::LabelPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Deny(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -696,8 +696,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedEditThenOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::LabelPermission::READ);
-  read_permission.Deny(edge_type_repr, memgraph::auth::LabelPermission::EDIT);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Deny(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},

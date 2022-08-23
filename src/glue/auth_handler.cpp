@@ -24,7 +24,7 @@ struct PermissionForPrivilegeResult {
 
 struct FineGrainedPermissionForPrivilegeResult {
   std::string permission;
-  memgraph::auth::LabelPermission permission_level;
+  memgraph::auth::FineGrainedPermission permission_level;
   std::string description;
 };
 
@@ -119,10 +119,10 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
-    const auto &permission_level = memgraph::auth::PermissionToLabelPermission(global_permission.value());
+    const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
     const auto &permission_representation = "ALL " + permission_type + "S";
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::LabelPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
     std::string permission_description;
     permission_description.append("GLOBAL ");
@@ -138,11 +138,11 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
 
   for (const auto &permission : permissions.GetPermissions()) {
     const auto label = permission.first;
-    auto permission_level = memgraph::auth::PermissionToLabelPermission(permission.second);
+    auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission.second);
 
     const auto &permission_representation = permission_type + " :" + permission.first;
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::LabelPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
     std::string permission_description;
     permission_description.append(permission_type);
@@ -164,9 +164,10 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
 
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
-    grants.push_back({memgraph::query::TypedValue(permission.permission),
-                      memgraph::query::TypedValue(memgraph::auth::LabelPermissionToString(permission.permission_level)),
-                      memgraph::query::TypedValue(permission.description)});
+    grants.push_back(
+        {memgraph::query::TypedValue(permission.permission),
+         memgraph::query::TypedValue(memgraph::auth::FineGrainedPermissionToString(permission.permission_level)),
+         memgraph::query::TypedValue(permission.description)});
   }
 
   return grants;
@@ -235,9 +236,10 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 
     if (first_user) {
       spdlog::info("{} is first created user. Granting all privileges.", username);
-      GrantPrivilege(username, memgraph::query::kPrivilegesAll,
-                     {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
-                     {{{memgraph::query::AuthQuery::LabelPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
+      GrantPrivilege(
+          username, memgraph::query::kPrivilegesAll,
+          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
+          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
     }
 
     return user_added;
@@ -452,9 +454,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 
 void AuthQueryHandler::GrantPrivilege(
     const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges) {
   EditPermissions(
       user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -466,7 +468,7 @@ void AuthQueryHandler::GrantPrivilege(
       },
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
+          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
           for (const auto &entity : entities) {
             fine_grained_permissions.Grant(entity, permission);
           }
@@ -476,9 +478,9 @@ void AuthQueryHandler::GrantPrivilege(
 
 void AuthQueryHandler::DenyPrivilege(
     const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges) {
   EditPermissions(
       user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -490,7 +492,7 @@ void AuthQueryHandler::DenyPrivilege(
       },
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::LabelPrivilegeToLabelPermission(privilege);
+          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
           for (const auto &entity : entities) {
             fine_grained_permissions.Deny(entity, permission);
           }
@@ -500,9 +502,9 @@ void AuthQueryHandler::DenyPrivilege(
 
 void AuthQueryHandler::RevokePrivilege(
     const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges) {
   EditPermissions(
       user_or_role, privileges, label_privileges, edge_type_privileges,
@@ -524,9 +526,9 @@ void AuthQueryHandler::RevokePrivilege(
 template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
 void AuthQueryHandler::EditPermissions(
     const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::LabelPrivilege, std::vector<std::string>>>
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges,
     const TEditPermissionsFun &edit_permissions_fun,
     const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {

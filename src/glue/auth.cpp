@@ -61,14 +61,15 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
   }
 }
 
-auth::LabelPermission LabelPrivilegeToLabelPermission(query::AuthQuery::LabelPrivilege label_privilege) {
-  switch (label_privilege) {
-    case query::AuthQuery::LabelPrivilege::READ:
-      return auth::LabelPermission::READ;
-    case query::AuthQuery::LabelPrivilege::EDIT:
-      return auth::LabelPermission::EDIT;
-    case query::AuthQuery::LabelPrivilege::CREATE_DELETE:
-      return auth::LabelPermission::CREATE_DELETE;
+auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
+    const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
+  switch (fine_grained_privilege) {
+    case query::AuthQuery::FineGrainedPrivilege::READ:
+      return auth::FineGrainedPermission::READ;
+    case query::AuthQuery::FineGrainedPrivilege::UPDATE:
+      return auth::FineGrainedPermission::UPDATE;
+    case query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE:
+      return auth::FineGrainedPermission::CREATE_DELETE;
   }
 }
 }  // namespace memgraph::glue

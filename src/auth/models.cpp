@@ -101,31 +101,31 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-LabelPermission PermissionToLabelPermission(uint64_t permission) {
-  if (permission & LabelPermission::CREATE_DELETE) {
-    return LabelPermission::CREATE_DELETE;
+FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission) {
+  if (permission & FineGrainedPermission::CREATE_DELETE) {
+    return FineGrainedPermission::CREATE_DELETE;
   }
 
-  if (permission & LabelPermission::EDIT) {
-    return LabelPermission::EDIT;
+  if (permission & FineGrainedPermission::UPDATE) {
+    return FineGrainedPermission::UPDATE;
   }
 
-  if (permission & LabelPermission::READ) {
-    return LabelPermission::READ;
+  if (permission & FineGrainedPermission::READ) {
+    return FineGrainedPermission::READ;
   }
 
-  return LabelPermission::NO_PERMISSION;
+  return FineGrainedPermission::NO_PERMISSION;
 }
 
-std::string LabelPermissionToString(LabelPermission level) {
+std::string FineGrainedPermissionToString(FineGrainedPermission level) {
   switch (level) {
-    case LabelPermission::CREATE_DELETE:
+    case FineGrainedPermission::CREATE_DELETE:
       return "CREATE_DELETE";
-    case LabelPermission::EDIT:
+    case FineGrainedPermission::UPDATE:
       return "EDIT";
-    case LabelPermission::READ:
+    case FineGrainedPermission::READ:
       return "READ";
-    case LabelPermission::NO_PERMISSION:
+    case FineGrainedPermission::NO_PERMISSION:
       return "NO_PERMISSION";
   }
 }
@@ -238,7 +238,7 @@ FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_
     : permissions_(permissions), global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
-                                                  const LabelPermission label_permission) const {
+                                                  const FineGrainedPermission label_permission) const {
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
     if (permissions_.contains(permission)) {
       return permissions_.at(permission);
@@ -256,7 +256,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
   return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
 
-void FineGrainedAccessPermissions::Grant(const std::string &permission, const LabelPermission label_permission) {
+void FineGrainedAccessPermissions::Grant(const std::string &permission, const FineGrainedPermission label_permission) {
   if (permission == kAsterisk) {
     global_permission_ = CalculateGrant(label_permission);
   } else {
@@ -273,7 +273,7 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   }
 }
 
-void FineGrainedAccessPermissions::Deny(const std::string &permission, const LabelPermission label_permission) {
+void FineGrainedAccessPermissions::Deny(const std::string &permission, const FineGrainedPermission label_permission) {
   if (permission == kAsterisk) {
     global_permission_ = CalculateDeny(label_permission);
   } else {
@@ -309,7 +309,7 @@ const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::G
 }
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
-uint64_t FineGrainedAccessPermissions::CalculateGrant(LabelPermission label_permission) {
+uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission label_permission) {
   uint64_t shift{1};
   uint64_t result{0};
   auto uint_label_permission = static_cast<uint64_t>(label_permission);
@@ -322,7 +322,7 @@ uint64_t FineGrainedAccessPermissions::CalculateGrant(LabelPermission label_perm
   return result;
 }
 
-uint64_t FineGrainedAccessPermissions::CalculateDeny(LabelPermission label_permission) {
+uint64_t FineGrainedAccessPermissions::CalculateDeny(FineGrainedPermission label_permission) {
   uint64_t shift{1};
   uint64_t result{0};
   auto uint_label_permission = static_cast<uint64_t>(label_permission);

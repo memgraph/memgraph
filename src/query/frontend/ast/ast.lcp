@@ -2244,8 +2244,8 @@ cpp<#
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
    (privileges "std::vector<Privilege>" :scope :public)
-   (label-privileges "std::vector<std::unordered_map<LabelPrivilege, std::vector<std::string>>>" :scope :public)
-   (edge-type-privileges "std::vector<std::unordered_map<LabelPrivilege, std::vector<std::string>>>" :scope :public))
+   (label-privileges "std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>>" :scope :public)
+   (edge-type-privileges "std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>>" :scope :public))
   (:public
     (lcp:define-enum action
         (create-role drop-role show-roles create-user set-password drop-user
@@ -2258,8 +2258,8 @@ cpp<#
          dump replication durability read_file free_memory trigger config stream module_read module_write
          websocket)
       (:serialize))
-    (lcp:define-enum label-privilege
-        (read edit create_delete)
+    (lcp:define-enum fine-grained-privilege
+        (read update create_delete)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2271,8 +2271,8 @@ cpp<#
     AuthQuery(Action action, std::string user, std::string role,
               std::string user_or_role, Expression *password,
               std::vector<Privilege> privileges,
-              std::vector<std::unordered_map<LabelPrivilege, std::vector<std::string>>> label_privileges,
-              std::vector<std::unordered_map<LabelPrivilege, std::vector<std::string>>> edge_type_privileges)
+              std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
+              std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
         : action_(action),
           user_(user),
           role_(role),

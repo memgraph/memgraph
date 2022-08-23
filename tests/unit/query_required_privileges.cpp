@@ -99,8 +99,9 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 }
 
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
-  auto label_privileges = std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>{};
-  auto edge_type_privileges = std::vector<std::unordered_map<AuthQuery::LabelPrivilege, std::vector<std::string>>>{};
+  auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
+  auto edge_type_privileges =
+      std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", nullptr, std::vector<AuthQuery::Privilege>{},
                            label_privileges, edge_type_privileges);
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));

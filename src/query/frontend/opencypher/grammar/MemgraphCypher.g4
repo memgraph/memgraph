@@ -260,7 +260,7 @@ privilege : CREATE
           | WEBSOCKET
           ;
 
-granularPrivilege : READ | EDIT | CREATE_DELETE ;
+granularPrivilege : READ | UPDATE | CREATE_DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 
