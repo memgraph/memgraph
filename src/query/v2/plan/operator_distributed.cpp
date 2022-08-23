@@ -41,18 +41,6 @@
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/fnv.hpp"
-#include "utils/likely.hpp"
-#include "utils/logging.hpp"
-#include "utils/memory.hpp"
-#include "utils/pmr/unordered_map.hpp"
-#include "utils/pmr/unordered_set.hpp"
-#include "utils/pmr/vector.hpp"
-#include "utils/readable_size.hpp"
-#include "utils/string.hpp"
-#include "utils/temporal.hpp"
-#include "utils/variant_helpers.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
