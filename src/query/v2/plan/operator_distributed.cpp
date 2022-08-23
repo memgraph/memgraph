@@ -23,23 +23,8 @@
 #include <unordered_set>
 #include <utility>
 
-#include <cppitertools/chain.hpp>
-#include <cppitertools/imap.hpp>
-
-#include "query/v2/context.hpp"
-#include "query/v2/db_accessor.hpp"
-#include "query/v2/exceptions.hpp"
-#include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol_table.hpp"
 #include "query/v2/interpret/eval.hpp"
-#include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
-#include "query/v2/procedure/cypher_types.hpp"
-#include "query/v2/procedure/mg_procedure_impl.hpp"
-#include "query/v2/procedure/module.hpp"
-#include "storage/v3/property_value.hpp"
-#include "utils/algorithm.hpp"
-#include "utils/csv_parsing.hpp"
 #include "utils/event_counter.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
