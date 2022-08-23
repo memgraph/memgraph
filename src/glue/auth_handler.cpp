@@ -11,6 +11,8 @@
 
 #include "glue/auth_handler.hpp"
 
+#include <sstream>
+
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
 
@@ -124,35 +126,26 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
-    std::string permission_description;
-    permission_description.append("GLOBAL ");
-    permission_description.append(permission_type);
-    permission_description.append(" PERMISSION ");
-    permission_description.append(permission_level_representation);
-    permission_description.append(" TO ");
-    permission_description.append(actor);
+    std::stringstream permission_description;
+    permission_description << "GLOBAL " << permission_type << " PERMISSION " << permission_level_representation
+                           << " TO " << actor;
 
-    fine_grained_permissions.push_back(
-        FineGrainedPermissionForPrivilegeResult{permission_representation, permission_level, permission_description});
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
+        permission_representation, permission_level, permission_description.str()});
   }
 
-  for (const auto &permission : permissions.GetPermissions()) {
-    const auto label = permission.first;
-    auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission.second);
+  for (const auto &[label, permission] : permissions.GetPermissions()) {
+    auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission);
 
-    const auto &permission_representation = permission_type + " :" + permission.first;
+    const auto &permission_representation = permission_type + " :" + label;
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
-    std::string permission_description;
-    permission_description.append(permission_type);
-    permission_description.append(" PERMISSION ");
-    permission_description.append(permission_level_representation);
-    permission_description.append(" TO ");
-    permission_description.append(actor);
+    std::stringstream permission_description;
+    permission_description << permission_type << " PERMISSION " << permission_level_representation << " TO " << actor;
 
-    fine_grained_permissions.push_back(
-        FineGrainedPermissionForPrivilegeResult{permission_representation, permission_level, permission_description});
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
+        permission_representation, permission_level, permission_description.str()});
   }
 
   return fine_grained_permissions;

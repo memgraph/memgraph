@@ -122,7 +122,7 @@ std::string FineGrainedPermissionToString(FineGrainedPermission level) {
     case FineGrainedPermission::CREATE_DELETE:
       return "CREATE_DELETE";
     case FineGrainedPermission::UPDATE:
-      return "EDIT";
+      return "UPDATE";
     case FineGrainedPermission::READ:
       return "READ";
     case FineGrainedPermission::NO_PERMISSION:

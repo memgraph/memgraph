@@ -39,8 +39,8 @@ BASIC_PRIVILEGES = [
 
 
 def test_lba_procedures_show_privileges_first_user():
-    expected_assertions = [
-        ("ALL LABELS", "READ", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+    expected_assertions_josip = [
+        ("ALL LABELS", "CREATE_DELETE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
         (
             "ALL EDGE_TYPES",
             "CREATE_DELETE",
@@ -48,10 +48,10 @@ def test_lba_procedures_show_privileges_first_user():
         ),
         ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label2", "NO_PERMISSION", "LABEL PERMISSION DENIED TO USER"),
-        ("LABEL :Label3", "EDIT", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
-        ("LABEL :Label6", "EDIT", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
         ("LABEL :Label7", "NO_PERMISSION", "LABEL PERMISSION DENIED TO USER"),
     ]
 
@@ -60,15 +60,33 @@ def test_lba_procedures_show_privileges_first_user():
 
     assert len(result) == 30
 
-    fine_privilege_results = []
-    for res in result:
-        if res[0] not in BASIC_PRIVILEGES:
-            fine_privilege_results.append(res)
+    fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 
-    assert len(fine_privilege_results) == 9
+    assert len(fine_privilege_results) == len(expected_assertions_josip)
 
-    for assertion in expected_assertions:
+    for assertion in expected_assertions_josip:
         assert assertion in fine_privilege_results
+
+
+def test_lba_procedures_show_privileges_second_user():
+    expected_assertions_boris = [
+        ("AUTH", "GRANT", "GRANTED TO USER"),
+        ("LABEL :Label1", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label2", "NO_PERMISSION", "LABEL PERMISSION DENIED TO USER"),
+        ("LABEL :Label3", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label4", "READ", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label5", "CREATE_DELETE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label6", "UPDATE", "LABEL PERMISSION GRANTED TO USER"),
+        ("LABEL :Label7", "NO_PERMISSION", "LABEL PERMISSION DENIED TO USER"),
+    ]
+
+    cursor = connect(username="Boris", password="").cursor()
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Boris;")
+
+    assert len(result) == len(expected_assertions_boris)
+
+    for assertion in expected_assertions_boris:
+        assert assertion in result
 
 
 if __name__ == "__main__":

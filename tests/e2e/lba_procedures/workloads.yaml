@@ -27,23 +27,25 @@ show_privileges_cluster: &show_privileges_cluster
       log_file: "lba-e2e.log"
       setup_queries: [
         "Create User Josip;",
-
-        "Grant Read On Labels * to Josip;",
-
         "Grant Read On Labels :Label1 to Josip;",
-
         "Deny Read On Labels :Label2 to Josip;",
-
-        "Grant Edit On Labels :Label3 to Josip;",
-
-        "Deny Edit On Labels :Label4 to Josip;",
-
+        "Grant Update On Labels :Label3 to Josip;",
+        "Deny Update On Labels :Label4 to Josip;",
         "Grant Create_Delete On Labels :Label5 to Josip;",
-
         "Deny Create_Delete On Labels :Label6 to Josip;",
-
         "Grant Create_Delete On Labels :Label7 to Josip;",
         "Deny Read On Labels :Label7 to Josip;",
+
+        "Create User Boris;",
+        "Grant Auth to Boris;",
+        "Grant Read On Labels :Label1 to Boris;",
+        "Deny Read On Labels :Label2 to Boris;",
+        "Grant Update On Labels :Label3 to Boris;",
+        "Deny Update On Labels :Label4 to Boris;",
+        "Grant Create_Delete On Labels :Label5 to Boris;",
+        "Deny Create_Delete On Labels :Label6 to Boris;",
+        "Grant Create_Delete On Labels :Label7 to Boris;",
+        "Deny Read On Labels :Label7 to Boris;",
       ]
 
 workloads:
