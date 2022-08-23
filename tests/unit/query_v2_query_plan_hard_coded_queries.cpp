@@ -80,7 +80,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
       ScanAll (n)
       Once
   */
-
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
   const auto [number_of_vertices, size_of_batch] = GetParam();
   {  // Inserting data
     auto storage_dba = db_v3.Access();
@@ -88,9 +88,10 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
 
     auto property_index = 0;
     for (auto idx = 0; idx < number_of_vertices; ++idx) {
-      auto vertex_node = dba.InsertVertexAndValidate(schema_label, {},
-                                                     {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_node.HasValue());
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      ASSERT_TRUE(inserted);
     }
 
     ASSERT_FALSE(dba.Commit().HasError());
@@ -111,6 +112,14 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
     ASSERT_EQ(results.size(), number_of_vertices);
+    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+    for (auto result : results) {
+      ASSERT_TRUE(result[0].IsVertex());
+      auto gid = result[0].ValueVertex().Gid();
+      auto it_found = gid_of_expected_vertices.find(gid);
+      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+    }
+    // #NoCommit check the value retrieved as well
   }
 }
 
@@ -131,6 +140,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
 
   const auto [number_of_vertices, size_of_batch] = GetParam();
   const auto number_of_vertices_with_label = number_of_vertices / 3;  // To have some filtering needed and measureable.
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
   auto label_node = db_v3.NameToLabel("Node");
   {  // Inserting data
@@ -144,6 +154,8 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
 
       if (property_index <= number_of_vertices_with_label) {
         ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
+        auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+        ASSERT_TRUE(inserted);
       }
     }
 
@@ -168,6 +180,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
     ASSERT_EQ(results.size(), number_of_vertices_with_label);
+    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+    for (auto result : results) {
+      ASSERT_TRUE(result[0].IsVertex());
+      auto gid = result[0].ValueVertex().Gid();
+      auto it_found = gid_of_expected_vertices.find(gid);
+      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+    }
   }
 }
 
@@ -193,6 +212,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
 
   auto label_node = db_v3.NameToLabel("Node");
   auto property_node = db_v3.NameToProperty("someId");
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -219,6 +239,8 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
       }
 
       if (has_label && has_property && has_expected_property) {
+        auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+        ASSERT_TRUE(inserted);
         ++number_of_vertices_with_label_and_property_and_expected_property_value;
       }
     }
@@ -244,6 +266,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
     ASSERT_EQ(results.size(), number_of_vertices_with_label_and_property_and_expected_property_value);
+    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+    for (auto result : results) {
+      ASSERT_TRUE(result[0].IsVertex());
+      auto gid = result[0].ValueVertex().Gid();
+      auto it_found = gid_of_expected_vertices.find(gid);
+      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+    }
   }
 }
 
@@ -291,6 +320,8 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
     ASSERT_EQ(results.size(), 1);
+    ASSERT_TRUE(results[0][0].IsVertex());
+    ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
   }
 }
 
@@ -309,7 +340,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
   const auto [number_of_vertices, size_of_batch] = GetParam();  // #NoCommit create several vertices
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
-
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -323,6 +354,8 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
           schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
 
       ASSERT_TRUE(dba.InsertEdge(&vertex_center, &other_vertex, edge_type).HasValue());
+      auto [it, inserted] = gid_of_expected_vertices.insert(other_vertex.Gid());
+      ASSERT_TRUE(inserted);
     }
 
     ASSERT_FALSE(dba.Commit().HasError());
@@ -357,6 +390,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
     ASSERT_EQ(results.size(), number_of_vertices);
+    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+    for (auto result : results) {
+      ASSERT_TRUE(result[0].IsVertex());
+      auto gid = result[0].ValueVertex().Gid();
+      auto it_found = gid_of_expected_vertices.find(gid);
+      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+    }
   }
 }
 
