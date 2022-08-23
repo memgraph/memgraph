@@ -282,27 +282,27 @@ const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::G
 }
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
-uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission label_permission) {
+uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission fine_grained_permission) {
   uint64_t shift{1};
   uint64_t result{0};
-  auto uint_label_permission = static_cast<uint64_t>(label_permission);
+  auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
 
-  while (uint_label_permission > 0) {
-    result |= uint_label_permission;
-    uint_label_permission >>= shift;
+  while (uint_fine_grained_permission > 0) {
+    result |= uint_fine_grained_permission;
+    uint_fine_grained_permission >>= shift;
   }
 
   return result;
 }
 
-uint64_t FineGrainedAccessPermissions::CalculateDeny(FineGrainedPermission label_permission) {
+uint64_t FineGrainedAccessPermissions::CalculateDeny(FineGrainedPermission fine_grained_permission) {
   uint64_t shift{1};
   uint64_t result{0};
-  auto uint_label_permission = static_cast<uint64_t>(label_permission);
+  auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
 
-  while (uint_label_permission <= kLabelPermissionMax) {
-    result |= uint_label_permission;
-    uint_label_permission <<= shift;
+  while (uint_fine_grained_permission <= kLabelPermissionMax) {
+    result |= uint_fine_grained_permission;
+    uint_fine_grained_permission <<= shift;
   }
 
   return kLabelPermissionAll - result;
