@@ -435,8 +435,8 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *me
 bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Expand");
   MG_ASSERT(frames.size() == 1);
-
-  auto &frame = *frames[0];  // #NoCommit impl
+  MG_ASSERT(in_out_edges_and_iterators_.size() == 1 || in_out_edges_and_iterators_.empty());  // #NoCommit
+  auto &frame = *frames[0];                                                                   // #NoCommit impl
   // A helper function for expanding a node from an edge.
   auto pull_node_from_edge = [this](const EdgeAccessor &new_edge, EdgeAtom::Direction direction, Frame &frame) {
     if (self_.common_.existing_node) {
@@ -456,18 +456,25 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
   };
 
   while (true) {
-    if (MustAbort(context)) throw HintedAbortError();
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+
+    auto &first =
+        in_out_edges_and_iterators_[0];  // #NoCommit of course changte this; this will only work for single frame
+
     // attempt to get a value from the incoming edges
-    if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
-      auto edge = *(*in_edges_it_)++;
+    if (!in_out_edges_and_iterators_.empty() && first->in_edges_ && *first->in_edges_it_ != first->in_edges_->end()) {
+      auto edge = *(*first->in_edges_it_)++;
       frame[self_.common_.edge_symbol] = edge;
       pull_node_from_edge(edge, EdgeAtom::Direction::IN, frame);
       return true;
     }
 
     // attempt to get a value from the outgoing edges
-    if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
-      auto edge = *(*out_edges_it_)++;
+    if (!in_out_edges_and_iterators_.empty() && first->out_edges_ &&
+        *first->out_edges_it_ != first->out_edges_->end()) {
+      auto edge = *(*first->out_edges_it_)++;
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
@@ -481,7 +488,9 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
 
     // If we are here, either the edges have not been initialized,
     // or they have been exhausted. Attempt to initialize the edges.
-    if (!InitEdges(frames, context)) return false;
+    if (!InitEdges(frames, context)) {
+      return false;
+    }
 
     // we have re-initialized the edges, continue with the loop
   }
@@ -491,15 +500,13 @@ void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Expand::ExpandCursor::Reset() {
   input_cursor_->Reset();
-  in_edges_ = std::nullopt;
-  in_edges_it_ = std::nullopt;
-  out_edges_ = std::nullopt;
-  out_edges_it_ = std::nullopt;
+  in_out_edges_and_iterators_.clear();
 }
 
 bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
+  in_out_edges_and_iterators_.clear();
   while (true) {
     MG_ASSERT(frames.size() == 1);
     auto &frame = *frames[0];  // #NoCommit to impl
@@ -511,7 +518,10 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
     // Null check due to possible failed optional match.
     if (vertex_value.IsNull()) {
       continue;
+      //#NoCommit add nullopt?
     }
+    in_out_edges_and_iterators_.emplace_back(InOutEdgesAndIterators{});
+    auto &in_out_edges_and_iterators = *in_out_edges_and_iterators_.back();
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.ValueVertex();
@@ -523,14 +533,15 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          in_edges_.emplace(
+          in_out_edges_and_iterators.in_edges_.emplace(
               UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
         }
       } else {
-        in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
+        in_out_edges_and_iterators.in_edges_.emplace(
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
       }
-      if (in_edges_) {
-        in_edges_it_.emplace(in_edges_->begin());
+      if (in_out_edges_and_iterators.in_edges_) {
+        in_out_edges_and_iterators.in_edges_it_.emplace(in_out_edges_and_iterators.in_edges_->begin());
       }
     }
 
@@ -540,14 +551,15 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
           ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
-          out_edges_.emplace(
+          in_out_edges_and_iterators.out_edges_.emplace(
               UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex())));
         }
       } else {
-        out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
+        in_out_edges_and_iterators.out_edges_.emplace(
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
       }
-      if (out_edges_) {
-        out_edges_it_.emplace(out_edges_->begin());
+      if (in_out_edges_and_iterators.out_edges_) {
+        in_out_edges_and_iterators.out_edges_it_.emplace(in_out_edges_and_iterators.out_edges_->begin());
       }
     }
 
