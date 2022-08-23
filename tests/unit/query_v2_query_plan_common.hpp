@@ -43,7 +43,6 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
 
 ExecutionContext MakeContext_Distributed(const AstStorage &storage, const SymbolTable &symbol_table,
                                          memgraph::query::v2::DbAccessor *dba) {
-  // #NoCommit not needed?
   return MakeContext(storage, symbol_table, dba);
 }
 
@@ -73,10 +72,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distributed::Produce &produce,
                                                                 ExecutionContext *context, size_t size_of_batch) {
-  auto frames_memory_owner =
-      std::vector<std::unique_ptr<Frame>>{};  // #NoCommit We could also pass it directly to
-                                              // operators, to be decided later. If so, remember we do a resize() in the
-                                              // cursors when processing the last batch.
+  auto frames_memory_owner = std::vector<std::unique_ptr<Frame>>{};
   frames_memory_owner.reserve(size_of_batch);
   std::generate_n(std::back_inserter(frames_memory_owner), size_of_batch,
                   [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
@@ -127,7 +123,6 @@ auto MakeProduce(std::shared_ptr<LogicalOperator> input, TNamedExpressions... na
 template <typename... TNamedExpressions>
 auto MakeProduce_Distributed(std::shared_ptr<distributed::LogicalOperator> input,
                              TNamedExpressions... named_expressions) {
-  // #NoCommit not needed?
   return std::make_shared<distributed::Produce>(input, std::vector<NamedExpression *>{named_expressions...});
 }
 

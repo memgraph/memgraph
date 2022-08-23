@@ -111,7 +111,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
-    ASSERT_EQ(results.size(), number_of_vertices);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -119,7 +118,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
       auto it_found = gid_of_expected_vertices.find(gid);
       ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
     }
-    // #NoCommit check the value retrieved as well
   }
 }
 
@@ -179,7 +177,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
-    ASSERT_EQ(results.size(), number_of_vertices_with_label);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -207,8 +204,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
   */
 
   const auto [number_of_vertices, size_of_batch] = GetParam();
-  auto number_of_vertices_with_label_and_property_and_expected_property_value =
-      0;  // To have some filtering needed and measureable.
 
   auto label_node = db_v3.NameToLabel("Node");
   auto property_node = db_v3.NameToProperty("someId");
@@ -241,7 +236,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
       if (has_label && has_property && has_expected_property) {
         auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
         ASSERT_TRUE(inserted);
-        ++number_of_vertices_with_label_and_property_and_expected_property_value;
       }
     }
 
@@ -265,7 +259,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
     auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
-    ASSERT_EQ(results.size(), number_of_vertices_with_label_and_property_and_expected_property_value);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
@@ -337,7 +330,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
       ScanAll (n)
       Once
   */
-  const auto [number_of_vertices, size_of_batch] = GetParam();  // #NoCommit create several vertices
+  const auto [number_of_vertices, size_of_batch] = GetParam();
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
@@ -389,7 +382,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
     auto produce = MakeProduce_Distributed(expand.op_, output);
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, size_of_batch);
-    ASSERT_EQ(results.size(), number_of_vertices);
     ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
     for (auto result : results) {
       ASSERT_TRUE(result[0].IsVertex());
