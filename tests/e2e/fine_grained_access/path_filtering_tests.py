@@ -290,7 +290,7 @@ def test_bfs_sts_denied_edge_type_3():
     assert not any("edge_type_3" == edge.type for edge in source_destination_path[0][0])
 
 
-def test_bfs_singe_source_all_edge_types_all_labels_granted():
+def test_bfs_single_source_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
@@ -303,7 +303,7 @@ def test_bfs_singe_source_all_edge_types_all_labels_granted():
     assert len(source_destination_path) == 1
 
 
-def test_bfs_singe_source_all_edge_types_all_labels_denied():
+def test_bfs_single_source_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
@@ -314,7 +314,7 @@ def test_bfs_singe_source_all_edge_types_all_labels_denied():
     assert len(total_paths_results) == 0
 
 
-def test_bfs_singe_source_denied_start():
+def test_bfs_single_source_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(
@@ -330,7 +330,7 @@ def test_bfs_singe_source_denied_start():
     assert len(source_destination_path) == 0
 
 
-def test_bfs_singe_source_denied_destination():
+def test_bfs_single_source_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(
@@ -346,7 +346,7 @@ def test_bfs_singe_source_denied_destination():
     assert len(source_destination_path) == 0
 
 
-def test_bfs_singe_source_denied_label_1():
+def test_bfs_single_source_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(
@@ -362,7 +362,7 @@ def test_bfs_singe_source_denied_label_1():
     assert not any("label1" in node.labels for node in source_destination_path[0][0])
 
 
-def test_bfs_singe_source_denied_edge_type_3():
+def test_bfs_single_source_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")

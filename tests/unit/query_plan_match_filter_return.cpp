@@ -2032,7 +2032,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
                                                                     memgraph::auth::FineGrainedPermission::READ);
     auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 4);
-  }  // ASSERT_EQ(results.size(), 2);
+  }
 }
 
 TEST(QueryPlan, ExpandOptional) {
