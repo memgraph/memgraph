@@ -76,13 +76,10 @@ TEST(LocalTransport, BasicRequest) {
 
     auto res_rez = std::move(res_f).Wait();
     std::cout << "[CLIENT] future returned" << std::endl;
-    if (!res_rez.HasError()) {
-      std::cout << "[CLIENT] Got a valid response" << std::endl;
-      auto env = res_rez.GetValue();
-      MG_ASSERT(env.message.highest_seen == value);
-    } else {
-      std::cout << "[CLIENT] Got an error" << std::endl;
-    }
+    MG_ASSERT(!res_rez.HasError());
+    std::cout << "[CLIENT] Got a valid response" << std::endl;
+    auto env = res_rez.GetValue();
+    MG_ASSERT(env.message.highest_seen == value);
   }
 
   local_system.ShutDown();
