@@ -27,13 +27,6 @@
 
 namespace memgraph::io::rsm {
 
-using memgraph::io::Address;
-using memgraph::io::Duration;
-using memgraph::io::Io;
-using memgraph::io::ResponseFuture;
-using memgraph::io::ResponseResult;
-using memgraph::io::Time;
-
 using Term = uint64_t;
 using LogIndex = uint64_t;
 using RequestId = uint64_t;
