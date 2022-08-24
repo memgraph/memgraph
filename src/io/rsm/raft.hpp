@@ -388,7 +388,7 @@ class Raft {
 
     out << '\t' << (int)micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
 
-    std::string role_string = std::visit([&](auto &&role) { return role.ToString(); }, role_);
+    std::string role_string = std::visit([&](const auto &role) { return role.ToString(); }, role_);
 
     out << role_string;
 
@@ -411,7 +411,7 @@ class Raft {
   /// Periodic protocol maintenance.
   void Cron() {
     // dispatch periodic logic based on our role to a specific Cron method.
-    std::optional<Role> new_role = std::visit([&](auto &&role) { return Cron(role); }, role_);
+    std::optional<Role> new_role = std::visit([&](auto &role) { return Cron(role); }, role_);
 
     if (new_role) {
       role_ = std::move(new_role).value();
@@ -508,7 +508,7 @@ class Raft {
     // or it can be `auto` if it's a handler for several roles
     // or messages.
     std::optional<Role> new_role = std::visit(
-        [&](auto &&msg, auto &&role) {
+        [&](auto &&msg, auto &role) {
           // We use decltype(msg)(msg) in place of std::forward<?> because msg's type
           // is anonymous from our point of view.
           return Handle(role, decltype(msg)(msg), request_id, from_address);
