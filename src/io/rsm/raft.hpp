@@ -135,7 +135,7 @@ struct Leader {
   std::unordered_map<LogIndex, PendingClientRequest> pending_client_requests;
   Time last_broadcast = Time::min();
 
-  std::string ToString() { return "\tLeader   \t"; }
+  std::string static ToString() { return "\tLeader   \t"; }
 };
 
 struct Candidate {
@@ -143,14 +143,14 @@ struct Candidate {
   Time election_began = Time::min();
   std::set<Address> outstanding_votes;
 
-  std::string ToString() { return "\tCandidate\t"; }
+  std::string static ToString() { return "\tCandidate\t"; }
 };
 
 struct Follower {
   Time last_received_append_entries_timestamp;
   Address leader_address;
 
-  std::string ToString() { return "\tFollower \t"; }
+  std::string static ToString() { return "\tFollower \t"; }
 };
 
 using Role = std::variant<Candidate, Leader, Follower>;
@@ -204,7 +204,9 @@ class Raft {
 
  public:
   Raft(Io<IoImpl> &&io, std::vector<Address> peers, ReplicatedState &&replicated_state)
-      : io_(std::move(io)), peers_(peers), replicated_state_(std::move(replicated_state)) {}
+      : io_(std::forward<Io<IoImpl>>(io)),
+        peers_(peers),
+        replicated_state_(std::forward<ReplicatedState>(replicated_state)) {}
 
   void Run() {
     Time last_cron = io_.Now();
@@ -286,13 +288,14 @@ class Raft {
 
       if (leader.pending_client_requests.contains(apply_index)) {
         PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
+        leader.pending_client_requests.erase(apply_index);
 
-        WriteResponse<WriteResponseValue> resp;
-        resp.success = true;
-        resp.write_return = std::move(write_return);
+        WriteResponse<WriteResponseValue> resp{
+            .success = true,
+            .write_return = std::move(write_return),
+        };
 
         io_.Send(client_request.address, client_request.request_id, std::move(resp));
-        leader.pending_client_requests.erase(apply_index);
       }
     }
 
@@ -325,7 +328,7 @@ class Raft {
       };
 
       // request_id not necessary to set because it's not a Future-backed Request.
-    static constexpr RequestId request_id = 0;
+      static constexpr RequestId request_id = 0;
 
       io_.Send(address, request_id, ar);
     }
@@ -380,7 +383,6 @@ class Raft {
     const auto &[term, data] = state_.log.back();
     return term;
   }
-
 
   template <typename... Ts>
   void Log(Ts &&...args) {
@@ -504,16 +506,21 @@ class Raft {
   /// message that has been received.
   /////////////////////////////////////////////////////////////
 
-  void Handle(std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
-                           WriteRequest<WriteOperation>, VoteRequest, VoteResponse> &&message_variant,
-              RequestId request_id, Address from_address) {
+  using ReceiveVariant = std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
+                                      WriteRequest<WriteOperation>, VoteRequest, VoteResponse>;
+
+  void Handle(ReceiveVariant &&message_variant, RequestId request_id, Address from_address) {
     // dispatch the message to a handler based on our role,
     // which can be specified in the Handle first argument,
     // or it can be `auto` if it's a handler for several roles
     // or messages.
-    std::optional<Role> new_role =
-        std::visit([&](auto &&msg, auto &&role) { return Handle(role, std::move(msg), request_id, from_address); },
-                   std::move(message_variant), role_);
+    std::optional<Role> new_role = std::visit(
+        [&](auto &&msg, auto &&role) {
+          // We use decltype(msg)(msg) in place of std::forward<?> because msg's type
+          // is anonymous from our point of view.
+          return Handle(role, decltype(msg)(msg), request_id, from_address);
+        },
+        std::forward<ReceiveVariant>(message_variant), role_);
 
     // TODO(tyler) (M3) maybe replace std::visit with get_if for explicit prioritized matching, [[likely]] etc...
     if (new_role) {
