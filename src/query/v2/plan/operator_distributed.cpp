@@ -390,6 +390,10 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
     for (auto idx = 0; idx < std::min(frames.size(), in_out_edges_and_iterators_.size()); ++idx) {
       MG_ASSERT(idx < in_out_edges_and_iterators_.size());
       auto &it = in_out_edges_and_iterators_[idx];
+      if (!it.has_value()) {
+        continue;
+      }
+
       auto &frame = *frames[idx];
 
       // attempt to get a value from the incoming edges
