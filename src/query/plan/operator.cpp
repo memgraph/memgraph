@@ -3734,8 +3734,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
   }
 
   if (!args_list.empty() && args_list.front().type() == TypedValue::Type::Graph) {
-    auto *subgraph =
-        new query::Graph(std::move(args_list.front().ValueGraph()), args_list.front().ValueGraph().GetMemoryResource());
+    auto subgraph_value = args_list.front().ValueGraph();
+    auto *subgraph = new query::Graph(std::move(subgraph_value), subgraph_value.GetMemoryResource());
     args_list.erase(args_list.begin());
 
     graph.impl = query::SubgraphDbAccessor::MakeSubgraphDbAccessor(std::get<query::DbAccessor *>(graph.impl), subgraph);

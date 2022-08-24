@@ -197,7 +197,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
     if (maybe_vertex.HasError()) return maybe_vertex.GetError();
     vertices.emplace_back(Value(std::move(*maybe_vertex)));
   }
-  map.emplace(std::make_pair("nodes", Value(vertices)));
+  map.emplace("nodes", Value(vertices));
 
   std::vector<Value> edges;
   edges.reserve(graph.edges().size());
@@ -206,7 +206,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
     if (maybe_edge.HasError()) return maybe_edge.GetError();
     edges.emplace_back(Value(std::move(*maybe_edge)));
   }
-  map.emplace(std::make_pair("edges", Value(edges)));
+  map.emplace("edges", Value(edges));
 
   return std::move(map);
 }

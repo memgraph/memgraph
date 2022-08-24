@@ -294,7 +294,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Graph:
-      throw std::logic_error{"No graph type"};
+      throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
   }
 }
 }  // namespace
@@ -336,8 +336,6 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       const auto *path = val.path_v;
       MG_ASSERT(!path->vertices.empty());
       MG_ASSERT(path->vertices.size() == path->edges.size() + 1);
-
-      ;
       memgraph::query::Path tv_path(path->vertices[0].getImpl(), memory);
       for (size_t i = 0; i < path->edges.size(); ++i) {
         tv_path.Expand(path->edges[i].impl);
@@ -2349,21 +2347,17 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
-    const auto result =
-        std::visit(memgraph::utils::Overloaded{
-                       [vertex](memgraph::query::DbAccessor *impl) {
-                         if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Can't procede with operation due to inner type error."};
-                         }
-                         return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
-                       },
-                       [vertex](memgraph::query::SubgraphDbAccessor *impl) {
-                         if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl)) {
-                           throw std::logic_error{"Can't procede with operation due to inner type error."};
-                         }
-                         return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
-                       }},
-                   graph->impl);
+    const auto result = std::visit(
+        memgraph::utils::Overloaded{
+            [vertex](memgraph::query::DbAccessor *impl) {
+              MG_ASSERT(std::holds_alternative<memgraph::query::VertexAccessor>(vertex->impl));
+              return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
+            },
+            [vertex](memgraph::query::SubgraphDbAccessor *impl) {
+              MG_ASSERT(std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
+              return impl->DetachRemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
+            }},
+        graph->impl);
 
     if (result.HasError()) {
       switch (result.GetError()) {

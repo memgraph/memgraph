@@ -465,7 +465,7 @@ class SubgraphDbAccessor final {
                                            const storage::EdgeTypeId &edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
-      VertexAccessor *vertex_accessor);
+      SubgraphVertexAccessor *vertex_accessor);
 
   storage::Result<std::optional<VertexAccessor>> RemoveVertex(SubgraphVertexAccessor *vertex_accessor);
 

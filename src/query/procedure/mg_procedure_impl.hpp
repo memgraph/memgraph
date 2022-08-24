@@ -725,7 +725,7 @@ struct mgp_edges_iterator {
       in;
   std::optional<decltype(in->begin())> in_it;
   std::optional<std::remove_reference_t<
-      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).InEdges(source_vertex.graph->view))>>
+      decltype(*std::get<memgraph::query::VertexAccessor>(source_vertex.impl).OutEdges(source_vertex.graph->view))>>
       out;
   std::optional<decltype(out->begin())> out_it;
   std::optional<mgp_edge> current_e;

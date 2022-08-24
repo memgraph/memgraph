@@ -63,16 +63,6 @@ std::optional<EdgeAccessor> Graph::RemoveEdge(const EdgeAccessor &edge) {
   return edge;
 }
 
-std::vector<EdgeAccessor> Graph::OutEdges(VertexAccessor vertex_accessor) {
-  std::vector<EdgeAccessor> out_edges;
-  for (const auto &edge : edges_) {
-    if (edge.From() == vertex_accessor) {
-      out_edges.emplace_back(edge);
-    }
-  }
-  return out_edges;
-}
-
 /** Copy assign other, utils::MemoryResource of `this` is used */
 Graph &Graph::operator=(const Graph &) = default;
 

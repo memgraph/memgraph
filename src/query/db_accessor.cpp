@@ -72,8 +72,9 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
 
 storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>
 SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-functions-to-static)
-    VertexAccessor *) {                  // NOLINT(hicpp-named-parameter)
-  throw std::logic_error{"Such operation not possible on subgraph"};
+    SubgraphVertexAccessor *) {          // NOLINT(hicpp-named-parameter)
+  throw std::logic_error{
+      "Vertex holds only partial information about edges. Cannot detach delete safely while using projected graph."};
 }
 
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
@@ -114,15 +115,10 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
   auto edges = std::move(*maybe_edges);
   auto graph_edges = graph_->edges();
 
-  std::unordered_set<storage::EdgeAccessor> graph_edges_storage;
-
-  for (auto e : graph_edges) {
-    graph_edges_storage.insert(e.impl_);
-  }
-
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
-    if (std::find(begin(graph_edges_storage), end(graph_edges_storage), edge) != std::end(graph_edges_storage)) {
+    EdgeAccessor edge_q = EdgeAccessor(edge);
+    if (std::find(begin(graph_edges), end(graph_edges), edge_q) != std::end(graph_edges)) {
       filteredOutEdges.push_back(edge);
     }
   }
@@ -136,15 +132,10 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
   auto edges = std::move(*maybe_edges);
   auto graph_edges = graph_->edges();
 
-  std::unordered_set<storage::EdgeAccessor> graph_edges_storage;
-
-  for (auto e : graph_edges) {
-    graph_edges_storage.insert(e.impl_);
-  }
-
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
-    if (std::find(begin(graph_edges_storage), end(graph_edges_storage), edge) != std::end(graph_edges_storage)) {
+    EdgeAccessor edge_q = EdgeAccessor(edge);
+    if (std::find(begin(graph_edges), end(graph_edges), edge_q) != std::end(graph_edges)) {
       filteredOutEdges.push_back(edge);
     }
   }

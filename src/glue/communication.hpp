@@ -51,7 +51,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
                                                       storage::View view);
 
-/// @param query::Graph for converting to communication::bolt::Graph.
+/// @param query::Graph for converting to communication::bolt::Map.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
