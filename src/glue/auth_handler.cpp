@@ -122,7 +122,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
     const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
-    const auto &permission_representation = "ALL " + permission_type + "S";
+
+    std::stringstream permission_representation;
+    permission_representation << "ALL " << permission_type << "S";
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
@@ -131,13 +133,15 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                            << " TO " << actor;
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation, permission_level, permission_description.str()});
+        permission_representation.str(), permission_level, permission_description.str()});
   }
 
   for (const auto &[label, permission] : permissions.GetPermissions()) {
     auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission);
 
-    const auto &permission_representation = permission_type + " :" + label;
+    std::stringstream permission_representation;
+    permission_representation << permission_type << " :" << label;
+
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
@@ -145,7 +149,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     permission_description << permission_type << " PERMISSION " << permission_level_representation << " TO " << actor;
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation, permission_level, permission_description.str()});
+        permission_representation.str(), permission_level, permission_description.str()});
   }
 
   return fine_grained_permissions;
