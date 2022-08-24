@@ -572,7 +572,8 @@ class Raft {
           .last_received_append_entries_timestamp = io_.Now(),
           .leader_address = from_address,
       };
-    } else if (term_dominates) {
+    }
+    if (term_dominates) {
       Log("received a vote from an inferior candidate. Becoming Candidate");
       state_.term = std::max(state_.term, req.term) + 1;
       return Candidate{};
