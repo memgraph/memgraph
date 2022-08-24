@@ -105,19 +105,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
   // MATCH (n)
   auto scan_all_1 = MakeScanAll_Distributed(storage, symbol_table, "n");
 
-  {
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
-    for (auto result : results) {
-      ASSERT_TRUE(result[0].IsVertex());
-      auto gid = result[0].ValueVertex().Gid();
-      auto it_found = gid_of_expected_vertices.find(gid);
-      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
-    }
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid = result[0].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(gid);
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
   }
 }
 
@@ -171,19 +169,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
   // MATCH (n:Node)
   auto scan_all_1 = MakeScanAllByLabel_Distributed(storage, symbol_table, "n", label_node);
 
-  {
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
-    for (auto result : results) {
-      ASSERT_TRUE(result[0].IsVertex());
-      auto gid = result[0].ValueVertex().Gid();
-      auto it_found = gid_of_expected_vertices.find(gid);
-      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
-    }
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid = result[0].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(gid);
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
   }
 }
 
@@ -253,19 +249,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
   // MATCH (n:Node {someId:'ExpectedValue'})
   auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "n", label_node, property_node,
                                                                 "someId", LITERAL("expectedValue"));
-  {
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
-    for (auto result : results) {
-      ASSERT_TRUE(result[0].IsVertex());
-      auto gid = result[0].ValueVertex().Gid();
-      auto it_found = gid_of_expected_vertices.find(gid);
-      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
-    }
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid = result[0].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(gid);
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
   }
 }
 
@@ -306,16 +300,14 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
   // MATCH (n) WHERE id(n)=1
   auto scan_all_1 = MakeScanAllById_Distributed(storage, symbol_table, "n", LITERAL(id.AsInt()));
 
-  {
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), 1);
-    ASSERT_TRUE(results[0][0].IsVertex());
-    ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
-  }
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
+  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), 1);
+  ASSERT_TRUE(results[0][0].IsVertex());
+  ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
 }
 
 TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
@@ -376,40 +368,21 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
       MakeExpand_Distributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
                              {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
-  {
-    auto output =
-        NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(expand.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
-    for (auto result : results) {
-      ASSERT_TRUE(result[0].IsVertex());
-      auto gid = result[0].ValueVertex().Gid();
-      auto it_found = gid_of_expected_vertices.find(gid);
-      ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
-    }
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduce_Distributed(expand.op_, output);
+  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
+  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid = result[0].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(gid);
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
-    QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
-    ::testing::Values(
-        std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
-        std::make_pair(2, 1),     /* 2 vertices, 2 frame per batch: simple case. */
-        std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
-        std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
-        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
-                                     behavior (ie: pre-batching). */
-        std::make_pair(100, 100), /* 100 vertices, 100 frames per batch: to check batching works with 1 iteration. */
-        std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
-        std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
-                                    iteration only. */
-        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when having
-                                     several iterations. There will be only 42 vertices left on the last batch.*/
-        ));
-
-TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
+TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery_1) {
   /*
   INDEXES:
     CREATE INDEX ON :Node(platformId);
@@ -431,7 +404,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     ScanAllByLabelPropertyValue (n :Node {platformId})
     Once
   */
-  const auto number_of_frames_per_batch = 1;
+  const auto [unused, number_of_frames_per_batch] = GetParam();
   auto label_node = db_v3.NameToLabel("Node");
   auto property_node_platformId = db_v3.NameToProperty("platformId");
 
@@ -498,7 +471,6 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto context = MakeContext_Distributed(storage, symbol_table, &dba);
     auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
-    // #NoCommit check specific results based on gid
   }
 
   // MATCH (p:Permission)
@@ -518,12 +490,11 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
-    // #NoCommit check specific results based on gid
   }
 
   // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
   auto expand_1 =
-      MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "e", EdgeAtom::Direction::OUT,
+      MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "anon3", EdgeAtom::Direction::OUT,
                              {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
@@ -539,7 +510,6 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
-    // #NoCommit check specific results based on gid
   }
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
@@ -564,7 +534,6 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
-    // #NoCommit check specific results based on gid
   }
 
   // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
@@ -587,9 +556,24 @@ TEST_F(QueryPlanHardCodedQueriesTest, HardCodedQuery_v3) {
     auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
-    // #NoCommit check specific results based on gid
   }
 }
 
-// #NoCommit + test with more batch ?
+INSTANTIATE_TEST_CASE_P(
+    QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
+    ::testing::Values(
+        std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
+        std::make_pair(2, 1),     /* 2 vertices, 2 frame per batch: simple case. */
+        std::make_pair(3, 3),     /* 2 vertices, 2 frame per batch: simple case. */
+        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
+                                    behavior (ie: pre-batching). */
+        std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
+        std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
+        std::make_pair(100, 100), /* 100 vertices, 100 frames per batch: to check batching works with 1 iteration. */
+        std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
+        std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
+                                    iteration only. */
+        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when having
+                                     several iterations. There will be only 42 vertices left on the last batch.*/
+        ));
 }  // namespace memgraph::query::v2::tests
