@@ -490,10 +490,12 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
   OOMExceptionEnabler oom_exception;
   // Extract key properties
   std::vector<PropertyValue> primary_properties;
-  for (const auto &[property_id, property_value] : properties) {
-    if (storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
-      primary_properties.push_back(property_value);
-    }
+  for ([[maybe_unused]] const auto &[property_id, property_type] : storage_->GetSchema(primary_label)->second) {
+    // We know there definitely is key in properties since we have validated
+    primary_properties.push_back(
+        std::ranges::find_if(properties, [property_id = property_id](const auto &property_pair) {
+          return property_pair.first == property_id;
+        })->second);
   }
 
   // Get secondary properties
@@ -506,7 +508,8 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
 
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
+  auto [it, inserted] = acc.insert(
+      {Vertex{delta, primary_label, std::move(primary_properties), labels, std::move(secondary_properties)}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);

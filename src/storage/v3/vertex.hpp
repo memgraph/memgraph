@@ -35,8 +35,8 @@ struct Vertex {
   }
 
   Vertex(Delta *delta, LabelId primary_label, std::vector<PropertyValue> primary_properties,
-         const std::vector<LabelId> &secondary_labels,
-         const std::vector<std::pair<PropertyId, PropertyValue>> &secondary_properties)
+         const std::vector<LabelId> secondary_labels,
+         const std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties)
       : primary_label{primary_label}, keys{primary_properties}, labels{secondary_labels}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");

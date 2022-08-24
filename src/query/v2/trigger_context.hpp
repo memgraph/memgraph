@@ -31,7 +31,7 @@
 namespace memgraph::query::v2 {
 
 // TODO(jbajic) Fix triggers
-constexpr uint64_t kFakeVertexGid{0};
+static uint64_t kFakeVertexGid{0};
 namespace detail {
 template <typename T>
 concept ObjectAccessor = utils::SameAsAnyOf<T, VertexAccessor, EdgeAccessor>;
@@ -229,8 +229,7 @@ class TriggerContextCollector {
     size_t operator()(const std::pair<TAccessor, T2> &pair) const {
       // TODO(jbajic) Fix Remove Gid
       if constexpr (std::is_same_v<TAccessor, VertexAccessor>) {
-        static uint64_t i{0};
-        return utils::HashCombine<uint64_t, T2>{}(i++, pair.second);
+        return utils::HashCombine<uint64_t, T2>{}(kFakeVertexGid++, pair.second);
       } else {
         using UniqueIdentifierType = decltype(std::declval<TAccessor>().Gid());
         return utils::HashCombine<UniqueIdentifierType, T2>{}(pair.first.Gid(), pair.second);

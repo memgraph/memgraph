@@ -155,8 +155,8 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::Edg
                                                           const storage::v3::Storage &db, storage::v3::View view) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
-  auto from = communication::bolt::Id::FromUint(1);
-  auto to = communication::bolt::Id::FromUint(2);
+  auto from = communication::bolt::Id::FromUint(0);
+  auto to = communication::bolt::Id::FromUint(0);
   const auto &type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();

@@ -2197,7 +2197,7 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto set_props = [&, record](auto properties) {
     for (auto &kv : properties) {
-      if constexpr (std::is_same_v<TRecordAccessor, VertexAccessor>) {
+      if constexpr (AccessorWithSetPropertyAndValidate<TRecordAccessor>) {
         const auto maybe_error = record->SetPropertyAndValidate(kv.first, storage::v3::PropertyValue(kv.second));
         if (maybe_error.HasError()) {
           std::visit(utils::Overloaded{[](const storage::v3::Error error) { HandleErrorOnPropertyUpdate(error); },

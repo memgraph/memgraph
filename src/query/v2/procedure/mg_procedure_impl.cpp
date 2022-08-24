@@ -2094,24 +2094,25 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
 };
 
 //  TODO(jbajic) Fix Remove Gid
-// mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
-//   return WrapExceptions(
-//       [=] {
-//         if (!MgpGraphIsMutable(*graph)) {
-//           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
-//         }
-//         auto vertex = graph->impl->InsertVertex();
+mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
+  // return WrapExceptions(
+  // [=] {
+  //   if (!MgpGraphIsMutable(*graph)) {
+  //     throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
+  //   }
+  // auto vertex = graph->impl->InsertVertex();
 
-//         auto &ctx = graph->ctx;
-//         ctx->execution_stats[memgraph::query::v2::ExecutionStats::Key::CREATED_NODES] += 1;
+  // auto &ctx = graph->ctx;
+  // ctx->execution_stats[memgraph::query::v2::ExecutionStats::Key::CREATED_NODES] += 1;
 
-//         if (ctx->trigger_context_collector) {
-//            ctx->trigger_context_collector->RegisterCreatedObject(vertex);
-//         }
-//         return NewRawMgpObject<mgp_vertex>(memory, nullptr, graph);
-//       },
-//       result);
-// }
+  // if (ctx->trigger_context_collector) {
+  //    ctx->trigger_context_collector->RegisterCreatedObject(vertex);
+  // }
+  //   return NewRawMgpObject<mgp_vertex>(memory, nullptr, graph);
+  // },
+  // result);
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
 
 mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {

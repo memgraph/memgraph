@@ -20,16 +20,6 @@ using testing::UnorderedElementsAre;
 
 namespace memgraph::storage::v3::tests {
 
-// class StorageV3GcTest : public ::testing::Test {
-//  protected:
-//   void SetUp() override {
-//     ASSERT_TRUE(storage.CreateSchema(label, {SchemaProperty{property, common::SchemaType::INT}}));
-//   }
-
-//   Storage storage{Config{.gc = {.type = Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}};
-//   const LabelId label{storage.NameToLabel("label")};
-//   const PropertyId property{storage.NameToProperty("property")};
-// };
 VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
                                        const std::vector<LabelId> &labels,
                                        const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
