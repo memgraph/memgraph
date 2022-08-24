@@ -13,7 +13,6 @@
 #include <unordered_map>
 
 #include <json/json.hpp>
-#include <unordered_set>
 
 namespace memgraph::auth {
 const std::string kAsterisk = "*";

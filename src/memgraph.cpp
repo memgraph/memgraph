@@ -865,6 +865,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
           edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
                                             edge_type_privilege_collection);
         }
+
         locked_auth->SaveUser(*user);
       } else {
         for (const auto &permission : permissions) {

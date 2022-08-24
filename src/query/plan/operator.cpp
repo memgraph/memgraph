@@ -9,9 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/plan/operator.hpp"
-#include <pstl/glue_algorithm_defs.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <limits>
@@ -34,6 +31,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
+#include "query/plan/operator.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -1050,6 +1048,12 @@ class ExpandVariableCursor : public Cursor {
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
+      // Check edge-uniqueness.
+      bool found_existing =
+          std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
+                      [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
+      if (found_existing) continue;
+
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
 
@@ -1059,12 +1063,6 @@ class ExpandVariableCursor : public Cursor {
            !context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD,
                                          memgraph::auth::FineGrainedPermission::READ)))
         continue;
-
-      // Check edge-uniqueness.
-      bool found_existing =
-          std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
-                      [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
-      if (found_existing) continue;
 
       AppendEdge(current_edge.first, &edges_on_frame);
 
@@ -1083,7 +1081,6 @@ class ExpandVariableCursor : public Cursor {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
             ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory));
-
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1225,9 +1222,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                                                  memgraph::auth::FineGrainedPermission::READ))
-          continue;
+        // if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+        //                                                           memgraph::auth::FineGrainedPermission::READ))
+        //   continue;
 
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
@@ -1291,9 +1288,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                                                  memgraph::auth::FineGrainedPermission::READ))
-          continue;
+        // if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+        //                                                           memgraph::auth::FineGrainedPermission::READ))
+        //   continue;
 
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));

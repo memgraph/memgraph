@@ -2234,6 +2234,7 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
+
 (lcp:define-class auth-query (query)
   ((action "Action" :scope :public)
    (user "std::string" :scope :public)

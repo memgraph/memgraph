@@ -6,7 +6,6 @@
 //
 //
 
-#include "auth/models.hpp"
 #include <cstdint>
 #include <regex>
 #include <unordered_set>
@@ -15,6 +14,7 @@
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
+#include "auth/models.hpp"
 #include "utils/cast.hpp"
 #include "utils/license.hpp"
 #include "utils/logging.hpp"
