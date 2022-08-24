@@ -72,9 +72,9 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
   }
   {
     auto acc = storage.Access();
-    const auto vertex = acc.FindVertex(primary_label, {PropertyValue{2}}, View::OLD);
+    const auto vertex = acc.FindVertex({PropertyValue{2}}, View::OLD);
     ASSERT_TRUE(vertex.has_value());
-    ASSERT_TRUE(acc.FindVertex(primary_label, {PropertyValue{2}}, View::NEW).has_value());
+    ASSERT_TRUE(acc.FindVertex({PropertyValue{2}}, View::NEW).has_value());
     ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
     ASSERT_TRUE(vertex->PrimaryLabel(View::OLD).HasValue());
     const auto vertex_primary_label = vertex->PrimaryLabel(View::NEW).GetValue();

@@ -609,15 +609,12 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
   // TODO Reimplement when we have reliable conversion between hash value and pk
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
-    // auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_);
-    auto maybe_vertex = nullptr;
-    // if (!maybe_vertex) return std::nullopt;
+    // auto *db = context.db_accessor;
+    // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+    // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =
+    // value.IsInt() ? value.ValueInt() : value.ValueDouble(); if (value.IsDouble() && id != value.ValueDouble()) return
+    // std::nullopt; auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_); auto maybe_vertex =
+    // nullptr; if (!maybe_vertex) return std::nullopt;
     return std::nullopt;
     // return std::vector<VertexAccessor>{*maybe_vertex};
   };

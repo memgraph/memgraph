@@ -1511,7 +1511,7 @@ mgp_error mgp_properties_iterator_next(mgp_properties_iterator *it, mgp_property
 
 // TODO(jbajic) Fix Remove Gid
 mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
-  return WrapExceptions([v] { return mgp_vertex_id{.as_int = 0}; }, result);
+  return WrapExceptions([] { return mgp_vertex_id{.as_int = 0}; }, result);
 }
 
 mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
@@ -2079,10 +2079,10 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         // TODO(jbajic) Fix Remove Gid
-        auto maybe_vertex = graph->impl->FindVertex(0);
-        if (maybe_vertex) {
-          return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
-        }
+        // auto maybe_vertex = graph->impl->FindVertex(0);
+        // if (maybe_vertex) {
+        //   return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+        // }
         return nullptr;
       },
       result);

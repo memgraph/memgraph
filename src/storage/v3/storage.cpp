@@ -522,8 +522,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
                         storage_->schemas_};
 }
 
-std::optional<VertexAccessor> Storage::Accessor::FindVertex(const LabelId primary_label,
-                                                            std::vector<PropertyValue> primary_key, View view) {
+std::optional<VertexAccessor> Storage::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
   auto acc = storage_->vertices_.access();
   // Later on use label space
   auto it = acc.find(primary_key);
@@ -1303,7 +1302,7 @@ StorageInfo Storage::GetInfo() const {
   auto edge_count = edge_count_.load(std::memory_order_acquire);
   double average_degree = 0.0;
   if (vertex_count) {
-    average_degree = 2.0 * static_cast<double>(edge_count) / vertex_count;
+    average_degree = 2.0 * static_cast<double>(edge_count) / static_cast<double>(vertex_count);
   }
   return {vertex_count, edge_count, average_degree, utils::GetMemoryUsage(),
           utils::GetDirDiskUsage(config_.durability.storage_directory)};

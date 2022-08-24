@@ -66,7 +66,7 @@ TEST(StorageV3Gc, Sanity) {
     acc.AdvanceCommand();
 
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(label, vertices[i], View::OLD);
+      auto vertex = acc.FindVertex(vertices[i], View::OLD);
       ASSERT_TRUE(vertex.has_value());
       if (i % 5 == 0) {
         EXPECT_FALSE(acc.DeleteVertex(&vertex.value()).HasError());
@@ -77,8 +77,8 @@ TEST(StorageV3Gc, Sanity) {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex_old = acc.FindVertex(label, vertices[i], View::OLD);
-      auto vertex_new = acc.FindVertex(label, vertices[i], View::NEW);
+      auto vertex_old = acc.FindVertex(vertices[i], View::OLD);
+      auto vertex_new = acc.FindVertex(vertices[i], View::NEW);
       EXPECT_TRUE(vertex_old.has_value());
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
@@ -90,7 +90,7 @@ TEST(StorageV3Gc, Sanity) {
   {
     auto acc = storage.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(label, vertices[i], View::OLD);
+      auto vertex = acc.FindVertex(vertices[i], View::OLD);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
@@ -105,7 +105,7 @@ TEST(StorageV3Gc, Sanity) {
 
     // Verify labels.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(label, vertices[i], View::NEW);
+      auto vertex = acc.FindVertex(vertices[i], View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
@@ -127,8 +127,8 @@ TEST(StorageV3Gc, Sanity) {
   {
     auto acc = storage.Access();
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto from_vertex = acc.FindVertex(label, vertices[i], View::OLD);
-      auto to_vertex = acc.FindVertex(label, vertices[(i + 1) % 1000], View::OLD);
+      auto from_vertex = acc.FindVertex(vertices[i], View::OLD);
+      auto to_vertex = acc.FindVertex(vertices[(i + 1) % 1000], View::OLD);
       EXPECT_EQ(from_vertex.has_value(), i % 5 != 0);
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
@@ -139,7 +139,7 @@ TEST(StorageV3Gc, Sanity) {
 
     // Detach delete some vertices.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(label, vertices[i], View::NEW);
+      auto vertex = acc.FindVertex(vertices[i], View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
       if (vertex.has_value()) {
         if (i % 3 == 0) {
@@ -153,7 +153,7 @@ TEST(StorageV3Gc, Sanity) {
 
     // Vertify edges.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(label, vertices[i], View::NEW);
+      auto vertex = acc.FindVertex(vertices[i], View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0 && i % 3 != 0);
       if (vertex.has_value()) {
         auto out_edges = vertex->OutEdges(View::NEW);

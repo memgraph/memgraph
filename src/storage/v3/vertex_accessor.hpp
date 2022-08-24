@@ -171,6 +171,6 @@ class VertexAccessor final {
 namespace std {
 template <>
 struct hash<memgraph::storage::v3::VertexAccessor> {
-  size_t operator()(const memgraph::storage::v3::VertexAccessor &v) const noexcept { return 0; }
+  size_t operator()(const memgraph::storage::v3::VertexAccessor & /*v*/) const noexcept { return 0; }
 };
 }  // namespace std

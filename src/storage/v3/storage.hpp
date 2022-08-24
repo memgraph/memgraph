@@ -237,7 +237,7 @@ class Storage final {
         LabelId primary_label, const std::vector<LabelId> &labels,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
-    std::optional<VertexAccessor> FindVertex(LabelId primary_label, std::vector<PropertyValue> primary_key, View view);
+    std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
