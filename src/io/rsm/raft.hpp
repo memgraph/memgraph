@@ -463,9 +463,10 @@ class Raft {
   std::optional<Role> Cron(Follower &follower) {
     const auto now = io_.Now();
     const auto time_since_last_append_entries = now - follower.last_received_append_entries_timestamp;
+
+    // randomized follower timeout with a range of 100-200ms.
     Duration election_timeout = RandomTimeout(100000, 200000);
 
-    // randomized follower timeout with a range of 100-150ms.
     if (time_since_last_append_entries > election_timeout) {
       // become a Candidate if we haven't heard from the Leader after this timeout
       return Candidate{};
