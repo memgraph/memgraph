@@ -723,7 +723,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // here.
       // TODO(jbajic) Fix snapshot with new schema rules
       auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints,
-                             items,    schema_validator,          schemas};
+                             items,    schema_validator};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -752,7 +752,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     for (auto &lgo_vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
       auto va = VertexAccessor::Create(&lgo_vertex.vertex, transaction, indices, constraints, items, schema_validator,
-                                       schemas, View::OLD);
+                                       View::OLD);
       if (!va) continue;
 
       // Get vertex data.
