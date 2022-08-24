@@ -44,6 +44,10 @@ bool Graph::ContainsVertex(const VertexAccessor &vertex) {
   return std::find(begin(vertices_), end(vertices_), vertex) != std::end(vertices_);
 }
 
+bool Graph::ContainsEdge(const EdgeAccessor &edge) {
+  return std::find(begin(edges_), end(edges_), edge) != std::end(edges_);
+}
+
 std::optional<VertexAccessor> Graph::RemoveVertex(const VertexAccessor &vertex) {
   if (!ContainsVertex(vertex)) {
     return std::nullopt;

@@ -50,6 +50,9 @@ const std::string &SubgraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId type) 
 }
 
 storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(EdgeAccessor *edge) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
   auto result = db_accessor_->RemoveEdge(edge);
   if (result.HasError() || !*result) {
     return result;
@@ -61,7 +64,9 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
                                                              const storage::EdgeTypeId &edge_type) {
   VertexAccessor *from_impl = &from->impl_;
   VertexAccessor *to_impl = &to->impl_;
-
+  if (!this->graph_->ContainsVertex(*from_impl) || !this->graph_->ContainsVertex(*to_impl)) {
+    throw std::logic_error{"Projected graph must contain both vertices to insert edge!"};
+  }
   auto result = db_accessor_->InsertEdge(from_impl, to_impl, edge_type);
   if (result.HasError()) {
     return result;
@@ -80,6 +85,9 @@ SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-fu
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     SubgraphVertexAccessor *subgraphvertex_accessor) {
   VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;
+  if (!this->graph_->ContainsVertex(*vertex_accessor)) {
+    throw std::logic_error{"Projected graph must contain vertex!"};
+  }
   auto result = db_accessor_->RemoveVertex(vertex_accessor);
   if (result.HasError() || !*result) {
     return result;
