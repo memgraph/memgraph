@@ -26,6 +26,8 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "auth/models.hpp"
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -237,6 +239,10 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("CreateNode");
 
+  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
+                                                            memgraph::auth::FineGrainedPermission::CREATE_DELETE))
+    return false;
+
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
     if (context.trigger_context_collector) {
@@ -320,6 +326,12 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP("CreateExpand");
 
   if (!input_cursor_->Pull(frame, context)) return false;
+
+  if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
+                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE) ||
+                               !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
+                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)))
+    return false;
 
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -419,7 +431,8 @@ class ScanAllCursor : public Cursor {
 
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD)) {
+      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
+                                       memgraph::auth::FineGrainedPermission::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -701,8 +714,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
+                                         memgraph::auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -718,8 +733,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
+                                         memgraph::auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -1949,7 +1966,15 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
-      auto maybe_value = dba.RemoveEdge(&expression_result.ValueEdge());
+      auto &ea = expression_result.ValueEdge();
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, ea, auth::FineGrainedPermission::CREATE_DELETE) ||
+           !context.auth_checker->Accept(*context.db_accessor, ea.To(), storage::View::NEW,
+                                         auth::FineGrainedPermission::CREATE_DELETE) ||
+           !context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
+                                         auth::FineGrainedPermission::CREATE_DELETE)))
+        continue;
+      auto maybe_value = dba.RemoveEdge(&ea);
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
@@ -1974,6 +1999,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
+        if (context.auth_checker && context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
+                                                                 auth::FineGrainedPermission::READ))
+          break;
         if (self_.detach_) {
           auto res = dba.DetachRemoveVertex(&va);
           if (res.HasError()) {
@@ -3203,9 +3231,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (pull_input_) {
         // if we have just now pulled from the input
         // and failed to pull from merge_match, we should create
-        __attribute__((unused)) bool merge_create_pull_result = merge_create_cursor_->Pull(frame, context);
-        DMG_ASSERT(merge_create_pull_result, "MergeCreate must never fail");
-        return true;
+        return merge_create_cursor_->Pull(frame, context);
       }
       // We have exhausted merge_match_cursor_ after 1 or more successful
       // Pulls. Attempt next input_cursor_ pull

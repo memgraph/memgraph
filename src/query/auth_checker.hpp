@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
 
@@ -34,19 +36,40 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view) const = 0;
+                                    const memgraph::storage::View &view,
+                                    const auth::FineGrainedPermission &fine_grained_permission) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const = 0;
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
+                                    const auth::FineGrainedPermission &fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
+                                    const std::vector<memgraph::storage::LabelId> &labels,
+                                    const memgraph::auth::FineGrainedPermission &fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
+                                    const memgraph::storage::EdgeTypeId &edge_type,
+                                    const memgraph::auth::FineGrainedPermission &fine_grained_permission) const = 0;
 };
 
 class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
-              const memgraph::storage::View &view) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View &view,
+              const auth::FineGrainedPermission &fine_grained_permission) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
+              const auth::FineGrainedPermission &fine_grained_permission) const override {
+    return true;
+  }
+
+  bool Accept(const memgraph::query::DbAccessor &dba, const std::vector<memgraph::storage::LabelId> &labels,
+              const memgraph::auth::FineGrainedPermission &fine_grained_permission) const override {
+    return true;
+  }
+
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
+              const memgraph::auth::FineGrainedPermission &fine_grained_permission) const override {
     return true;
   }
 };
