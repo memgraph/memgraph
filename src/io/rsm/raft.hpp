@@ -334,7 +334,7 @@ class Raft {
 
     auto rand_micros = io_.Rand(time_distrib);
 
-    return std::chrono::microseconds{rand_micros};
+    return Duration{rand_micros};
   }
 
   Duration RandomTimeout(int min_micros, int max_micros) {
