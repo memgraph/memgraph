@@ -27,6 +27,27 @@
 
 namespace memgraph::io::rsm {
 
+/// Timeout tunables
+using namespace std::chrono_literals;
+static constexpr auto kMinimumElectionTimeout = 100ms;
+static constexpr auto kMaximumElectionTimeout = 200ms;
+static constexpr auto kMinimumBroadcastTimeout = 40ms;
+static constexpr auto kMaximumBroadcastTimeout = 60ms;
+static constexpr auto kMinimumCronInterval = 1ms;
+static constexpr auto kMaximumCronInterval = 2ms;
+static constexpr auto kMinimumReceiveTimeout = 40ms;
+static constexpr auto kMaximumReceiveTimeout = 60ms;
+static_assert(kMinimumElectionTimeout > kMaximumBroadcastTimeout,
+              "The broadcast timeout has to be smaller than the election timeout!");
+static_assert(kMinimumElectionTimeout < kMaximumElectionTimeout,
+              "The minimum election timeout has to be smaller than the maximum election timeout!");
+static_assert(kMinimumBroadcastTimeout < kMaximumBroadcastTimeout,
+              "The minimum broadcast timeout has to be smaller than the maximum broadcast timeout!");
+static_assert(kMinimumCronInterval < kMaximumCronInterval,
+              "The minimum cron interval has to be smaller than the maximum cron interval!");
+static_assert(kMinimumReceiveTimeout < kMaximumReceiveTimeout,
+              "The minimum receive timeout has to be smaller than the maximum receive timeout!");
+
 using Term = uint64_t;
 using LogIndex = uint64_t;
 using RequestId = uint64_t;
@@ -206,13 +227,13 @@ class Raft {
 
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
-      const Duration random_cron_interval = RandomTimeout(1000, 2000);
+      const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
       if (now - last_cron > random_cron_interval) {
         Cron();
         last_cron = now;
       }
 
-      Duration receive_timeout = RandomTimeout(10000, 50000);
+      Duration receive_timeout = RandomTimeout(kMinimumReceiveTimeout, kMaximumReceiveTimeout);
 
       auto request_result =
           io_.template ReceiveWithTimeout<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
@@ -425,7 +446,7 @@ class Raft {
   // 3. receiving a quorum of responses to our last batch of Vote (become a Leader)
   std::optional<Role> Cron(Candidate &candidate) {
     const auto now = io_.Now();
-    const Duration election_timeout = RandomTimeout(100000, 200000);
+    const Duration election_timeout = RandomTimeout(kMinimumElectionTimeout, kMaximumElectionTimeout);
     const auto election_timeout_us = std::chrono::duration_cast<std::chrono::milliseconds>(election_timeout).count();
 
     if (now - candidate.election_began > election_timeout) {
@@ -464,8 +485,8 @@ class Raft {
     const auto now = io_.Now();
     const auto time_since_last_append_entries = now - follower.last_received_append_entries_timestamp;
 
-    // randomized follower timeout with a range of 100-200ms.
-    Duration election_timeout = RandomTimeout(100000, 200000);
+    // randomized follower timeout
+    const Duration election_timeout = RandomTimeout(kMinimumElectionTimeout, kMaximumElectionTimeout);
 
     if (time_since_last_append_entries > election_timeout) {
       // become a Candidate if we haven't heard from the Leader after this timeout
@@ -478,7 +499,7 @@ class Raft {
   // Leaders (re)send AppendRequest to followers.
   std::optional<Role> Cron(Leader &leader) {
     const Time now = io_.Now();
-    const Duration broadcast_timeout = RandomTimeout(40000, 60000);
+    const Duration broadcast_timeout = RandomTimeout(kMinimumBroadcastTimeout, kMaximumBroadcastTimeout);
 
     if (now - leader.last_broadcast > broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
