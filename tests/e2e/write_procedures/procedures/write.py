@@ -108,4 +108,5 @@ def subgraph_remove_vertex_and_out_edges_get_vertices(
     out_edges = vertex.out_edges
     for edge in out_edges:
         ctx.graph.delete_edge(edge)
+    ctx.graph.delete_vertex(vertex)
     return [mgp.Record(node=vertex) for vertex in ctx.graph.vertices]

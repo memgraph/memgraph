@@ -212,6 +212,23 @@ def test_subgraph_insert_edge_get_vertex_out_edges(connection):
     )
 
 
+def test_subgraph_create_edge_both_vertices_not_in_projected_graph_error(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    create_subgraph(cursor)
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n;", 6)
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(
+            cursor,
+            f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) as graph MATCH (p1:Person {{id:2}}) MATCH (p2:Person {{id:4}}) CALL write.subgraph_insert_edge_get_vertex_out_edges(graph, p1, p2) YIELD edge RETURN edge;",
+        )
+
+    execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) DETACH DELETE n;",
+    )
+
+
 def test_subgraph_remove_edge_get_vertex_out_edges(connection):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -222,6 +239,22 @@ def test_subgraph_remove_edge_get_vertex_out_edges(connection):
         f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) as graph MATCH (p1:Person {{id:1}})-[e:SUPPORTS]->(t1:Team {{id:5}}) CALL write.subgraph_remove_edge_get_vertex_out_edges(graph, e) YIELD edge RETURN edge;",
         1,
     )
+    execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) DETACH DELETE n;",
+    )
+
+
+def test_subgraph_remove_edge_not_in_subgraph_error(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    create_subgraph(cursor)
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n;", 6)
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(
+            cursor,
+            f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) as graph MATCH (p1:Person {{id:1}})-[e:KNOWS]->(p2:Person {{id:2}}) CALL write.subgraph_remove_edge_get_vertex_out_edges(graph, e) YIELD edge RETURN edge;",
+        )
     execute_and_fetch_all(
         cursor,
         f"MATCH (n) DETACH DELETE n;",

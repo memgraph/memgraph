@@ -77,6 +77,9 @@ class Graph final {
   /** Checks whether the graph contains the vertex. */
   bool ContainsVertex(const VertexAccessor &vertex);
 
+  /** Checks whether the graph contains the edge. */
+  bool ContainsEdge(const EdgeAccessor &edge);
+
   /** Removes the vertex from the graph if the vertex is in the graph. */
   std::optional<VertexAccessor> RemoveVertex(const VertexAccessor &vertex);
 
