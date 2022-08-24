@@ -1798,12 +1798,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
     };
 
-    // Checkf if upper bound exists
-    if (self_.upper_bound_) {
-      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion");
-    } else {
-      upper_bound_ = std::numeric_limits<int64_t>::max();
-    }
+    // Check if upper bound exists
+    upper_bound_ = self_.upper_bound_
+                       ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion")
+                       : std::numeric_limits<int64_t>::max();
+
     // Check if upper bound is valid
     if (upper_bound_ < 1) {
       throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");

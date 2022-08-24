@@ -497,7 +497,7 @@ std::vector<std::string> TopicNamesFromSymbols(
 }
 
 template <typename T>
-concept EnumUint8 = std::is_enum_v<T> &&std::same_as<uint8_t, std::underlying_type_t<T>>;
+concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
 
 template <bool required, typename... ValueTypes>
 void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
@@ -1619,7 +1619,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
-    if (relationshipDetail->total_weight && (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS))
+    if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
+        edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
       throw SemanticException(
           "Variable for total weight is allowed only with weighted shortest "
           "path expansion.");
@@ -1651,7 +1652,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
+        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+            edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           // For wShortest, the first (and required) lambda is used for weight
           // calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
@@ -1736,7 +1738,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     auto *bound = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
     if (!dots_tokens.size()) {
       // Case -[*bound]-
-      if (edge_type != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge_type != EdgeAtom::Type::ALL_SHORTEST_PATHS) lower = bound;
+      if (edge_type != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH && edge_type != EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        lower = bound;
       upper = bound;
     } else if (dots_tokens[0]->getSourceInterval().startsAfter(ctx->expression()[0]->getSourceInterval())) {
       // Case -[*bound..]-
