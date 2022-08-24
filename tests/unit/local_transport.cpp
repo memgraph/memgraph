@@ -65,25 +65,25 @@ TEST(LocalTransport, BasicRequest) {
 
   auto srv_thread = std::jthread(run_server, std::move(srv_io));
 
-  // for (int i = 1; i < 3; ++i) {
-  //  send request
-  CounterRequest cli_req;
-  auto value = 1;  // i;
-  cli_req.proposal = value;
-  std::cout << "[CLIENT] sending request" << std::endl;
-  auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
-  std::cout << "[CLIENT] waiting on future" << std::endl;
+  for (int i = 1; i < 3; ++i) {
+    // send request
+    CounterRequest cli_req;
+    auto value = 1;  // i;
+    cli_req.proposal = value;
+    std::cout << "[CLIENT] sending request" << std::endl;
+    auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
+    std::cout << "[CLIENT] waiting on future" << std::endl;
 
-  auto res_rez = std::move(res_f).Wait();
-  std::cout << "[CLIENT] future returned" << std::endl;
-  if (!res_rez.HasError()) {
-    std::cout << "[CLIENT] Got a valid response" << std::endl;
-    auto env = res_rez.GetValue();
-    MG_ASSERT(env.message.highest_seen == value);
-  } else {
-    std::cout << "[CLIENT] Got an error" << std::endl;
+    auto res_rez = std::move(res_f).Wait();
+    std::cout << "[CLIENT] future returned" << std::endl;
+    if (!res_rez.HasError()) {
+      std::cout << "[CLIENT] Got a valid response" << std::endl;
+      auto env = res_rez.GetValue();
+      MG_ASSERT(env.message.highest_seen == value);
+    } else {
+      std::cout << "[CLIENT] Got an error" << std::endl;
+    }
   }
-  //}
 
   local_system.ShutDown();
 }

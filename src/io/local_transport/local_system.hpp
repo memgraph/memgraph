@@ -26,7 +26,7 @@ class LocalSystem {
  public:
   Io<LocalTransport> Register(Address address) {
     LocalTransport local_transport(local_transport_handle_, address);
-    return Io(local_transport, address);
+    return Io{local_transport, address};
   }
 
   void ShutDown() { local_transport_handle_->ShutDown(); }
