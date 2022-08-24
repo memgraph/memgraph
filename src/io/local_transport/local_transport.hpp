@@ -24,22 +24,24 @@
 namespace memgraph::io::local_transport {
 
 using memgraph::io::Duration;
+using memgraph::io::RequestId;
 using memgraph::io::Time;
 
 class LocalTransport {
   std::shared_ptr<LocalTransportHandle> local_transport_handle_;
   const Address address_;
-  std::random_device rng_;
 
  public:
   LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle, Address address)
-      : local_transport_handle_(local_transport_handle), address_(address) {}
+      : local_transport_handle_(std::move(local_transport_handle)), address_(address) {}
 
   template <Message Request, Message Response>
-  ResponseFuture<Response> Request(Address address, uint64_t request_id, Request request, Duration timeout) {
+  ResponseFuture<Response> Request(Address to_address, RequestId request_id, Request request, Duration timeout) {
     auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<Response>>();
 
-    local_transport_handle_->SubmitRequest(address, address_, request_id, std::move(request), timeout,
+    Address from_address = address_;
+
+    local_transport_handle_->SubmitRequest(to_address, from_address, request_id, std::move(request), timeout,
                                            std::move(promise));
 
     return std::move(future);
@@ -47,21 +49,23 @@ class LocalTransport {
 
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Duration timeout) {
-    return local_transport_handle_->template Receive<Ms...>(address_, timeout);
+    Address from_address = address_;
+    return local_transport_handle_->template Receive<Ms...>(timeout);
   }
 
   template <Message M>
-  void Send(Address address, uint64_t request_id, M message) {
-    return local_transport_handle_->template Send<M>(address, address_, request_id, message);
+  void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
+    return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::move(message));
   }
 
   Time Now() const { return local_transport_handle_->Now(); }
 
-  bool ShouldShutDown() const { return false; }
+  bool ShouldShutDown() const { return local_transport_handle_->ShouldShutDown(); }
 
   template <class D = std::poisson_distribution<>, class Return = uint64_t>
   Return Rand(D distrib) {
-    return distrib(rng_);
+    std::random_device rng;
+    return distrib(rng);
   }
 };
 };  // namespace memgraph::io::local_transport

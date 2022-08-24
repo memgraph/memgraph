@@ -400,3 +400,7 @@ target_link_libraries(${test_prefix}websocket mg-communication Boost::headers)
 # Test future
 add_unit_test(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
+
+# Test Local Transport
+add_unit_test(local_transport.cpp)
+target_link_libraries(${test_prefix}local_transport mg-io)
