@@ -55,7 +55,7 @@ class LocalTransport {
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
-    return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::forward<M &&>(message));
+    return local_transport_handle_->template Send<M>(to_address, from_address, request_id, std::forward<M>(message));
   }
 
   Time Now() const { return local_transport_handle_->Now(); }
