@@ -113,6 +113,12 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
       }
     }
 
+    /*
+    #NoCommit perhaps about the frame:
+    -or maybe even better: have a boolean that we reset to true right here (or anywhere we would initialize? Like
+    PRoduce, WITH etc..) that we would toggle to false whenever the frame becomes invalid
+    --> The highest operator in the plan will have to reset this flag on all existing frames
+    */
     frames.clear();
     frames_memory_owner.clear();
     frames_memory_owner = memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());

@@ -68,7 +68,7 @@ class QueryPlanHardCodedQueriesTestFixture : public ::testing::TestWithParam<std
     storage::v3::Gid node_gid_;
     storage::v3::Gid permission_gid_;
     storage::v3::Gid identity_gid_;
-    // bool operator<(const Result &other) { return true; }
+
     bool operator<(const Result &other) const {
       if (node_gid_ != other.node_gid_) {
         return node_gid_ < other.node_gid_;
@@ -561,136 +561,26 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   auto scan_all_1 = MakeScanAllByLabelPropertyValueDistributed(
       storage, symbol_table, "n", label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
 
-  // {
-  //   /*
-  //   Checking temporary result from:
-  //     MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  //     RETURN *;
-  //   */
-  //   auto symbol_table_copy = symbol_table;
-  //   auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))
-  //                       ->MapTo(symbol_table_copy.CreateSymbol("named_expression_1", true));
-  //   auto produce = MakeProduceDistributed(scan_all_1.op_, output_n);
-  //   auto context = MakeContextDistributed(storage, symbol_table_copy, &dba);
-  //   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-  //   ASSERT_EQ(results.size(), node_gids.size());
-  //   for (auto result : results) {
-  //     ASSERT_TRUE(result.size() == 1);
-  //     ASSERT_TRUE(result[0].IsVertex());
-
-  //     auto node_gid = result[0].ValueVertex().Gid();
-  //     ASSERT_TRUE(node_gids.find(node_gid) != node_gids.end());
-  //   }
-  // }
-
   // MATCH (p:Permission)
   auto scan_all_2 = MakeScanAllByLabelDistributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
 
-  // {
-  //   /*
-  //   Checking temporary result from:
-  //     MATCH (p:Permission)
-  //     MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  //     RETURN *;
-  //   */
-  //   auto symbol_table_copy = symbol_table;
-  //   auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))
-  //                       ->MapTo(symbol_table_copy.CreateSymbol("named_expression_1", true));
-  //   auto output_p = NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))
-  //                       ->MapTo(symbol_table_copy.CreateSymbol("named_expression_2", true));
-
-  //   auto produce = MakeProduceDistributed(scan_all_2.op_, output_n, output_p);
-  //   auto context = MakeContextDistributed(storage, symbol_table_copy, &dba);
-  //   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-
-  //   for (auto result : results) {
-  //     ASSERT_TRUE(result.size() == 2);
-  //     ASSERT_TRUE(result[0].IsVertex());
-  //     ASSERT_TRUE(result[1].IsVertex());
-
-  //     auto node_gid = result[0].ValueVertex().Gid();
-  //     ASSERT_TRUE(node_gids.find(node_gid) != node_gids.end());
-  //     auto permission_gid = result[1].ValueVertex().Gid();
-  //     ASSERT_TRUE(permission_gids.find(permission_gid) != permission_gids.end());
-  //   }
-  // }
-
-  // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
+  // (n:Node)<-[:IS_FOR_NODE]-(p:Permission)
   auto expand_1 =
       MakeExpandDistributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "anon3", EdgeAtom::Direction::OUT,
                             {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
-
-  // {
-  //   /*
-  //   Checking temporary result from:
-  //     MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-  //     MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  //     RETURN *;
-  //   */
-  //   auto symbol_table_copy = symbol_table;
-  //   auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))
-  //                       ->MapTo(symbol_table_copy.CreateSymbol("named_expression_1", true));
-  //   auto output_p = NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))
-  //                       ->MapTo(symbol_table_copy.CreateSymbol("named_expression_2", true));
-
-  //   auto produce = MakeProduceDistributed(expand_1.op_, output_n, output_p);
-  //   auto context = MakeContextDistributed(storage, symbol_table_copy, &dba);
-  //   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-
-  //   ASSERT_EQ(results.size(), node_gids.size());
-  //   ASSERT_EQ(results.size(), permission_gids.size());
-  //   for (auto result : results) {
-  //     ASSERT_TRUE(result.size() == 2);
-  //     ASSERT_TRUE(result[0].IsVertex());
-  //     ASSERT_TRUE(result[1].IsVertex());
-
-  //     auto node_gid = result[0].ValueVertex().Gid();
-  //     ASSERT_TRUE(node_gids.find(node_gid) != node_gids.end());
-  //     auto permission_gid = result[1].ValueVertex().Gid();
-  //     ASSERT_TRUE(permission_gids.find(permission_gid) != permission_gids.end());
-  //   }
-  // }
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
   auto scan_all_3 =
       MakeScanAllByLabelPropertyValueDistributed(storage, symbol_table, "i", label_identity, property_identity_email,
                                                  "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
 
-  // {
-  //   /*
-  //   Checking temporary result from:
-  //     MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-  //     MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-  //     MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  //     RETURN *;
-  //   */
-
-  //   auto produce = MakeProduceDistributed(scan_all_3.op_, output_n, output_p, output_i);
-  //   auto context = MakeContextDistributed(storage, symbol_table, &dba);
-  //   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-
-  //   for (auto result : results) {
-  //     ASSERT_TRUE(result.size() == 3);
-  //     ASSERT_TRUE(result[0].IsVertex());
-  //     ASSERT_TRUE(result[1].IsVertex());
-  //     ASSERT_TRUE(result[2].IsVertex());
-
-  //     auto node_gid = result[0].ValueVertex().Gid();
-  //     ASSERT_TRUE(node_gids.find(node_gid) != node_gids.end());
-  //     auto permission_gid = result[1].ValueVertex().Gid();
-  //     ASSERT_TRUE(permission_gids.find(permission_gid) != permission_gids.end());
-  //     auto identity_gid = result[2].ValueVertex().Gid();
-  //     ASSERT_TRUE(identity_gids.find(identity_gid) != identity_gids.end());
-  //   }
-  // }
-
-  // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
+  // (p:Permission)-[:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
   auto expand_2 =
       MakeExpandDistributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "anon1", EdgeAtom::Direction::IN,
                             {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
-    Checking temporary result from:
+    Checking result from:
       MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
       MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})

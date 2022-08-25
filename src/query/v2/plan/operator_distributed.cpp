@@ -398,8 +398,11 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
 
       auto &in_out_edge = in_out_edges[idx];
       auto &frame = *frames[idx];
-
+      // if (!frame.valid()) {  // #NoCommit
+      //   continue;
+      // }
       // Do we have in-going edges for this frame?
+      auto has_put_any_value_on_frame = false;
       if (in_out_edge.in_.has_value()) {
         auto &in_edges = in_out_edge.in_.value();
         // Do we still have some in-going edges to look at for this frame? i.e.: is the iterator not yet at the end of
@@ -412,6 +415,7 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
           pull_node_from_edge(edge, EdgeAtom::Direction::IN, frame);  // We put the node, if needed, in the frame
 
           at_least_one_result = true;
+          has_put_any_value_on_frame = true;
         }
       }
 
@@ -434,7 +438,12 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
           pull_node_from_edge(edge, EdgeAtom::Direction::OUT, frame);  // We put the node, if needed, in the frame
 
           at_least_one_result = true;
+          has_put_any_value_on_frame = true;
         }
+
+        // if (!has_put_any_value_on_frame) {
+        //   frame.setIsNotValid();  // #NoCommit
+        // }
       }
     }
 
