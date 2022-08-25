@@ -41,8 +41,8 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   return context;
 }
 
-ExecutionContext MakeContext_Distributed(const AstStorage &storage, const SymbolTable &symbol_table,
-                                         memgraph::query::v2::DbAccessor *dba) {
+ExecutionContext MakeContextDistributed(const AstStorage &storage, const SymbolTable &symbol_table,
+                                        memgraph::query::v2::DbAccessor *dba) {
   return MakeContext(storage, symbol_table, dba);
 }
 
@@ -70,9 +70,9 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
   return results;
 }
 
-std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distributed::Produce &produce,
-                                                                ExecutionContext *context,
-                                                                size_t number_of_frames_per_batch) {
+std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed::Produce &produce,
+                                                               ExecutionContext *context,
+                                                               size_t number_of_frames_per_batch) {
   auto frames_memory_owner = std::vector<std::unique_ptr<Frame>>{};
   frames_memory_owner.reserve(number_of_frames_per_batch);
   std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
@@ -122,8 +122,8 @@ auto MakeProduce(std::shared_ptr<LogicalOperator> input, TNamedExpressions... na
 }
 
 template <typename... TNamedExpressions>
-auto MakeProduce_Distributed(std::shared_ptr<distributed::LogicalOperator> input,
-                             TNamedExpressions... named_expressions) {
+auto MakeProduceDistributed(std::shared_ptr<distributed::LogicalOperator> input,
+                            TNamedExpressions... named_expressions) {
   return std::make_shared<distributed::Produce>(input, std::vector<NamedExpression *>{named_expressions...});
 }
 
@@ -133,7 +133,7 @@ struct ScanAllTuple {
   Symbol sym_;
 };
 
-struct ScanAllTuple_distributed {
+struct ScanAllTupleDistributed {
   NodeAtom *node_;
   std::shared_ptr<distributed::LogicalOperator> op_;
   Symbol sym_;
@@ -155,18 +155,18 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const s
   return ScanAllTuple{node, logical_op, symbol};
 }
 
-ScanAllTuple_distributed MakeScanAll_Distributed(AstStorage &storage, SymbolTable &symbol_table,
-                                                 const std::string &identifier,
-                                                 std::shared_ptr<distributed::LogicalOperator> input = {nullptr},
-                                                 memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
+ScanAllTupleDistributed MakeScanAllDistributed(AstStorage &storage, SymbolTable &symbol_table,
+                                               const std::string &identifier,
+                                               std::shared_ptr<distributed::LogicalOperator> input = {nullptr},
+                                               memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<distributed::ScanAll>(input, symbol, view);
-  return ScanAllTuple_distributed{node, logical_op, symbol};
+  return ScanAllTupleDistributed{node, logical_op, symbol};
 }
 
-ScanAllTuple_distributed MakeScanAllById_Distributed(
+ScanAllTupleDistributed MakeScanAllByIdDistributed(
     AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier, Expression *value,
     std::shared_ptr<distributed::LogicalOperator> input = {nullptr},
     memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
@@ -174,7 +174,7 @@ ScanAllTuple_distributed MakeScanAllById_Distributed(
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<distributed::ScanAllById>(input, symbol, value, view);
-  return ScanAllTuple_distributed{node, logical_op, symbol};
+  return ScanAllTupleDistributed{node, logical_op, symbol};
 }
 
 ScanAllTuple MakeScanAllNew(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
@@ -204,7 +204,7 @@ ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, 
   return ScanAllTuple{node, logical_op, symbol};
 }
 
-ScanAllTuple_distributed MakeScanAllByLabel_Distributed(
+ScanAllTupleDistributed MakeScanAllByLabelDistributed(
     AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier, memgraph::storage::v3::LabelId label,
     std::shared_ptr<distributed::LogicalOperator> input = {nullptr},
     memgraph::storage::v3::View view = memgraph::storage::v3::View::OLD) {
@@ -212,7 +212,7 @@ ScanAllTuple_distributed MakeScanAllByLabel_Distributed(
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<distributed::ScanAllByLabel>(input, symbol, label, view);
-  return ScanAllTuple_distributed{node, logical_op, symbol};
+  return ScanAllTupleDistributed{node, logical_op, symbol};
 }
 
 /**
@@ -256,7 +256,7 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &s
   return ScanAllTuple{node, logical_op, symbol};
 }
 
-ScanAllTuple_distributed MakeScanAllByLabelPropertyValue_Distributed(
+ScanAllTupleDistributed MakeScanAllByLabelPropertyValueDistributed(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier, memgraph::storage::v3::LabelId label,
     memgraph::storage::v3::PropertyId property, const std::string &property_name, Expression *value,
     std::shared_ptr<distributed::LogicalOperator> input = {nullptr},
@@ -266,7 +266,7 @@ ScanAllTuple_distributed MakeScanAllByLabelPropertyValue_Distributed(
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<distributed::ScanAllByLabelPropertyValue>(input, symbol, label, property,
                                                                                property_name, value, view);
-  return ScanAllTuple_distributed{node, logical_op, symbol};
+  return ScanAllTupleDistributed{node, logical_op, symbol};
 }
 
 struct ExpandTuple {
@@ -277,7 +277,7 @@ struct ExpandTuple {
   std::shared_ptr<LogicalOperator> op_;
 };
 
-struct ExpandTuple_distributed {
+struct ExpandTupleDistributed {
   EdgeAtom *edge_;
   Symbol edge_sym_;
   NodeAtom *node_;
@@ -303,12 +303,12 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
-ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable &symbol_table,
-                                               std::shared_ptr<distributed::LogicalOperator> input, Symbol input_symbol,
-                                               const std::string &edge_identifier, EdgeAtom::Direction direction,
-                                               const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
-                                               const std::string &node_identifier, bool existing_node,
-                                               memgraph::storage::v3::View view) {
+ExpandTupleDistributed MakeExpandDistributed(AstStorage &storage, SymbolTable &symbol_table,
+                                             std::shared_ptr<distributed::LogicalOperator> input, Symbol input_symbol,
+                                             const std::string &edge_identifier, EdgeAtom::Direction direction,
+                                             const std::vector<memgraph::storage::v3::EdgeTypeId> &edge_types,
+                                             const std::string &node_identifier, bool existing_node,
+                                             memgraph::storage::v3::View view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
   edge->identifier_->MapTo(edge_sym);
@@ -320,7 +320,7 @@ ExpandTuple_distributed MakeExpand_Distributed(AstStorage &storage, SymbolTable 
   auto op = std::make_shared<distributed::Expand>(input, input_symbol, node_sym, edge_sym, direction, edge_types,
                                                   existing_node, view);
 
-  return ExpandTuple_distributed{edge, edge_sym, node, node_sym, op};
+  return ExpandTupleDistributed{edge, edge_sym, node, node_sym, op};
 }
 
 struct UnwindTuple {

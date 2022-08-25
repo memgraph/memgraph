@@ -103,13 +103,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
   SymbolTable symbol_table;
 
   // MATCH (n)
-  auto scan_all_1 = MakeScanAll_Distributed(storage, symbol_table, "n");
+  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "n");
 
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  auto produce = MakeProduceDistributed(scan_all_1.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
     ASSERT_TRUE(result[0].IsVertex());
@@ -167,13 +167,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelFilteringWhileBatc
   SymbolTable symbol_table;
 
   // MATCH (n:Node)
-  auto scan_all_1 = MakeScanAllByLabel_Distributed(storage, symbol_table, "n", label_node);
+  auto scan_all_1 = MakeScanAllByLabelDistributed(storage, symbol_table, "n", label_node);
 
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  auto produce = MakeProduceDistributed(scan_all_1.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
     ASSERT_TRUE(result[0].IsVertex());
@@ -247,13 +247,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithLabelPropertyValueFilte
   SymbolTable symbol_table;
 
   // MATCH (n:Node {someId:'ExpectedValue'})
-  auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "n", label_node, property_node,
-                                                                "someId", LITERAL("expectedValue"));
+  auto scan_all_1 = MakeScanAllByLabelPropertyValueDistributed(storage, symbol_table, "n", label_node, property_node,
+                                                               "someId", LITERAL("expectedValue"));
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  auto produce = MakeProduceDistributed(scan_all_1.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
     ASSERT_TRUE(result[0].IsVertex());
@@ -298,13 +298,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
   SymbolTable symbol_table;
 
   // MATCH (n) WHERE id(n)=1
-  auto scan_all_1 = MakeScanAllById_Distributed(storage, symbol_table, "n", LITERAL(id.AsInt()));
+  auto scan_all_1 = MakeScanAllByIdDistributed(storage, symbol_table, "n", LITERAL(id.AsInt()));
 
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  auto produce = MakeProduceDistributed(scan_all_1.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), 1);
   ASSERT_TRUE(results[0][0].IsVertex());
   ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
@@ -352,27 +352,27 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_MatchAllWithExpandWhileBat
   SymbolTable symbol_table;
 
   // ScanAll (anon1)
-  auto scan_all = MakeScanAll_Distributed(storage, symbol_table, "anon1");
+  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "anon1");
 
   {
     auto output = NEXPR("anon1", IDENT("anon1")->MapTo(scan_all.sym_))
                       ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+    auto produce = MakeProduceDistributed(scan_all.op_, output);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), 1 + number_of_vertices);  // Center node + number_of_vertices
   }
 
   // Expand (n)<-[anon2]-(anon1)
   auto expand =
-      MakeExpand_Distributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
-                             {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+      MakeExpandDistributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
+                            {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   auto output =
       NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduce_Distributed(expand.op_, output);
-  auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-  auto results = CollectProduce_Distributed(*produce, &context, frames_per_batch);
+  auto produce = MakeProduceDistributed(expand.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
     ASSERT_TRUE(result[0].IsVertex());
@@ -457,7 +457,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
   SymbolTable symbol_table;
 
   // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  auto scan_all_1 = MakeScanAllByLabelPropertyValue_Distributed(
+  auto scan_all_1 = MakeScanAllByLabelPropertyValueDistributed(
       storage, symbol_table, "n", label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
 
   {
@@ -467,14 +467,14 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
     */
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduce_Distributed(scan_all_1.op_, output);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    auto produce = MakeProduceDistributed(scan_all_1.op_, output);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
   }
 
   // MATCH (p:Permission)
-  auto scan_all_2 = MakeScanAllByLabel_Distributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
+  auto scan_all_2 = MakeScanAllByLabelDistributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
   {
     /*
     Checking temporary result from:
@@ -485,17 +485,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p =
         NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
-    auto produce = MakeProduce_Distributed(scan_all_2.op_, output_n, output_p);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    auto produce = MakeProduceDistributed(scan_all_2.op_, output_n, output_p);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
   }
 
   // (p:Permission)-[:IS_FOR_NODE]->(n:Node)
   auto expand_1 =
-      MakeExpand_Distributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "anon3", EdgeAtom::Direction::OUT,
-                             {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+      MakeExpandDistributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "anon3", EdgeAtom::Direction::OUT,
+                            {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking temporary result from:
@@ -505,17 +505,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
     */
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-    auto produce = MakeProduce_Distributed(expand_1.op_, output_n, output_p);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    auto produce = MakeProduceDistributed(expand_1.op_, output_n, output_p);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 2);
   }
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
   auto scan_all_3 =
-      MakeScanAllByLabelPropertyValue_Distributed(storage, symbol_table, "i", label_identity, property_identity_email,
-                                                  "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
+      MakeScanAllByLabelPropertyValueDistributed(storage, symbol_table, "i", label_identity, property_identity_email,
+                                                 "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
 
   {
     /*
@@ -529,17 +529,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
     auto output_i = NEXPR("i", IDENT("i")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("i", true));
 
-    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    auto produce = MakeProduceDistributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
   }
 
   // (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
   auto expand_2 =
-      MakeExpand_Distributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
-                             {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+      MakeExpandDistributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "e", EdgeAtom::Direction::OUT,
+                            {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking temporary result from:
@@ -551,9 +551,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
     auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
     auto output_p = NEXPR("p", IDENT("p")->MapTo(expand_1.node_sym_))->MapTo(symbol_table.CreateSymbol("p", true));
     auto output_i = NEXPR("i", IDENT("i")->MapTo(expand_2.node_sym_))->MapTo(symbol_table.CreateSymbol("i", true));
-    auto produce = MakeProduce_Distributed(scan_all_3.op_, output_n, output_p, output_i);
-    auto context = MakeContext_Distributed(storage, symbol_table, &dba);
-    auto results = CollectProduce_Distributed(*produce, &context, number_of_frames_per_batch);
+    auto produce = MakeProduceDistributed(scan_all_3.op_, output_n, output_p, output_i);
+    auto context = MakeContextDistributed(storage, symbol_table, &dba);
+    auto results = CollectProduceDistributed(*produce, &context, number_of_frames_per_batch);
     ASSERT_EQ(results.size(), 1);
     ASSERT_EQ(results[0].size(), 3);
   }
