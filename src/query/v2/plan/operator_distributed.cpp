@@ -17,6 +17,7 @@
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ACCEPT_WITH_INPUT(class_name)                                    \
   bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
     if (visitor.PreVisit(*this)) {                                       \
@@ -25,6 +26,7 @@
     return visitor.PostVisit(*this);                                     \
   }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define WITHOUT_SINGLE_INPUT(class_name)                         \
   bool class_name::HasSingleInput() const { return false; }      \
   std::shared_ptr<LogicalOperator> class_name::input() const {   \
@@ -79,6 +81,7 @@ void ResizeFrames(Frames &frames, int last_filled_frame) {
 }
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
 
 bool Once::OnceCursor::Pull(Frames & /*frames*/, ExecutionContext &context) {
