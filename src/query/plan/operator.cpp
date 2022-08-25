@@ -405,11 +405,9 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
-#ifdef MG_ENTERPRISE
     if (context.auth_checker && !FindNextVertex(context)) {
       return false;
     }
-#endif
 
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
