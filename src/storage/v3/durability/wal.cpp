@@ -486,53 +486,53 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Config::Ite
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  switch (delta.action) {
-    case Delta::Action::DELETE_OBJECT:
-    case Delta::Action::RECREATE_OBJECT: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
-      encoder->WriteUint(vertex.Gid().AsUint());
-      break;
-    }
-    case Delta::Action::SET_PROPERTY: {
-      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
-      encoder->WriteUint(vertex.Gid().AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // vertex.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
-      encoder->WritePropertyValue(vertex.properties.GetProperty(delta.property.key));
-      break;
-    }
-    case Delta::Action::ADD_LABEL:
-    case Delta::Action::REMOVE_LABEL: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
-      encoder->WriteUint(vertex.Gid().AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.label.AsUint()));
-      break;
-    }
-    case Delta::Action::ADD_OUT_EDGE:
-    case Delta::Action::REMOVE_OUT_EDGE: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
-      if (items.properties_on_edges) {
-        encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
-      } else {
-        encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
-      }
-      encoder->WriteString(name_id_mapper->IdToName(delta.vertex_edge.edge_type.AsUint()));
-      encoder->WriteUint(vertex.Gid().AsUint());
-      encoder->WriteUint(delta.vertex_edge.vertex->Gid().AsUint());
-      break;
-    }
-    case Delta::Action::ADD_IN_EDGE:
-    case Delta::Action::REMOVE_IN_EDGE:
-      // These actions are already encoded in the *_OUT_EDGE actions. This
-      // function should never be called for this type of deltas.
-      LOG_FATAL("Invalid delta action!");
-  }
+  // encoder->WriteMarker(Marker::SECTION_DELTA);
+  // encoder->WriteUint(timestamp);
+  // switch (delta.action) {
+  //   case Delta::Action::DELETE_OBJECT:
+  //   case Delta::Action::RECREATE_OBJECT: {
+  //     encoder->WriteMarker(VertexActionToMarker(delta.action));
+  //     encoder->WriteUint(vertex.Gid().AsUint());
+  //     break;
+  //   }
+  //   case Delta::Action::SET_PROPERTY: {
+  //     encoder->WriteMarker(Marker::DELTA_VERTEX_SET_PROPERTY);
+  //     encoder->WriteUint(vertex.Gid().AsUint());
+  //     encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+  //     // The property value is the value that is currently stored in the
+  //     // vertex.
+  //     // TODO (mferencevic): Mitigate the memory allocation introduced here
+  //     // (with the `GetProperty` call). It is the only memory allocation in the
+  //     // entire WAL file writing logic.
+  //     encoder->WritePropertyValue(vertex.properties.GetProperty(delta.property.key));
+  //     break;
+  //   }
+  //   case Delta::Action::ADD_LABEL:
+  //   case Delta::Action::REMOVE_LABEL: {
+  //     encoder->WriteMarker(VertexActionToMarker(delta.action));
+  //     encoder->WriteUint(vertex.Gid().AsUint());
+  //     encoder->WriteString(name_id_mapper->IdToName(delta.label.AsUint()));
+  //     break;
+  //   }
+  //   case Delta::Action::ADD_OUT_EDGE:
+  //   case Delta::Action::REMOVE_OUT_EDGE: {
+  //     encoder->WriteMarker(VertexActionToMarker(delta.action));
+  //     if (items.properties_on_edges) {
+  //       encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
+  //     } else {
+  //       encoder->WriteUint(delta.vertex_edge.edge.gid.AsUint());
+  //     }
+  //     encoder->WriteString(name_id_mapper->IdToName(delta.vertex_edge.edge_type.AsUint()));
+  //     encoder->WriteUint(vertex.Gid().AsUint());
+  //     encoder->WriteUint(delta.vertex_edge.vertex->Gid().AsUint());
+  //     break;
+  //   }
+  //   case Delta::Action::ADD_IN_EDGE:
+  //   case Delta::Action::REMOVE_IN_EDGE:
+  //     // These actions are already encoded in the *_OUT_EDGE actions. This
+  //     // function should never be called for this type of deltas.
+  //     LOG_FATAL("Invalid delta action!");
+  // }
 }
 
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
@@ -540,37 +540,37 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  switch (delta.action) {
-    case Delta::Action::SET_PROPERTY: {
-      encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
-      encoder->WriteUint(edge.gid.AsUint());
-      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
-      // The property value is the value that is currently stored in the
-      // edge.
-      // TODO (mferencevic): Mitigate the memory allocation introduced here
-      // (with the `GetProperty` call). It is the only memory allocation in the
-      // entire WAL file writing logic.
-      encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
-      break;
-    }
-    case Delta::Action::DELETE_OBJECT:
-    case Delta::Action::RECREATE_OBJECT:
-      // These actions are already encoded in vertex *_OUT_EDGE actions. Also,
-      // these deltas don't contain any information about the from vertex, to
-      // vertex or edge type so they are useless. This function should never
-      // be called for this type of deltas.
-      LOG_FATAL("Invalid delta action!");
-    case Delta::Action::ADD_LABEL:
-    case Delta::Action::REMOVE_LABEL:
-    case Delta::Action::ADD_OUT_EDGE:
-    case Delta::Action::REMOVE_OUT_EDGE:
-    case Delta::Action::ADD_IN_EDGE:
-    case Delta::Action::REMOVE_IN_EDGE:
-      // These deltas shouldn't appear for edges.
-      LOG_FATAL("Invalid database state!");
-  }
+  // encoder->WriteMarker(Marker::SECTION_DELTA);
+  // encoder->WriteUint(timestamp);
+  // switch (delta.action) {
+  //   case Delta::Action::SET_PROPERTY: {
+  //     encoder->WriteMarker(Marker::DELTA_EDGE_SET_PROPERTY);
+  //     encoder->WriteUint(edge.gid.AsUint());
+  //     encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+  //     // The property value is the value that is currently stored in the
+  //     // edge.
+  //     // TODO (mferencevic): Mitigate the memory allocation introduced here
+  //     // (with the `GetProperty` call). It is the only memory allocation in the
+  //     // entire WAL file writing logic.
+  //     encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
+  //     break;
+  //   }
+  //   case Delta::Action::DELETE_OBJECT:
+  //   case Delta::Action::RECREATE_OBJECT:
+  //     // These actions are already encoded in vertex *_OUT_EDGE actions. Also,
+  //     // these deltas don't contain any information about the from vertex, to
+  //     // vertex or edge type so they are useless. This function should never
+  //     // be called for this type of deltas.
+  //     LOG_FATAL("Invalid delta action!");
+  //   case Delta::Action::ADD_LABEL:
+  //   case Delta::Action::REMOVE_LABEL:
+  //   case Delta::Action::ADD_OUT_EDGE:
+  //   case Delta::Action::REMOVE_OUT_EDGE:
+  //   case Delta::Action::ADD_IN_EDGE:
+  //   case Delta::Action::REMOVE_IN_EDGE:
+  //     // These deltas shouldn't appear for edges.
+  //     LOG_FATAL("Invalid database state!");
+  // }
 }
 
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
@@ -643,240 +643,244 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
   auto edge_acc = edges->access();
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
-  for (uint64_t i = 0; i < info.num_deltas; ++i) {
-    // Read WAL delta header to find out the delta timestamp.
-    auto timestamp = ReadWalDeltaHeader(&wal);
+  // for (uint64_t i = 0; i < info.num_deltas; ++i) {
+  //   // Read WAL delta header to find out the delta timestamp.
+  //   auto timestamp = ReadWalDeltaHeader(&wal);
 
-    if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
-      // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal);
-      switch (delta.type) {
-        case WalDeltaData::Type::VERTEX_CREATE: {
-          auto [vertex, inserted] = vertex_acc.insert({Vertex{delta.vertex_create_delete.gid, nullptr}});
-          if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
+  //   if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
+  //     // This delta should be loaded.
+  //     auto delta = ReadWalDeltaData(&wal);
+  //     switch (delta.type) {
+  //       case WalDeltaData::Type::VERTEX_CREATE: {
+  //         auto [vertex, inserted] = vertex_acc.insert({Vertex{delta.vertex_create_delete.gid, nullptr}});
+  //         if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
 
-          ret.next_vertex_id = std::max(ret.next_vertex_id, delta.vertex_create_delete.gid.AsUint() + 1);
+  //         ret.next_vertex_id = std::max(ret.next_vertex_id, delta.vertex_create_delete.gid.AsUint() + 1);
 
-          break;
-        }
-        case WalDeltaData::Type::VERTEX_DELETE: {
-          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}});
-          if (lgo_vertex_it == vertex_acc.end()) {
-            throw RecoveryFailure("The vertex doesn't exist!");
-          }
-          auto &vertex = lgo_vertex_it->vertex;
-          if (!vertex.in_edges.empty() || !vertex.out_edges.empty())
-            throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::VERTEX_DELETE: {
+  //         auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}});
+  //         if (lgo_vertex_it == vertex_acc.end()) {
+  //           throw RecoveryFailure("The vertex doesn't exist!");
+  //         }
+  //         auto &vertex = lgo_vertex_it->vertex;
+  //         if (!vertex.in_edges.empty() || !vertex.out_edges.empty())
+  //           throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
 
-          if (!vertex_acc.remove(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}}))
-            throw RecoveryFailure("The vertex must be removed here!");
+  //         if (!vertex_acc.remove(std::vector{PropertyValue{delta.vertex_create_delete.gid.AsInt()}}))
+  //           throw RecoveryFailure("The vertex must be removed here!");
 
-          break;
-        }
-        case WalDeltaData::Type::VERTEX_ADD_LABEL:
-        case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
-          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_add_remove_label.gid.AsInt()}});
-          if (lgo_vertex_it == vertex_acc.end()) {
-            throw RecoveryFailure("The vertex doesn't exist!");
-          }
-          auto &vertex = lgo_vertex_it->vertex;
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::VERTEX_ADD_LABEL:
+  //       case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
+  //         auto lgo_vertex_it =
+  //         vertex_acc.find(std::vector{PropertyValue{delta.vertex_add_remove_label.gid.AsInt()}}); if (lgo_vertex_it
+  //         == vertex_acc.end()) {
+  //           throw RecoveryFailure("The vertex doesn't exist!");
+  //         }
+  //         auto &vertex = lgo_vertex_it->vertex;
 
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.vertex_add_remove_label.label));
-          auto it = std::find(vertex.labels.begin(), vertex.labels.end(), label_id);
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.vertex_add_remove_label.label));
+  //         auto it = std::find(vertex.labels.begin(), vertex.labels.end(), label_id);
 
-          if (delta.type == WalDeltaData::Type::VERTEX_ADD_LABEL) {
-            if (it != vertex.labels.end()) throw RecoveryFailure("The vertex already has the label!");
-            vertex.labels.push_back(label_id);
-          } else {
-            if (it == vertex.labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
-            std::swap(*it, vertex.labels.back());
-            vertex.labels.pop_back();
-          }
+  //         if (delta.type == WalDeltaData::Type::VERTEX_ADD_LABEL) {
+  //           if (it != vertex.labels.end()) throw RecoveryFailure("The vertex already has the label!");
+  //           vertex.labels.push_back(label_id);
+  //         } else {
+  //           if (it == vertex.labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
+  //           std::swap(*it, vertex.labels.back());
+  //           vertex.labels.pop_back();
+  //         }
 
-          break;
-        }
-        case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-          auto lgo_vertex_it = vertex_acc.find(std::vector{PropertyValue{delta.vertex_edge_set_property.gid.AsInt()}});
-          if (lgo_vertex_it == vertex_acc.end()) {
-            throw RecoveryFailure("The vertex doesn't exist!");
-          }
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
+  //         auto lgo_vertex_it =
+  //         vertex_acc.find(std::vector{PropertyValue{delta.vertex_edge_set_property.gid.AsInt()}}); if (lgo_vertex_it
+  //         == vertex_acc.end()) {
+  //           throw RecoveryFailure("The vertex doesn't exist!");
+  //         }
 
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
-          auto &property_value = delta.vertex_edge_set_property.value;
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
+  //         auto &property_value = delta.vertex_edge_set_property.value;
 
-          lgo_vertex_it->vertex.properties.SetProperty(property_id, property_value);
+  //         lgo_vertex_it->vertex.properties.SetProperty(property_id, property_value);
 
-          break;
-        }
-        case WalDeltaData::Type::EDGE_CREATE: {
-          auto from_lgo_vertex =
-              vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
-          if (from_lgo_vertex == vertex_acc.end()) {
-            throw RecoveryFailure("The from vertex doesn't exist!");
-          }
-          auto to_lgo_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
-          if (to_lgo_vertex == vertex_acc.end()) {
-            throw RecoveryFailure("The to vertex doesn't exist!");
-          }
-          auto &from_vertex = from_lgo_vertex->vertex;
-          auto &to_vertex = to_lgo_vertex->vertex;
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::EDGE_CREATE: {
+  //         auto from_lgo_vertex =
+  //             vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
+  //         if (from_lgo_vertex == vertex_acc.end()) {
+  //           throw RecoveryFailure("The from vertex doesn't exist!");
+  //         }
+  //         auto to_lgo_vertex =
+  //         vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}}); if (to_lgo_vertex
+  //         == vertex_acc.end()) {
+  //           throw RecoveryFailure("The to vertex doesn't exist!");
+  //         }
+  //         auto &from_vertex = from_lgo_vertex->vertex;
+  //         auto &to_vertex = to_lgo_vertex->vertex;
 
-          auto edge_gid = delta.edge_create_delete.gid;
-          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
-          EdgeRef edge_ref(edge_gid);
-          if (items.properties_on_edges) {
-            auto [edge, inserted] = edge_acc.insert(Edge{edge_gid, nullptr});
-            if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
-            edge_ref = EdgeRef(&*edge);
-          }
-          {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
-            auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
-            if (it != from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex already has this edge!");
-            from_vertex.out_edges.push_back(link);
-          }
-          {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
-            auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
-            if (it != to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex already has this edge!");
-            to_vertex.in_edges.push_back(link);
-          }
+  //         auto edge_gid = delta.edge_create_delete.gid;
+  //         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
+  //         EdgeRef edge_ref(edge_gid);
+  //         if (items.properties_on_edges) {
+  //           auto [edge, inserted] = edge_acc.insert(Edge{edge_gid, nullptr});
+  //           if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+  //           edge_ref = EdgeRef(&*edge);
+  //         }
+  //         {
+  //           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
+  //           auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
+  //           if (it != from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex already has this edge!");
+  //           from_vertex.out_edges.push_back(link);
+  //         }
+  //         {
+  //           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
+  //           auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
+  //           if (it != to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex already has this edge!");
+  //           to_vertex.in_edges.push_back(link);
+  //         }
 
-          ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
+  //         ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
 
-          // Increment edge count.
-          *edge_count += 1;
+  //         // Increment edge count.
+  //         *edge_count += 1;
 
-          break;
-        }
-        case WalDeltaData::Type::EDGE_DELETE: {
-          auto from_lgo_vertex =
-              vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
-          if (from_lgo_vertex == vertex_acc.end()) {
-            throw RecoveryFailure("The from vertex doesn't exist!");
-          }
-          auto to_lgo_vertex = vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}});
-          if (to_lgo_vertex == vertex_acc.end()) {
-            throw RecoveryFailure("The to vertex doesn't exist!");
-          }
-          auto &from_vertex = from_lgo_vertex->vertex;
-          auto &to_vertex = to_lgo_vertex->vertex;
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::EDGE_DELETE: {
+  //         auto from_lgo_vertex =
+  //             vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.from_vertex.AsInt()}});
+  //         if (from_lgo_vertex == vertex_acc.end()) {
+  //           throw RecoveryFailure("The from vertex doesn't exist!");
+  //         }
+  //         auto to_lgo_vertex =
+  //         vertex_acc.find(std::vector{PropertyValue{delta.edge_create_delete.to_vertex.AsInt()}}); if (to_lgo_vertex
+  //         == vertex_acc.end()) {
+  //           throw RecoveryFailure("The to vertex doesn't exist!");
+  //         }
+  //         auto &from_vertex = from_lgo_vertex->vertex;
+  //         auto &to_vertex = to_lgo_vertex->vertex;
 
-          auto edge_gid = delta.edge_create_delete.gid;
-          auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
-          EdgeRef edge_ref(edge_gid);
-          if (items.properties_on_edges) {
-            auto edge = edge_acc.find(edge_gid);
-            if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
-            edge_ref = EdgeRef(&*edge);
-          }
-          {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
-            auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
-            if (it == from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
-            std::swap(*it, from_vertex.out_edges.back());
-            from_vertex.out_edges.pop_back();
-          }
-          {
-            std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
-            auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
-            if (it == to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
-            std::swap(*it, to_vertex.in_edges.back());
-            to_vertex.in_edges.pop_back();
-          }
-          if (items.properties_on_edges) {
-            if (!edge_acc.remove(edge_gid)) throw RecoveryFailure("The edge must be removed here!");
-          }
+  //         auto edge_gid = delta.edge_create_delete.gid;
+  //         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
+  //         EdgeRef edge_ref(edge_gid);
+  //         if (items.properties_on_edges) {
+  //           auto edge = edge_acc.find(edge_gid);
+  //           if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
+  //           edge_ref = EdgeRef(&*edge);
+  //         }
+  //         {
+  //           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &to_vertex, edge_ref};
+  //           auto it = std::find(from_vertex.out_edges.begin(), from_vertex.out_edges.end(), link);
+  //           if (it == from_vertex.out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
+  //           std::swap(*it, from_vertex.out_edges.back());
+  //           from_vertex.out_edges.pop_back();
+  //         }
+  //         {
+  //           std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &from_vertex, edge_ref};
+  //           auto it = std::find(to_vertex.in_edges.begin(), to_vertex.in_edges.end(), link);
+  //           if (it == to_vertex.in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
+  //           std::swap(*it, to_vertex.in_edges.back());
+  //           to_vertex.in_edges.pop_back();
+  //         }
+  //         if (items.properties_on_edges) {
+  //           if (!edge_acc.remove(edge_gid)) throw RecoveryFailure("The edge must be removed here!");
+  //         }
 
-          // Decrement edge count.
-          *edge_count += -1;
+  //         // Decrement edge count.
+  //         *edge_count += -1;
 
-          break;
-        }
-        case WalDeltaData::Type::EDGE_SET_PROPERTY: {
-          if (!items.properties_on_edges)
-            throw RecoveryFailure(
-                "The WAL has properties on edges, but the storage is "
-                "configured without properties on edges!");
-          auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
-          if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
-          auto &property_value = delta.vertex_edge_set_property.value;
-          edge->properties.SetProperty(property_id, property_value);
-          break;
-        }
-        case WalDeltaData::Type::TRANSACTION_END:
-          break;
-        case WalDeltaData::Type::LABEL_INDEX_CREATE: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
-          AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");
-          break;
-        }
-        case WalDeltaData::Type::LABEL_INDEX_DROP: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
-          RemoveRecoveredIndexConstraint(&indices_constraints->indices.label, label_id,
-                                         "The label index doesn't exist!");
-          break;
-        }
-        case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
-          AddRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
-                                      "The label property index already exists!");
-          break;
-        }
-        case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
-          RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
-                                         "The label property index doesn't exist!");
-          break;
-        }
-        case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
-          AddRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
-                                      "The existence constraint already exists!");
-          break;
-        }
-        case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
-          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
-          RemoveRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
-                                         "The existence constraint doesn't exist!");
-          break;
-        }
-        case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_properties.label));
-          std::set<PropertyId> property_ids;
-          for (const auto &prop : delta.operation_label_properties.properties) {
-            property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
-          }
-          AddRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
-                                      "The unique constraint already exists!");
-          break;
-        }
-        case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
-          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_properties.label));
-          std::set<PropertyId> property_ids;
-          for (const auto &prop : delta.operation_label_properties.properties) {
-            property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
-          }
-          RemoveRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
-                                         "The unique constraint doesn't exist!");
-          break;
-        }
-      }
-      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
-      ++deltas_applied;
-    } else {
-      // This delta should be skipped.
-      SkipWalDeltaData(&wal);
-    }
-  }
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
+  //         if (!items.properties_on_edges)
+  //           throw RecoveryFailure(
+  //               "The WAL has properties on edges, but the storage is "
+  //               "configured without properties on edges!");
+  //         auto edge = edge_acc.find(delta.vertex_edge_set_property.gid);
+  //         if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
+  //         auto &property_value = delta.vertex_edge_set_property.value;
+  //         edge->properties.SetProperty(property_id, property_value);
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::TRANSACTION_END:
+  //         break;
+  //       case WalDeltaData::Type::LABEL_INDEX_CREATE: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
+  //         AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already
+  //         exists!"); break;
+  //       }
+  //       case WalDeltaData::Type::LABEL_INDEX_DROP: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
+  //         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label, label_id,
+  //                                        "The label index doesn't exist!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+  //         AddRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+  //                                     "The label property index already exists!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+  //         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+  //                                        "The label property index doesn't exist!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+  //         AddRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
+  //                                     "The existence constraint already exists!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+  //         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+  //         RemoveRecoveredIndexConstraint(&indices_constraints->constraints.existence, {label_id, property_id},
+  //                                        "The existence constraint doesn't exist!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_properties.label));
+  //         std::set<PropertyId> property_ids;
+  //         for (const auto &prop : delta.operation_label_properties.properties) {
+  //           property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
+  //         }
+  //         AddRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
+  //                                     "The unique constraint already exists!");
+  //         break;
+  //       }
+  //       case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
+  //         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_properties.label));
+  //         std::set<PropertyId> property_ids;
+  //         for (const auto &prop : delta.operation_label_properties.properties) {
+  //           property_ids.insert(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
+  //         }
+  //         RemoveRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
+  //                                        "The unique constraint doesn't exist!");
+  //         break;
+  //       }
+  //     }
+  //     ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
+  //     ++deltas_applied;
+  //   } else {
+  //     // This delta should be skipped.
+  //     SkipWalDeltaData(&wal);
+  //   }
+  // }
 
-  spdlog::info("Applied {} deltas from WAL. Skipped {} deltas, because they were too old.", deltas_applied,
-               info.num_deltas - deltas_applied);
+  // spdlog::info("Applied {} deltas from WAL. Skipped {} deltas, because they were too old.", deltas_applied,
+  //              info.num_deltas - deltas_applied);
 
   return ret;
 }

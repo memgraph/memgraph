@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <type_traits>
 

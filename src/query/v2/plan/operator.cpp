@@ -607,17 +607,16 @@ ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-
+  // TODO Reimplement when we have reliable conversion between hash value and pk
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
-    auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_);
-    if (!maybe_vertex) return std::nullopt;
-    return std::vector<VertexAccessor>{*maybe_vertex};
+    // auto *db = context.db_accessor;
+    // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+    // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =
+    // value.IsInt() ? value.ValueInt() : value.ValueDouble(); if (value.IsDouble() && id != value.ValueDouble()) return
+    // std::nullopt; auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_); auto maybe_vertex =
+    // nullptr; if (!maybe_vertex) return std::nullopt;
+    return std::nullopt;
+    // return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllById");
@@ -2134,7 +2133,7 @@ concept AccessorWithProperties = requires(T value, storage::v3::PropertyId prope
 ///
 /// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
 ///     RecordAccessor<Edge>
-template <AccessorWithProperties TRecordAccessor>
+template <RecordAccessor TRecordAccessor>
 void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
                            ExecutionContext *context) {
   std::optional<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> old_values;
@@ -2198,23 +2197,26 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
 
   auto set_props = [&, record](auto properties) {
     for (auto &kv : properties) {
-      auto maybe_error = record->SetProperty(kv.first, kv.second);
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::v3::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-          case storage::v3::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::v3::Error::PROPERTIES_DISABLED:
-            throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-          case storage::v3::Error::VERTEX_HAS_EDGES:
-          case storage::v3::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting properties.");
+      if constexpr (AccessorWithSetPropertyAndValidate<TRecordAccessor>) {
+        const auto maybe_error = record->SetPropertyAndValidate(kv.first, storage::v3::PropertyValue(kv.second));
+        if (maybe_error.HasError()) {
+          std::visit(utils::Overloaded{[](const storage::v3::Error error) { HandleErrorOnPropertyUpdate(error); },
+                                       [&context](const storage::v3::SchemaViolation &schema_violation) {
+                                         HandleSchemaViolation(schema_violation, *context->db_accessor);
+                                       }},
+                     maybe_error.GetError());
         }
-      }
-
-      if (should_register_change) {
-        register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        if (should_register_change) {
+          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        }
+      } else {
+        auto maybe_error = record->SetProperty(kv.first, kv.second);
+        if (maybe_error.HasError()) {
+          HandleErrorOnPropertyUpdate(maybe_error.GetError());
+        }
+        if (should_register_change) {
+          register_set_property(std::move(*maybe_error), kv.first, std::move(kv.second));
+        }
       }
     }
   };

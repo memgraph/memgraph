@@ -98,7 +98,7 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
   const auto *schema = schemas_.GetSchema(label);
   if (schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL, label);
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label);
   }
   return std::nullopt;
 }
