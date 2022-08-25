@@ -596,6 +596,21 @@ pulled.")
      // optional because they can not be initialized in the constructor of
      // this class. They are initialized once for each pull from the input.
 
+    struct InEdge{
+      InEdgeT in_edges_;
+      InEdgeIteratorT in_edges_it_;
+    };
+    struct OutEdge{
+      OutEdgeT out_edges_;
+      OutEdgeIteratorT out_edges_it_;
+    };
+    struct InOutEdges {
+      std::optional<InEdge> in_;
+      std::optional<OutEdge> out_;
+    };
+
+    std::vector<InOutEdges> in_out_edges; // #NoCommit pmr vector
+
     bool InitEdges(Frames &, ExecutionContext &);
    };
    cpp<#)

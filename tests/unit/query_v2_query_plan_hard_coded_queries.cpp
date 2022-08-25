@@ -310,7 +310,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithIdFilteringWhileBatchin
   ASSERT_EQ(results[0][0].ValueVertex().Gid(), id);
 }
 
-TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_MatchAllWithExpandWhileBatching) {
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
   /*
     QUERY:
       MATCH ()-[]->(n)
@@ -382,7 +382,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_MatchAllWithExpandWhileBat
   }
 }
 
-TEST_P(QueryPlanHardCodedQueriesTestFixture, DISABLED_HardCodedQuery) {
+TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   /*
   INDEXES:
     CREATE INDEX ON :Node(platformId);
