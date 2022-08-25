@@ -741,12 +741,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -777,12 +777,12 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
     for (auto reverse : {false, true}) {
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
     }
   }
 
@@ -801,9 +801,9 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
       EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 0, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
-      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::IN, 2, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 2, nullopt, reverse, user), (map_int{}));
+      EXPECT_EQ(test_expand(1, EdgeAtom::Direction::BOTH, 2, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::BOTH, 1, nullopt, reverse, user), (map_int{}));
