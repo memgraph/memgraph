@@ -71,14 +71,15 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 }
 
 std::vector<std::vector<TypedValue>> CollectProduce_Distributed(const distributed::Produce &produce,
-                                                                ExecutionContext *context, size_t size_of_batch) {
+                                                                ExecutionContext *context,
+                                                                size_t number_of_frames_per_batch) {
   auto frames_memory_owner = std::vector<std::unique_ptr<Frame>>{};
-  frames_memory_owner.reserve(size_of_batch);
-  std::generate_n(std::back_inserter(frames_memory_owner), size_of_batch,
+  frames_memory_owner.reserve(number_of_frames_per_batch);
+  std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
                   [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
 
   auto frames = std::vector<Frame *>();
-  frames.reserve(size_of_batch);
+  frames.reserve(number_of_frames_per_batch);
   std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
                  [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
 
