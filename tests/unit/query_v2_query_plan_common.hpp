@@ -22,10 +22,10 @@
 #include "query/v2/interpret/frame.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/operator_distributed.hpp"
+#include "query_v2_query_common.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/logging.hpp"
-
-#include "query_v2_query_common.hpp"
+#include "utils/pmr/vector.hpp"
 
 using namespace memgraph::query::v2;
 using namespace memgraph::query::v2::plan;
@@ -73,12 +73,13 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed::Produce &produce,
                                                                ExecutionContext *context,
                                                                size_t number_of_frames_per_batch) {
-  auto frames_memory_owner = std::vector<std::unique_ptr<Frame>>{};
+  auto frames_memory_owner =
+      memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());
   frames_memory_owner.reserve(number_of_frames_per_batch);
   std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
                   [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
 
-  auto frames = std::vector<Frame *>();
+  auto frames = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
   frames.reserve(number_of_frames_per_batch);
   std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
                  [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });

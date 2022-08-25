@@ -38,7 +38,7 @@ cpp<#
 (lcp:namespace distributed)
 
 #>cpp
-using Frames = std::vector<Frame*>;
+using Frames = memgraph::utils::pmr::vector<Frame*>;
 
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
