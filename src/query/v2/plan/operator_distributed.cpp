@@ -81,7 +81,7 @@ void ResizeFrames(Frames &frames, int last_filled_frame) {
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
 
-bool Once::OnceCursor::Pull(Frames &, ExecutionContext &context) {
+bool Once::OnceCursor::Pull(Frames & /*frames*/, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
   if (!did_pull_) {
@@ -299,8 +299,8 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     if (!value.IsNumeric()) {
       return std::nullopt;
     }
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) {
+    int64_t id = (int64_t)(value.IsInt() ? value.ValueInt() : value.ValueDouble());
+    if (value.IsDouble() && id != (int64_t)value.ValueDouble()) {
       return std::nullopt;
     }
     auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_);
@@ -364,7 +364,7 @@ std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
 Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
-bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
+bool Expand::ExpandCursor::Pull(Frames & /*frames*/, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Expand");
   return false;
 }
@@ -373,7 +373,7 @@ void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Expand::ExpandCursor::Reset() { input_cursor_->Reset(); }
 
-bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) { return false; }
+bool Expand::ExpandCursor::InitEdges(Frames & /*frames*/, ExecutionContext & /*context*/) { return false; }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
@@ -388,7 +388,7 @@ UniqueCursorPtr Produce::MakeCursor(utils::MemoryResource *mem) const {
 
 std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) const {
   std::vector<Symbol> symbols;
-  for (const auto &named_expr : named_expressions_) {
+  for (const auto *named_expr : named_expressions_) {
     symbols.emplace_back(symbol_table.at(*named_expr));
   }
   return symbols;
@@ -407,7 +407,7 @@ bool Produce::ProduceCursor::Pull(Frames &frames, ExecutionContext &context) {
     for (auto *frame : frames) {
       ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::v3::View::NEW);
-      for (auto named_expr : self_.named_expressions_) {
+      for (auto *named_expr : self_.named_expressions_) {
         named_expr->Accept(evaluator);
       }
     }
