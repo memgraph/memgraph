@@ -721,8 +721,8 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
-           !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
+          !(context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
                                          memgraph::auth::FineGrainedPermission::READ))) {
         continue;
       }
@@ -1290,9 +1290,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
                                                memgraph::auth::FineGrainedPermission::READ))) {
               continue;
             }
@@ -1314,9 +1314,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
             if (context.auth_checker &&
-                (!context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) ||
-                 !context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::auth::FineGrainedPermission::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
                                                memgraph::auth::FineGrainedPermission::READ))) {
               continue;
             }
@@ -1373,9 +1373,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (context.auth_checker &&
           (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
                                          memgraph::auth::FineGrainedPermission::READ) ||
-           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ)))
+           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
         return;
-
+      }
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
 
@@ -1534,11 +1534,11 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       auto *memory = evaluator.GetMemoryResource();
 
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                         memgraph::auth::FineGrainedPermission::READ) ||
-           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ)))
+          !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::auth::FineGrainedPermission::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
         return;
-
+      }
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
