@@ -1415,7 +1415,7 @@ void Storage::CollectGarbage() {
     }
     garbage_undo_buffers_.splice(garbage_undo_buffers_.end(), unlinked_undo_buffers);
 
-    for (auto vertex : deleted_vertices_) {
+    for (const auto &vertex : deleted_vertices_) {
       garbage_vertices_.emplace_back(mark_timestamp, vertex);
     }
   }

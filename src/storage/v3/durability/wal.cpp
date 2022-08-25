@@ -617,7 +617,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, VerticesSkipList *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, uint64_t *edge_count,
+                     utils::SkipList<Edge> *edges, NameIdMapper * /*name_id_mapper*/, uint64_t * /*edge_count*/,
                      Config::Items items) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
