@@ -50,10 +50,10 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
 bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
 
 bool Schemas::IsPropertyKey(const LabelId primary_label, const PropertyId property_id) const {
-  if (const auto schema_map = schemas_.find(primary_label); schema_map != schemas_.end()) {
-    return std::ranges::find_if(schema_map->second, [property_id](const auto &elem) {
+  if (const auto schema = schemas_.find(primary_label); schema != schemas_.end()) {
+    return std::ranges::find_if(schema->second, [property_id](const auto &elem) {
              return elem.property_id == property_id;
-           }) != schema_map->second.end();
+           }) != schema->second.end();
   }
   throw utils::BasicException("Schema not found!");
 }
