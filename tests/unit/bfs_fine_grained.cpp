@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 
 #include <gtest/internal/gtest-param-util-generated.h>
+
 #include <optional>
 #include <string>
 #include <unordered_map>
+
 #include "auth/models.hpp"
 #include "bfs_common.hpp"
 
@@ -99,7 +101,7 @@ std::unique_ptr<VertexDb> FineGrainedBfsTest::db_{nullptr};
 
 INSTANTIATE_TEST_CASE_P(
     FineGrained, FineGrainedBfsTest,
-    testing::Combine(testing::Values(-1), testing::Values(-1),
+    testing::Combine(testing::Values(3), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
                      testing::Values(std::vector<std::string>{}), testing::Bool(),
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,

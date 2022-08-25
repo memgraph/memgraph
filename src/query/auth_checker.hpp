@@ -35,22 +35,22 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view,
-                                    const memgraph::auth::FineGrainedPermission &permission) const = 0;
+                                    memgraph::storage::View view,
+                                    memgraph::auth::FineGrainedPermission permission) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-                                    const memgraph::auth::FineGrainedPermission &permission) const = 0;
+                                    memgraph::auth::FineGrainedPermission permission) const = 0;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View &view,
-              const memgraph::auth::FineGrainedPermission &permission) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View view,
+              const memgraph::auth::FineGrainedPermission permission) const override {
     return true;
   }
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
-              const memgraph::auth::FineGrainedPermission &permission) const override {
+              const memgraph::auth::FineGrainedPermission permission) const override {
     return true;
   }
 };

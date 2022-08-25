@@ -12,15 +12,39 @@ def test_weighted_shortest_path_all_edge_types_all_labels_granted():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
-    )
-    path_length_result = common.execute_and_fetch_all(
         user_connnection.cursor(),
-        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length;",
+        "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN extract( node in nodes(p) | node.id);",
+    )
+    path_result = common.execute_and_fetch_all(
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length,nodes(p);",
     )
 
+    expected_path = [0, 1, 3, 4, 5]
+    expected_all_paths = [
+        [0, 1],
+        [0, 1, 2],
+        [0, 1, 3],
+        [0, 1, 3, 4],
+        [0, 1, 3, 4, 5],
+        [1, 2],
+        [1, 3],
+        [1, 3, 4],
+        [1, 3, 4, 5],
+        [2, 1],
+        [2, 3],
+        [2, 3, 4],
+        [2, 3, 4, 5],
+        [3, 4],
+        [3, 4, 5],
+        [4, 3],
+        [4, 5],
+    ]
+
     assert len(total_paths_results) == 16
-    assert path_length_result[0][0] == 20
+    assert all(path[0] in expected_all_paths for path in total_paths_results)
+    assert path_result[0][0] == 20
+    assert all(node.id in expected_path for node in path_result[0][1])
 
 
 def test_weighted_shortest_path_all_edge_types_all_labels_denied():
@@ -88,15 +112,35 @@ def test_weighted_shortest_path_denied_label_1():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     total_paths_results = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
-    )
-    path_length_result = common.execute_and_fetch_all(
         user_connnection.cursor(),
-        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length;",
+        "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN extract( node in nodes(p) | node.id);",
     )
 
+    path_result = common.execute_and_fetch_all(
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length, nodes(p);",
+    )
+
+    expected_path = [0, 2, 3, 4, 5]
+
+    expected_all_paths = [
+        [0, 2],
+        [0, 2, 3],
+        [0, 2, 3, 4],
+        [0, 2, 3, 4, 5],
+        [2, 3],
+        [2, 3, 4],
+        [2, 3, 4, 5],
+        [3, 4],
+        [3, 4, 5],
+        [4, 3],
+        [4, 5],
+    ]
+
     assert len(total_paths_results) == 11
-    assert path_length_result[0][0] == 30
+    assert all(path[0] in expected_all_paths for path in total_paths_results)
+    assert path_result[0][0] == 30
+    assert all(node.id in expected_path for node in path_result[0][1])
 
 
 def test_weighted_shortest_path_denied_edge_type_3():
@@ -110,16 +154,41 @@ def test_weighted_shortest_path_denied_edge_type_3():
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
-    total_paths_results = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN p;"
-    )
-    path_length_result = common.execute_and_fetch_all(
+    path_result = common.execute_and_fetch_all(
         user_connnection.cursor(),
-        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length;",
+        "MATCH p=(n:label0)-[r *wShortest (r, n | r.weight) path_length]->(m:label4) RETURN path_length, nodes(p);",
     )
 
+    total_paths_results = common.execute_and_fetch_all(
+        user_connnection.cursor(),
+        "MATCH p=(n)-[r *wShortest (r, n | r.weight)]->(m) RETURN extract( node in nodes(p) | node.id);",
+    )
+
+    expected_path = [0, 1, 2, 3, 5]
+    expected_all_paths = [
+        [0, 1],
+        [0, 1, 2],
+        [0, 1, 2, 4],
+        [0, 1, 2, 4, 3],
+        [0, 1, 2, 4, 5],
+        [1, 2, 4, 3],
+        [1, 2],
+        [1, 2, 4],
+        [1, 2, 4, 5],
+        [2, 1],
+        [2, 4, 3],
+        [2, 4],
+        [2, 4, 5],
+        [3, 4],
+        [3, 4, 5],
+        [4, 3],
+        [4, 5],
+    ]
+
     assert len(total_paths_results) == 16
-    assert path_length_result[0][0] == 25
+    assert all(path[0] in expected_all_paths for path in total_paths_results)
+    assert path_result[0][0] == 25
+    assert all(node.id in expected_path for node in path_result[0][1])
 
 
 def test_dfs_all_edge_types_all_labels_granted():
@@ -130,11 +199,15 @@ def test_dfs_all_edge_types_all_labels_granted():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
-    source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN p;"
+    source_destination_paths = common.execute_and_fetch_all(
+        user_connnection.cursor(),
+        "MATCH path=(n:label0)-[* 1..3]->(m:label4) RETURN extract( node in nodes(path) | node.id);",
     )
 
-    assert len(source_destination_path) == 15
+    expected_paths = [[0, 1, 3, 5], [0, 2, 3, 5], [0, 2, 4, 5]]
+
+    assert len(source_destination_paths) == 3
+    assert all(path[0] in expected_paths for path in source_destination_paths)
 
 
 def test_dfs_all_edge_types_all_labels_denied():
@@ -197,11 +270,14 @@ def test_dfs_denied_label_1():
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_paths = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[*]->(m:label4) RETURN nodes(p);"
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[* 1..3]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
-    assert len(source_destination_paths) == 6
-    assert not any("label1" in node.labels for path in source_destination_paths for node in path[0])
+    expected_paths = [[0, 2, 3, 5], [0, 2, 4, 5]]
+
+    assert len(source_destination_paths) == 2
+    assert all(path[0] in expected_paths for path in source_destination_paths)
 
 
 def test_dfs_denied_edge_type_3():
@@ -216,12 +292,15 @@ def test_dfs_denied_edge_type_3():
     )
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
-    source_destination_paths = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[r *]->(m:label4) RETURN r;"
+    source_destination_path = common.execute_and_fetch_all(
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r * 1..3]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
-    assert len(source_destination_paths) == 6
-    assert not any("edge_type_3" == edge.type for path in source_destination_paths for edge in path[0])
+    expected_path = [0, 2, 4, 5]
+
+    assert len(source_destination_path) == 1
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_sts_all_edge_types_all_labels_granted():
@@ -233,10 +312,14 @@ def test_bfs_sts_all_edge_types_all_labels_granted():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
+        user_connnection.cursor(),
+        "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
+    expected_path = [0, 1, 3, 5]
+
     assert len(source_destination_path) == 1
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_sts_all_edge_types_all_labels_denied():
@@ -301,11 +384,13 @@ def test_bfs_sts_denied_label_1():
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
+        user_connnection.cursor(),
+        "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
+    expected_path = [0, 2, 4, 5]
 
     assert len(source_destination_path) == 1
-    assert not any("label1" in node.labels for node in source_destination_path[0][0])
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_sts_denied_edge_type_3():
@@ -320,11 +405,13 @@ def test_bfs_sts_denied_edge_type_3():
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN r;"
+        user_connnection.cursor(),
+        "MATCH (n), (m) WITH n, m MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
+    expected_path = [0, 2, 4, 5]
 
     assert len(source_destination_path) == 1
-    assert not any("edge_type_3" == edge.type for edge in source_destination_path[0][0])
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_single_source_all_edge_types_all_labels_granted():
@@ -336,10 +423,14 @@ def test_bfs_single_source_all_edge_types_all_labels_granted():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN p;"
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
+    expected_path = [0, 2, 3, 5]
+
     assert len(source_destination_path) == 1
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_single_source_all_edge_types_all_labels_denied():
@@ -402,11 +493,14 @@ def test_bfs_single_source_denied_label_1():
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES * TO user;")
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN nodes(p);"
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
+    expected_path = [0, 2, 3, 5]
+
     assert len(source_destination_path) == 1
-    assert not any("label1" in node.labels for node in source_destination_path[0][0])
+    assert source_destination_path[0][0] == expected_path
 
 
 def test_bfs_single_source_denied_edge_type_3():
@@ -421,11 +515,14 @@ def test_bfs_single_source_denied_edge_type_3():
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edge_type_3 TO user;")
 
     source_destination_path = common.execute_and_fetch_all(
-        user_connnection.cursor(), "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN r;"
+        user_connnection.cursor(),
+        "MATCH p=(n:label0)-[r *BFS]->(m:label4) RETURN extract( node in nodes(p) | node.id);",
     )
 
+    expected_path = [0, 2, 4, 5]
+
     assert len(source_destination_path) == 1
-    assert not any("edge_type_3" == edge.type for edge in source_destination_path[0][0])
+    assert source_destination_path[0][0] == expected_path
 
 
 if __name__ == "__main__":

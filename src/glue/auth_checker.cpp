@@ -20,8 +20,8 @@
 namespace {
 bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                             const std::vector<memgraph::storage::LabelId> &labels,
-                            const memgraph::auth::FineGrainedPermission &permission) {
-  return std::all_of(labels.begin(), labels.end(), [&dba, &user, &permission](const auto label) {
+                            const memgraph::auth::FineGrainedPermission permission) {
+  return std::all_of(labels.begin(), labels.end(), [&dba, &user, permission](const auto label) {
     return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label), permission) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
@@ -29,7 +29,7 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
 
 bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const memgraph::storage::EdgeTypeId &edgeType,
-                              const memgraph::auth::FineGrainedPermission &permission) {
+                              const memgraph::auth::FineGrainedPermission permission) {
   return user.GetFineGrainedAccessEdgeTypePermissions().Has(dba.EdgeTypeToName(edgeType), permission) ==
          memgraph::auth::PermissionLevel::GRANT;
 }
@@ -85,8 +85,8 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user) : user_{std::move(user)} {};
 
 bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
-                                    const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View &view,
-                                    const memgraph::auth::FineGrainedPermission &permission) const {
+                                    const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,
+                                    const memgraph::auth::FineGrainedPermission permission) const {
   auto maybe_labels = vertex.Labels(view);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
@@ -105,7 +105,7 @@ bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
 }
 
 bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
-                                    const memgraph::auth::FineGrainedPermission &permission) const {
+                                    const memgraph::auth::FineGrainedPermission permission) const {
   return IsUserAuthorizedEdgeType(user_, dba, edge.EdgeType(), permission);
 }
 

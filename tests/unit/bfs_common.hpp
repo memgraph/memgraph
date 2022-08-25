@@ -482,28 +482,34 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
                               std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
 
   memgraph::auth::User user{"test"};
-
+  std::vector<std::pair<int, int>> edges_in_result;
   switch (fine_grained_test_type) {
     case FineGrainedTestType::ALL_GRANTED:
       user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                        memgraph::auth::FineGrainedPermission::READ);
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
       break;
     case FineGrainedTestType::ALL_DENIED:
       user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+
       break;
     case FineGrainedTestType::EDGE_TYPE_A_DENIED:
       user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Grant("b",
                                                                        memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Deny("a", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"b"});
       break;
     case FineGrainedTestType::EDGE_TYPE_B_DENIED:
       user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Grant("a",
                                                                        memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Deny("b", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a"});
       break;
     case FineGrainedTestType::LABEL_0_DENIED:
       user.fine_grained_access_handler().edge_type_permissions().Grant("*",
@@ -513,6 +519,11 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Deny("0", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
+      edges_in_result.erase(
+          std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 0; }),
+          edges_in_result.end());
       break;
     case FineGrainedTestType::LABEL_3_DENIED:
       user.fine_grained_access_handler().edge_type_permissions().Grant("*",
@@ -522,6 +533,11 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Deny("3", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
+      edges_in_result.erase(
+          std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 3; }),
+          edges_in_result.end());
       break;
   }
 
@@ -557,13 +573,19 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
     case FineGrainedTestType::ALL_GRANTED:
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
-          EXPECT_EQ(results.size(), 21);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
-          EXPECT_EQ(results.size(), 21);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
-          EXPECT_EQ(results.size(), 30);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
       break;
@@ -583,26 +605,38 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
     case FineGrainedTestType::EDGE_TYPE_A_DENIED:
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
-          EXPECT_EQ(results.size(), 4);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
-          EXPECT_EQ(results.size(), 4);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
-          EXPECT_EQ(results.size(), 8);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
       break;
     case FineGrainedTestType::EDGE_TYPE_B_DENIED:
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
-          EXPECT_EQ(results.size(), 8);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
-          EXPECT_EQ(results.size(), 8);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
-          EXPECT_EQ(results.size(), 20);
+          CheckPathsAndExtractDistances(
+              &dba, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
       break;
@@ -610,23 +644,35 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 6);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 9);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 6);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 13);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 6);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 13);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
       }
@@ -635,23 +681,35 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 9);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 13);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 9);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 12);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           if (known_sink) {
-            EXPECT_EQ(results.size(), 12);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
-            EXPECT_EQ(results.size(), 16);
+            CheckPathsAndExtractDistances(
+                &dba, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
       }
