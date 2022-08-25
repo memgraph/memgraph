@@ -98,12 +98,32 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frames, *context)) {
     for (auto *frame : frames) {
+      auto is_ok = true;
       std::vector<TypedValue> values;
       for (auto &symbol : symbols) {
+        if ((*frame)[symbol].IsNull()) {
+          is_ok = false;
+          break;
+        }
+
         values.emplace_back((*frame)[symbol]);
       }
-      results.emplace_back(values);
+      if (is_ok) {
+        results.emplace_back(values);
+      }
     }
+
+    frames.clear();
+    frames_memory_owner.clear();
+    frames_memory_owner = memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());
+    frames_memory_owner.reserve(number_of_frames_per_batch);
+    std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
+                    [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
+
+    frames = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
+    frames.reserve(number_of_frames_per_batch);
+    std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
+                   [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
   }
 
   return results;

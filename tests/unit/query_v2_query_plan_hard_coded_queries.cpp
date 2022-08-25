@@ -43,6 +43,22 @@ class QueryPlanHardCodedQueriesTest : public ::testing::Test {
         db_v3.CreateSchema(schema_label, {storage::v3::SchemaProperty{schema_property, common::SchemaType::INT}}));
   }
 
+  struct Result {
+    storage::v3::Gid node_gid_;
+    storage::v3::Gid permission_gid_;
+    storage::v3::Gid identity_gid_;
+
+    bool operator<(const Result &other) const {
+      if (node_gid_ != other.node_gid_) {
+        return node_gid_ < other.node_gid_;
+      }
+      if (permission_gid_ != other.permission_gid_) {
+        return permission_gid_ < other.permission_gid_;
+      }
+      return identity_gid_ < other.identity_gid_;
+    }
+  };
+
   storage::v3::Storage db_v3;
   const storage::v3::LabelId schema_label{db_v3.NameToLabel("label")};
   const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
@@ -362,6 +378,69 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
     auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
     ASSERT_EQ(results.size(), 1 + number_of_vertices);  // Center node + number_of_vertices
   }
+
+  // Expand (n)<-[anon2]-(anon1)
+  auto expand =
+      MakeExpandDistributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
+                            {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduceDistributed(expand.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid = result[0].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(gid);
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+  }
+}
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {  // #NoCommit better naming
+  /*
+    QUERY:
+      MATCH ()-[]->(n)
+      RETURN *;
+
+    QUERY PLAN:
+      Produce {n}
+      Expand (n)<-[anon2]-(anon1)
+      ScanAll (n)
+      Once
+  */
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+
+  storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_center = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto other_vertex = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+
+      ASSERT_TRUE(dba.InsertEdge(&vertex_center, &other_vertex, edge_type).HasValue());
+      auto [it, inserted] = gid_of_expected_vertices.insert(other_vertex.Gid());
+      ASSERT_TRUE(inserted);
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // ScanAll (anon1)
+  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "anon1");
 
   // Expand (n)<-[anon2]-(anon1)
   auto expand =

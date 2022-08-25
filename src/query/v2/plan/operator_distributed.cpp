@@ -391,7 +391,6 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
     }
 
     auto at_least_one_result = false;
-    auto last_idx_of_frame_with_vertex = 0;
 
     for (auto idx = 0; idx < std::min(frames.size(), in_out_edges.size()); ++idx) {
       // #NoCommit in std::min correct here?
@@ -413,7 +412,6 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
           pull_node_from_edge(edge, EdgeAtom::Direction::IN, frame);  // We put the node, if needed, in the frame
 
           at_least_one_result = true;
-          last_idx_of_frame_with_vertex = idx;
         }
       }
 
@@ -436,14 +434,11 @@ bool Expand::ExpandCursor::Pull(Frames &frames, ExecutionContext &context) {
           pull_node_from_edge(edge, EdgeAtom::Direction::OUT, frame);  // We put the node, if needed, in the frame
 
           at_least_one_result = true;
-          last_idx_of_frame_with_vertex = idx;
         }
       }
     }
 
     if (at_least_one_result) {
-      ResizeFrames(frames, last_idx_of_frame_with_vertex);
-
       return true;
     }
 
@@ -478,8 +473,8 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
       auto &frame = *frames[idx];
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
-      if (vertex_value.IsNull()) {  // Null check due to possible failed optional match.
-        LOG_FATAL("Not supported at the moment!");
+      if (vertex_value.IsNull()) {                  // Null check due to possible failed optional match.
+        LOG_FATAL("Not supported at the moment!");  // #NoCommit do we want to implement it now?
         continue;
       }
       in_out_edges.emplace_back(InOutEdges{});
@@ -493,14 +488,14 @@ bool Expand::ExpandCursor::InitEdges(Frames &frames, ExecutionContext &context) 
         auto edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
         auto it = edges.begin();
         in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
-        in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #TODO(42jeremy)
+        in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
       }
 
       if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
         auto edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
         auto it = edges.begin();
         in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
-        in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #TODO(42jeremy)
+        in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
       }
 
       value_for_at_least_one_frame = true;
