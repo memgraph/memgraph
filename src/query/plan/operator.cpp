@@ -1371,9 +1371,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (processed_.find(vertex) != processed_.end()) return;
 
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                         memgraph::auth::FineGrainedPermission::READ) ||
-           !context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
+          !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::auth::FineGrainedPermission::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
         return;
       }
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;

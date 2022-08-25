@@ -456,29 +456,29 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
                                      std::vector<std::string> edge_types, bool known_sink,
                                      FineGrainedTestType fine_grained_test_type) {
   auto storage_dba = db->Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  memgraph::query::DbAccessor db_accessor(&storage_dba);
   memgraph::query::AstStorage storage;
-  memgraph::query::ExecutionContext context{&dba};
-  memgraph::query::Symbol blocked_sym = context.symbol_table.CreateSymbol("blocked", true);
-  memgraph::query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
-  memgraph::query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
-  memgraph::query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
-  memgraph::query::Symbol inner_node_sym = context.symbol_table.CreateSymbol("inner_node", true);
-  memgraph::query::Symbol inner_edge_sym = context.symbol_table.CreateSymbol("inner_edge", true);
+  memgraph::query::ExecutionContext context{&db_accessor};
+  memgraph::query::Symbol blocked_symbol = context.symbol_table.CreateSymbol("blocked", true);
+  memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
+  memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
+  memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
+  memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
+  memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
 
   std::vector<memgraph::query::VertexAccessor> vertices;
   std::vector<memgraph::query::EdgeAccessor> edges;
 
-  std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
+  std::tie(vertices, edges) = db->BuildGraph(&db_accessor, kVertexLocations, kEdges);
 
-  dba.AdvanceCommand();
+  db_accessor.AdvanceCommand();
 
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator;
 
   memgraph::query::Expression *filter_expr = nullptr;
 
-  input_op =
-      std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{blocked_sym},
+  input_operator =
+      std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{blocked_symbol},
                               std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
 
   memgraph::auth::User user{"test"};
@@ -544,47 +544,47 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
   context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
   // We run BFS once from each vertex for each blocked entity.
-  input_op = YieldVertices(&dba, vertices, source_sym, input_op);
+  input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
 
   // If the sink is known, we run BFS for all posible combinations of source,
   // sink and blocked entity.
   if (known_sink) {
-    input_op = YieldVertices(&dba, vertices, sink_sym, input_op);
+    input_operator = YieldVertices(&db_accessor, vertices, sink_symbol, input_operator);
   }
 
   std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
   for (const auto &t : edge_types) {
-    storage_edge_types.push_back(dba.NameToEdgeType(t));
+    storage_edge_types.push_back(db_accessor.NameToEdgeType(t));
   }
 
-  input_op = db->MakeBfsOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, known_sink,
-                                 lower_bound == -1 ? nullptr : LITERAL(lower_bound),
-                                 upper_bound == -1 ? nullptr : LITERAL(upper_bound),
-                                 memgraph::query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym, filter_expr});
+  input_operator = db->MakeBfsOperator(
+      source_symbol, sink_symbol, edges_symbol, direction, storage_edge_types, input_operator, known_sink,
+      lower_bound == -1 ? nullptr : LITERAL(lower_bound), upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+      memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr});
 
-  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
-  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
+  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
   std::vector<std::vector<memgraph::query::TypedValue>> results;
 
-  results = PullResults(input_op.get(), &context,
-                        std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym, blocked_sym});
+  results = PullResults(input_operator.get(), &context,
+                        std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol, blocked_symbol});
 
   switch (fine_grained_test_type) {
     case FineGrainedTestType::ALL_GRANTED:
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
@@ -606,17 +606,17 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
@@ -625,17 +625,17 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       switch (direction) {
         case memgraph::query::EdgeAtom::Direction::IN:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           CheckPathsAndExtractDistances(
-              &dba, edges_in_result,
+              &db_accessor, edges_in_result,
               std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           break;
       }
@@ -645,33 +645,33 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
         case memgraph::query::EdgeAtom::Direction::IN:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
@@ -682,33 +682,33 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
         case memgraph::query::EdgeAtom::Direction::IN:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::OUT:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
         case memgraph::query::EdgeAtom::Direction::BOTH:
           if (known_sink) {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           } else {
             CheckPathsAndExtractDistances(
-                &dba, edges_in_result,
+                &db_accessor, edges_in_result,
                 std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
           }
           break;
@@ -716,5 +716,5 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       break;
   }
 
-  dba.Abort();
+  db_accessor.Abort();
 }
