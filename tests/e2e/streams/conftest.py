@@ -40,10 +40,6 @@ def get_topics(num):
     return [f"topic_{i}" for i in range(num)]
 
 
-def get_topics(num):
-    return [f"topic_{i}" for i in range(num)]
-
-
 @pytest.fixture(scope="function")
 def kafka_topics():
     admin_client = KafkaAdminClient(bootstrap_servers="localhost:9092", client_id="test")
@@ -60,6 +56,7 @@ def kafka_topics():
 
     admin_client.create_topics(new_topics=topics_to_create, timeout_ms=5000)
     yield topics
+    admin_client.delete_topics(topics=topics, timeout_ms=5000)
 
 
 @pytest.fixture(scope="function")
