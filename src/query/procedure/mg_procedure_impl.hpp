@@ -640,8 +640,7 @@ struct mgp_edges_iterator {
   // have everything noexcept here.
   static_assert(std::is_nothrow_constructible_v<mgp_vertex, const mgp_vertex &, memgraph::utils::MemoryResource *>);
 
-  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), source_vertex(v, memory) {}
+  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory) noexcept;
 
   mgp_edges_iterator(mgp_edges_iterator &&other) noexcept
       : memory(other.memory),

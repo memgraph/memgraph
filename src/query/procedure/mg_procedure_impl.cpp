@@ -1827,6 +1827,36 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
 
 void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
+namespace {
+void NextPermittedEdge(mgp_edges_iterator &it) {
+  if (!it.source_vertex.graph->ctx->auth_checker) {
+    return;
+  }
+
+  auto next_edge = [&](auto &impl_it, const auto &end) -> bool {
+    while (impl_it != end) {
+      if (it.source_vertex.graph->ctx->auth_checker->Accept(*it.source_vertex.graph->ctx->db_accessor, *impl_it)) {
+        return true;
+      }
+
+      ++impl_it;
+    }
+
+    return false;
+  };
+
+  bool edge_found = false;
+
+  if (it.in_it) {
+    edge_found = next_edge(*it.in_it, it.in->end());
+  }
+
+  if (!edge_found && it.out_it) {
+    next_edge(*it.out_it, it.out->end());
+  }
+};
+}  // namespace
+
 mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
@@ -1906,28 +1936,31 @@ mgp_error mgp_edges_iterator_get(mgp_edges_iterator *it, mgp_edge **result) {
       result);
 }
 
+mgp_edges_iterator::mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory) noexcept
+    : memory(memory), source_vertex(v, memory) {}
+
 mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
-        MG_ASSERT(it->in || it->out);
-        auto next = [&](auto *impl_it, const auto &end) -> mgp_edge * {
-          if (*impl_it == end) {
-            MG_ASSERT(!it->current_e,
-                      "Iteration is already done, so it->current_e "
-                      "should have been set to std::nullopt");
-            return nullptr;
-          }
-          if (++(*impl_it) == end) {
-            it->current_e = std::nullopt;
-            return nullptr;
-          }
-          it->current_e.emplace(**impl_it, it->source_vertex.graph, it->GetMemoryResource());
-          return &*it->current_e;
-        };
-        if (it->in_it) {
-          return next(&*it->in_it, it->in->end());
-        }
-        return next(&*it->out_it, it->out->end());
+        // MG_ASSERT(it->in || it->out);
+        // auto next = [&](auto *impl_it, const auto &end) -> mgp_edge * {
+        //   if (*impl_it == end) {
+        //     MG_ASSERT(!it->current_e,
+        //               "Iteration is already done, so it->current_e "
+        //               "should have been set to std::nullopt");
+        //     return nullptr;
+        //   }
+        //   if (++(*impl_it) == end) {
+        //     it->current_e = std::nullopt;
+        //     return nullptr;
+        //   }
+        //   it->current_e.emplace(**impl_it, it->source_vertex.graph, it->GetMemoryResource());
+        //   return &*it->current_e;
+        // };
+        // if (it->in_it) {
+        //   return next(&*it->in_it, it->in->end());
+        // }
+        // return next(&*it->out_it, it->out->end());
       },
       result);
 }
