@@ -22,13 +22,13 @@ static void ReturnFunctionArgument(struct mgp_list *args, mgp_func_context *ctx,
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory));
     return;
   }
 
   err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory));
     return;
   }
 }
@@ -38,13 +38,13 @@ static void ReturnOptionalArgument(struct mgp_list *args, mgp_func_context *ctx,
   mgp_value *value{nullptr};
   auto err_code = mgp_list_at(args, 0, &value);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory));
     return;
   }
 
   err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory));
     return;
   }
 }
@@ -57,14 +57,14 @@ double GetElementFromArg(struct mgp_list *args, int index) {
 
   double result;
   int is_int;
-  mgp_value_is_int(value, &is_int);
+  static_cast<void>(mgp_value_is_int(value, &is_int));
 
   if (is_int) {
     int64_t result_int;
-    mgp_value_get_int(value, &result_int);
+    static_cast<void>(mgp_value_get_int(value, &result_int));
     result = static_cast<double>(result_int);
   } else {
-    mgp_value_get_double(value, &result);
+    static_cast<void>(mgp_value_get_double(value, &result));
   }
   return result;
 }
@@ -77,30 +77,30 @@ static void AddTwoNumbers(struct mgp_list *args, mgp_func_context *ctx, mgp_func
     first = GetElementFromArg(args, 0);
     second = GetElementFromArg(args, 1);
   } catch (...) {
-    mgp_func_result_set_error_msg(result, "Unable to fetch the result!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Unable to fetch the result!", memory));
     return;
   }
 
   mgp_value *value{nullptr};
   auto summation = first + second;
-  mgp_value_make_double(summation, memory, &value);
+  static_cast<void>(mgp_value_make_double(summation, memory, &value));
   memgraph::utils::OnScopeExit delete_summation_value([&value] { mgp_value_destroy(value); });
 
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory));
   }
 }
 
 static void ReturnNull(struct mgp_list *args, mgp_func_context *ctx, mgp_func_result *result,
                        struct mgp_memory *memory) {
   mgp_value *value{nullptr};
-  mgp_value_make_null(memory, &value);
+  static_cast<void>(mgp_value_make_null(memory, &value));
   memgraph::utils::OnScopeExit delete_null([&value] { mgp_value_destroy(value); });
 
   auto err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to fetch list!", memory));
   }
 }
 }  // namespace
@@ -116,7 +116,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     }
 
     mgp_type *type_any{nullptr};
-    mgp_type_any(&type_any);
+    static_cast<void>(mgp_type_any(&type_any));
     err_code = mgp_func_add_arg(func, "argument", type_any);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
@@ -131,11 +131,11 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     }
 
     mgp_value *default_value{nullptr};
-    mgp_value_make_int(42, memory, &default_value);
+    static_cast<void>(mgp_value_make_int(42, memory, &default_value));
     memgraph::utils::OnScopeExit delete_summation_value([&default_value] { mgp_value_destroy(default_value); });
 
     mgp_type *type_int{nullptr};
-    mgp_type_int(&type_int);
+    static_cast<void>(mgp_type_int(&type_int));
     err_code = mgp_func_add_opt_arg(func, "opt_argument", type_int, default_value);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
@@ -150,7 +150,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     }
 
     mgp_type *type_number{nullptr};
-    mgp_type_number(&type_number);
+    static_cast<void>(mgp_type_number(&type_number));
     err_code = mgp_func_add_arg(func, "first", type_number);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
