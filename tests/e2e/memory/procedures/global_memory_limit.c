@@ -1,10 +1,21 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "mg_procedure.h"
 
 int *gVal = NULL;
 
 void set_error(struct mgp_result *result) { mgp_result_set_error_msg(result, "Something went wrong"); }
 
-static void procedure(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
+static void procedure(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
                       struct mgp_memory *memory) {
   struct mgp_result_record *record = NULL;
   const enum mgp_error new_record_err = mgp_result_new_record(result, &record);
@@ -21,14 +32,14 @@ static void procedure(const struct mgp_list *args, const struct mgp_graph *graph
 
 int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   const size_t one_gb = 1 << 30;
-  const enum mgp_error alloc_err = mgp_global_alloc(one_gb, &gVal);
+  const enum mgp_error alloc_err = mgp_global_alloc(one_gb, (void **)(&gVal));
   if (alloc_err != MGP_ERROR_NO_ERROR) return 1;
 
   struct mgp_proc *proc = NULL;
   const enum mgp_error proc_err = mgp_module_add_read_procedure(module, "procedure", procedure, &proc);
   if (proc_err != MGP_ERROR_NO_ERROR) return 1;
 
-  const struct mgp_type *string_type = NULL;
+  struct mgp_type *string_type = NULL;
   const enum mgp_error string_type_err = mgp_type_string(&string_type);
   if (string_type_err != MGP_ERROR_NO_ERROR) return 1;
   if (mgp_proc_add_result(proc, "result", string_type) != MGP_ERROR_NO_ERROR) return 1;
