@@ -1,5 +1,18 @@
 bolt_port: &bolt_port "7687"
-template_cluster: &template_cluster
+create_delete_filtering_cluster: &create_delete_filtering_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "fine_grained_access.log"
+      setup_queries:
+        [
+          "CREATE USER admin IDENTIFIED BY 'test';",
+          "CREATE USER user IDENTIFIED BY 'test';",
+          "GRANT ALL PRIVILEGES TO admin;",
+          "GRANT ALL PRIVILEGES TO user;",
+        ]
+
+edge_type_filtering_cluster: &edge_type_filtering_cluster
   cluster:
     main:
       args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
@@ -21,7 +34,12 @@ template_cluster: &template_cluster
       validation_queries: []
 
 workloads:
-  - name: "Fine Grained Access"
+  - name: "Create delete filtering"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["fine_grained_access/create_delete_filtering_tests.py"]
+    <<: *create_delete_filtering_cluster
+
+  - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
-    <<: *template_cluster
+    <<: *edge_type_filtering_cluster

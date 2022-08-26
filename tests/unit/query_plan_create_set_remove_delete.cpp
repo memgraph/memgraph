@@ -11,9 +11,12 @@
 
 #include <iterator>
 #include <memory>
+#include <string>
 #include <variant>
 #include <vector>
 
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -71,6 +74,47 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   EXPECT_EQ(vertex_count, 1);
 }
 
+TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
+  memgraph::query::AstStorage ast;
+  memgraph::query::SymbolTable symbol_table;
+  memgraph::storage::Storage db;
+  auto dba = db.Access();
+  DbAccessor execution_dba(&dba);
+  auto label = dba.NameToLabel("label1");
+  auto property = memgraph::storage::PropertyId::FromInt(1);
+
+  memgraph::query::plan::NodeCreationInfo node;
+  std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property, ast.Create<PrimitiveLiteral>(42));
+
+  node.symbol = symbol_table.CreateSymbol("n", true);
+  node.labels.emplace_back(label);
+
+  auto test_create = [&](memgraph::auth::User &user) {
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(ast, symbol_table, &execution_dba, &auth_checker);
+    auto create = std::make_shared<CreateNode>(nullptr, node);
+
+    return PullAll(*create, &context);
+  };
+
+  // Granted label
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("label1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    EXPECT_EQ(test_create(user), 1);
+  }
+
+  // Denied label
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("label1",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    EXPECT_EQ(test_create(user), 0);
+  }
+}
+
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   memgraph::storage::Storage db;
@@ -109,6 +153,65 @@ TEST(QueryPlan, CreateReturn) {
 
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+}
+
+TEST(QueryPlan, FineGrainedCreateReturn) {
+  // test CREATE (n:Person {age: 42}) RETURN n, n.age
+  memgraph::storage::Storage db;
+  auto storage_dba = db.Access();
+  memgraph::query::DbAccessor dba(&storage_dba);
+
+  memgraph::storage::LabelId label = dba.NameToLabel("label");
+  auto property = PROPERTY_PAIR("property");
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  NodeCreationInfo node;
+  node.symbol = symbol_table.CreateSymbol("n", true);
+  node.labels.emplace_back(label);
+  std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
+      .emplace_back(property.second, LITERAL(42));
+
+  auto create = std::make_shared<CreateNode>(nullptr, node);
+  auto named_expr_n =
+      NEXPR("n", IDENT("n")->MapTo(node.symbol))->MapTo(symbol_table.CreateSymbol("named_expr_n", true));
+  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(node.symbol), property);
+  auto named_expr_n_p = NEXPR("n", prop_lookup)->MapTo(symbol_table.CreateSymbol("named_expr_n_p", true));
+
+  auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
+
+  // Granted label
+  {
+    memgraph::auth::User user{"Test"};
+    user.fine_grained_access_handler().label_permissions().Grant("label",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto results = CollectProduce(*produce, &context);
+    EXPECT_EQ(1, results.size());
+    EXPECT_EQ(2, results[0].size());
+    EXPECT_EQ(TypedValue::Type::Vertex, results[0][0].type());
+    auto maybe_labels = results[0][0].ValueVertex().Labels(memgraph::storage::View::NEW);
+    EXPECT_EQ(1, maybe_labels->size());
+    EXPECT_EQ(label, (*maybe_labels)[0]);
+    EXPECT_EQ(TypedValue::Type::Int, results[0][1].type());
+    EXPECT_EQ(42, results[0][1].ValueInt());
+
+    dba.AdvanceCommand();
+    EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+  }
+
+  // Denied label
+  {
+    memgraph::auth::User user{"Test"};
+    user.fine_grained_access_handler().label_permissions().Deny("label",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto results = CollectProduce(*produce, &context);
+    EXPECT_EQ(0, results.size());
+  }
 }
 
 TEST(QueryPlan, CreateExpand) {
@@ -188,6 +291,127 @@ TEST(QueryPlan, CreateExpand) {
   }
 }
 
+TEST(QueryPlan, FineGrainedCreateExpand) {
+  auto test_create_path = [&](bool cycle, int expected_nodes_created, int expected_edges_created,
+                              memgraph::auth::User &user) {
+    memgraph::storage::Storage db;
+    auto storage_dba = db.Access();
+    memgraph::query::DbAccessor dba(&storage_dba);
+
+    memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
+    memgraph::storage::LabelId label_node_2 = dba.NameToLabel("Node2");
+    auto property = PROPERTY_PAIR("property");
+    memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+
+    SymbolTable symbol_table;
+    AstStorage storage;
+    int before_v = CountIterable(dba.Vertices(memgraph::storage::View::OLD));
+    int before_e = CountEdges(&dba, memgraph::storage::View::OLD);
+
+    // data for the first node
+    NodeCreationInfo n;
+    n.symbol = symbol_table.CreateSymbol("n", true);
+    n.labels.emplace_back(label_node_1);
+    std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(n.properties)
+        .emplace_back(property.second, LITERAL(1));
+
+    // data for the second node
+    NodeCreationInfo m;
+    m.symbol = cycle ? n.symbol : symbol_table.CreateSymbol("m", true);
+    m.labels.emplace_back(label_node_2);
+    std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(m.properties)
+        .emplace_back(property.second, LITERAL(2));
+
+    EdgeCreationInfo r;
+    r.symbol = symbol_table.CreateSymbol("r", true);
+    r.edge_type = edge_type;
+    std::get<0>(r.properties).emplace_back(property.second, LITERAL(3));
+
+    auto create_op = std::make_shared<CreateNode>(nullptr, n);
+    auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    PullAll(*create_expand, &context);
+    dba.AdvanceCommand();
+
+    EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)) - before_v, expected_nodes_created);
+    EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD) - before_e, expected_edges_created);
+  };
+
+  // All labels denied, All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // All labels granted, All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 1, 0, user);
+    test_create_path(true, 1, 0, user);
+  }
+
+  // All labels denied, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // First label granted, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("Node1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("Node2",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 1, 0, user);
+    test_create_path(true, 1, 0, user);
+  }
+
+  // Second label granted, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("Node2",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("Node1",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // All labels granted, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 2, 1, user);
+    test_create_path(true, 1, 1, user);
+  }
+}
+
 TEST(QueryPlan, MatchCreateNode) {
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -215,6 +439,75 @@ TEST(QueryPlan, MatchCreateNode) {
   PullAll(*create_node, &context);
   dba.AdvanceCommand();
   EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 6);
+}
+
+TEST(QueryPlan, FineGrainedMatchCreateNode) {
+  auto test_match_create_node = [&](memgraph::auth::User &user, int expected_nodes) {
+    memgraph::storage::Storage db;
+    auto storage_dba = db.Access();
+    memgraph::query::DbAccessor dba(&storage_dba);
+
+    // add three nodes we'll match and expand-create from
+    memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+    memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+    memgraph::query::VertexAccessor v3{dba.InsertVertex()};
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    dba.AdvanceCommand();
+
+    SymbolTable symbol_table;
+    AstStorage storage;
+    // first node
+    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+    // second node
+    NodeCreationInfo m{};
+
+    m.symbol = symbol_table.CreateSymbol("m", true);
+    std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("l2")};
+    m.labels = labels;
+    // creation op
+    auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+
+    PullAll(*create_node, &context);
+    dba.AdvanceCommand();
+
+    EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), expected_nodes);
+  };
+
+  // All labels denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_match_create_node(user, 3);
+  }
+
+  // All labels granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_match_create_node(user, 6);
+  }
+
+  // Label2 denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("l3",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    user.fine_grained_access_handler().label_permissions().Deny("l2",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_match_create_node(user, 3);
+  }
 }
 
 TEST(QueryPlan, MatchCreateExpand) {
@@ -263,6 +556,129 @@ TEST(QueryPlan, MatchCreateExpand) {
 
   test_create_path(false, 3, 3);
   test_create_path(true, 0, 6);
+}
+
+TEST(QueryPlan, FineGrainedMatchCreateExpand) {
+  auto test_create_path = [&](bool cycle, int expected_nodes_created, int expected_edges_created,
+                              memgraph::auth::User &user) {
+    memgraph::storage::Storage db;
+    auto storage_dba = db.Access();
+    memgraph::query::DbAccessor dba(&storage_dba);
+
+    // add three nodes we'll match and expand-create from
+    memgraph::query::VertexAccessor v1{dba.InsertVertex()};
+    memgraph::query::VertexAccessor v2{dba.InsertVertex()};
+    memgraph::query::VertexAccessor v3{dba.InsertVertex()};
+    ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
+    ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
+    ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+
+    dba.AdvanceCommand();
+
+    SymbolTable symbol_table;
+    AstStorage storage;
+
+    int before_v = CountIterable(dba.Vertices(memgraph::storage::View::OLD));
+    int before_e = CountEdges(&dba, memgraph::storage::View::OLD);
+
+    // data for the first node
+    auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
+
+    // data for the second node
+    NodeCreationInfo m;
+    m.symbol = cycle ? n_scan_all.sym_ : symbol_table.CreateSymbol("m", true);
+    std::vector<memgraph::storage::LabelId> labels{dba.NameToLabel("l2")};
+    m.labels = labels;
+
+    EdgeCreationInfo r;
+    r.symbol = symbol_table.CreateSymbol("r", true);
+    r.direction = EdgeAtom::Direction::OUT;
+    r.edge_type = edge_type;
+
+    auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_, n_scan_all.sym_, cycle);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    PullAll(*create_expand, &context);
+    dba.AdvanceCommand();
+
+    EXPECT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)) - before_v, expected_nodes_created);
+    EXPECT_EQ(CountEdges(&dba, memgraph::storage::View::OLD) - before_e, expected_edges_created);
+  };
+
+  // All labels denied, All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // All labels granted, All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // All labels denied, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // First two label granted, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("l3",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("l2",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 0, 0, user);
+    test_create_path(true, 0, 0, user);
+  }
+
+  // All label granted, Specific edge type granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "edge_type", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 3, 3, user);
+    test_create_path(true, 0, 3, user);
+  }
+
+  // All labels granted, All edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_create_path(false, 3, 3, user);
+    test_create_path(true, 0, 3, user);
+  }
 }
 
 TEST(QueryPlan, Delete) {
@@ -333,6 +749,135 @@ TEST(QueryPlan, Delete) {
     dba.AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(0, CountEdges(&dba, memgraph::storage::View::OLD));
+  }
+}
+
+TEST(QueryPlan, FineGrainedDelete) {
+  auto init_graph = [](memgraph::query::DbAccessor &dba) {
+    std::vector<memgraph::query::VertexAccessor> vertices;
+    for (int i = 0; i < 4; ++i) {
+      memgraph::query::VertexAccessor v{dba.InsertVertex()};
+      auto label = "l" + std::to_string(i);
+      ASSERT_TRUE(v.AddLabel(dba.NameToLabel(label)).HasValue());
+      vertices.push_back(v);
+    }
+    for (int j = 0; j < 4; ++j) {
+      auto edge_type = "type" + std::to_string(j);
+      auto type = dba.NameToEdgeType(edge_type);
+      for (int k = j + 1; k < 4; ++k) ASSERT_TRUE(dba.InsertEdge(&vertices[j], &vertices[k], type).HasValue());
+    }
+
+    dba.AdvanceCommand();
+  };
+
+  auto test_delete_node = [&](memgraph::auth::User &user, int expected_nodes) {
+    memgraph::storage::Storage db;
+    auto storage_dba = db.Access();
+    memgraph::query::DbAccessor dba(&storage_dba);
+
+    // make a fully-connected (one-direction, no cycles) with 4 nodes
+    init_graph(dba);
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
+
+    AstStorage storage;
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    Frame frame(symbol_table.max_position());
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
+    PullAll(*delete_op, &context);
+    dba.AdvanceCommand();
+    EXPECT_EQ(expected_nodes, CountIterable(dba.Vertices(memgraph::storage::View::NEW)));
+  };
+
+  auto test_delete_edges = [&](memgraph::auth::User &user, int expected_edges) {
+    memgraph::storage::Storage db;
+    auto storage_dba = db.Access();
+    memgraph::query::DbAccessor dba(&storage_dba);
+
+    // make a fully-connected (one-direction, no cycles) with 4 nodes
+    init_graph(dba);
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
+
+    AstStorage storage;
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(storage, symbol_table, "n");
+    auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
+                          memgraph::storage::View::NEW);
+    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
+    auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    PullAll(*delete_op, &context);
+    dba.AdvanceCommand();
+    EXPECT_EQ(expected_edges, CountEdges(&dba, memgraph::storage::View::NEW));
+  };
+
+  // All labels denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_delete_node(user, 4);
+  }
+
+  // One Label granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    test_delete_node(user, 3);
+  }
+
+  // All labels granted,All edge types denied
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_delete_edges(user, 6);
+  }
+
+  // Specific label granted, Specific edge types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("l2",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("l3",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("l4",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "type0", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "type1", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "type2", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Deny(
+        "type3", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_delete_edges(user, 5);
+  }
+
+  // All labels granted, All edge_types granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+    test_delete_node(user, 0);
+    test_delete_edges(user, 0);
   }
 }
 

@@ -1966,12 +1966,13 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, ea, auth::FineGrainedPermission::CREATE_DELETE) ||
-           !context.auth_checker->Accept(*context.db_accessor, ea.To(), storage::View::NEW,
-                                         auth::FineGrainedPermission::CREATE_DELETE) ||
-           !context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
-                                         auth::FineGrainedPermission::CREATE_DELETE)))
+          !(context.auth_checker->Accept(*context.db_accessor, ea, auth::FineGrainedPermission::CREATE_DELETE) &&
+            context.auth_checker->Accept(*context.db_accessor, ea.To(), storage::View::NEW,
+                                         auth::FineGrainedPermission::CREATE_DELETE) &&
+            context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
+                                         auth::FineGrainedPermission::CREATE_DELETE))) {
         continue;
+      }
       auto maybe_value = dba.RemoveEdge(&ea);
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
@@ -1997,9 +1998,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
-        if (context.auth_checker && context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
-                                                                 auth::FineGrainedPermission::READ))
+        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
+                                                                  auth::FineGrainedPermission::CREATE_DELETE)) {
           break;
+        }
         if (self_.detach_) {
           auto res = dba.DetachRemoveVertex(&va);
           if (res.HasError()) {

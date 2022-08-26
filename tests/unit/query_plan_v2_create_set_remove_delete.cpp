@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 
-#include "query_plan_common.hpp"
-
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
+#include "query/typed_value.hpp"
+#include "query_plan_common.hpp"
 #include "storage/v2/storage.hpp"
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
