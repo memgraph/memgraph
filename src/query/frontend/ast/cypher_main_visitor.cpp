@@ -1643,10 +1643,14 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     };
     switch (relationshipLambdas.size()) {
       case 0:
-        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS)
+        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
           throw SemanticException(
               "Lambda for calculating weights is mandatory with weighted "
               "shortest path expansion.");
+        else if (edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS)
+          throw SemanticException(
+              "Lambda for calculating weights is mandatory with all "
+              "shortest paths expansion.");
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);

@@ -789,8 +789,8 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       total_weight_(total_weight) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS,
-             "ExpandVariable can only be used with breadth first, depth first or "
-             "weighted shortest path type");
+             "ExpandVariable can only be used with breadth first, depth first, "
+             "weighted shortest path or all shortest paths type");
   DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
 }
 
