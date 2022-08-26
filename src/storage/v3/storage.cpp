@@ -508,8 +508,7 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
 
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(
-      {Vertex{delta, primary_label, std::move(primary_properties), labels, std::move(secondary_properties)}});
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);

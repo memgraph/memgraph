@@ -334,9 +334,6 @@ target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
 add_unit_test(storage_v3_key_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
 
-add_unit_test(storage_v3_gc.cpp)
-target_link_libraries(${test_prefix}storage_v3_gc mg-storage-v3)
-
 add_unit_test(storage_v3_vertex_accessors.cpp)
 target_link_libraries(${test_prefix}storage_v3_vertex_accessors mg-storage-v3)
 
