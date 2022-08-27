@@ -264,7 +264,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
   {
     // adapt created_vertices_
     auto it = created_vertices_.begin();
-    for (auto &created_vertex : created_vertices_) {
+    for ([[maybe_unused]] auto &created_vertex : created_vertices_) {
       if (auto maybe_vertex = accessor->FindVertex(kFakeVertexGid); maybe_vertex) {
         *it = detail::CreatedObject{*maybe_vertex};
         ++it;
