@@ -12,3 +12,8 @@ workloads:
     proc: "tests/e2e/write_procedures/procedures/"
     args: ["write_procedures/simple_write.py"]
     <<: *template_cluster
+  - name: "Graph projection procedures"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/write_procedures/procedures/"
+    args: ["write_procedures/read_subgraph.py"]
+    <<: *template_cluster
