@@ -40,13 +40,9 @@ void Graph::InsertVertex(const VertexAccessor &vertex) { vertices_.insert(vertex
 
 void Graph::InsertEdge(const EdgeAccessor &edge) { edges_.insert(edge); }
 
-bool Graph::ContainsVertex(const VertexAccessor &vertex) {
-  return std::find(begin(vertices_), end(vertices_), vertex) != std::end(vertices_);
-}
+bool Graph::ContainsVertex(const VertexAccessor &vertex) { return vertices_.contains(vertex); }
 
-bool Graph::ContainsEdge(const EdgeAccessor &edge) {
-  return std::find(begin(edges_), end(edges_), edge) != std::end(edges_);
-}
+bool Graph::ContainsEdge(const EdgeAccessor &edge) { return edges_.contains(edge); }
 
 std::optional<VertexAccessor> Graph::RemoveVertex(const VertexAccessor &vertex) {
   if (!ContainsVertex(vertex)) {
@@ -66,14 +62,6 @@ std::optional<EdgeAccessor> Graph::RemoveEdge(const EdgeAccessor &edge) {
   }
   return edge;
 }
-
-/** Copy assign other, utils::MemoryResource of `this` is used */
-Graph &Graph::operator=(const Graph &) = default;
-
-/** Move assign other, utils::MemoryResource of `this` is used. */
-Graph &Graph::operator=(Graph &&) noexcept = default;
-
-Graph::~Graph() = default;
 
 utils::pmr::unordered_set<VertexAccessor> &Graph::vertices() { return vertices_; }
 utils::pmr::unordered_set<EdgeAccessor> &Graph::edges() { return edges_; }

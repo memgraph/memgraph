@@ -439,11 +439,11 @@ class DbAccessor final {
 };
 
 class SubgraphDbAccessor final {
-  DbAccessor *db_accessor_;
+  DbAccessor db_accessor_;
   Graph *graph_;
 
  public:
-  explicit SubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
+  explicit SubgraphDbAccessor(DbAccessor db_accessor, Graph *graph);
 
   static SubgraphDbAccessor *MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph);
 

@@ -18,42 +18,36 @@
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
-SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor *db_accessor, Graph *graph)
+SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
 
-SubgraphDbAccessor *SubgraphDbAccessor::MakeSubgraphDbAccessor(DbAccessor *db_accessor, Graph *graph) {
-  return new SubgraphDbAccessor(db_accessor, graph);
-}
-
 storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
-  return db_accessor_->NameToProperty(name);
+  return db_accessor_.NameToProperty(name);
 }
 
-storage::LabelId SubgraphDbAccessor::NameToLabel(const std::string_view name) {
-  return db_accessor_->NameToLabel(name);
-}
+storage::LabelId SubgraphDbAccessor::NameToLabel(const std::string_view name) { return db_accessor_.NameToLabel(name); }
 
 storage::EdgeTypeId SubgraphDbAccessor::NameToEdgeType(const std::string_view name) {
-  return db_accessor_->NameToEdgeType(name);
+  return db_accessor_.NameToEdgeType(name);
 }
 
 const std::string &SubgraphDbAccessor::PropertyToName(storage::PropertyId prop) const {
-  return db_accessor_->PropertyToName(prop);
+  return db_accessor_.PropertyToName(prop);
 }
 
 const std::string &SubgraphDbAccessor::LabelToName(storage::LabelId label) const {
-  return db_accessor_->LabelToName(label);
+  return db_accessor_.LabelToName(label);
 }
 
 const std::string &SubgraphDbAccessor::EdgeTypeToName(storage::EdgeTypeId type) const {
-  return db_accessor_->EdgeTypeToName(type);
+  return db_accessor_.EdgeTypeToName(type);
 }
 
 storage::Result<std::optional<EdgeAccessor>> SubgraphDbAccessor::RemoveEdge(EdgeAccessor *edge) {
   if (!this->graph_->ContainsEdge(*edge)) {
     throw std::logic_error{"Projected graph must contain edge!"};
   }
-  auto result = db_accessor_->RemoveEdge(edge);
+  auto result = db_accessor_.RemoveEdge(edge);
   if (result.HasError() || !*result) {
     return result;
   }
@@ -67,7 +61,7 @@ storage::Result<EdgeAccessor> SubgraphDbAccessor::InsertEdge(SubgraphVertexAcces
   if (!this->graph_->ContainsVertex(*from_impl) || !this->graph_->ContainsVertex(*to_impl)) {
     throw std::logic_error{"Projected graph must contain both vertices to insert edge!"};
   }
-  auto result = db_accessor_->InsertEdge(from_impl, to_impl, edge_type);
+  auto result = db_accessor_.InsertEdge(from_impl, to_impl, edge_type);
   if (result.HasError()) {
     return result;
   }
@@ -88,7 +82,7 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
   if (!this->graph_->ContainsVertex(*vertex_accessor)) {
     throw std::logic_error{"Projected graph must contain vertex!"};
   }
-  auto result = db_accessor_->RemoveVertex(vertex_accessor);
+  auto result = db_accessor_.RemoveVertex(vertex_accessor);
   if (result.HasError() || !*result) {
     return result;
   }
@@ -96,7 +90,7 @@ storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
 }
 
 SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
-  VertexAccessor vertex = db_accessor_->InsertVertex();
+  VertexAccessor vertex = db_accessor_.InsertVertex();
   this->graph_->InsertVertex(vertex);
   return SubgraphVertexAccessor(vertex, this->getGraph());
 }
@@ -106,7 +100,7 @@ VerticesIterable SubgraphDbAccessor::Vertices(storage::View) {  // NOLINT(hicpp-
 }
 
 std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, storage::View view) {
-  std::optional<VertexAccessor> maybe_vertex = db_accessor_->FindVertex(gid, view);
+  std::optional<VertexAccessor> maybe_vertex = db_accessor_.FindVertex(gid, view);
   if (maybe_vertex && this->graph_->ContainsVertex(*maybe_vertex)) {
     return *maybe_vertex;
   }
@@ -125,8 +119,8 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
-    EdgeAccessor edge_q = EdgeAccessor(edge);
-    if (std::find(begin(graph_edges), end(graph_edges), edge_q) != std::end(graph_edges)) {
+    auto edge_q = EdgeAccessor(edge);
+    if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(edge);
     }
   }
@@ -142,8 +136,8 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
-    EdgeAccessor edge_q = EdgeAccessor(edge);
-    if (std::find(begin(graph_edges), end(graph_edges), edge_q) != std::end(graph_edges)) {
+    auto edge_q = EdgeAccessor(edge);
+    if (graph_edges.contains(edge_q)) {
       filteredOutEdges.push_back(edge);
     }
   }

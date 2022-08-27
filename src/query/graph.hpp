@@ -90,12 +90,12 @@ class Graph final {
   std::vector<EdgeAccessor> OutEdges(VertexAccessor vertex_accessor);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
-  Graph &operator=(const Graph &);
+  Graph &operator=(const Graph &) = default;
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  Graph &operator=(Graph &&) noexcept;
+  Graph &operator=(Graph &&) noexcept = default;
 
-  ~Graph();
+  ~Graph() = default;
 
   utils::pmr::unordered_set<VertexAccessor> &vertices();
   utils::pmr::unordered_set<EdgeAccessor> &edges();
