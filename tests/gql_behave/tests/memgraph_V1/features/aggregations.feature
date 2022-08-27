@@ -389,3 +389,16 @@ Feature: Aggregations
             | 3 |
             | 2 |
             | 1 |
+
+    Scenario: Graph projection test 04:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 1}), (b{x: 2}), (c{x: 3}), (d{x: 4}), (a)-[:X {prop:1}]->(b), (b)-[:X {prop:2}]->(c), (c)-[:X {prop:3}]->(a), (a)-[:B {prop:4}]->(d)
+            """
+        When executing query:
+            """
+            MATCH p=()-[:Z]->() WITH project(p) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.prop as y ORDER BY y DESC
+            """
+        Then the result should be:
+            | y |

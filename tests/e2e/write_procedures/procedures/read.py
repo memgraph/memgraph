@@ -23,6 +23,11 @@ def graph_is_mutable(ctx: mgp.ProcCtx) -> mgp.Record(mutable=bool):
 
 
 @mgp.read_proc
+def subgraph_empty(ctx: mgp.ProcCtx, arg1: mgp.Any, arg2: mgp.Any, arg3: mgp.Any = 2) -> mgp.Record(result=int):
+    return mgp.Record(result=1)
+
+
+@mgp.read_proc
 def subgraph_get_vertices(ctx: mgp.ProcCtx) -> mgp.Record(node=mgp.Vertex):
     return [mgp.Record(node=vertex) for vertex in ctx.graph.vertices]
 

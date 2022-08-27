@@ -41,6 +41,44 @@ def create_smaller_subgraph(cursor):
     execute_and_fetch_all(cursor, "MATCH (p:Person {id: 2}) MATCH (t:Team {id:6}) CREATE (p)-[:SUPPORTS]->(t);")
 
 
+def test_is_callable(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    create_subgraph(cursor)
+
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n;", 6)
+    assert has_n_result_row(
+        cursor,
+        f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) AS graph CALL read.subgraph_empty(graph, 2, 3) YIELD result RETURN result;",
+        1,
+    )
+
+    execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) DETACH DELETE n;",
+    )
+
+
+def test_incorrect_graph_argument_placement(connection):
+    cursor = connection.cursor()
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+    create_subgraph(cursor)
+
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n;", 6)
+    queries = [
+        f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) AS graph CALL read.subgraph_empty(2, graph, 3) YIELD result RETURN result;",
+        f"MATCH p=(n:Person)-[:SUPPORTS]->(m:Team) WITH project(p) AS graph CALL read.subgraph_empty(2, 3, graph) YIELD result RETURN result;",
+    ]
+    for query in queries:
+        with pytest.raises(mgclient.DatabaseError):
+            execute_and_fetch_all(cursor, query)
+
+    execute_and_fetch_all(
+        cursor,
+        f"MATCH (n) DETACH DELETE n;",
+    )
+
+
 def test_get_vertices(connection):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
