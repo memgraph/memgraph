@@ -2077,7 +2077,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
-      [graph, id, memory]() -> mgp_vertex * {
+      []() -> mgp_vertex * {
         // TODO(jbajic) Fix Remove Gid
         // auto maybe_vertex = graph->impl->FindVertex(0);
         // if (maybe_vertex) {
@@ -2094,7 +2094,7 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
 };
 
 //  TODO(jbajic) Fix Remove Gid
-mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
+mgp_error mgp_graph_create_vertex(struct mgp_graph * /*graph*/, mgp_memory * /*memory*/, mgp_vertex ** /*result*/) {
   // return WrapExceptions(
   // [=] {
   //   if (!MgpGraphIsMutable(*graph)) {

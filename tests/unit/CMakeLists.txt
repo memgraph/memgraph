@@ -334,15 +334,12 @@ target_link_libraries(${test_prefix}storage_v3_property_store mg-storage-v3 fmt)
 add_unit_test(storage_v3_key_store.cpp)
 target_link_libraries(${test_prefix}storage_v3_key_store mg-storage-v3 rapidcheck rapidcheck_gtest)
 
-add_unit_test(storage_v3_gc.cpp)
-target_link_libraries(${test_prefix}storage_v3_gc mg-storage-v3)
-
 add_unit_test(storage_v3_vertex_accessors.cpp)
 target_link_libraries(${test_prefix}storage_v3_vertex_accessors mg-storage-v3)
 
 # Test mg-query-v3
-# add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
-# target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)
+add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
+target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)
 
 # add_unit_test(query_v2_query_plan_accumulate_aggregate.cpp)
 # target_link_libraries(${test_prefix}query_v2_query_plan_accumulate_aggregate mg-query-v2)
@@ -367,7 +364,6 @@ target_link_libraries(${test_prefix}storage_v3_vertex_accessors mg-storage-v3)
 
 # add_unit_test(query_v2_query_required_privileges.cpp)
 # target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-v2)
-
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
