@@ -663,16 +663,11 @@ struct mgp_properties_iterator {
   mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, memgraph::utils::MemoryResource *memory)
       : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
     if (current_it != this->pvs.end()) {
-      auto value =
-          std::visit(memgraph::utils::Overloaded{
-                         [this, memory](const memgraph::query::DbAccessor *impl) {
-                           return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
-                         },
-                         [this, memory](const memgraph::query::SubgraphDbAccessor *impl) {
-                           return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
-                         },
-                     },
-                     graph->impl);
+      auto value = std::visit(
+          [this, memory](const auto *impl) {
+            return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
+          },
+          graph->impl);
 
       current.emplace(value, mgp_value(current_it->second, memory));
       property.name = current->first.c_str();

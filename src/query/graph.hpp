@@ -29,7 +29,7 @@ class Path;
 class Graph final {
  public:
   /** Allocator type so that STL containers are aware that we need one */
-  using allocator_type = utils::Allocator<char>;
+  using allocator_type = utils::Allocator<Graph>;
 
   /**
    * Create the graph with no elements

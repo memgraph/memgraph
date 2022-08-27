@@ -302,8 +302,6 @@ TypedValue::operator storage::PropertyValue() const {
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
-    case Type::Graph:
-      throw TypedValueException("Unsupported copy from StorageValue to TypedValue");
     default:
       break;
   }
