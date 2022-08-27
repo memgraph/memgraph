@@ -1324,7 +1324,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
 
-  // TODO(gitbuda): Add sum function
+  // TODO(gitbuda): Add sum function.
 
   const auto &maybe_found =
       procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
