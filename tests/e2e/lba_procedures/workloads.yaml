@@ -20,9 +20,29 @@ template_cluster: &template_cluster
       ]
       validation_queries: []
 
+update_permission_queries_cluster: &update_permission_queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries: [
+        "CREATE USER admin IDENTIFIED BY 'test';",
+        "GRANT ALL PRIVILEGES TO admin;",
+
+        "CREATE USER user IDENTIFIED BY 'test'",
+        "GRANT ALL PRIVILEGES TO user;",
+      ]
+      validation_queries: []
+
 workloads:
   - name: "Label-based auth"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/lba_procedures.py"]
     <<: *template_cluster
+
+  - name: "update-permission-queries"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/update_permission_queries.py"]
+    <<: *update_permission_queries_cluster

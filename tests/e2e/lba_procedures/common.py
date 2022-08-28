@@ -12,6 +12,8 @@
 import mgclient
 import typing
 
+DatabaseError = mgclient.DatabaseError
+
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
@@ -22,3 +24,13 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection
+
+
+def reset_permissions(admin_cursor: mgclient.Cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+
+    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {name: 'test1'});")
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label_1)-[r:update_edge_type]->(m:update_label_2);")

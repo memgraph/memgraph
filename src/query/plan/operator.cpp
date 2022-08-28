@@ -420,7 +420,7 @@ class ScanAllCursor : public Cursor {
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
       if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
-                                       memgraph::auth::FineGrainedPermission::READ)) {
+                                       auth::FineGrainedPermission::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -703,9 +703,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+          (!context.auth_checker->Accept(*context.db_accessor, edge, auth::FineGrainedPermission::READ) ||
            !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
-                                         memgraph::auth::FineGrainedPermission::READ))) {
+                                         auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -722,9 +722,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker &&
-          (!context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) ||
+          (!context.auth_checker->Accept(*context.db_accessor, edge, auth::FineGrainedPermission::READ) ||
            !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
-                                         memgraph::auth::FineGrainedPermission::READ))) {
+                                         auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -2082,6 +2082,12 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+      }
+
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
@@ -2092,6 +2098,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       break;
     }
     case TypedValue::Type::Edge: {
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the edges!");
+      }
+
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
@@ -2284,9 +2295,20 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+      }
+
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the edges!");
+      }
+
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
@@ -2413,9 +2435,20 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+      }
+
       remove_prop(&lhs.ValueVertex());
       break;
     case TypedValue::Type::Edge:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+        throw QueryRuntimeException("Not authorized to update some of the edges!");
+      }
+
       remove_prop(&lhs.ValueEdge());
       break;
     case TypedValue::Type::Null:
