@@ -2000,11 +2000,21 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
 }
 
 mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
+  if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
+      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->from.impl, e->from.graph->view)) {
+    return mgp_error::MGP_ERROR_NO_ERROR;
+  }
+
   *result = &e->from;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
+  if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
+      e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->from.impl, e->from.graph->view)) {
+    return mgp_error::MGP_ERROR_NO_ERROR;
+  }
+
   *result = &e->to;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
