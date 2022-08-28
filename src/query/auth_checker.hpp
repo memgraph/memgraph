@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 
@@ -34,19 +35,22 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view) const = 0;
+                                    memgraph::storage::View view,
+                                    memgraph::auth::FineGrainedPermission permission) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const = 0;
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
+                                    memgraph::auth::FineGrainedPermission permission) const = 0;
 };
 
-class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
+class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
-              const memgraph::storage::View &view) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View view,
+              const memgraph::auth::FineGrainedPermission permission) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
+              const memgraph::auth::FineGrainedPermission permission) const override {
     return true;
   }
 };
@@ -59,7 +63,7 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
   }
 
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/) const override {
-    return std::make_unique<AllowEverythingUserBasedAuthChecker>();
+    return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
 };
 
