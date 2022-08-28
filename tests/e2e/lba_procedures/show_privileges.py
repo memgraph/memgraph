@@ -85,5 +85,33 @@ def test_lba_procedures_show_privileges_second_user():
     assert set(result) == set(expected_assertions_boris)
 
 
+def test_lba_procedures_show_privileges_third_user():
+    expected_assertions_niko = [
+        ("AUTH", "GRANT", "GRANTED TO USER"),
+        ("ALL LABELS", "READ", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+    ]
+
+    cursor = connect(username="Niko", password="").cursor()
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Niko;")
+
+    assert len(result) == len(expected_assertions_niko)
+    assert set(result) == set(expected_assertions_niko)
+
+
+def test_lba_procedures_show_privileges_fourth_user():
+    expected_assertions_bruno = [
+        ("AUTH", "GRANT", "GRANTED TO USER"),
+        ("ALL LABELS", "UPDATE", "GLOBAL LABEL PERMISSION GRANTED TO USER"),
+    ]
+
+    # TODO: Revisit behaviour of this test
+
+    cursor = connect(username="Bruno", password="").cursor()
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Bruno;")
+
+    assert len(result) == len(expected_assertions_bruno)
+    assert set(result) == set(expected_assertions_bruno)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
