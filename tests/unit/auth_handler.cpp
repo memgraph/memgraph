@@ -26,7 +26,7 @@ class AuthQueryHandlerFixture : public testing::Test {
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth{
       test_folder_ / ("unit_auth_handler_test_" + std::to_string(static_cast<int>(getpid())))};
-  memgraph::glue::AuthQueryHandler auth_handler{&auth, memgraph::glue::default_user_role_regex.data()};
+  memgraph::glue::AuthQueryHandler auth_handler{&auth, memgraph::glue::kDefaultUserRoleRegex.data()};
 
   std::string user_name = "Mate";
   std::string edge_type_repr = "EdgeType1";
@@ -47,20 +47,20 @@ class AuthQueryHandlerFixture : public testing::Test {
 };
 
 TEST_F(AuthQueryHandlerFixture, GivenAuthQueryHandlerWhenInitializedHaveNoUsernamesOrRolenames) {
-  ASSERT_FALSE(auth_handler.GetUsernames().size());
-  ASSERT_FALSE(auth_handler.GetRolenames().size());
+  ASSERT_EQ(auth_handler.GetUsernames().size(), 0);
+  ASSERT_EQ(auth_handler.GetRolenames().size(), 0);
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturned) {
   memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
-  { ASSERT_TRUE(auth_handler.GetUsernames().size()); }
+  { ASSERT_EQ(auth_handler.GetUsernames().size(), 1); }
 
   {
     auto privileges = auth_handler.GetPrivileges(user_name);
 
-    ASSERT_FALSE(privileges.size());
+    ASSERT_EQ(privileges.size(), 0);
   }
 }
 
@@ -70,10 +70,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturne
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -91,10 +91,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -113,7 +113,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturn
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_FALSE(privileges.size());
+  ASSERT_EQ(privileges.size(), 0);
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
@@ -121,14 +121,14 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
   memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
   auth->SaveRole(role);
 
-  { ASSERT_TRUE(auth_handler.GetRolenames().size() == 1); }
+  { ASSERT_EQ(auth_handler.GetRolenames().size(), 1); }
 
   {
     auto privileges = auth_handler.GetPrivileges("Mates_role");
-    ASSERT_TRUE(privileges.size() == 1);
+    ASSERT_EQ(privileges.size(), 1);
 
     auto result = *privileges.begin();
-    ASSERT_TRUE(result.size() == 3);
+    ASSERT_EQ(result.size(), 3);
 
     ASSERT_TRUE(result[0].IsString());
     ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -147,10 +147,10 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
   auth->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -169,7 +169,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeRevokedThenNothingIsReturn
   auth->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
-  ASSERT_FALSE(privileges.size());
+  ASSERT_EQ(privileges.size(), 0);
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreReturned) {
@@ -179,7 +179,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreRetu
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 2);
+  ASSERT_EQ(privileges.size(), 2);
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThenBothArePrinted) {
@@ -191,10 +191,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -215,10 +215,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -243,10 +243,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -271,10 +271,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "MATCH");
@@ -299,10 +299,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
@@ -328,10 +328,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
@@ -358,10 +358,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
@@ -386,10 +386,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
@@ -415,10 +415,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
@@ -445,10 +445,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
@@ -474,10 +474,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
@@ -503,10 +503,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
@@ -533,10 +533,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
@@ -561,10 +561,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
@@ -591,10 +591,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
@@ -621,10 +621,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
@@ -650,10 +650,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
@@ -679,10 +679,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
@@ -708,10 +708,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_TRUE(privileges.size() == 1);
+  ASSERT_EQ(privileges.size(), 1);
 
   auto result = *privileges.begin();
-  ASSERT_TRUE(result.size() == 3);
+  ASSERT_EQ(result.size(), 3);
 
   ASSERT_TRUE(result[0].IsString());
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");

@@ -13,6 +13,8 @@
 
 #include <sstream>
 
+#include <fmt/format.h>
+
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
 
@@ -47,7 +49,6 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForActor(const memgraph::a
       container.description = "DENIED TO " + actor;
       break;
     case memgraph::auth::PermissionLevel::NEUTRAL:
-      container.description = "";
       break;
   }
 
@@ -128,12 +129,11 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
-    std::stringstream permission_description;
-    permission_description << "GLOBAL " << permission_type << " PERMISSION " << permission_level_representation
-                           << " TO " << actor;
+    const auto permission_description =
+        fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, actor);
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description.str()});
+        permission_representation.str(), permission_level, permission_description});
   }
 
   for (const auto &[label, permission] : permissions.GetPermissions()) {
@@ -145,11 +145,11 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
 
-    std::stringstream permission_description;
-    permission_description << permission_type << " PERMISSION " << permission_level_representation << " TO " << actor;
+    const auto permission_description =
+        fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, actor);
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description.str()});
+        permission_representation.str(), permission_level, permission_description});
   }
 
   return fine_grained_permissions;
@@ -209,19 +209,19 @@ AuthQueryHandler::AuthQueryHandler(
     : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
 
 bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password) {
-  if (name_regex_string_ != default_user_role_regex) {
+  if (name_regex_string_ != kDefaultUserRoleRegex) {
     if (const auto license_check_result =
             memgraph::utils::license::global_license_checker.IsValidLicense(memgraph::utils::global_settings);
         license_check_result.HasError()) {
       throw memgraph::auth::AuthException(
           "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
           "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-          default_user_role_regex,
+          kDefaultUserRoleRegex,
           memgraph::utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
     }
   }
   if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
+    throw query::QueryRuntimeException("Invalid user name.");
   }
   try {
     const auto [first_user, user_added] = std::invoke([&, this] {
@@ -295,7 +295,11 @@ bool AuthQueryHandler::DropRole(const std::string &rolename) {
   try {
     auto locked_auth = auth_->Lock();
     auto role = locked_auth->GetRole(rolename);
-    if (!role) return false;
+
+    if (!role) {
+      return false;
+    };
+
     return locked_auth->RemoveRole(rolename);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());

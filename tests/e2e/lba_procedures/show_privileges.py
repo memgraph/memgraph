@@ -63,9 +63,7 @@ def test_lba_procedures_show_privileges_first_user():
     fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 
     assert len(fine_privilege_results) == len(expected_assertions_josip)
-
-    for assertion in expected_assertions_josip:
-        assert assertion in fine_privilege_results
+    assert set(expected_assertions_josip) == set(fine_privilege_results)
 
 
 def test_lba_procedures_show_privileges_second_user():
@@ -84,9 +82,7 @@ def test_lba_procedures_show_privileges_second_user():
     result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Boris;")
 
     assert len(result) == len(expected_assertions_boris)
-
-    for assertion in expected_assertions_boris:
-        assert assertion in result
+    assert set(result) == set(expected_assertions_boris)
 
 
 if __name__ == "__main__":

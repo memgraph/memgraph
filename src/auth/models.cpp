@@ -101,7 +101,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
-FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission) {
+FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permission) {
   if (permission & FineGrainedPermission::CREATE_DELETE) {
     return FineGrainedPermission::CREATE_DELETE;
   }
@@ -117,7 +117,7 @@ FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission) {
   return FineGrainedPermission::NO_PERMISSION;
 }
 
-std::string FineGrainedPermissionToString(FineGrainedPermission level) {
+std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
   switch (level) {
     case FineGrainedPermission::CREATE_DELETE:
       return "CREATE_DELETE";
