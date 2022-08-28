@@ -1578,9 +1578,15 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
 
 mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
+    if (v->graph->ctx && v->graph->ctx->auth_checker &&
+        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view /*, UPDATE*/)) {
+      return;
+    }
+
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
     }
+
     const auto prop_key = v->graph->impl->NameToProperty(property_name);
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
@@ -1618,6 +1624,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
+    if (v->graph->ctx && v->graph->ctx->auth_checker &&
+        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view)) {
+      return;
+    }
+
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
@@ -2045,6 +2056,10 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
 
 mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
+    if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
+        !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl)) {
+      return;
+    }
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
     }
