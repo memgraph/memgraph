@@ -406,11 +406,9 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
-#ifdef MG_ENTERPRISE
     if (context.auth_checker && !FindNextVertex(context)) {
       return false;
     }
-#endif
 
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
@@ -419,7 +417,8 @@ class ScanAllCursor : public Cursor {
 
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD)) {
+      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
+                                       auth::FineGrainedPermission::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -701,8 +700,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
+                                         auth::FineGrainedPermission::READ))) {
         continue;
       }
 
@@ -718,8 +719,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_))) {
+      if (context.auth_checker &&
+          (!context.auth_checker->Accept(*context.db_accessor, edge, auth::FineGrainedPermission::READ) ||
+           !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
+                                         auth::FineGrainedPermission::READ))) {
         continue;
       }
 
