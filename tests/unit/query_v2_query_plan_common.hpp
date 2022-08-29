@@ -79,10 +79,12 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
   std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
                   [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
 
-  auto frames = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
-  frames.reserve(number_of_frames_per_batch);
-  std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
+  auto frame_vec = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
+  frame_vec.reserve(number_of_frames_per_batch);
+  std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frame_vec),
                  [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
+
+  memgraph::query::v2::plan::distributed::MultiFrame frames(frame_vec);
 
   // top level node in the operator tree is a produce (return)
   // so stream out results
@@ -97,20 +99,25 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
   auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frames, *context)) {
-    for (auto *frame : frames) {
+    auto idx = 0;
+    for (auto *frame : frames.GetFrames()) {
       auto is_ok = true;
       std::vector<TypedValue> values;
+
       for (auto &symbol : symbols) {
-        if ((*frame)[symbol].IsNull()) {
+        if ((*frame)[symbol].IsNull() || !frames.IsValid(idx)) {
           is_ok = false;
           break;
         }
 
         values.emplace_back((*frame)[symbol]);
       }
+
       if (is_ok) {
         results.emplace_back(values);
       }
+
+      ++idx;
     }
 
     /*
@@ -119,17 +126,20 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
     PRoduce, WITH etc..) that we would toggle to false whenever the frame becomes invalid
     --> The highest operator in the plan will have to reset this flag on all existing frames
     */
-    frames.clear();
-    frames_memory_owner.clear();
-    frames_memory_owner = memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());
-    frames_memory_owner.reserve(number_of_frames_per_batch);
-    std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
-                    [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
+    // frames.GetFrames().clear();
+    // frames_memory_owner.clear();
+    // frames_memory_owner = memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0,
+    // memgraph::utils::NewDeleteResource()); frames_memory_owner.reserve(number_of_frames_per_batch);
+    // std::generate_n(std::back_inserter(frames_memory_owner), number_of_frames_per_batch,
+    //                 [&context] { return std::make_unique<Frame>(context->symbol_table.max_position()); });
 
-    frames = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
-    frames.reserve(number_of_frames_per_batch);
-    std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames),
-                   [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
+    // frames.GetFrames() = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
+    // frames.GetFrames().reserve(number_of_frames_per_batch);
+    // std::transform(frames_memory_owner.begin(), frames_memory_owner.end(), std::back_inserter(frames.GetFrames()),
+    //                [](std::unique_ptr<Frame> &frame_uptr) { return frame_uptr.get(); });
+
+    // TODO(gvolfing) this should do the trick
+    frames.Reset();
   }
 
   return results;

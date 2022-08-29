@@ -338,6 +338,14 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
       ScanAll (n)
       Once
   */
+
+  /*  In case of number_of_vertices = 3
+      Center          Other
+      O[0]--|
+            |-------->O[1]
+            |-------->O[2]
+            |-------->O[3]
+  */
   const auto [number_of_vertices, frames_per_batch] = GetParam();
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
@@ -410,6 +418,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
       ScanAll (n)
       Once
   */
+
+  /*  In case of number_of_vertices = 3
+
+      O[0]---------->O[1]
+      O[2]---------->O[3]
+      O[4]---------->O[5]
+  */
   const auto [number_of_vertices, frames_per_batch] = GetParam();
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
@@ -451,6 +466,11 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
       NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduceDistributed(expand.op_, output);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
+
+  if (number_of_vertices == 3 && frames_per_batch == 3) {
+    int i = 2;
+  }
+
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
@@ -617,12 +637,13 @@ INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
         std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
-        std::make_pair(2, 1),     /* 2 vertices, 2 frame per batch: simple case. */
-        std::make_pair(3, 3),     /* 2 vertices, 2 frame per batch: simple case. */
+        std::make_pair(2, 1),     /* 2 vertices, 1 frame per batch: simple case. */
+        std::make_pair(3, 3),     /* 3 vertices, 3 frame per batch: simple case. */
         std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
                                     behavior (ie: pre-batching). */
         std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
         std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
+        std::make_pair(5, 2),     /* 5 vertices, 2 frames per batch. */
         std::make_pair(100, 100), /* 100 vertices, 100 frames per batch: to check batching works with 1 iteration. */
         std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
         std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1

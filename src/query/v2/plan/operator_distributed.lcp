@@ -14,6 +14,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <vector>
+
 #include "query/v2/common.hpp"
 cpp<#
 
@@ -38,7 +41,62 @@ cpp<#
 (lcp:namespace distributed)
 
 #>cpp
-using Frames = memgraph::utils::pmr::vector<Frame*>;
+//using Frames = memgraph::utils::pmr::vector<Frame*>;
+
+class MultiFrame{
+  memgraph::utils::pmr::vector<Frame *> frames_;
+  std::vector<bool> frame_validity_;
+
+  public:
+  explicit MultiFrame(const memgraph::utils::pmr::vector<Frame *>& frames)
+  :
+    frames_{frames},
+    frame_validity_{std::vector<bool>(frames.size(), true)}
+  {}
+
+  memgraph::utils::pmr::vector<Frame *>& GetFrames()
+  {
+    return frames_;
+  }
+
+  bool IsValid(size_t index) const
+  {
+    return frame_validity_[index];
+  }
+
+  void SetIsNotValid(size_t index)
+  {
+    frame_validity_[index] = false;
+  }
+
+  void SetIsValid(size_t index)
+  {
+    frame_validity_[index] = true;
+  }
+
+  // TODO(gvolfing) -> Discuss -> Do we assume they are correct by default?
+  void Reset()
+  {
+    std::fill(frame_validity_.begin(), frame_validity_.end(), true);
+  }
+
+  // vector-like functions
+  size_t size() const noexcept
+  {
+    return frames_.size();
+  }
+
+  void resize(size_t count)
+  {
+    frames_.resize(count);
+    frame_validity_.resize(count);
+  }
+
+  bool empty() const noexcept
+  {
+    return frames_.empty();
+  }
+};
 
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
@@ -57,7 +115,7 @@ class Cursor {
   ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
-  virtual bool Pull(Frames &, ExecutionContext &) = 0;
+  virtual bool Pull(MultiFrame &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -268,7 +326,7 @@ and false on every following Pull.")
    class OnceCursor : public Cursor {
     public:
      OnceCursor() {}
-     bool Pull(Frames &, ExecutionContext &) override;
+     bool Pull(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -577,7 +635,7 @@ pulled.")
    class ExpandCursor : public Cursor {
     public:
      ExpandCursor(const Expand &, utils::MemoryResource *);
-     bool Pull(Frames &, ExecutionContext &) override;
+     bool Pull(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -611,7 +669,7 @@ pulled.")
 
     std::vector<InOutEdges> in_out_edges; // #NoCommit pmr vector
 
-    bool InitEdges(Frames &, ExecutionContext &);
+    bool InitEdges(MultiFrame &, ExecutionContext &);
    };
    cpp<#)
   (:serialize (:slk))
@@ -656,7 +714,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
    class ProduceCursor : public Cursor {
     public:
      ProduceCursor(const Produce &, utils::MemoryResource *);
-     bool Pull(Frames &, ExecutionContext &) override;
+     bool Pull(MultiFrame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 

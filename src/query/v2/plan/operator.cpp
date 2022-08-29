@@ -405,6 +405,7 @@ class ScanAllCursor : public Cursor {
 
     if (MustAbort(context)) throw HintedAbortError();
 
+    // Only enter on the first and last iteration?
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
@@ -742,7 +743,9 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
     TypedValue &vertex_value = frame[self_.input_symbol_];
 
     // Null check due to possible failed optional match.
-    if (vertex_value.IsNull()) continue;
+    if (vertex_value.IsNull()) {
+      continue;
+    }
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.ValueVertex();
@@ -760,6 +763,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       } else {
         in_edges_.emplace(UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types)));
       }
+
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
       }
@@ -777,6 +781,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
       } else {
         out_edges_.emplace(UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types)));
       }
+
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
       }
