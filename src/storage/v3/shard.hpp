@@ -514,6 +514,9 @@ class Shard final {
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   // Main object storage
+  LabelId primary_label_;
+  PrimaryKey min_primary_key_;
+  std::optional<PrimaryKey> max_primary_key_;
   VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
   uint64_t edge_id_{0};

@@ -13,14 +13,22 @@
 
 #include <vector>
 
+#include <boost/asio/thread_pool.hpp>
+
+#include "storage/v3/shard.hpp"
+
 namespace memgraph::storage::v3 {
 
-// class Storage {
-//   public:
-//   Storage();
+class Storage {
+ public:
+  explicit Storage(Config config);
+  // Interface toward shard manipulation
+  // Shard handler -> will use rsm client
 
-//   private:
-//   std::vector<>
-// };
+ private:
+  std::vector<Shard> shards_;
+  boost::asio::thread_pool shard_handlers_;
+  Config config_;
+};
 
 }  // namespace memgraph::storage::v3

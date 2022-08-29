@@ -212,7 +212,7 @@ inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.F
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class DbAccessor final {
-  storage::v3::Storage::Accessor *accessor_;
+  storage::v3::Shard::Accessor *accessor_;
 
   class VerticesIterable final {
     storage::v3::VerticesIterable iterable_;
@@ -244,7 +244,7 @@ class DbAccessor final {
   };
 
  public:
-  explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
+  explicit DbAccessor(storage::v3::Shard::Accessor *accessor) : accessor_(accessor) {}
 
   // TODO(jbajic) Fix Remove Gid
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)

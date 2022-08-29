@@ -166,10 +166,10 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::v3::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory);
 
-  storage::v3::Storage *db;
+  storage::v3::Shard *db;
 
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
@@ -316,7 +316,7 @@ class Interpreter final {
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::v3::Storage::Accessor> db_accessor_;
+  std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};

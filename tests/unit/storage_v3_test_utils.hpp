@@ -16,6 +16,6 @@
 
 namespace memgraph::storage::v3::tests {
 
-size_t CountVertices(Storage::Accessor &storage_accessor, View view);
+size_t CountVertices(Shard::Accessor &storage_accessor, View view);
 
 }  // namespace memgraph::storage::v3::tests

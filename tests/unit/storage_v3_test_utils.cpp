@@ -13,7 +13,7 @@
 
 namespace memgraph::storage::v3::tests {
 
-size_t CountVertices(Storage::Accessor &storage_accessor, View view) {
+size_t CountVertices(Shard::Accessor &storage_accessor, View view) {
   auto vertices = storage_accessor.Vertices(view);
   size_t count = 0U;
   for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count)

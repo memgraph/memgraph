@@ -43,6 +43,7 @@
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -127,7 +128,7 @@ std::optional<std::string> GetOptionalStringValue(query::v2::Expression *express
 
 class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::v3::Storage *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::v3::Shard *db) : db_(db) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -255,7 +256,7 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
   }
 
  private:
-  storage::v3::Storage *db_;
+  storage::v3::Shard *db_;
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -1138,7 +1139,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::v3::Storage *db, const InterpreterConfig config,
+InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
     : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
 
@@ -1157,8 +1158,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ =
+          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
@@ -1842,7 +1843,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
-            case storage::v3::Storage::CreateSnapshotError::DisabledForReplica:
+            case storage::v3::Shard::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
           }
@@ -1898,7 +1899,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::v3::Storage *db, utils::MemoryResource *execution_memory) {
+                               storage::v3::Shard *db, utils::MemoryResource *execution_memory) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -2259,8 +2260,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ =
+          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {

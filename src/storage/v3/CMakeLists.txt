@@ -14,7 +14,8 @@ set(storage_v3_src_files
     vertex_accessor.cpp
     schemas.cpp
     schema_validator.cpp
-    shard.cpp)
+    shard.cpp
+    storage.cpp)
 
 # #### Replication #####
 define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
