@@ -23,10 +23,6 @@
 
 namespace memgraph::io::local_transport {
 
-using memgraph::io::Duration;
-using memgraph::io::RequestId;
-using memgraph::io::Time;
-
 class LocalTransport {
   std::shared_ptr<LocalTransportHandle> local_transport_handle_;
   const Address address_;

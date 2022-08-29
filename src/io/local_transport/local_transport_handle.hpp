@@ -24,11 +24,6 @@
 
 namespace memgraph::io::local_transport {
 
-using memgraph::io::Address;
-using memgraph::io::OpaqueMessage;
-using memgraph::io::OpaquePromise;
-using memgraph::io::TimedOut;
-
 class LocalTransportHandle {
   mutable std::mutex mu_{};
   mutable std::condition_variable cv_;
