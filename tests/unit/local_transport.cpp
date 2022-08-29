@@ -39,6 +39,7 @@ void RunServer(Io<LocalTransport> io) {
       continue;
     }
     auto request_envelope = request_result.GetValue();
+    ASSERT_TRUE(std::holds_alternative<CounterRequest>(request_envelope.message));
     auto req = std::get<CounterRequest>(request_envelope.message);
 
     highest_seen = std::max(highest_seen, req.proposal);
