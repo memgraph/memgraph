@@ -28,7 +28,7 @@ struct CounterResponse {
   uint64_t highest_seen;
 };
 
-void run_server(Io<LocalTransport> io) {
+void RunServer(Io<LocalTransport> io) {
   uint64_t highest_seen = 0;
 
   while (!io.ShouldShutDown()) {
