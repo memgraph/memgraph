@@ -2134,7 +2134,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+        spdlog::error("Error while setting property on a vertex due to not having enough permission!");
+        break;
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
@@ -2149,7 +2150,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Edge: {
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the edges!");
+        spdlog::error("Error while setting property on an edge due to not having enough permission!");
+        break;
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
@@ -2347,7 +2349,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+        spdlog::error("Error while setting properties on a vertex due to not having enough permission!");
+        break;
       }
 
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
@@ -2355,7 +2358,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the edges!");
+        spdlog::error("Error while setting properties on an edge due to not having enough permission!");
+        break;
       }
 
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
@@ -2487,7 +2491,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the vertices!");
+        spdlog::error("Error while removing a property from a vertex due to not having enough permission!");
+        break;
       }
 
       remove_prop(&lhs.ValueVertex());
@@ -2495,7 +2500,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        throw QueryRuntimeException("Not authorized to update some of the edges!");
+        spdlog::error("Error while removing a property from an edge due to not having enough permission!");
+        break;
       }
 
       remove_prop(&lhs.ValueEdge());

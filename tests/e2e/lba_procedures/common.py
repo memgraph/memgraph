@@ -32,5 +32,8 @@ def reset_permissions(admin_cursor: mgclient.Cursor):
 
     execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
 
-    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {name: 'test1'});")
-    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label_1)-[r:update_edge_type]->(m:update_label_2);")
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {prop: 1});")
+    execute_and_fetch_all(
+        admin_cursor,
+        "CREATE (n:update_label_1)-[r:update_edge_type]->(m:update_label_2);",
+    )

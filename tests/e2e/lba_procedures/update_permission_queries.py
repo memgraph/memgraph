@@ -13,9 +13,9 @@ import sys
 import pytest
 from common import connect, execute_and_fetch_all, reset_permissions, DatabaseError
 
-update_property_query = "MATCH (n:update_label) SET n.prop = 'prop' RETURN n;"
-update_properties_query = "MATCH (n:update_label) SET n = {prop1: 'prop1', prop2: 10} RETURN n;"
-remove_property_query = "MATCH (n:update_label) REMOVE n.prop RETURN n;"
+update_property_query = "MATCH (n:update_label) SET n.prop = 2 RETURN n.prop;"
+update_properties_query = "MATCH (n:update_label) SET n = {prop: 2, prop2: 3} RETURN n.prop;"
+remove_property_query = "MATCH (n:update_label) REMOVE n.prop RETURN n.prop;"
 
 
 def test_can_read_node_when_given_update_grant():
@@ -40,9 +40,9 @@ def test_can_update_node_when_given_update_grant():
     update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
     remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
 
-    assert len(update_property_actual) == 1
-    assert len(update_properties_actual) == 1
-    assert len(remove_property_actual) == 1
+    assert update_property_actual[0][0] == 2
+    assert update_properties_actual[0][0] == 2
+    assert remove_property_actual[0][0] is None
 
 
 def test_can_not_update_node_when_given_deny():
@@ -52,8 +52,13 @@ def test_can_not_update_node_when_given_deny():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(DatabaseError):
-        execute_and_fetch_all(test_cursor, update_property_query)
+    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
+    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
+    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+
+    assert update_property_actual[0][0] == 1
+    assert update_properties_actual[0][0] == 1
+    assert remove_property_actual[0][0] == 1
 
 
 def test_can_not_update_node_when_given_nothing():
@@ -78,8 +83,13 @@ def test_can_not_update_node_when_given_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(DatabaseError):
-        execute_and_fetch_all(test_cursor, update_property_query)
+    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
+    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
+    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+
+    assert update_property_actual[0][0] == 1
+    assert update_properties_actual[0][0] == 1
+    assert remove_property_actual[0][0] == 1
 
 
 def test_can_not_update_node_when_given_read_globally():
@@ -89,8 +99,13 @@ def test_can_not_update_node_when_given_read_globally():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(DatabaseError):
-        execute_and_fetch_all(test_cursor, update_property_query)
+    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
+    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
+    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+
+    assert update_property_actual[0][0] == 1
+    assert update_properties_actual[0][0] == 1
+    assert remove_property_actual[0][0] == 1
 
 
 def test_can_update_node_when_given_update_globally():
@@ -103,9 +118,9 @@ def test_can_update_node_when_given_update_globally():
     update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
     remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
 
-    assert len(update_property_actual) == 1
-    assert len(update_properties_actual) == 1
-    assert len(remove_property_actual) == 1
+    assert update_property_actual[0][0] == 2
+    assert update_properties_actual[0][0] == 2
+    assert remove_property_actual[0][0] is None
 
 
 def test_can_update_node_when_given_create_delete_globally():
@@ -118,9 +133,9 @@ def test_can_update_node_when_given_create_delete_globally():
     update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
     remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
 
-    assert len(update_property_actual) == 1
-    assert len(update_properties_actual) == 1
-    assert len(remove_property_actual) == 1
+    assert update_property_actual[0][0] == 2
+    assert update_properties_actual[0][0] == 2
+    assert remove_property_actual[0][0] is None
 
 
 def test_can_update_node_when_given_create_delete():
@@ -129,13 +144,14 @@ def test_can_update_node_when_given_create_delete():
     execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
+
     update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
     update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
     remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
 
-    assert len(update_property_actual) == 1
-    assert len(update_properties_actual) == 1
-    assert len(remove_property_actual) == 1
+    assert update_property_actual[0][0] == 2
+    assert update_properties_actual[0][0] == 2
+    assert remove_property_actual[0][0] is None
 
 
 if __name__ == "__main__":
