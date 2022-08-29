@@ -475,6 +475,98 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {  // #NoCommit better naming
+  /*
+    CREATE INDEX ON :Node;
+    CREATE INDEX ON :Permission;
+
+  QUERY:
+    MATCH (n:Node)
+    MATCH (p:Permission)-[:IS_EDGE]->(n:Node)
+    RETURN n, p;
+
+  QUERY PLAN:
+    Produce {n}
+    Expand (n)<-[anon2:IS_EDGE]-(anon1)
+    ScanAll (n)
+    Once
+  */
+  /*  In case of number_of_vertices = 3
+
+      p[0]---------->n[1]
+      p[2]---------->n[3]
+      p[4]---------->n[5]
+  */
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+
+  storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
+  auto label_node = db_v3.NameToLabel("Node");
+  auto label_permission = db_v3.NameToLabel("Permission");
+
+  auto gid_of_expected_vertices = std::set<std::pair<storage::v3::Gid, storage::v3::Gid>>{};
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_n = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_n.AddLabel(label_node).HasValue());
+
+      auto vertex_p = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_p.AddLabel(label_permission).HasValue());
+
+      ASSERT_TRUE(dba.InsertEdge(&vertex_p, &vertex_n, edge_type).HasValue());
+      auto [it, inserted] = gid_of_expected_vertices.insert(std::make_pair(vertex_n.Gid(), vertex_p.Gid()));
+      ASSERT_TRUE(inserted);
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+  db_v3.CreateIndex(label_node);
+  db_v3.CreateIndex(label_permission);
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto symbol_n = symbol_table.CreateSymbol("n", true);
+  auto symbol_p = symbol_table.CreateSymbol("n", true);
+  auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
+
+  // ScanAllByLabel (p :Permission)
+  auto scan_all_1 = std::make_shared<distributed::ScanAllByLabel>(nullptr, symbol_p, label_permission,
+                                                                  memgraph::storage::v3::View::OLD);
+
+  // ScanAllByLabel (n :Node)
+  auto scan_all_2 =
+      std::make_shared<distributed::ScanAllByLabel>(scan_all_1, symbol_n, label_node, memgraph::storage::v3::View::OLD);
+
+  // Expand (p)-[e]->(n)
+  auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
+  auto expand = std::make_shared<distributed::Expand>(scan_all_2, symbol_n, symbol_n, symbol_anon2,
+                                                      EdgeAtom::Direction::IN, expand_edge_types,
+                                                      false /*existing_node*/, memgraph::storage::v3::View::OLD);
+
+  auto output_n = NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+  auto output_p = NEXPR("p", IDENT("p")->MapTo(symbol_p))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto produce = MakeProduceDistributed(expand, output_n, output_p);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
+  for (auto result : results) {
+    ASSERT_TRUE(result[0].IsVertex());
+    auto gid_n = result[0].ValueVertex().Gid();
+    auto gid_p = result[1].ValueVertex().Gid();
+    auto it_found = gid_of_expected_vertices.find(std::make_pair(gid_n, gid_p));
+    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+  }
+}
+
 TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   /*
   INDEXES:
