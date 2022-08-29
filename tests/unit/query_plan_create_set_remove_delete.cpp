@@ -1115,10 +1115,9 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     AstStorage storage;
     SymbolTable symbol_table;
 
-    // MATCH (n) SET n.prop = 2 RETURN n.prop
+    // MATCH (n) SET n.prop = 2
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
 
-    // set property to 2 on n
     auto literal = LITERAL(new_property_value);
     auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), property);
     auto set_property = std::make_shared<plan::SetProperty>(scan_all.op_, property, n_p, literal);
@@ -1162,6 +1161,30 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     dba.AdvanceCommand();
   };
 
+  auto execute_remove_property = [&](memgraph::auth::User user) {
+    reset_property_value();
+
+    AstStorage storage;
+    SymbolTable symbol_table;
+
+    // MATCH (n) REMOVE n.prop
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), property);
+    auto remove_property = std::make_shared<plan::RemoveProperty>(scan_all.op_, property, n_p);
+
+    // produce the node
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(remove_property, output);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+
+    PullAll(*produce, &context);
+    dba.AdvanceCommand();
+  };
+
   auto test_hypothesis = [&](int expected_property_value) {
     auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
@@ -1173,6 +1196,14 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     ASSERT_EQ(maybe_prop->ValueInt(), expected_property_value);
   };
 
+  auto test_remove_hypothesis = [&](int properties_size) {
+    auto vertex = *dba.Vertices(memgraph::storage::View::NEW).begin();
+    auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
+    ASSERT_TRUE(maybe_properties.HasValue());
+    const auto &properties = *maybe_properties;
+    EXPECT_EQ(properties.size(), properties_size);
+  };
+
   {
     auto user = memgraph::auth::User{"denied_global"};
 
@@ -1182,6 +1213,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1194,6 +1227,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1205,6 +1240,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1217,6 +1254,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1230,6 +1269,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1243,6 +1284,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1256,6 +1299,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1270,6 +1315,8 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 }
 
@@ -1356,6 +1403,27 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     dba.AdvanceCommand();
   };
 
+  auto execute_remove_property = [&](memgraph::auth::User user) {
+    reset_property_value();
+
+    AstStorage storage;
+    SymbolTable symbol_table;
+
+    // MATCH (n)-[r]->(m) REMOVE r.prop
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT, {}, "m",
+                             false, memgraph::storage::View::OLD);
+    // set property to 2 on n
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(expand.edge_sym_), property);
+    auto remove_property = std::make_shared<plan::RemoveProperty>(expand.op_, property, n_p);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+
+    PullAll(*remove_property, &context);
+    dba.AdvanceCommand();
+  };
+
   auto test_hypothesis = [&](int expected_property_value) {
     for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
       if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
@@ -1374,6 +1442,21 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     }
   };
 
+  auto test_remove_hypothesis = [&](int properties_size) {
+    for (auto vertex : dba.Vertices(memgraph::storage::View::NEW)) {
+      if (vertex.OutEdges(memgraph::storage::View::NEW).HasValue()) {
+        auto maybe_edges = vertex.OutEdges(memgraph::storage::View::NEW);
+        for (auto edge : *maybe_edges) {
+          EXPECT_EQ(edge.EdgeType(), edge_type_id);
+          auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
+          ASSERT_TRUE(maybe_properties.HasValue());
+          const auto &properties = *maybe_properties;
+          EXPECT_EQ(properties.size(), properties_size);
+        }
+      }
+    }
+  };
+
   {
     auto user = memgraph::auth::User{"denied_global"};
 
@@ -1384,6 +1467,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1397,6 +1482,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1410,6 +1497,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1423,6 +1512,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1437,6 +1528,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1452,6 +1545,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 
   {
@@ -1466,6 +1561,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(2);
     execute_set_properties(user, 2);
     test_hypothesis(2);
+    execute_remove_property(user);
+    test_remove_hypothesis(0);
   }
 
   {
@@ -1481,5 +1578,7 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     test_hypothesis(1);
     execute_set_properties(user, 2);
     test_hypothesis(1);
+    execute_remove_property(user);
+    test_remove_hypothesis(1);
   }
 }
