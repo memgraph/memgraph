@@ -1430,6 +1430,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
+namespace {
+
 void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
   if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
     throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
@@ -1447,6 +1449,8 @@ void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
     throw QueryRuntimeException("Calculated weight must be non-negative!");
   }
 }
+
+}  // namespace
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
