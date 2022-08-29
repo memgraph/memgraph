@@ -571,27 +571,41 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   AstStorage storage;
   SymbolTable symbol_table;
 
+  // Create our symbols
+  auto symbol_n = symbol_table.CreateSymbol("n", true);
+  auto symbol_p = symbol_table.CreateSymbol("p", true);
+  auto symbol_i = symbol_table.CreateSymbol("i", true);
+  auto symbol_anon1 = symbol_table.CreateSymbol("anon1", true);
+  auto symbol_anon3 = symbol_table.CreateSymbol("anon3", true);
+
+  // example: TEST(QueryPlan, Accumulate) #NoCommit
   // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  auto scan_all_1 = MakeScanAllByLabelPropertyValueDistributed(
-      storage, symbol_table, "n", label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"));
+  auto scan_all_1 = std::make_shared<distributed::ScanAllByLabelPropertyValue>(
+      nullptr /*input*/, symbol_n, label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"),
+      memgraph::storage::v3::View::OLD);
 
   // MATCH (p:Permission)
-  auto scan_all_2 = MakeScanAllByLabelDistributed(storage, symbol_table, "p", label_permission, scan_all_1.op_);
+  auto scan_all_2 = std::make_shared<distributed::ScanAllByLabel>(scan_all_1, symbol_p, label_permission,
+                                                                  memgraph::storage::v3::View::OLD);
 
   // (n:Node)<-[:IS_FOR_NODE]-(p:Permission)
-  auto expand_1 =
-      MakeExpandDistributed(storage, symbol_table, scan_all_2.op_, scan_all_2.sym_, "anon3", EdgeAtom::Direction::OUT,
-                            {edge_is_for_node}, "p", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  auto expand_1_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_node};
+  // #NoCommit not sure about the two symbol_p, should we creat another symbol and map it (or not)?
+  auto expand_1 = std::make_shared<distributed::Expand>(scan_all_2, symbol_p, symbol_p, symbol_anon3,
+                                                        EdgeAtom::Direction::OUT, expand_1_edge_types,
+                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-  auto scan_all_3 =
-      MakeScanAllByLabelPropertyValueDistributed(storage, symbol_table, "i", label_identity, property_identity_email,
-                                                 "email", LITERAL("rrr@clientdrive.com"), expand_1.op_);
+  auto scan_all_3 = std::make_shared<distributed::ScanAllByLabelPropertyValue>(
+      expand_1, symbol_i, label_identity, property_identity_email, "email", LITERAL("rrr@clientdrive.com"),
+      memgraph::storage::v3::View::OLD);
 
   // (p:Permission)-[:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
-  auto expand_2 =
-      MakeExpandDistributed(storage, symbol_table, scan_all_3.op_, scan_all_3.sym_, "anon1", EdgeAtom::Direction::IN,
-                            {edge_is_for_identity}, "i", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  auto expand_2_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_identity};
+  // #NoCommit not sure about the two symbol_i, should we creat another symbol and map it (or not)?
+  auto expand_2 = std::make_shared<distributed::Expand>(scan_all_3, symbol_i, symbol_i, symbol_anon1,
+                                                        EdgeAtom::Direction::IN, expand_2_edge_types,
+                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking result from:
@@ -600,29 +614,31 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
       MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
       RETURN *;
     */
-    auto output_n = NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
-    auto output_p = NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("p", true));
-    auto output_i = NEXPR("i", IDENT("i")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("i", true));
+    auto output_n =
+        NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+    auto output_p =
+        NEXPR("p", IDENT("p")->MapTo(symbol_p))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+    auto output_i =
+        NEXPR("i", IDENT("i")->MapTo(symbol_i))->MapTo(symbol_table.CreateSymbol("named_expression_i", true));
 
-    auto produce = MakeProduceDistributed(expand_2.op_, output_n, output_p, output_i);
+    auto produce = MakeProduceDistributed(expand_2, output_n, output_p, output_i);
     auto context = MakeContextDistributed(storage, symbol_table, &dba);
     auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
 
-    ASSERT_EQ(results.size(), expected_final_results.size());
+    auto transformed_results = std::vector<Result>{};
+    std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
+                   [](const std::vector<TypedValue> &result) -> Result {
+                     auto node_gid = result[0].ValueVertex().Gid();
+                     auto permission_gid = result[1].ValueVertex().Gid();
+                     auto identity_gid = result[2].ValueVertex().Gid();
+                     return Result{
+                         .node_gid_ = node_gid, .permission_gid_ = permission_gid, .identity_gid_ = identity_gid};
+                   });
 
-    for (auto result : results) {
-      ASSERT_TRUE(result.size() == 3);
-      ASSERT_TRUE(result[0].IsVertex());
-      ASSERT_TRUE(result[1].IsVertex());
-      ASSERT_TRUE(result[2].IsVertex());
+    ASSERT_EQ(transformed_results.size(), expected_final_results.size());
 
-      auto node_gid = result[0].ValueVertex().Gid();
-      auto permission_gid = result[1].ValueVertex().Gid();
-      auto identity_gid = result[2].ValueVertex().Gid();
-
-      ASSERT_TRUE(expected_final_results.end() !=
-                  expected_final_results.find(
-                      Result{.node_gid_ = node_gid, .permission_gid_ = permission_gid, .identity_gid_ = identity_gid}));
+    for (auto result : transformed_results) {
+      ASSERT_TRUE(expected_final_results.end() != expected_final_results.find(result));
     }
   }
 }
