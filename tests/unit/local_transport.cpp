@@ -35,10 +35,10 @@ void RunServer(Io<LocalTransport> io) {
   uint64_t highest_seen = 0;
 
   while (!io.ShouldShutDown()) {
-    std::cout << "[SERVER] Is receiving..." << std::endl;
+    spdlog::info("[SERVER] Is receiving...");
     auto request_result = io.Receive<CounterRequest>();
     if (request_result.HasError()) {
-      std::cout << "[SERVER] Error, continue" << std::endl;
+      spdlog::info("[SERVER] timed out, continue");
       continue;
     }
     auto request_envelope = request_result.GetValue();
@@ -69,14 +69,14 @@ TEST(LocalTransport, BasicRequest) {
     CounterRequest cli_req;
     auto value = 1;  // i;
     cli_req.proposal = value;
-    std::cout << "[CLIENT] sending request" << std::endl;
+    spdlog::info("[CLIENT] sending request");
     auto res_f = cli_io.Request<CounterRequest, CounterResponse>(srv_addr, cli_req);
-    std::cout << "[CLIENT] waiting on future" << std::endl;
+    spdlog::info("[CLIENT] waiting on future");
 
     auto res_rez = std::move(res_f).Wait();
-    std::cout << "[CLIENT] future returned" << std::endl;
+    spdlog::info("[CLIENT] future returned");
     MG_ASSERT(!res_rez.HasError());
-    std::cout << "[CLIENT] Got a valid response" << std::endl;
+    spdlog::info("[CLIENT] Got a valid response");
     auto env = res_rez.GetValue();
     MG_ASSERT(env.message.highest_seen == value);
   }
