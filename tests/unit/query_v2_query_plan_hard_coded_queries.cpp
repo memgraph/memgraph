@@ -375,26 +375,21 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching) {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  // ScanAll (anon1)
-  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "anon1");
+  auto symbol_n = symbol_table.CreateSymbol("n", true);
+  auto symbol_anon1 = symbol_table.CreateSymbol("anon1", true);
+  auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
 
-  {
-    auto output = NEXPR("anon1", IDENT("anon1")->MapTo(scan_all.sym_))
-                      ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-    auto produce = MakeProduceDistributed(scan_all.op_, output);
-    auto context = MakeContextDistributed(storage, symbol_table, &dba);
-    auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-    ASSERT_EQ(results.size(), 1 + number_of_vertices);  // Center node + number_of_vertices
-  }
+  // ScanAll (anon1)
+  auto scan_all = std::make_shared<distributed::ScanAll>(nullptr, symbol_anon1);
 
   // Expand (n)<-[anon2]-(anon1)
-  auto expand =
-      MakeExpandDistributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
-                            {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
+  auto expand = std::make_shared<distributed::Expand>(scan_all, symbol_anon1, symbol_n, symbol_anon2,
+                                                      EdgeAtom::Direction::OUT, expand_edge_types,
+                                                      false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
-  auto output =
-      NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduceDistributed(expand.op_, output);
+  auto output_n = NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto produce = MakeProduceDistributed(expand, output_n);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
@@ -454,17 +449,21 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
   AstStorage storage;
   SymbolTable symbol_table;
 
+  auto symbol_n = symbol_table.CreateSymbol("n", true);
+  auto symbol_anon1 = symbol_table.CreateSymbol("anon1", true);
+  auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
+
   // ScanAll (anon1)
-  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "anon1");
+  auto scan_all = std::make_shared<distributed::ScanAll>(nullptr, symbol_anon1);
 
   // Expand (n)<-[anon2]-(anon1)
-  auto expand =
-      MakeExpandDistributed(storage, symbol_table, scan_all.op_, scan_all.sym_, "anon2", EdgeAtom::Direction::OUT,
-                            {edge_type}, "n", false /*existing_node*/, memgraph::storage::v3::View::OLD);
+  auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
+  auto expand = std::make_shared<distributed::Expand>(scan_all, symbol_anon1, symbol_n, symbol_anon2,
+                                                      EdgeAtom::Direction::OUT, expand_edge_types,
+                                                      false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
-  auto output =
-      NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-  auto produce = MakeProduceDistributed(expand.op_, output);
+  auto output_n = NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+  auto produce = MakeProduceDistributed(expand, output_n);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
