@@ -206,23 +206,23 @@ struct StorageInfo {
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
-class Storage final {
+class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Storage(Config config = Config());
+  explicit Shard(Config config = Config());
 
-  Storage(const Storage &) = delete;
-  Storage(Storage &&) noexcept = delete;
-  Storage &operator=(const Storage &) = delete;
-  Storage operator=(Storage &&) noexcept = delete;
-  ~Storage();
+  Shard(const Shard &) = delete;
+  Shard(Shard &&) noexcept = delete;
+  Shard &operator=(const Shard &) = delete;
+  Shard operator=(Shard &&) noexcept = delete;
+  ~Shard();
 
   class Accessor final {
    private:
-    friend class Storage;
+    friend class Shard;
 
-    explicit Accessor(Storage *storage, IsolationLevel isolation_level);
+    explicit Accessor(Shard *shard, IsolationLevel isolation_level);
 
    public:
     Accessor(const Accessor &) = delete;
@@ -243,9 +243,9 @@ class Storage final {
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
-                                                  &storage_->indices_, &storage_->constraints_, storage_->config_.items,
-                                                  storage_->schema_validator_));
+      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), &transaction_, view, &shard_->indices_,
+                                                  &shard_->constraints_, shard_->config_.items,
+                                                  shard_->schema_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -260,25 +260,25 @@ class Storage final {
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
-    int64_t ApproximateVertexCount() const { return static_cast<int64_t>(storage_->vertices_.size()); }
+    int64_t ApproximateVertexCount() const { return static_cast<int64_t>(shard_->vertices_.size()); }
 
     /// Return approximate number of vertices with the given label.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label) const {
-      return storage_->indices_.label_index.ApproximateVertexCount(label);
+      return shard_->indices_.label_index.ApproximateVertexCount(label);
     }
 
     /// Return approximate number of vertices with the given label and property.
     /// Note that this is always an over-estimate and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property);
+      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property);
     }
 
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     int64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
+      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property, value);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -287,7 +287,7 @@ class Storage final {
     int64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                    const std::optional<utils::Bound<PropertyValue>> &lower,
                                    const std::optional<utils::Bound<PropertyValue>> &upper) const {
-      return storage_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
+      return shard_->indices_.label_property_index.ApproximateVertexCount(label, property, lower, upper);
     }
 
     /// @return Accessor to the deleted vertex if a deletion took place, std::nullopt otherwise
@@ -319,24 +319,24 @@ class Storage final {
     /// @throw std::bad_alloc if unable to insert a new mapping
     EdgeTypeId NameToEdgeType(std::string_view name);
 
-    bool LabelIndexExists(LabelId label) const { return storage_->indices_.label_index.IndexExists(label); }
+    bool LabelIndexExists(LabelId label) const { return shard_->indices_.label_index.IndexExists(label); }
 
     bool LabelPropertyIndexExists(LabelId label, PropertyId property) const {
-      return storage_->indices_.label_property_index.IndexExists(label, property);
+      return shard_->indices_.label_property_index.IndexExists(label, property);
     }
 
     IndicesInfo ListAllIndices() const {
-      return {storage_->indices_.label_index.ListIndices(), storage_->indices_.label_property_index.ListIndices()};
+      return {shard_->indices_.label_index.ListIndices(), shard_->indices_.label_property_index.ListIndices()};
     }
 
     ConstraintsInfo ListAllConstraints() const {
-      return {ListExistenceConstraints(storage_->constraints_),
-              storage_->constraints_.unique_constraints.ListConstraints()};
+      return {ListExistenceConstraints(shard_->constraints_),
+              shard_->constraints_.unique_constraints.ListConstraints()};
     }
 
     const SchemaValidator &GetSchemaValidator() const;
 
-    SchemasInfo ListAllSchemas() const { return {storage_->schemas_.ListSchemas()}; }
+    SchemasInfo ListAllSchemas() const { return {shard_->schemas_.ListSchemas()}; }
 
     void AdvanceCommand();
 
@@ -358,7 +358,7 @@ class Storage final {
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
 
-    Storage *storage_;
+    Shard *shard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;

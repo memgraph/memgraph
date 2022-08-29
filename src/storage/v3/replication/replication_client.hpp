@@ -28,7 +28,7 @@
 #include "storage/v3/replication/enums.hpp"
 #include "storage/v3/replication/rpc.hpp"
 #include "storage/v3/replication/serialization.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/spin_lock.hpp"
@@ -37,9 +37,9 @@
 
 namespace memgraph::storage::v3 {
 
-class Storage::ReplicationClient {
+class Shard::ReplicationClient {
  public:
-  ReplicationClient(std::string name, Storage *storage, const io::network::Endpoint &endpoint,
+  ReplicationClient(std::string name, Shard *shard, const io::network::Endpoint &endpoint,
                     replication::ReplicationMode mode, const replication::ReplicationClientConfig &config = {});
 
   // Handler used for transfering the current transaction.
@@ -149,7 +149,7 @@ class Storage::ReplicationClient {
   void HandleRpcFailure();
 
   std::string name_;
-  Storage *storage_;
+  Shard *shard_;
   std::optional<communication::ClientContext> rpc_context_;
   std::optional<rpc::Client> rpc_client_;
 

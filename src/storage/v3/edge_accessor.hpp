@@ -31,7 +31,7 @@ struct Constraints;
 
 class EdgeAccessor final {
  private:
-  friend class Storage;
+  friend class Shard;
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
