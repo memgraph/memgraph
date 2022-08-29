@@ -42,18 +42,17 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
   explicit FineGrainedAuthChecker(auth::User user);
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-              const memgraph::storage::View &view,
-              const auth::FineGrainedPermission &fine_grained_permission) const override;
+  bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex, memgraph::storage::View view,
+              auth::FineGrainedPermission fine_grained_permission) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-              const auth::FineGrainedPermission &fine_grained_permission) const override;
+              auth::FineGrainedPermission fine_grained_permission) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const std::vector<memgraph::storage::LabelId> &labels,
-              const auth::FineGrainedPermission &fine_grained_permission) const override;
+              auth::FineGrainedPermission fine_grained_permission) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
-              const memgraph::auth::FineGrainedPermission &fine_grained_permission) const override;
+              memgraph::auth::FineGrainedPermission fine_grained_permission) const override;
 
  private:
   auth::User user_;

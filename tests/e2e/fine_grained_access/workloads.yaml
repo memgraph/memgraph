@@ -23,6 +23,8 @@ edge_type_filtering_cluster: &edge_type_filtering_cluster
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO admin;",
           "GRANT ALL PRIVILEGES TO user;",
+          "GRANT CREATE_DELETE ON LABELS * TO admin;",
+          "GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;",
           "MERGE (l1:label1 {name: 'test1'});",
           "MERGE (l2:label2  {name: 'test2'});",
           "MATCH (l1:label1),(l2:label2) WHERE l1.name = 'test1' AND l2.name = 'test2' CREATE (l1)-[r:edgeType1]->(l2);",
