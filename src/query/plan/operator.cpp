@@ -1430,6 +1430,24 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
+void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
+  if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
+    throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
+  }
+
+  const auto is_valid_numeric = [&] {
+    return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
+  };
+
+  const auto is_valid_duration = [&] {
+    return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
+  };
+
+  if (!is_valid_numeric() && !is_valid_duration()) {
+    throw QueryRuntimeException("Calculated weight must be non-negative!");
+  }
+}
+
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
@@ -1467,21 +1485,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
       TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
-      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
-        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
-      }
-
-      const auto is_valid_numeric = [&] {
-        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
-      };
-
-      const auto is_valid_duration = [&] {
-        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
-      };
-
-      if (!is_valid_numeric() && !is_valid_duration()) {
-        throw QueryRuntimeException("Calculated weight must be non-negative!");
-      }
+      CheckWeightType(current_weight, memory);
 
       auto next_state = create_state(vertex, depth);
 
@@ -1731,23 +1735,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
-      // TODO Export this in its own method
-      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
-        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
-      }
-
-      const auto is_valid_numeric = [&] {
-        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
-      };
-
-      const auto is_valid_duration = [&] {
-        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
-      };
-
-      if (!is_valid_numeric() && !is_valid_duration()) {
-        throw QueryRuntimeException("Calculated weight must be non-negative!");
-      }
-      //
+      CheckWeightType(current_weight, memory);
 
       TypedValue next_weight = std::invoke([&] {
         if (total_weight.IsNull()) {
