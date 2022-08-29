@@ -243,7 +243,7 @@ class Raft {
         last_cron = now;
       }
 
-      Duration receive_timeout = RandomTimeout(kMinimumReceiveTimeout, kMaximumReceiveTimeout);
+      const Duration receive_timeout = RandomTimeout(kMinimumReceiveTimeout, kMaximumReceiveTimeout);
 
       auto request_result =
           io_.template ReceiveWithTimeout<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
@@ -294,8 +294,8 @@ class Raft {
     // [3, 2, 1]        2                 (3 / 2) => 1
     // [4, 3, 2, 1]     2                 (4 / 2) => 2
     // [5, 4, 3, 2, 1]  3                 (5 / 2) => 2
-    size_t majority_index = confirmed_log_sizes.size() / 2;
-    LogSize new_committed_log_size = confirmed_log_sizes[majority_index];
+    const size_t majority_index = confirmed_log_sizes.size() / 2;
+    const LogSize new_committed_log_size = confirmed_log_sizes[majority_index];
 
     // We never go backwards in history.
     MG_ASSERT(state_.committed_log_size <= new_committed_log_size,
@@ -312,13 +312,13 @@ class Raft {
     for (; state_.applied_size < state_.committed_log_size; state_.applied_size++) {
       const LogIndex apply_index = state_.applied_size;
       const auto &write_request = state_.log[apply_index].second;
-      WriteResponseValue write_return = replicated_state_.Apply(write_request);
+      const WriteResponseValue write_return = replicated_state_.Apply(write_request);
 
       if (leader.pending_client_requests.contains(apply_index)) {
-        PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
+        const PendingClientRequest client_request = std::move(leader.pending_client_requests.at(apply_index));
         leader.pending_client_requests.erase(apply_index);
 
-        WriteResponse<WriteResponseValue> resp{
+        const WriteResponse<WriteResponseValue> resp{
             .success = true,
             .write_return = std::move(write_return),
             .raft_index = apply_index,
@@ -337,12 +337,12 @@ class Raft {
     for (auto &[address, follower] : followers) {
       const LogSize follower_log_size = follower.confirmed_log_size;
 
-      std::vector<std::pair<Term, WriteOperation>> entries;
+      const auto missing = state_.log.size() - follower_log_size;
+      const auto batch_size = std::min(missing, kMaximumAppendBatchSize);
+      const auto start_index = follower_log_size;
+      const auto end_index = start_index + batch_size;
 
-      auto missing = state_.log.size() - follower_log_size;
-      auto batch_size = std::min(missing, kMaximumAppendBatchSize);
-      auto start_index = follower_log_size;
-      auto end_index = start_index + batch_size;
+      std::vector<std::pair<Term, WriteOperation>> entries;
 
       entries.insert(entries.begin(), state_.log.begin() + start_index, state_.log.begin() + end_index);
 
@@ -371,7 +371,7 @@ class Raft {
   Duration RandomTimeout(Duration min, Duration max) {
     std::uniform_int_distribution time_distrib(min.count(), max.count());
 
-    auto rand_micros = io_.Rand(time_distrib);
+    const auto rand_micros = io_.Rand(time_distrib);
 
     return Duration{rand_micros};
   }
@@ -379,7 +379,7 @@ class Raft {
   Duration RandomTimeout(int min_micros, int max_micros) {
     std::uniform_int_distribution time_distrib(min_micros, max_micros);
 
-    int rand_micros = io_.Rand(time_distrib);
+    const int rand_micros = io_.Rand(time_distrib);
 
     return std::chrono::microseconds{rand_micros};
   }
@@ -399,7 +399,7 @@ class Raft {
       return 0;
     }
 
-    auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
+    const auto &[term, data] = state_.log.at(state_.committed_log_size - 1);
     return term;
   }
 
@@ -415,15 +415,13 @@ class Raft {
   template <typename... Ts>
   void Log(Ts &&...args) {
     const Time now = io_.Now();
-    auto micros = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-
+    const auto micros = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     const Term term = state_.term;
+    const std::string role_string = std::visit([&](const auto &role) { return role.ToString(); }, role_);
 
     std::ostringstream out;
 
     out << '\t' << (int)micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
-
-    std::string role_string = std::visit([&](const auto &role) { return role.ToString(); }, role_);
 
     out << role_string;
 
@@ -587,6 +585,7 @@ class Raft {
           .leader_address = from_address,
       };
     }
+
     if (term_dominates) {
       Log("received a vote from an inferior candidate. Becoming Candidate");
       state_.term = std::max(state_.term, req.term) + 1;
@@ -717,7 +716,7 @@ class Raft {
       Log("applying batch of ", req.entries.size(), " entries to our log starting at index ",
           req.batch_start_log_index);
 
-      auto resize_length = req.batch_start_log_index;
+      const auto resize_length = req.batch_start_log_index;
 
       MG_ASSERT(resize_length >= state_.committed_log_size,
                 "Applied history from Leader which goes back in time from our commit_index");
@@ -797,7 +796,7 @@ class Raft {
 
     ReadResponseValue read_return = replicated_state_.Read(read_operation);
 
-    ReadResponse<ReadResponseValue> resp{
+    const ReadResponse<ReadResponseValue> resp{
         .success = true,
         .read_return = std::move(read_return),
         .retry_leader = std::nullopt,
@@ -811,9 +810,9 @@ class Raft {
   // Candidates should respond with a failure, similar to the Candidate + WriteRequest failure below
   std::optional<Role> Handle(Candidate &, ReadRequest<ReadOperation> &&, RequestId request_id, Address from_address) {
     Log("received ReadOperation - not redirecting because no Leader is known");
-    auto res = ReadResponse<ReadResponseValue>{};
-
-    res.success = false;
+    const ReadResponse<ReadResponseValue> res{
+        .success = false,
+    };
 
     io_.Send(from_address, request_id, res);
 
@@ -825,11 +824,12 @@ class Raft {
   // Followers should respond with a redirection, similar to the Follower + WriteRequest response below
   std::optional<Role> Handle(Follower &follower, ReadRequest<ReadOperation> &&, RequestId request_id,
                              Address from_address) {
-    auto res = ReadResponse<ReadResponseValue>{};
-
-    res.success = false;
     Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
-    res.retry_leader = follower.leader_address;
+
+    const ReadResponse<ReadResponseValue> res{
+        .success = false,
+        .retry_leader = follower.leader_address,
+    };
 
     io_.Send(from_address, request_id, res);
 
@@ -843,11 +843,12 @@ class Raft {
   // about the most recent leader it has heard from.
   std::optional<Role> Handle(Follower &follower, WriteRequest<WriteOperation> &&, RequestId request_id,
                              Address from_address) {
-    auto res = WriteResponse<WriteResponseValue>{};
-
-    res.success = false;
     Log("redirecting client to known Leader with port ", follower.leader_address.last_known_port);
-    res.retry_leader = follower.leader_address;
+
+    const WriteResponse<WriteResponseValue> res{
+        .success = false,
+        .retry_leader = follower.leader_address,
+    };
 
     io_.Send(from_address, request_id, res);
 
@@ -856,9 +857,10 @@ class Raft {
 
   std::optional<Role> Handle(Candidate &, WriteRequest<WriteOperation> &&, RequestId request_id, Address from_address) {
     Log("received WriteRequest - not redirecting because no Leader is known");
-    auto res = WriteResponse<WriteResponseValue>{};
 
-    res.success = false;
+    const WriteResponse<WriteResponseValue> res{
+        .success = false,
+    };
 
     io_.Send(from_address, request_id, res);
 
