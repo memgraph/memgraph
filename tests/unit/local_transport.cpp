@@ -12,7 +12,7 @@
 #include <chrono>
 #include <thread>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "io/local_transport/local_system.hpp"
 #include "io/local_transport/local_transport.hpp"
