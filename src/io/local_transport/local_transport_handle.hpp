@@ -54,7 +54,6 @@ class LocalTransportHandle {
 
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Duration timeout) {
-    // TODO(tyler) block for the specified duration on the Inbox's receipt of a message of this type.
     std::unique_lock lock(mu_);
 
     Time before = Now();
