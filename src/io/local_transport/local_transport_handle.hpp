@@ -47,7 +47,7 @@ class LocalTransportHandle {
     return should_shut_down_;
   }
 
-  Time static Now() {
+  static Time Now() {
     auto nano_time = std::chrono::system_clock::now();
     return std::chrono::time_point_cast<std::chrono::microseconds>(nano_time);
   }
