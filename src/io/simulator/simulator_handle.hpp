@@ -32,10 +32,6 @@
 
 namespace memgraph::io::simulator {
 
-using memgraph::io::Duration;
-using memgraph::io::RequestId;
-using memgraph::io::Time;
-
 class SimulatorHandle {
   mutable std::mutex mu_{};
   mutable std::condition_variable cv_;
