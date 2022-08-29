@@ -726,6 +726,11 @@ class Raft {
       // hasn't reached consensus yet, which is normal)
       state_.log.resize(resize_length);
 
+      if (req.entries.size() > 0) {
+        auto &[first_term, op] = req.entries.at(0);
+        MG_ASSERT(LastLogTerm() <= first_term);
+      }
+
       state_.log.insert(state_.log.end(), std::make_move_iterator(req.entries.begin()),
                         std::make_move_iterator(req.entries.end()));
 
