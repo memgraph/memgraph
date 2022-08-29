@@ -45,6 +45,7 @@ extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
 extern const Event ProduceOperator;
+extern const Event UnwindOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::v2::plan::distributed {
@@ -594,5 +595,56 @@ bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &cont
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
+
+Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_expression_(input_expression),
+      output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Unwind)
+
+std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
+class UnwindCursor : public Cursor {
+ public:
+  UnwindCursor(const Unwind &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
+
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Unwind");
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      // TODO(gitbuda): Implement the logic.
+      throw QueryRuntimeException("Distributed Unwind not yet implemented.");
+      return false;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    input_value_.clear();
+    input_value_it_ = input_value_.end();
+  }
+
+ private:
+  const Unwind &self_;
+  const UniqueCursorPtr input_cursor_;
+  // typed values we are unwinding and yielding
+  utils::pmr::vector<TypedValue> input_value_;
+  // current position in input_value_
+  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+};
+
+UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
+}
 
 }  // namespace memgraph::query::v2::plan::distributed

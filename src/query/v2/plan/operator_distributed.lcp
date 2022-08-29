@@ -81,9 +81,10 @@ class ScanAllByLabelPropertyValue;
 class ScanAllById;
 class Expand;
 class Produce;
+class Unwind;
 
 using LogicalOperatorCompositeVisitor =
-    utils::CompositeVisitor<Once, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyValue, ScanAllById, Expand, Produce>;
+    utils::CompositeVisitor<Once, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyValue, ScanAllById, Expand, Produce, Unwind>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -666,6 +667,40 @@ RETURN clause) the Produce's pull succeeds exactly once.")
      const Produce &self_;
      const UniqueCursorPtr input_cursor_;
    };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class unwind (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (input-expression "Expression *" :scope :public
+                     :slk-save #'slk-save-ast-pointer
+                     :slk-load (slk-load-ast-pointer "Expression"))
+   (output-symbol "Symbol" :scope :public))
+  (:documentation
+   "Takes a list TypedValue as it's input and yields each
+element as it's output.
+
+Input is optional (unwind can be the first clause in a query).")
+  (:public
+   #>cpp
+   Unwind() {}
+
+   Unwind(const std::shared_ptr<LogicalOperator> &input,
+          Expression *input_expression_, Symbol output_symbol);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override {
+  return true; }
+   std::shared_ptr<LogicalOperator> input() const override {
+  return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
    cpp<#)
   (:serialize (:slk))
   (:clone))
