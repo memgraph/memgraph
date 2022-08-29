@@ -404,6 +404,7 @@ bool Expand::ExpandCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
     }
 
     auto at_least_one_result = false;
+    auto invalid_frames = std::vector<bool>(multiframe.Size(), false);
 
     for (auto idx = 0; idx < std::min(multiframe.Size(), in_out_edges.size()); ++idx) {
       // #NoCommit in std::min correct here?
@@ -455,13 +456,20 @@ bool Expand::ExpandCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
           has_put_any_value_on_frame = true;
         }
       }
-      // TODO(gvolfing) check if this is ok or not #NoCommit
-      if (!has_put_any_value_on_frame) {
-        frame.MakeInvalid();
+
+      if (has_put_any_value_on_frame) {
+        invalid_frames[idx] = true;
       }
     }
 
     if (at_least_one_result) {
+      for (auto idx = 0; idx < invalid_frames.size(); ++idx) {
+        auto isValid = invalid_frames[idx];
+        if (!isValid) {
+          auto &frame = multiframe.GetFrame(idx);
+          frame.MakeInvalid();
+        }
+      }
       return true;
     }
 
