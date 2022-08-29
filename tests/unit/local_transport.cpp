@@ -20,6 +20,9 @@
 
 namespace memgraph::io::tests {
 
+using memgraph::io::local_transport::LocalSystem;
+using memgraph::io::local_transport::LocalTransport;
+
 struct CounterRequest {
   uint64_t proposal;
 };
@@ -59,7 +62,7 @@ TEST(LocalTransport, BasicRequest) {
   Io<LocalTransport> cli_io = local_system.Register(cli_addr);
   Io<LocalTransport> srv_io = local_system.Register(srv_addr);
 
-  auto srv_thread = std::jthread(run_server, std::move(srv_io));
+  auto srv_thread = std::jthread(RunServer, std::move(srv_io));
 
   for (int i = 1; i < 3; ++i) {
     // send request
@@ -80,3 +83,4 @@ TEST(LocalTransport, BasicRequest) {
 
   local_system.ShutDown();
 }
+}  // namespace memgraph::io::tests
