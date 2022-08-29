@@ -815,9 +815,9 @@ class Raft {
 
     res.success = false;
 
-    Cron();
-
     io_.Send(from_address, request_id, res);
+
+    Cron();
 
     return std::nullopt;
   }
@@ -860,9 +860,9 @@ class Raft {
 
     res.success = false;
 
-    Cron();
-
     io_.Send(from_address, request_id, res);
+
+    Cron();
 
     return std::nullopt;
   }
