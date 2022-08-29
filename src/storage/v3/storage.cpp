@@ -13,11 +13,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <variant>
 
+#include <bits/ranges_algo.h>
 #include <gflags/gflags.h>
 #include <spdlog/spdlog.h>
 
@@ -31,14 +34,18 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/replication/config.hpp"
 #include "storage/v3/replication/replication_client.hpp"
 #include "storage/v3/replication/replication_server.hpp"
 #include "storage/v3/replication/rpc.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
+#include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -46,6 +53,7 @@
 #include "utils/message.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
 #include "utils/uuid.hpp"
@@ -56,6 +64,8 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 inline constexpr uint16_t kEpochHistoryRetention = 1000;
+
+void InsertVertexPKIntoList(auto &container, const PrimaryKey &primary_key) { container.push_back(primary_key); }
 }  // namespace
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
@@ -75,7 +85,7 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_, *self->schema_validator_)) {}
+                                 self->indices_, self_->constraints_, self->config_, *self_->schema_validator_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
@@ -351,11 +361,10 @@ Storage::Storage(Config config)
   if (config_.durability.recover_on_startup) {
     auto info = std::optional<durability::RecoveryInfo>{};
 
-    durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
-                            &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
-                            &wal_seq_num_);
+    // durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
+    //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
+    //                         &wal_seq_num_);
     if (info) {
-      vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
@@ -471,42 +480,6 @@ Storage::Accessor::~Accessor() {
   FinalizeTransaction();
 }
 
-// TODO Remove when import csv is fixed
-[[deprecated]] VertexAccessor Storage::Accessor::CreateVertex() {
-  OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
-  auto acc = storage_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  // TODO(antaljanosbenjamin): handle keys and schema
-  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta}});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&it->vertex);
-  return {
-      &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
-}
-
-// TODO Remove when replication is fixed
-VertexAccessor Storage::Accessor::CreateVertex(Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  // NOTE: When we update the next `vertex_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  storage_->vertex_id_.store(std::max(storage_->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                             std::memory_order_release);
-  auto acc = storage_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{gid, delta}});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  delta->prev.Set(&it->vertex);
-  return {
-      &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
-}
-
 ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
@@ -515,36 +488,41 @@ ResultSchema<VertexAccessor> Storage::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  auto gid = storage_->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  // Extract key properties
+  std::vector<PropertyValue> primary_properties;
+  for ([[maybe_unused]] const auto &[property_id, property_type] : storage_->GetSchema(primary_label)->second) {
+    // We know there definitely is key in properties since we have validated
+    primary_properties.push_back(
+        std::ranges::find_if(properties, [property_id = property_id](const auto &property_pair) {
+          return property_pair.first == property_id;
+        })->second);
+  }
+
+  // Get secondary properties
+  std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties;
+  for (const auto &[property_id, property_value] : properties) {
+    if (!storage_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      secondary_properties.emplace_back(property_id, property_value);
+    }
+  }
+
   auto acc = storage_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{Gid::FromUint(gid), delta, primary_label}});
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   delta->prev.Set(&it->vertex);
-
-  auto va = VertexAccessor{
+  return VertexAccessor{
       &it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_, storage_->schema_validator_};
-  for (const auto label : labels) {
-    const auto maybe_error = va.AddLabel(label);
-    if (maybe_error.HasError()) {
-      return {maybe_error.GetError()};
-    }
-  }
-  // Set properties
-  for (auto [property_id, property_value] : properties) {
-    const auto maybe_error = va.SetProperty(property_id, property_value);
-    if (maybe_error.HasError()) {
-      return {maybe_error.GetError()};
-    }
-  }
-  return va;
 }
 
-std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
+std::optional<VertexAccessor> Storage::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
   auto acc = storage_->vertices_.access();
-  auto it = acc.find(std::vector{PropertyValue{gid.AsInt()}});
-  if (it == acc.end()) return std::nullopt;
+  // Later on use label space
+  auto it = acc.find(primary_key);
+  if (it == acc.end()) {
+    return std::nullopt;
+  }
   return VertexAccessor::Create(&it->vertex, &transaction_, &storage_->indices_, &storage_->constraints_, config_,
                                 storage_->schema_validator_, view);
 }
@@ -996,7 +974,7 @@ void Storage::Accessor::Abort() {
   // We collect vertices and edges we've created here and then splice them into
   // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
   // by one and acquiring lock every time.
-  std::list<Gid> my_deleted_vertices;
+  std::list<PrimaryKey> my_deleted_vertices;
   std::list<Gid> my_deleted_edges;
 
   for (const auto &delta : transaction_.deltas) {
@@ -1072,7 +1050,7 @@ void Storage::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              my_deleted_vertices.push_back(vertex->Gid());
+              InsertVertexPKIntoList(my_deleted_vertices, vertex->keys.Keys());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -1187,7 +1165,8 @@ EdgeTypeId Storage::NameToEdgeType(const std::string_view name) {
 
 bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_index.CreateIndex(label, vertices_.access())) return false;
+  // TODO Fix Index
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1197,7 +1176,9 @@ bool Storage::CreateIndex(LabelId label, const std::optional<uint64_t> desired_c
 
 bool Storage::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) return false;
+  // TODO Fix Index
+  // if (!indices_.label_property_index.CreateIndex(label, property, labelspace.access())) return false;
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1235,8 +1216,10 @@ IndicesInfo Storage::ListAllIndices() const {
 utils::BasicResult<ConstraintViolation, bool> Storage::CreateExistenceConstraint(
     LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  if (ret.HasError() || !ret.GetValue()) return ret;
+  // TODO Fix constraints
+  // auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
+  // if (ret.HasError() || !ret.GetValue()) return ret;
+  return false;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1258,10 +1241,12 @@ bool Storage::DropExistenceConstraint(LabelId label, PropertyId property,
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Storage::CreateUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
   std::unique_lock<utils::RWLock> storage_guard(main_lock_);
-  auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-    return ret;
-  }
+  // TODO Fix constraints
+  // auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
+  // if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
+  //   return ret;
+  // }
+  return UniqueConstraints::CreationStatus::ALREADY_EXISTS;
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1410,7 +1395,7 @@ void Storage::CollectGarbage() {
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
   std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
+  std::list<PrimaryKey> current_deleted_vertices;
   deleted_vertices_->swap(current_deleted_vertices);
   deleted_edges_->swap(current_deleted_edges);
 
@@ -1482,7 +1467,7 @@ void Storage::CollectGarbage() {
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              current_deleted_vertices.push_back(vertex->Gid());
+              InsertVertexPKIntoList(current_deleted_vertices, vertex->keys.Keys());
             }
             break;
           }
@@ -1600,17 +1585,13 @@ void Storage::CollectGarbage() {
     if constexpr (force) {
       // if force is set to true, then we have unique_lock and no transactions are active
       // so we can clean all of the deleted vertices
-      std::vector<PropertyValue> key(1);
       while (!garbage_vertices_.empty()) {
-        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
-        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
         garbage_vertices_.pop_front();
       }
     } else {
-      std::vector<PropertyValue> key(1);
       while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        key.front() = PropertyValue{garbage_vertices_.front().second.AsInt()};
-        MG_ASSERT(vertex_acc.remove(key), "Invalid database state!");
+        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
         garbage_vertices_.pop_front();
       }
     }
@@ -1867,10 +1848,10 @@ utils::BasicResult<Storage::CreateSnapshotError> Storage::CreateSnapshot() {
   auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
   // Create snapshot.
-  durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-                             config_.durability.snapshot_retention_count, &vertices_, &edges_, &name_id_mapper_,
-                             &indices_, &constraints_, config_.items, schema_validator_, uuid_, epoch_id_,
-                             epoch_history_, &file_retainer_);
+  // durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
+  //                            config_.durability.snapshot_retention_count, &vertices_, &edges_,
+  //                            &name_id_mapper_, &indices_, &constraints_, config_.items, schema_validator_,
+  //                            uuid_, epoch_id_, epoch_history_, &file_retainer_);
 
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);

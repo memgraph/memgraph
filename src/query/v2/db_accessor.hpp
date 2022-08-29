@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -19,6 +20,7 @@
 
 #include "query/v2/exceptions.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 
@@ -109,13 +111,17 @@ class VertexAccessor final {
 
   auto PrimaryLabel(storage::v3::View view) const { return impl_.PrimaryLabel(view); }
 
-  storage::v3::Result<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabel(label); }
+  auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
+
+  storage::v3::ResultSchema<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabelAndValidate(label); }
 
   storage::v3::ResultSchema<bool> AddLabelAndValidate(storage::v3::LabelId label) {
     return impl_.AddLabelAndValidate(label);
   }
 
-  storage::v3::Result<bool> RemoveLabel(storage::v3::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::v3::ResultSchema<bool> RemoveLabel(storage::v3::LabelId label) {
+    return impl_.RemoveLabelAndValidate(label);
+  }
 
   storage::v3::ResultSchema<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
     return impl_.RemoveLabelAndValidate(label);
@@ -132,9 +138,9 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::Result<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                              const storage::v3::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::v3::ResultSchema<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
+                                                                    const storage::v3::PropertyValue &value) {
+    return impl_.SetPropertyAndValidate(key, value);
   }
 
   storage::v3::ResultSchema<storage::v3::PropertyValue> SetPropertyAndValidate(
@@ -188,9 +194,8 @@ class VertexAccessor final {
 
   storage::v3::Result<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
-
-  storage::v3::Gid Gid() const noexcept { return impl_.Gid(); }
+  // TODO(jbajic) Fix Remove Gid
+  static int64_t CypherId() { return 1; }
 
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
@@ -241,8 +246,12 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  std::optional<VertexAccessor> FindVertex(storage::v3::Gid gid, storage::v3::View view) {
-    auto maybe_vertex = accessor_->FindVertex(gid, view);
+  // TODO(jbajic) Fix Remove Gid
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { return std::nullopt; }
+
+  std::optional<VertexAccessor> FindVertex(storage::v3::PrimaryKey &primary_key, storage::v3::View view) {
+    auto maybe_vertex = accessor_->FindVertex(primary_key, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
@@ -269,9 +278,6 @@ class DbAccessor final {
                             const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
-
-  // TODO Remove when query modules have been fixed
-  [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,

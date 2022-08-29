@@ -12,7 +12,10 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
+#include <map>
+#include <numeric>
 #include <optional>
 #include <shared_mutex>
 #include <variant>
@@ -30,6 +33,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/lexicographically_ordered_vertex.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -76,6 +80,7 @@ class AllVerticesIterable final {
   Constraints *constraints_;
   Config::Items config_;
   const SchemaValidator *schema_validator_;
+  const Schemas *schemas_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -97,14 +102,14 @@ class AllVerticesIterable final {
 
   AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
                       Indices *indices, Constraints *constraints, Config::Items config,
-                      SchemaValidator *schema_validator)
+                      const SchemaValidator &schema_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_(schema_validator) {}
+        schema_validator_{&schema_validator} {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
@@ -226,21 +231,17 @@ class Storage final {
 
     ~Accessor();
 
-    VertexAccessor CreateVertex();
-
-    VertexAccessor CreateVertex(Gid gid);
-
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         LabelId primary_label, const std::vector<LabelId> &labels,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
-    std::optional<VertexAccessor> FindVertex(Gid gid, View view);
+    std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
                                                   &storage_->indices_, &storage_->constraints_, storage_->config_.items,
-                                                  &storage_->schema_validator_));
+                                                  storage_->schema_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -520,7 +521,6 @@ class Storage final {
   // Main object storage
   VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
-  std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
@@ -556,11 +556,11 @@ class Storage final {
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_vertices_;
+  utils::Synchronized<std::list<PrimaryKey>, utils::SpinLock> deleted_vertices_;
 
   // Vertices that are logically deleted and removed from indices and now wait
   // to be removed from the main storage.
-  std::list<std::pair<uint64_t, Gid>> garbage_vertices_;
+  std::list<std::pair<uint64_t, PrimaryKey>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.

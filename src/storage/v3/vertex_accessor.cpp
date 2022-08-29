@@ -16,6 +16,7 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
@@ -235,6 +236,44 @@ Result<LabelId> VertexAccessor::PrimaryLabel(const View view) const {
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return vertex_->primary_label;
+}
+
+Result<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  {
+    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
+    deleted = vertex_->deleted;
+    delta = vertex_->delta;
+  }
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) {
+    return Error::NONEXISTENT_OBJECT;
+  }
+  if (!for_deleted_ && deleted) {
+    return Error::DELETED_OBJECT;
+  }
+  return vertex_->keys.Keys();
 }
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {

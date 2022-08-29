@@ -20,9 +20,12 @@
 
 namespace memgraph::storage::v3 {
 
+// Primary key is a collection of primary properties.
+using PrimaryKey = std::vector<PropertyValue>;
+
 class KeyStore {
  public:
-  explicit KeyStore(const std::vector<PropertyValue> &key_values);
+  explicit KeyStore(const PrimaryKey &key_values);
 
   KeyStore(const KeyStore &) = delete;
   KeyStore(KeyStore &&other) noexcept = default;
@@ -33,7 +36,7 @@ class KeyStore {
 
   PropertyValue GetKey(size_t index) const;
 
-  std::vector<PropertyValue> Keys() const;
+  PrimaryKey Keys() const;
 
   friend bool operator<(const KeyStore &lhs, const KeyStore &rhs) {
     // TODO(antaljanosbenjamin): also compare the schema
@@ -44,14 +47,12 @@ class KeyStore {
     return std::ranges::equal(lhs.Keys(), rhs.Keys());
   }
 
-  friend bool operator<(const KeyStore &lhs, const std::vector<PropertyValue> &rhs) {
+  friend bool operator<(const KeyStore &lhs, const PrimaryKey &rhs) {
     // TODO(antaljanosbenjamin): also compare the schema
     return std::ranges::lexicographical_compare(lhs.Keys(), rhs, std::less<PropertyValue>{});
   }
 
-  friend bool operator==(const KeyStore &lhs, const std::vector<PropertyValue> &rhs) {
-    return std::ranges::equal(lhs.Keys(), rhs);
-  }
+  friend bool operator==(const KeyStore &lhs, const PrimaryKey &rhs) { return std::ranges::equal(lhs.Keys(), rhs); }
 
  private:
   PropertyStore store_;

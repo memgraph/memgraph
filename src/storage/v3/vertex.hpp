@@ -28,43 +28,49 @@
 namespace memgraph::storage::v3 {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta, LabelId primary_label)
-      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
+  Vertex(Delta *delta, LabelId primary_label, const std::vector<PropertyValue> &primary_properties)
+      : primary_label{primary_label}, keys{primary_properties}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  // TODO remove this when import replication is solved
-  Vertex(Gid gid, LabelId primary_label)
-      : primary_label{primary_label}, keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
+  Vertex(Delta *delta, LabelId primary_label, const std::vector<PropertyValue> &primary_properties,
+         const std::vector<LabelId> &secondary_labels,
+         const std::vector<std::pair<PropertyId, PropertyValue>> &secondary_properties)
+      : primary_label{primary_label}, keys{primary_properties}, labels{secondary_labels}, delta{delta} {
+    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
+              "Vertex must be created with an initial DELETE_OBJECT delta!");
+    for (const auto &[property_id, property_value] : secondary_properties) {
+      properties.SetProperty(property_id, property_value);
+    }
+  }
+
+  Vertex(LabelId primary_label, const std::vector<PropertyValue> &primary_properties)
+      : primary_label{primary_label}, keys(primary_properties) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
-
-  // TODO remove this when import csv is solved
-  Vertex(Gid gid, Delta *delta) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false), delta(delta) {
+  Vertex(LabelId primary_label, const std::vector<PropertyValue> &primary_properties,
+         const std::vector<LabelId> &secondary_labels,
+         const std::vector<std::pair<PropertyId, PropertyValue>> &secondary_properties)
+      : primary_label{primary_label}, keys{primary_properties}, labels{secondary_labels} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
+    for (const auto &[property_id, property_value] : secondary_properties) {
+      properties.SetProperty(property_id, property_value);
+    }
   }
-
-  // TODO remove this when import replication is solved
-  explicit Vertex(Gid gid) : keys{{PropertyValue{gid.AsInt()}}}, deleted(false) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
-  Gid Gid() const { return Gid::FromInt(keys.GetKey(0).ValueInt()); }
 
   LabelId primary_label;
   KeyStore keys;
+
   std::vector<LabelId> labels;
   PropertyStore properties;
-
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   mutable utils::SpinLock lock;
-  bool deleted;
+  bool deleted{false};
   // uint8_t PAD;
   // uint16_t PAD;
 
