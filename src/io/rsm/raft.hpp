@@ -24,6 +24,7 @@
 
 #include "io/simulator/simulator.hpp"
 #include "io/transport.hpp"
+#include "utils/concepts.hpp"
 
 namespace memgraph::io::rsm {
 
@@ -171,6 +172,12 @@ struct Follower {
 };
 
 using Role = std::variant<Candidate, Leader, Follower>;
+
+template <typename Role>
+concept AllRoles = memgraph::utils::SameAsAnyOf<Role, Leader, Follower, Candidate>;
+
+template <typename Role>
+concept LeaderOrFollower = memgraph::utils::SameAsAnyOf<Role, Leader, Follower>;
 
 /*
 all ReplicatedState classes should have an Apply method
@@ -551,8 +558,8 @@ class Raft {
   }
 
   // all roles can receive Vote and possibly become a follower
-  template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, VoteRequest &&req, RequestId request_id, Address from_address) {
+  template <AllRoles ALL>
+  std::optional<Role> Handle(ALL &, VoteRequest &&req, RequestId request_id, Address from_address) {
     Log("received VoteRequest from ", from_address.last_known_port, " with term ", req.term);
     const bool last_log_term_dominates = req.last_log_term >= LastLogTerm();
     const bool term_dominates = req.term > state_.term;
@@ -638,14 +645,14 @@ class Raft {
     return std::nullopt;
   }
 
-  template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, VoteResponse &&, RequestId, Address) {
+  template <LeaderOrFollower LOF>
+  std::optional<Role> Handle(LOF &, VoteResponse &&, RequestId, Address) {
     Log("non-Candidate received VoteResponse");
     return std::nullopt;
   }
 
-  template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &role, AppendRequest<WriteOperation> &&req, RequestId request_id,
+  template <AllRoles ALL>
+  std::optional<Role> Handle(ALL &role, AppendRequest<WriteOperation> &&req, RequestId request_id,
                              Address from_address) {
     // log size starts out as state_.committed_log_size and only if everything is successful do we
     // switch it to the log length.
@@ -656,11 +663,11 @@ class Raft {
         .log_size = state_.log.size(),
     };
 
-    if constexpr (std::is_same<AllRoles, Leader>()) {
+    if constexpr (std::is_same<ALL, Leader>()) {
       MG_ASSERT(req.term != state_.term, "Multiple leaders are acting under the term ", req.term);
     }
 
-    const bool is_candidate = std::is_same<AllRoles, Candidate>();
+    const bool is_candidate = std::is_same<ALL, Candidate>();
     const bool is_failed_competitor = is_candidate && req.term == state_.term;
     const Time now = io_.Now();
 
@@ -689,7 +696,7 @@ class Raft {
     }
 
     // at this point, we're dealing with our own leader
-    if constexpr (std::is_same<AllRoles, Follower>()) {
+    if constexpr (std::is_same<ALL, Follower>()) {
       // small specialization for when we're already a Follower
       MG_ASSERT(role.leader_address == from_address, "Multiple Leaders are acting under the same term number!");
       role.last_received_append_entries_timestamp = now;
@@ -771,8 +778,8 @@ class Raft {
     return std::nullopt;
   }
 
-  template <typename AllRoles>
-  std::optional<Role> Handle(AllRoles &, AppendResponse &&, RequestId, Address) {
+  template <AllRoles ALL>
+  std::optional<Role> Handle(ALL &, AppendResponse &&, RequestId, Address) {
     // we used to be the leader, and are getting old delayed responses
     return std::nullopt;
   }
