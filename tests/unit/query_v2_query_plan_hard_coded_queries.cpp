@@ -628,6 +628,55 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchUnwindQuery) {
+  /*
+    QUERY:
+      MATCH (n)
+      UNWIND [1, n] AS x
+      RETURN x;
+
+    QUERY PLAN:
+      Produce {x}
+      Unwind [1, n]
+      ScanAll (n)
+      Once
+  */
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      ASSERT_TRUE(inserted);
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "n");
+  auto unwind_list = LIST(IDENT("n")->MapTo(scan_all.sym_), LITERAL(1));
+  auto unwind = MakeUnwindDistributed(symbol_table, "x", scan_all.op_, unwind_list);
+  auto output = NEXPR("x", IDENT("x")->MapTo(unwind.sym_))->MapTo(symbol_table.CreateSymbol("x", true));
+  auto produce = MakeProduceDistributed(unwind.op_, output);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+  ASSERT_EQ(results.size(), gid_of_expected_vertices.size() * 2);
+  for (int i = 0; i < results.size(); i = i + 2) {
+    ASSERT_TRUE(results[i][0].IsVertex());
+    ASSERT_TRUE(results[i + 1][0].IsInt());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(

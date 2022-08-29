@@ -618,9 +618,31 @@ class UnwindCursor : public Cursor {
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
       if (MustAbort(context)) throw HintedAbortError();
-      // TODO(gitbuda): Implement the logic.
-      throw QueryRuntimeException("Distributed Unwind not yet implemented.");
-      return false;
+      // NOTE: "Cartesian product" between MultiFrame values and input values because for each Frame the whole input
+      // list has to be evaluated.
+      // TODO(gitbuda): Fix the implementation.
+      if (!input_cursor_->Pull(multiframe, context)) return false;
+
+      for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+        auto &frame = multiframe.GetFrame(idx);
+        if (!frame.IsValid()) {
+          continue;
+        }
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::v3::View::OLD);
+        TypedValue input_value = self_.input_expression_->Accept(evaluator);
+        if (input_value.type() != TypedValue::Type::List) {
+          throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
+        }
+        input_value_ = input_value.ValueList();
+        input_value_it_ = input_value_.begin();
+        while (input_value_it_ != input_value_.end()) {
+          frame[self_.output_symbol_] = *input_value_it_++;
+        }
+        input_value_.clear();
+        input_value_it_ = input_value_.end();
+      }
+      return true;
     }
   }
 
