@@ -16,6 +16,6 @@
 namespace memgraph::io {
 
 using Duration = std::chrono::microseconds;
-using Time = std::chrono::time_point<std::chrono::local_t, Duration>;
+using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
 
 }  // namespace memgraph::io
