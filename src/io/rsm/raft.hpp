@@ -335,12 +335,15 @@ class Raft {
   // AppendEntries RPCs are initiated by leaders to replicate log entries and to provide a form of heartbeat
   void BroadcastAppendEntries(std::map<Address, FollowerTracker> &followers) {
     for (auto &[address, follower] : followers) {
-      const LogSize follower_log_size = follower.confirmed_log_size;
+      const LogIndex next_index = follower.next_index;
 
-      const auto missing = state_.log.size() - follower_log_size;
+      const auto missing = state_.log.size() - next_index;
       const auto batch_size = std::min(missing, kMaximumAppendBatchSize);
-      const auto start_index = follower_log_size;
+      const auto start_index = next_index;
       const auto end_index = start_index + batch_size;
+
+      // advance follower's next index
+      follower.next_index += batch_size;
 
       std::vector<std::pair<Term, WriteOperation>> entries;
 
@@ -349,7 +352,7 @@ class Raft {
       const Term previous_term_from_index = PreviousTermFromIndex(start_index);
 
       Log("sending ", entries.size(), " entries to Follower ", address.last_known_port,
-          " which are above its known confirmed log size of ", follower_log_size);
+          " which are above its next_index of ", next_index);
 
       AppendRequest<WriteOperation> ar{
           .term = state_.term,
