@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query_plan_common.hpp"
+
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -31,8 +33,6 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-
-#include "query_plan_common.hpp"
 #include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
@@ -1651,7 +1651,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
-      auto label = "l" + std::to_string(i);
+      auto label = fmt::format("l{}", i);
       ASSERT_TRUE(v.back().AddLabel(db.NameToLabel(label)).HasValue());
     }
 

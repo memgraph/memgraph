@@ -6,15 +6,15 @@
 //
 //
 
+#include "auth/models.hpp"
+
 #include <cstdint>
 #include <regex>
-#include <unordered_set>
 
 #include <gflags/gflags.h>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
-#include "auth/models.hpp"
 #include "utils/cast.hpp"
 #include "utils/license.hpp"
 #include "utils/logging.hpp"
@@ -286,7 +286,6 @@ uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission fine
   uint64_t shift{1};
   uint64_t result{0};
   auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
-
   while (uint_fine_grained_permission > 0) {
     result |= uint_fine_grained_permission;
     uint_fine_grained_permission >>= shift;

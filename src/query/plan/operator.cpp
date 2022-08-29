@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "query/plan/operator.hpp"
+
 #include <algorithm>
 #include <cstdint>
 #include <limits>
@@ -31,7 +33,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
-#include "query/plan/operator.hpp"
 #include "query/plan/scoped_profile.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"

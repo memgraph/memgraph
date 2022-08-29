@@ -9,14 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gtest/internal/gtest-param-util-generated.h>
+#include "bfs_common.hpp"
 
 #include <optional>
 #include <string>
 #include <unordered_map>
 
+#include <gtest/internal/gtest-param-util-generated.h>
+
 #include "auth/models.hpp"
-#include "bfs_common.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
