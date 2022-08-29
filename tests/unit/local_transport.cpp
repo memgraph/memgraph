@@ -18,12 +18,7 @@
 #include "io/local_transport/local_transport.hpp"
 #include "io/transport.hpp"
 
-using memgraph::io::Address;
-using memgraph::io::Io;
-using memgraph::io::ResponseFuture;
-using memgraph::io::ResponseResult;
-using memgraph::io::local_transport::LocalSystem;
-using memgraph::io::local_transport::LocalTransport;
+namespace memgraph::io::tests {
 
 struct CounterRequest {
   uint64_t proposal;
