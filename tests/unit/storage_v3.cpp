@@ -22,7 +22,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage_v3_test_utils.hpp"
 
@@ -37,7 +37,7 @@ class StorageV3 : public ::testing::Test {
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
+  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,
                                          const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
     auto vtx = acc.CreateVertexAndValidate(primary_label, labels, properties);
@@ -45,7 +45,7 @@ class StorageV3 : public ::testing::Test {
     return *vtx;
   }
 
-  Storage store;
+  Shard store;
   const LabelId primary_label{store.NameToLabel("label")};
   const PropertyId primary_property{store.NameToProperty("property")};
   const std::vector<PropertyValue> pk{PropertyValue{0}};
@@ -236,7 +236,7 @@ TEST_F(StorageV3, AccessorMove) {
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
 
-    Storage::Accessor moved(std::move(acc));
+    Shard::Accessor moved(std::move(acc));
 
     ASSERT_FALSE(moved.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(moved, View::OLD), 0U);
@@ -2570,7 +2570,7 @@ TEST_F(StorageV3, TestCreateVertexAndValidate) {
   {
     ASSERT_DEATH(
         {
-          Storage store;
+          Shard store;
           ASSERT_TRUE(store.CreateSchema(primary_label,
                                          {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
           auto acc = store.Access();

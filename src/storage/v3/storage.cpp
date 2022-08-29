@@ -15,5 +15,5 @@
 
 namespace memgraph::storage::v3 {
 
-Storage::Storage(Config config) : config_{config} {}
+// Storage::Storage(Config config) : config_{config} {}
 }  // namespace memgraph::storage::v3

@@ -21,7 +21,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage_v3_test_utils.hpp"
 
@@ -35,7 +35,7 @@ class StorageV3Accessor : public ::testing::Test {
     ASSERT_TRUE(storage.CreateSchema(primary_label, {SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
+  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,
                                          const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
     auto vtx = acc.CreateVertexAndValidate(primary_label, labels, properties);
@@ -43,7 +43,7 @@ class StorageV3Accessor : public ::testing::Test {
     return *vtx;
   }
 
-  Storage storage;
+  Shard storage;
   const LabelId primary_label{storage.NameToLabel("label")};
   const PropertyId primary_property{storage.NameToProperty("property")};
 };
