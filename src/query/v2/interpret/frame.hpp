@@ -38,20 +38,6 @@ class Frame {
 
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
-  // TODO(gvolfing) remove this
-  //  bool IsFullNull()
-  //  {
-  //    bool only_null = true;
-  //    for(const auto& elem : elems_)
-  //    {
-  //      if(!elem.IsNull())
-  //      {
-  //        only_null = false;
-  //      }
-  //    }
-  //    return only_null;
-  //  }
-
  private:
   utils::pmr::vector<TypedValue> elems_;
 };

@@ -451,7 +451,6 @@ bool Expand::ExpandCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
         }
       }
       // TODO(gvolfing) check if this is ok or not #NoCommit
-      // if (!has_put_any_value_on_frame && !frame.IsFullNull()) {
       if (!has_put_any_value_on_frame) {
         frames.SetIsNotValid(idx);
       }
