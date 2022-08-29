@@ -56,6 +56,15 @@ class MatchReturnFixture : public testing::Test {
     for (const auto &row : CollectProduce(*op, &context)) res.emplace_back(row[0].ValuePath());
     return res;
   }
+
+  int PullCountAuthorized(ScanAllTuple scan_all, memgraph::auth::User user) {
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(scan_all.op_, output);
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    return PullAll(*produce, &context);
+  }
 };
 
 TEST_F(MatchReturnFixture, MatchReturn) {
@@ -96,6 +105,92 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   for (const auto &v : dba.Vertices(memgraph::storage::View::OLD)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
+}
+
+TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
+  std::string labelName = "l1";
+  const auto label = dba.NameToLabel(labelName);
+
+  ASSERT_TRUE(dba.InsertVertex().AddLabel(label).HasValue());
+  dba.AdvanceCommand();
+
+  auto test_hypothesis = [&](memgraph::auth::User user, memgraph::storage::View view, int expected_pull_count) {
+    auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
+    ASSERT_EQ(expected_pull_count, PullCountAuthorized(scan_all, user));
+
+    scan_all = MakeScanAll(storage, symbol_table, "n", nullptr, view);
+    ASSERT_EQ(expected_pull_count, PullCountAuthorized(scan_all, user));
+  };
+
+  {
+    auto user = memgraph::auth::User{"grant_global"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 1);
+    test_hypothesis(user, memgraph::storage::View::NEW, 1);
+  }
+
+  {
+    auto user = memgraph::auth::User{"deny_global"};
+    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 0);
+    test_hypothesis(user, memgraph::storage::View::NEW, 0);
+  }
+
+  {
+    auto user = memgraph::auth::User{"grant_label_read"};
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::READ);
+    test_hypothesis(user, memgraph::storage::View::OLD, 1);
+    test_hypothesis(user, memgraph::storage::View::NEW, 1);
+  }
+
+  {
+    auto user = memgraph::auth::User{"deny_label_read"};
+    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 0);
+    test_hypothesis(user, memgraph::storage::View::NEW, 0);
+  }
+
+  {
+    auto user = memgraph::auth::User{"grant_global_deny_label"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 0);
+    test_hypothesis(user, memgraph::storage::View::NEW, 0);
+  }
+
+  {
+    auto user = memgraph::auth::User{"deny_global_grant_label"};
+    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 1);
+    test_hypothesis(user, memgraph::storage::View::NEW, 1);
+  }
+
+  {
+    auto user = memgraph::auth::User{"global_update_deny_label"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 0);
+    test_hypothesis(user, memgraph::storage::View::NEW, 0);
+  }
+
+  {
+    auto user = memgraph::auth::User{"global_create_delete_deny_label"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+
+    test_hypothesis(user, memgraph::storage::View::OLD, 0);
+    test_hypothesis(user, memgraph::storage::View::NEW, 0);
+  }
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
