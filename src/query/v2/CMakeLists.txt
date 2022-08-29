@@ -22,6 +22,7 @@ set(mg_query_v2_sources
     interpret/eval.cpp
     interpreter.cpp
     metadata.cpp
+    interpret/multiframe.cpp
     plan/operator.cpp
     plan/operator_distributed.cpp
     plan/preprocess.cpp

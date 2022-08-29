@@ -38,8 +38,13 @@ class Frame {
 
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
+  bool IsValid() const { return is_valid_; }
+  void MakeValid() { is_valid_ = true; }
+  void MakeInvalid() { is_valid_ = false; }
+
  private:
   utils::pmr::vector<TypedValue> elems_;
+  bool is_valid_ = true;
 };
 
 }  // namespace memgraph::query::v2

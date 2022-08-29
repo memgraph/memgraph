@@ -12,6 +12,7 @@
 #include "query/v2/plan/operator_distributed.hpp"
 
 #include "query/v2/interpret/eval.hpp"
+#include "query/v2/interpret/multiframe.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "utils/event_counter.hpp"
 
@@ -73,12 +74,13 @@ uint64_t ComputeProfilingKey(const T *obj) {
   return reinterpret_cast<uint64_t>(obj);
 }
 
-void ResizeFrames(MultiFrame &frames, int last_filled_frame) {
-  MG_ASSERT(last_filled_frame >= 0);
-  MG_ASSERT(frames.size() > last_filled_frame);
+// void ResizeFrames(MultiFrame &multiframe, int last_filled_frame) {
+//   // #NoCommit maybe we don't need any more
+//   MG_ASSERT(last_filled_frame >= 0);
+//   MG_ASSERT(frames.Size() > last_filled_frame);
 
-  frames.resize(last_filled_frame + 1);
-}
+//   frames.resize(last_filled_frame + 1);
+// }
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -116,19 +118,19 @@ class ScanAllCursor : public Cursor {
         get_vertices_(std::move(get_vertices)),
         op_name_(op_name) {}
 
-  bool Pull(MultiFrame &frames, ExecutionContext &context) override {
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
     if (MustAbort(context)) {
       throw HintedAbortError();
     }
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
-      if (!input_cursor_->Pull(frames, context)) {
+      if (!input_cursor_->Pull(multiframe, context)) {
         return false;
       }
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
-      auto next_vertices = get_vertices_(frames, context);
+      auto next_vertices = get_vertices_(multiframe, context);
       if (!next_vertices) {
         continue;
       }
@@ -140,24 +142,28 @@ class ScanAllCursor : public Cursor {
     }
 
     auto last_filled_frame = 0;
-    for (auto idx = 0; idx < frames.size(); ++idx) {
-      // auto &frame = *frames[idx];
-      auto &frame = *(frames.GetFrames()[idx]);
+    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
+        continue;
+      }
+
       frame[output_symbol_] = *vertices_it_.value();
       ++vertices_it_.value();
       last_filled_frame = idx;
 
-      if (vertices_it_.value() == vertices_.value().end() && idx < frames.size() - 1) {
+      if (vertices_it_.value() == vertices_.value().end() && idx < multiframe.Size() - 1) {
         /*
         'vertices_it_.value() == vertices_.value().end()' means we have exhausted all vertices
-        If 'idx < frames.size() - 1' means we do not have enough vertices to fill all frames and that we are at the last
-        batch. In that case, we can simply reduce the number of frames.
+        If 'idx < multiframe.size() - 1' means we do not have enough vertices to fill all frames and that we are at the
+        last batch. In that case, we can simply reduce the number of frames.
         */
         break;
       }
     }
 
-    ResizeFrames(frames, last_filled_frame);
+    const auto number_of_frames_to_keep = last_filled_frame + 1;
+    multiframe.Resize(number_of_frames_to_keep);
 
     return true;
   }
@@ -236,16 +242,16 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
-  auto vertices = [this](MultiFrame &frames, ExecutionContext &context)
+  auto vertices = [this](MultiFrame &multiframe, ExecutionContext &context)
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_,
                                                               storage::v3::PropertyValue()))> {
-    MG_ASSERT(!frames.empty());
-    auto &frame = *(frames.GetFrames()[0]);
+    MG_ASSERT(!multiframe.Empty());
+    auto &frame = multiframe.GetFrame(0);
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_property_value_->Accept(evaluator);
 
-    auto &frame_vec = frames.GetFrames();
+    const auto &frame_vec = multiframe.GetFrames();
 
     MG_ASSERT(std::all_of(frame_vec.begin(), frame_vec.end(),
                           [&value, &view = view_, &expression_property_value = expression_property_value_,
@@ -283,15 +289,16 @@ ACCEPT_WITH_INPUT(ScanAllById)
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
 
-  auto vertices = [this](MultiFrame &frames, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    MG_ASSERT(!frames.empty());
-    auto &frame = *(frames.GetFrames()[0]);
-    ;
+  auto vertices = [this](MultiFrame &multiframe,
+                         ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
+    MG_ASSERT(!multiframe.Empty());
+    auto &frame = multiframe.GetFrame(0);
+
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_id_->Accept(evaluator);
 
-    auto &frame_vec = frames.GetFrames();
+    const auto &frame_vec = multiframe.GetFrames();
 
     MG_ASSERT(std::all_of(frame_vec.begin(), frame_vec.end(),
                           [&value, &view = view_, &expression_id = expression_id_, &context](auto *frame) -> bool {
@@ -375,7 +382,7 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self, utils::MemoryResource *me
 
 // #NoCommit Use pmr thing as well here!!!
 
-bool Expand::ExpandCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
+bool Expand::ExpandCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Expand");
   // A helper function for expanding a node from an edge.
   auto pull_node_from_edge = [this](const EdgeAccessor &new_edge, EdgeAtom::Direction direction, Frame &frame) {
@@ -398,15 +405,13 @@ bool Expand::ExpandCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
 
     auto at_least_one_result = false;
 
-    for (auto idx = 0; idx < std::min(frames.size(), in_out_edges.size()); ++idx) {
+    for (auto idx = 0; idx < std::min(multiframe.Size(), in_out_edges.size()); ++idx) {
       // #NoCommit in std::min correct here?
       MG_ASSERT(idx < in_out_edges.size());
 
       auto &in_out_edge = in_out_edges[idx];
-      auto &frame = *(frames.GetFrames()[idx]);
-
-      // TODO(gvolfing) check if this is ok or not #NoCommit
-      if (!frames.IsValid(idx)) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
         continue;
       }
 
@@ -452,7 +457,7 @@ bool Expand::ExpandCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
       }
       // TODO(gvolfing) check if this is ok or not #NoCommit
       if (!has_put_any_value_on_frame) {
-        frames.SetIsNotValid(idx);
+        frame.MakeInvalid();
       }
     }
 
@@ -463,7 +468,7 @@ bool Expand::ExpandCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
     // If we are here, either the edges have not been initialized, or they have all been exhausted. Attempt to
     // initialize the edges (i.e. the structure in_out_edges).
     in_out_edges.clear();
-    if (!InitEdges(frames, context)) {
+    if (!InitEdges(multiframe, context)) {
       return false;
     }
 
@@ -478,21 +483,25 @@ void Expand::ExpandCursor::Reset() {
   in_out_edges.clear();
 }
 
-bool Expand::ExpandCursor::InitEdges(MultiFrame &frames, ExecutionContext &context) {
+bool Expand::ExpandCursor::InitEdges(MultiFrame &multiframe, ExecutionContext &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
-  while (true) {
-    if (!input_cursor_->Pull(frames, context)) {
+  while (multiframe.HasValidFrames()) {
+    if (!input_cursor_->Pull(multiframe, context)) {
       return false;
     }
     auto value_for_at_least_one_frame = false;
 
-    for (auto idx = 0; idx < frames.size(); ++idx) {
-      auto &frame = *(frames.GetFrames()[idx]);
+    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
+        continue;
+      }
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
       if (vertex_value.IsNull()) {                  // Null check due to possible failed optional match.
         LOG_FATAL("Not supported at the moment!");  // #NoCommit do we want to implement it now?
+        frame.MakeInvalid();                        // #NoCommit double check
         continue;
       }
       in_out_edges.emplace_back(InOutEdges{});
@@ -507,10 +516,6 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &frames, ExecutionContext &conte
         auto it = edges.begin();
         in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
         in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
-
-        if (in_out_edge.in_.value().in_edges_it_ != in_out_edge.in_.value().in_edges_.end()) {
-          frames.SetIsValid(idx);
-        }
       }
 
       if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
@@ -518,10 +523,6 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &frames, ExecutionContext &conte
         auto it = edges.begin();
         in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
         in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
-
-        if (in_out_edge.out_.value().out_edges_it_ != in_out_edge.out_.value().out_edges_.end()) {
-          frames.SetIsValid(idx);
-        }
       }
 
       value_for_at_least_one_frame = true;
@@ -533,6 +534,8 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &frames, ExecutionContext &conte
     }
     // else we want to continue and do an extra pull, there is nothing to conclude from this round
   }
+
+  return false;
 }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
@@ -559,12 +562,15 @@ std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const { r
 Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource *mem)
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
 
-bool Produce::ProduceCursor::Pull(MultiFrame &frames, ExecutionContext &context) {
+bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Produce");
 
-  if (input_cursor_->Pull(frames, context)) {
+  if (input_cursor_->Pull(multiframe, context)) {
     // Produce should always yield the latest results.
-    for (auto *frame : frames.GetFrames()) {
+    for (auto *frame : multiframe.GetFrames()) {
+      if (!frame->IsValid()) {
+        continue;
+      }
       ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::v3::View::NEW);
       for (auto *named_expr : self_.named_expressions_) {

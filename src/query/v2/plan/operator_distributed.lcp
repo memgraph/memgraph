@@ -26,7 +26,7 @@ cpp<#
 #>cpp
 struct ExecutionContext;
 class ExpressionEvaluator;
-class Frame;
+class MultiFrame;
 class SymbolTable;
 cpp<#
 
@@ -41,62 +41,6 @@ cpp<#
 (lcp:namespace distributed)
 
 #>cpp
-//using Frames = memgraph::utils::pmr::vector<Frame*>;
-
-class MultiFrame{
-  memgraph::utils::pmr::vector<Frame *> frames_;
-  std::vector<bool> frame_validity_;
-
-  public:
-  explicit MultiFrame(const memgraph::utils::pmr::vector<Frame *>& frames)
-  :
-    frames_{frames},
-    frame_validity_{std::vector<bool>(frames.size(), true)}
-  {}
-
-  memgraph::utils::pmr::vector<Frame *>& GetFrames()
-  {
-    return frames_;
-  }
-
-  bool IsValid(size_t index) const
-  {
-    return frame_validity_[index];
-  }
-
-  void SetIsNotValid(size_t index)
-  {
-    frame_validity_[index] = false;
-  }
-
-  void SetIsValid(size_t index)
-  {
-    frame_validity_[index] = true;
-  }
-
-  // TODO(gvolfing) -> Discuss -> Do we assume they are correct by default?
-  void Reset()
-  {
-    std::fill(frame_validity_.begin(), frame_validity_.end(), true);
-  }
-
-  // vector-like functions
-  size_t size() const noexcept
-  {
-    return frames_.size();
-  }
-
-  void resize(size_t count)
-  {
-    frames_.resize(count);
-    frame_validity_.resize(count);
-  }
-
-  bool empty() const noexcept
-  {
-    return frames_.empty();
-  }
-};
 
 /// Base class for iteration cursors of @c LogicalOperator classes.
 ///
