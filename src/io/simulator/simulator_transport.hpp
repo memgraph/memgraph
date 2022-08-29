@@ -49,8 +49,8 @@ class SimulatorTransport {
   }
 
   template <Message M>
-  void Send(Address address, uint64_t request_id, M message) {
-    return simulator_handle_->template Send<M>(address, address_, request_id, message);
+  void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
+    return simulator_handle_->template Send<M>(to_address, from_address, request_id, message);
   }
 
   Time Now() const { return simulator_handle_->Now(); }
