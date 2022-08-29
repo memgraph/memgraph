@@ -880,6 +880,7 @@ class Raft {
     Log("handling WriteRequest");
 
     // we are the leader. add item to log and send Append to peers
+    MG_ASSERT(state_.term >= LastLogTerm());
     state_.log.emplace_back(std::pair(state_.term, std::move(req.operation)));
 
     LogIndex log_index = state_.log.size() - 1;
