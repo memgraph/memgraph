@@ -468,23 +468,7 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
-  bool operator==(const mgp_vertex &other) const noexcept {
-    return std::visit(memgraph::utils::Overloaded{
-                          [&other](memgraph::query::VertexAccessor impl) {
-                            if (std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(other.impl)) {
-                              return false;
-                            }
-                            return impl == std::get<memgraph::query::VertexAccessor>(other.impl);
-                          },
-                          [&other](memgraph::query::SubgraphVertexAccessor impl) -> bool {
-                            if (std::holds_alternative<memgraph::query::VertexAccessor>(other.impl)) {
-                              return false;
-                            }
-                            return impl == std::get<memgraph::query::SubgraphVertexAccessor>(other.impl);
-                          },
-                      },
-                      this->impl);
-  }
+  bool operator==(const mgp_vertex &other) const noexcept { return other.getImpl() == this->getImpl(); }
 
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
 
