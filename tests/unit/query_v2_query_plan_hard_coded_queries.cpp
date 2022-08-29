@@ -535,7 +535,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
   SymbolTable symbol_table;
 
   auto symbol_n = symbol_table.CreateSymbol("n", true);
-  auto symbol_p = symbol_table.CreateSymbol("n", true);
+  auto symbol_p = symbol_table.CreateSymbol("p", true);
   auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
 
   // ScanAllByLabel (p :Permission)
@@ -548,12 +548,15 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
 
   // Expand (p)-[e]->(n)
   auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
-  auto expand = std::make_shared<distributed::Expand>(scan_all_2, symbol_n, symbol_n, symbol_anon2,
+  auto output_expand_symbol = symbol_table.CreateSymbol("p", true);
+
+  auto expand = std::make_shared<distributed::Expand>(scan_all_2, symbol_n, output_expand_symbol, symbol_anon2,
                                                       EdgeAtom::Direction::IN, expand_edge_types,
                                                       false /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   auto output_n = NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
-  auto output_p = NEXPR("p", IDENT("p")->MapTo(symbol_p))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto output_p =
+      NEXPR("p", IDENT("p")->MapTo(output_expand_symbol))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
   auto produce = MakeProduceDistributed(expand, output_n, output_p);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
