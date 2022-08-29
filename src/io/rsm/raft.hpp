@@ -754,28 +754,29 @@ class Raft {
   std::optional<Role> Handle(Leader &leader, AppendResponse &&res, RequestId, Address from_address) {
     if (res.term != state_.term) {
       Log("received AppendResponse related to a previous term when we (presumably) were the leader");
-    } else if (!leader.followers.contains(from_address)) {
-      Log("received AppendResponse from unknown Follower");
-      MG_ASSERT(false, "received AppendResponse from unknown Follower");
-      // TODO(tyler) when we have dynamic membership, this assert will become incorrect, but we should
-      // keep it in-place until then because it has bug finding value.
-    } else {
-      // term matches and we know this Follower
-
-      FollowerTracker &follower = leader.followers.at(from_address);
-
-      if (res.success) {
-        Log("got successful AppendResponse from ", from_address.last_known_port, " with log_size of ", res.log_size);
-        follower.next_index = std::max(follower.next_index, res.log_size);
-      } else {
-        Log("got unsuccessful AppendResponse from ", from_address.last_known_port, " with log_size of ", res.log_size);
-        follower.next_index = res.log_size;
-      }
-
-      follower.confirmed_log_size = std::max(follower.confirmed_log_size, res.log_size);
-
-      BumpCommitIndexAndReplyToClients(leader);
+      return std::nullopt;
     }
+
+    // TODO(tyler) when we have dynamic membership, this assert will become incorrect, but we should
+    // keep it in-place until then because it has bug finding value.
+    MG_ASSERT(leader.followers.contains(from_address), "received AppendResponse from unknown Follower");
+
+    // at this point, we know the term matches and we know this Follower
+
+    FollowerTracker &follower = leader.followers.at(from_address);
+
+    if (res.success) {
+      Log("got successful AppendResponse from ", from_address.last_known_port, " with log_size of ", res.log_size);
+      follower.next_index = std::max(follower.next_index, res.log_size);
+    } else {
+      Log("got unsuccessful AppendResponse from ", from_address.last_known_port, " with log_size of ", res.log_size);
+      follower.next_index = res.log_size;
+    }
+
+    follower.confirmed_log_size = std::max(follower.confirmed_log_size, res.log_size);
+
+    BumpCommitIndexAndReplyToClients(leader);
+
     return std::nullopt;
   }
 
