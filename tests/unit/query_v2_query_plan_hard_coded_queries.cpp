@@ -466,11 +466,6 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
       NEXPR("n", IDENT("n")->MapTo(expand.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduceDistributed(expand.op_, output);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
-
-  if (number_of_vertices == 3 && frames_per_batch == 3) {
-    int i = 2;
-  }
-
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
   ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
   for (auto result : results) {
