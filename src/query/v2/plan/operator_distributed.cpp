@@ -46,6 +46,7 @@ extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
 extern const Event ProduceOperator;
 extern const Event UnwindOperator;
+extern const Event FilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::v2::plan::distributed {
@@ -668,5 +669,31 @@ UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
 }
+
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Filter)
+
+UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+
+  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+  throw QueryRuntimeException("Not yet implemented FilterCursor");
+  return false;
+}
+
+void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 }  // namespace memgraph::query::v2::plan::distributed
