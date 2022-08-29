@@ -2257,7 +2257,8 @@ void NextPermitted(mgp_vertices_iterator &it) {
   }
 
   while (it.current_it != it.vertices.end()) {
-    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view)) {
+    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view,
+                                            memgraph::auth::FineGrainedPermission::READ)) {
       break;
     }
 

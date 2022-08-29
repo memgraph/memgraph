@@ -46,16 +46,16 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
   memgraph::auth::User user{"test"};
-  user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD));
-  ASSERT_TRUE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantedAllEdgeTypes) {
@@ -64,10 +64,10 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantedAllEdgeTypes) {
       "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, r1));
-  ASSERT_TRUE(auth_checker.Accept(dba, r2));
-  ASSERT_TRUE(auth_checker.Accept(dba, r3));
-  ASSERT_TRUE(auth_checker.Accept(dba, r4));
+  ASSERT_TRUE(auth_checker.Accept(dba, r1, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, r2, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, r3, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, r4, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, DeniedAllLabels) {
@@ -75,12 +75,12 @@ TEST_F(FineGrainedAuthCheckerFixture, DeniedAllLabels) {
   user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD));
-  ASSERT_FALSE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD));
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD));
+  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, DeniedAllEdgeTypes) {
@@ -88,10 +88,10 @@ TEST_F(FineGrainedAuthCheckerFixture, DeniedAllEdgeTypes) {
   user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_FALSE(auth_checker.Accept(dba, r1));
-  ASSERT_FALSE(auth_checker.Accept(dba, r2));
-  ASSERT_FALSE(auth_checker.Accept(dba, r3));
-  ASSERT_FALSE(auth_checker.Accept(dba, r4));
+  ASSERT_FALSE(auth_checker.Accept(dba, r1, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, r2, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, r3, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, r4, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantLabel) {
@@ -100,8 +100,8 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantLabel) {
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, DenyLabel) {
@@ -109,8 +109,8 @@ TEST_F(FineGrainedAuthCheckerFixture, DenyLabel) {
   user.fine_grained_access_handler().label_permissions().Deny("l3", memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantAndDenySpecificLabels) {
@@ -122,12 +122,12 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantAndDenySpecificLabels) {
   user.fine_grained_access_handler().label_permissions().Deny("l3", memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD));
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v3, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, MultipleVertexLabels) {
@@ -142,10 +142,10 @@ TEST_F(FineGrainedAuthCheckerFixture, MultipleVertexLabels) {
   ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l1")).HasValue());
   dba.AdvanceCommand();
 
-  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW));
-  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW));
-  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD));
+  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, v1, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, v2, memgraph::storage::View::OLD, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantEdgeType) {
@@ -154,7 +154,7 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantEdgeType) {
       "edge_type_1", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, r1));
+  ASSERT_TRUE(auth_checker.Accept(dba, r1, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, DenyEdgeType) {
@@ -163,7 +163,7 @@ TEST_F(FineGrainedAuthCheckerFixture, DenyEdgeType) {
                                                                   memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_FALSE(auth_checker.Accept(dba, r1));
+  ASSERT_FALSE(auth_checker.Accept(dba, r1, memgraph::auth::FineGrainedPermission::READ));
 }
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
@@ -174,8 +174,8 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
                                                                   memgraph::auth::FineGrainedPermission::READ);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
-  ASSERT_TRUE(auth_checker.Accept(dba, r1));
-  ASSERT_TRUE(auth_checker.Accept(dba, r2));
-  ASSERT_FALSE(auth_checker.Accept(dba, r3));
-  ASSERT_FALSE(auth_checker.Accept(dba, r4));
+  ASSERT_TRUE(auth_checker.Accept(dba, r1, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_TRUE(auth_checker.Accept(dba, r2, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, r3, memgraph::auth::FineGrainedPermission::READ));
+  ASSERT_FALSE(auth_checker.Accept(dba, r4, memgraph::auth::FineGrainedPermission::READ));
 }
