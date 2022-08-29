@@ -1303,7 +1303,11 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
 
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
+  auto reset_property_value = [&]() { static_cast<void>(edge->SetProperty(property, property_value)); };
+
   auto execute_set_property = [&](memgraph::auth::User user, int new_property_value) {
+    reset_property_value();
+
     AstStorage storage;
     SymbolTable symbol_table;
 
@@ -1320,6 +1324,35 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*set_property, &context);
+    dba.AdvanceCommand();
+  };
+
+  auto execute_set_properties = [&](memgraph::auth::User user, int new_property_value) {
+    reset_property_value();
+
+    AstStorage storage;
+    SymbolTable symbol_table;
+
+    // MATCH (n)-[r]->(m) SET r = {prop: 2};
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto expand = MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r", EdgeAtom::Direction::OUT, {}, "m",
+                             false, memgraph::storage::View::OLD);
+
+    auto prop = PROPERTY_PAIR(property_name);
+    std::unordered_map<PropertyIx, Expression *> prop_map;
+    prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(new_property_value));
+    auto *rhs = storage.Create<MapLiteral>(prop_map);
+    auto set_properties =
+        std::make_shared<plan::SetProperties>(expand.op_, expand.edge_sym_, rhs, plan::SetProperties::Op::UPDATE);
+
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+    auto produce = MakeProduce(set_properties, output);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+
+    PullAll(*produce, &context);
     dba.AdvanceCommand();
   };
 
@@ -1349,6 +1382,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
 
     execute_set_property(user, 2);
     test_hypothesis(1);
+    execute_set_properties(user, 2);
+    test_hypothesis(1);
   }
 
   {
@@ -1359,6 +1394,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
                                                                     memgraph::auth::FineGrainedPermission::READ);
 
     execute_set_property(user, 2);
+    test_hypothesis(1);
+    execute_set_properties(user, 2);
     test_hypothesis(1);
   }
 
@@ -1371,6 +1408,8 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
 
     execute_set_property(user, 2);
     test_hypothesis(2);
+    execute_set_properties(user, 2);
+    test_hypothesis(2);
   }
 
   {
@@ -1380,8 +1419,10 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
-    execute_set_property(user, 3);
-    test_hypothesis(3);
+    execute_set_property(user, 2);
+    test_hypothesis(2);
+    execute_set_properties(user, 2);
+    test_hypothesis(2);
   }
 
   {
@@ -1392,8 +1433,10 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
 
-    execute_set_property(user, 4);
-    test_hypothesis(4);
+    execute_set_property(user, 2);
+    test_hypothesis(2);
+    execute_set_properties(user, 2);
+    test_hypothesis(2);
   }
 
   {
@@ -1405,8 +1448,10 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
-    execute_set_property(user, 5);
-    test_hypothesis(4);
+    execute_set_property(user, 2);
+    test_hypothesis(1);
+    execute_set_properties(user, 2);
+    test_hypothesis(1);
   }
 
   {
@@ -1417,8 +1462,10 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
         edge_type_name, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
 
-    execute_set_property(user, 5);
-    test_hypothesis(5);
+    execute_set_property(user, 2);
+    test_hypothesis(2);
+    execute_set_properties(user, 2);
+    test_hypothesis(2);
   }
 
   {
@@ -1430,7 +1477,9 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    execute_set_property(user, 6);
-    test_hypothesis(5);
+    execute_set_property(user, 2);
+    test_hypothesis(1);
+    execute_set_properties(user, 2);
+    test_hypothesis(1);
   }
 }
