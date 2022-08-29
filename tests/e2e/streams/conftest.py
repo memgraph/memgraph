@@ -83,4 +83,3 @@ def pulsar_topics():
         requests.delete(
             f'http://127.0.0.1:6652/admin/v2/persistent/public/default/{topic}?force=true')
     yield topics
-    
