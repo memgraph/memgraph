@@ -727,7 +727,8 @@ class Raft {
       // hasn't reached consensus yet, which is normal)
       state_.log.resize(resize_length);
 
-      state_.log.insert(state_.log.end(), req.entries.begin(), req.entries.end());
+      state_.log.insert(state_.log.end(), std::make_move_iterator(req.entries.begin()),
+                        std::make_move_iterator(req.entries.end()));
 
       MG_ASSERT(req.leader_commit >= state_.committed_log_size);
       state_.committed_log_size = std::min(req.leader_commit, state_.log.size());
