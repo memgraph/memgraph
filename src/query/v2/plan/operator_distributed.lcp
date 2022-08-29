@@ -80,10 +80,11 @@ class ScanAllByLabel;
 class ScanAllByLabelPropertyValue;
 class ScanAllById;
 class Expand;
+class Distinct;
 class Produce;
 
 using LogicalOperatorCompositeVisitor =
-    utils::CompositeVisitor<Once, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyValue, ScanAllById, Expand, Produce>;
+    utils::CompositeVisitor<Once, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyValue, ScanAllById, Expand, Distinct, Produce>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -615,6 +616,38 @@ pulled.")
 
     bool InitEdges(MultiFrame &, ExecutionContext &);
    };
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class distinct (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer)
+   (value-symbols "std::vector<Symbol>" :scope :public))
+  (:documentation
+   "Ensures that only distinct rows are yielded.
+This implementation accepts a vector of Symbols
+which define a row. Only those Symbols are valid
+for use in operators following Distinct.
+
+This implementation maintains input ordering.")
+  (:public
+   #>cpp
+   Distinct() {}
+
+   Distinct(const std::shared_ptr<LogicalOperator> &input,
+            const std::vector<Symbol> &value_symbols);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
    cpp<#)
   (:serialize (:slk))
   (:clone))
