@@ -13,6 +13,8 @@
 
 #include "gtest/gtest.h"
 
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
@@ -189,6 +191,15 @@ std::vector<std::vector<memgraph::query::TypedValue>> PullResults(memgraph::quer
 
 enum class FilterLambdaType { NONE, USE_FRAME, USE_FRAME_NULL, USE_CTX, ERROR };
 
+enum class FineGrainedTestType {
+  ALL_GRANTED,
+  ALL_DENIED,
+  EDGE_TYPE_A_DENIED,
+  EDGE_TYPE_B_DENIED,
+  LABEL_0_DENIED,
+  LABEL_3_DENIED
+};
+
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
@@ -202,7 +213,6 @@ class Database {
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
-
   virtual ~Database() {}
 };
 
@@ -439,4 +449,272 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::Ed
   }
 
   dba.Abort();
+}
+
+void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bound,
+                                     memgraph::query::EdgeAtom::Direction direction,
+                                     std::vector<std::string> edge_types, bool known_sink,
+                                     FineGrainedTestType fine_grained_test_type) {
+  auto storage_dba = db->Access();
+  memgraph::query::DbAccessor db_accessor(&storage_dba);
+  memgraph::query::AstStorage storage;
+  memgraph::query::ExecutionContext context{&db_accessor};
+  memgraph::query::Symbol blocked_symbol = context.symbol_table.CreateSymbol("blocked", true);
+  memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
+  memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
+  memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
+  memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
+  memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
+
+  std::vector<memgraph::query::VertexAccessor> vertices;
+  std::vector<memgraph::query::EdgeAccessor> edges;
+
+  std::tie(vertices, edges) = db->BuildGraph(&db_accessor, kVertexLocations, kEdges);
+
+  db_accessor.AdvanceCommand();
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator;
+
+  memgraph::query::Expression *filter_expr = nullptr;
+
+  input_operator =
+      std::make_shared<Yield>(nullptr, std::vector<memgraph::query::Symbol>{blocked_symbol},
+                              std::vector<std::vector<memgraph::query::TypedValue>>{{memgraph::query::TypedValue()}});
+
+  memgraph::auth::User user{"test"};
+  std::vector<std::pair<int, int>> edges_in_result;
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
+      break;
+    case FineGrainedTestType::ALL_DENIED:
+      user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+
+      break;
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("b",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("a", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"b"});
+      break;
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("a",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny("b", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a"});
+      break;
+    case FineGrainedTestType::LABEL_0_DENIED:
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny("0", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
+      edges_in_result.erase(
+          std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 0; }),
+          edges_in_result.end());
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny("3", memgraph::auth::FineGrainedPermission::READ);
+
+      edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
+      edges_in_result.erase(
+          std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 3; }),
+          edges_in_result.end());
+      break;
+  }
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(auth_checker));
+  // We run BFS once from each vertex for each blocked entity.
+  input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
+
+  // If the sink is known, we run BFS for all posible combinations of source,
+  // sink and blocked entity.
+  if (known_sink) {
+    input_operator = YieldVertices(&db_accessor, vertices, sink_symbol, input_operator);
+  }
+
+  std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
+  for (const auto &t : edge_types) {
+    storage_edge_types.push_back(db_accessor.NameToEdgeType(t));
+  }
+
+  input_operator = db->MakeBfsOperator(
+      source_symbol, sink_symbol, edges_symbol, direction, storage_edge_types, input_operator, known_sink,
+      lower_bound == -1 ? nullptr : LITERAL(lower_bound), upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+      memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, filter_expr});
+
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
+  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+  std::vector<std::vector<memgraph::query::TypedValue>> results;
+
+  results = PullResults(input_operator.get(), &context,
+                        std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol, blocked_symbol});
+
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+      }
+      break;
+    case FineGrainedTestType::ALL_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          EXPECT_EQ(results.size(), 0);
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          EXPECT_EQ(results.size(), 0);
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          EXPECT_EQ(results.size(), 0);
+          break;
+      }
+      break;
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+      }
+      break;
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          CheckPathsAndExtractDistances(
+              &db_accessor, edges_in_result,
+              std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          break;
+      }
+      break;
+    case FineGrainedTestType::LABEL_0_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+      }
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      switch (direction) {
+        case memgraph::query::EdgeAtom::Direction::IN:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::OUT:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+        case memgraph::query::EdgeAtom::Direction::BOTH:
+          if (known_sink) {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          } else {
+            CheckPathsAndExtractDistances(
+                &db_accessor, edges_in_result,
+                std::vector<std::vector<memgraph::query::TypedValue>>(results.begin(), results.begin()));
+          }
+          break;
+      }
+      break;
+  }
+
+  db_accessor.Abort();
 }

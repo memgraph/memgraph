@@ -46,8 +46,8 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 
 TEST_F(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
   memgraph::auth::User user{"test"};
-  user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
   memgraph::glue::FineGrainedAuthChecker auth_checker{user};
 
   ASSERT_TRUE(auth_checker.Accept(dba, v1, memgraph::storage::View::NEW, memgraph::auth::FineGrainedPermission::READ));
