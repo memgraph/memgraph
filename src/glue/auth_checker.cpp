@@ -23,7 +23,6 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
                             const memgraph::auth::FineGrainedPermission fine_grained_permission) {
   return std::all_of(labels.begin(), labels.end(), [&dba, &user, fine_grained_permission](const auto &label) {
     return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label), fine_grained_permission) ==
-           memgraph::auth::PermissionLevel::GRANT;
   });
 }
 

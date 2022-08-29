@@ -36,22 +36,22 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View view,
-                                    const auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::storage::View view,
+                                    auth::FineGrainedPermission fine_grained_permission) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-                                    const auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    auth::FineGrainedPermission fine_grained_permission) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
                                     const std::vector<memgraph::storage::LabelId> &labels,
-                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
                                     const memgraph::storage::EdgeTypeId &edge_type,
-                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 };
 
-class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
+class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
   bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View view,
               const auth::FineGrainedPermission fine_grained_permission) const override {
@@ -72,7 +72,7 @@ class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthC
               const memgraph::auth::FineGrainedPermission fine_grained_permission) const override {
     return true;
   }
-};
+};  // namespace memgraph::query
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
  public:
@@ -82,7 +82,7 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
   }
 
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/) const override {
-    return std::make_unique<AllowEverythingUserBasedAuthChecker>();
+    return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
 };
 
