@@ -701,6 +701,8 @@ bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
   SCOPED_PROFILE_OP("Filter");
 
   while (input_cursor_->Pull(multiframe, context)) {
+    // TODO(gitbuda): Make frames invalid only there is something to return because in the case with many pull without
+    // return multiframe will be in a "polluted" state.
     for (auto idx = 0; idx < multiframe.Size(); ++idx) {
       auto &frame = multiframe.GetFrame(idx);
       if (!frame.IsValid()) {
@@ -708,9 +710,7 @@ bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
       }
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::v3::View::OLD);
-      if (EvaluateFilter(evaluator, self_.expression_)) {
-        frame.MakeValid();
-      } else {
+      if (!EvaluateFilter(evaluator, self_.expression_)) {
         frame.MakeInvalid();
       }
     }
