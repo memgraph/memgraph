@@ -13,6 +13,7 @@
 #include <iterator>
 #include <memory>
 #include <random>
+#include <set>
 #include <vector>
 
 #include "common/types.hpp"
@@ -34,6 +35,27 @@ using namespace memgraph::query::v2::plan;
 using test_common::ToIntList;
 using test_common::ToIntMap;
 using testing::UnorderedElementsAre;
+
+namespace {
+
+bool ResultsHaveDistinctElementsOnProperty(const std::vector<std::vector<TypedValue>> &results,
+                                           const memgraph::storage::v3::PropertyId &property_id) {
+  std::vector<int64_t> values_of_properties;
+  for (auto idx = 0; idx < results.size(); ++idx) {
+    for (const auto &result : results[idx]) {
+      auto v_acc = result.ValueVertex();
+      auto value_of_prop = v_acc.GetProperty(memgraph::storage::v3::View::NEW, property_id);
+      TypedValue val(value_of_prop.GetValue());
+
+      auto value_of_set_property = val.ValueInt();
+      values_of_properties.push_back(value_of_set_property);
+    }
+  }
+  std::set<int64_t> ev_set(values_of_properties.begin(), values_of_properties.end());
+  return ev_set.size() == results.size();
+}
+
+}  // namespace
 
 namespace memgraph::query::v2::tests {
 
@@ -528,28 +550,25 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  // ScanAll (anon1)
-  // auto n = symbol_table.CreateSymbol("n", true);
-
+  // ScanAll
   auto scan_all = MakeScanAllDistributed(storage, symbol_table, "n");
 
   std::vector<Symbol> symbol_vec{scan_all.sym_};
 
   auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all.op_, symbol_vec);
 
-  // Produce n.id
+  // Produce n.id?
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto produce = MakeProduceDistributed(scan_all.op_, output);
-
-  // Distinct
-  // symbols.emplace_back(context->symbol_table.at(*named_expression));
-  // auto distinct = MakeDistinctDistributed(produce, {symbol_table.at(*output)});
+  auto produce = MakeProduceDistributed(distinct, output);
 
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
 
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+
+  ASSERT_EQ(results.size(), already_gotten_numbers.size());
+  ASSERT_TRUE(ResultsHaveDistinctElementsOnProperty(results, check_property));
 }
 
 TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
