@@ -179,6 +179,9 @@ concept AllRoles = memgraph::utils::SameAsAnyOf<Role, Leader, Follower, Candidat
 template <typename Role>
 concept LeaderOrFollower = memgraph::utils::SameAsAnyOf<Role, Leader, Follower>;
 
+template <typename Role>
+concept FollowerOrCandidate = memgraph::utils::SameAsAnyOf<Role, Follower, Candidate>;
+
 /*
 all ReplicatedState classes should have an Apply method
 that returns our WriteResponseValue:
@@ -788,8 +791,8 @@ class Raft {
     return std::nullopt;
   }
 
-  template <AllRoles ALL>
-  std::optional<Role> Handle(ALL & /* variable */, AppendResponse && /* variable */, RequestId /* variable */,
+  template <FollowerOrCandidate FOC>
+  std::optional<Role> Handle(FOC & /* variable */, AppendResponse && /* variable */, RequestId /* variable */,
                              Address /* variable */) {
     // we used to be the leader, and are getting old delayed responses
     return std::nullopt;
