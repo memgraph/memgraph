@@ -620,30 +620,47 @@ class UnwindCursor : public Cursor {
     while (true) {
       if (MustAbort(context)) throw HintedAbortError();
       // NOTE: "Cartesian product" between MultiFrame values and input values because for each Frame the whole input
-      // list has to be evaluated.
-      // TODO(gitbuda): Fix the implementation.
-      if (!input_cursor_->Pull(multiframe, context)) return false;
+      // list has to be evaluated. Evaluation result depends on the frame.
+      if (!frame_idx_) {
+        if (!input_cursor_->Pull(multiframe, context)) return false;
+        frame_idx_ = 0;
+      }
 
-      for (auto idx = 0; idx < multiframe.Size(); ++idx) {
-        auto &frame = multiframe.GetFrame(idx);
+      for (; *frame_idx_ < multiframe.Size();) {
+        auto &frame = multiframe.GetFrame(*frame_idx_);
         if (!frame.IsValid()) {
+          frame_idx_ = *frame_idx_ + 1;
           continue;
         }
-        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                      storage::v3::View::OLD);
-        TypedValue input_value = self_.input_expression_->Accept(evaluator);
-        if (input_value.type() != TypedValue::Type::List) {
-          throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
+        if (input_value_it_ == input_value_.end()) {
+          ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                        storage::v3::View::OLD);
+          TypedValue input_value = self_.input_expression_->Accept(evaluator);
+          if (input_value.type() != TypedValue::Type::List) {
+            throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.",
+                                        input_value.type());
+          }
+          input_value_ = input_value.ValueList();
+          input_value_it_ = input_value_.begin();
         }
-        input_value_ = input_value.ValueList();
-        input_value_it_ = input_value_.begin();
+        // NOTE: Here we have to populate to as many frames as we have them, but not more.
         while (input_value_it_ != input_value_.end()) {
           frame[self_.output_symbol_] = *input_value_it_++;
+          populated_frames_++;
+          // TODO(gitbuda): Take invalid frames into account (BUG HERE)!
+          if (populated_frames_ < multiframe.Size()) {
+            continue;
+          }
+          populated_frames_ = 0;
+          if (input_value_it_ == input_value_.end()) {
+            frame_idx_ = *frame_idx_ + 1;
+          }
+          return true;
         }
-        input_value_.clear();
-        input_value_it_ = input_value_.end();
+        frame_idx_ = *frame_idx_ + 1;
       }
-      return true;
+
+      frame_idx_ = std::nullopt;
     }
   }
 
@@ -662,6 +679,8 @@ class UnwindCursor : public Cursor {
   utils::pmr::vector<TypedValue> input_value_;
   // current position in input_value_
   decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+  std::optional<size_t> frame_idx_{std::nullopt};
+  size_t populated_frames_{0};
 };
 
 UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
