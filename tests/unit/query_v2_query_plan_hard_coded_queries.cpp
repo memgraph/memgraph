@@ -685,24 +685,22 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   auto scan_all_2 = std::make_shared<distributed::ScanAllByLabel>(scan_all_1, symbol_p, label_permission,
                                                                   memgraph::storage::v3::View::OLD);
 
-  // (n:Node)<-[:IS_FOR_NODE]-(p:Permission)
+  // (n:Node)<-[anon3:IS_FOR_NODE]-(p:Permission)
   auto expand_1_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_node};
-  // #NoCommit not sure about the two symbol_p, should we creat another symbol and map it (or not)?
-  auto expand_1 = std::make_shared<distributed::Expand>(scan_all_2, symbol_p, symbol_p, symbol_anon3,
+  auto expand_1 = std::make_shared<distributed::Expand>(scan_all_2, symbol_p, symbol_n, symbol_anon3,
                                                         EdgeAtom::Direction::OUT, expand_1_edge_types,
-                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                                                        true /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
   auto scan_all_3 = std::make_shared<distributed::ScanAllByLabelPropertyValue>(
       expand_1, symbol_i, label_identity, property_identity_email, "email", LITERAL("rrr@clientdrive.com"),
       memgraph::storage::v3::View::OLD);
 
-  // (p:Permission)-[:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
+  // (p:Permission)-[anon1:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
   auto expand_2_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_identity};
-  // #NoCommit not sure about the two symbol_i, should we creat another symbol and map it (or not)?
-  auto expand_2 = std::make_shared<distributed::Expand>(scan_all_3, symbol_i, symbol_i, symbol_anon1,
+  auto expand_2 = std::make_shared<distributed::Expand>(scan_all_3, symbol_i, symbol_p, symbol_anon1,
                                                         EdgeAtom::Direction::IN, expand_2_edge_types,
-                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                                                        true /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking result from:
