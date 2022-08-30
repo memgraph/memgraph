@@ -240,8 +240,10 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
 
   if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
-                                                            memgraph::auth::FineGrainedPermission::CREATE_DELETE))
+                                                            memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+    spdlog::error("Error while creating a vertex due to not having enough permission!");
     return false;
+  }
 
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
@@ -327,12 +329,13 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
-                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE) ||
-                               !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
-                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)))
+  if (context.auth_checker && !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
+                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE) &&
+                                context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
+                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE))) {
+    spdlog::error("Error while creating an edge due to not having enough permission!");
     return false;
-
+  }
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
@@ -2022,6 +2025,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                                          auth::FineGrainedPermission::CREATE_DELETE) &&
             context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
                                          auth::FineGrainedPermission::CREATE_DELETE))) {
+        spdlog::error("Error while deleting an edge due to not having enough permission!");
         continue;
       }
       auto maybe_value = dba.RemoveEdge(&ea);
@@ -2051,6 +2055,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         auto &va = expression_result.ValueVertex();
         if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
                                                                   auth::FineGrainedPermission::CREATE_DELETE)) {
+          spdlog::error("Error while deleting a vertex due to not having enough permission!");
           break;
         }
         if (self_.detach_) {
