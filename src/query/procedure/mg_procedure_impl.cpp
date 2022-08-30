@@ -1065,9 +1065,20 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
     // the given edge.
     auto *src_vertex = &path->vertices.back();
     mgp_vertex *dst_vertex{nullptr};
-    if (edge->to == *src_vertex) {
+
+    auto has_permission = [](const auto &vertex) -> bool {
+      const auto *ctx = vertex.graph->ctx;
+
+      if (ctx && ctx->auth_checker) {
+        return ctx->auth_checker->Accept(*ctx->db_accessor, vertex.impl, vertex.graph->view);
+      }
+
+      return true;
+    };
+
+    if (has_permission(edge->from) && (edge->to == *src_vertex)) {
       dst_vertex = &edge->from;
-    } else if (edge->from == *src_vertex) {
+    } else if (has_permission(edge->to) && (edge->from == *src_vertex)) {
       dst_vertex = &edge->to;
     } else {
       // edge is not a continuation on src_vertex
@@ -2353,7 +2364,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 namespace {
 void NextPermitted(mgp_vertices_iterator &it) {
-  if (!it.graph->ctx->auth_checker) {
+  if (!it.graph->ctx || !it.graph->ctx->auth_checker) {
     return;
   }
 

@@ -22,3 +22,21 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection
+
+
+def reset_permissions(admin_cursor: mgclient.Cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:read_label);")
+    execute_and_fetch_all(admin_cursor, "CREATE (n:read_label_1)-[r:read_edge_type]->(m:read_label_2);")
+
+
+def reset_update_permissions(admin_cursor: mgclient.Cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {prop: 1});")
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label_1)-[r:update_edge_type {prop: 1}]->(m:update_label_2);")

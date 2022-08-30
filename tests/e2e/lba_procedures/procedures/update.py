@@ -12,16 +12,7 @@
 import mgp
 
 
-@mgp.read_proc
-def number_of_visible_nodes(ctx: mgp.ProcCtx) -> mgp.Record(nr_of_nodes=int):
-    return mgp.Record(nr_of_nodes=len(mgp.Vertices(ctx.graph._graph)))
-
-
-@mgp.read_proc
-def number_of_visible_edges(ctx: mgp.ProcCtx) -> mgp.Record(nr_of_edges=int):
-    count = 0
-    for vertex in ctx.graph.vertices:
-        for _ in vertex.out_edges:
-            count += 1
-
-    return mgp.Record(nr_of_edges=count)
+@mgp.write_proc
+def set_property(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record():
+    object.properties.set("prop", 2)
+    return mgp.Record()
