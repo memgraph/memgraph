@@ -33,9 +33,10 @@ struct Address {
   uint16_t last_known_port;
 
   static Address TestAddress(uint16_t port) {
-    Address ret;
-    ret.last_known_port = port;
-    return ret;
+    return Address{
+        .last_known_port = port,
+        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+    };
   }
 
   static Address UniqueLocalAddress() {
