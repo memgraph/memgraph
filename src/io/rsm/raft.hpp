@@ -424,7 +424,7 @@ class Raft {
 
     std::ostringstream out;
 
-    out << '\t' << (int)micros << "\t" << term << "\t" << io_.GetAddress().last_known_port;
+    out << '\t' << micros.count() << "\t" << term << "\t" << io_.GetAddress().last_known_port;
 
     out << role_string;
 
