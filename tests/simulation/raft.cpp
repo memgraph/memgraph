@@ -130,7 +130,7 @@ void RunSimulation() {
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{8 * 1024 * 1024},
+      .abort_time = Time::min() + std::chrono::microseconds{8 * 1024 * 128},
   };
 
   auto simulator = Simulator(config);
@@ -163,17 +163,16 @@ void RunSimulation() {
   auto srv_thread_3 = std::jthread(RunRaft<SimulatorTransport>, std::move(srv_3));
   simulator.IncrementServerCountAndWaitForQuiescentState(srv_addr_3);
 
-  spdlog::debug("beginning test after servers have become quiescent");
+  spdlog::info("beginning test after servers have become quiescent");
 
   std::mt19937 cli_rng_{0};
   std::vector<Address> server_addrs{srv_addr_1, srv_addr_2, srv_addr_3};
   Address leader = server_addrs[0];
 
-  RsmClient<Io<SimulatorTransport>, CasRequest, CasResponse, GetRequest, GetResponse> client(cli_io, leader,
-                                                                                             server_addrs);
+  RsmClient<SimulatorTransport, CasRequest, CasResponse, GetRequest, GetResponse> client(cli_io, leader, server_addrs);
 
   const int key = 0;
-  std::optional<int> last_known_value;
+  std::optional<int> last_known_value = 0;
 
   bool success = false;
 
@@ -197,8 +196,7 @@ void RunSimulation() {
 
     bool cas_succeeded = cas_response.cas_success;
 
-    spdlog::debug("Client received CasResponse! success: {} last_known_value {}", cas_succeeded,
-                  (int)*last_known_value);
+    spdlog::info("Client received CasResponse! success: {} last_known_value {}", cas_succeeded, (int)*last_known_value);
 
     if (cas_succeeded) {
       last_known_value = i;
@@ -222,7 +220,7 @@ void RunSimulation() {
 
     MG_ASSERT(get_response.value == i);
 
-    spdlog::debug("client successfully cas'd a value and read it back! value: {}", i);
+    spdlog::info("client successfully cas'd a value and read it back! value: {}", i);
 
     success = true;
   }
@@ -233,14 +231,14 @@ void RunSimulation() {
 
   SimulatorStats stats = simulator.Stats();
 
-  spdlog::debug("total messages:     ", stats.total_messages);
-  spdlog::debug("dropped messages:   ", stats.dropped_messages);
-  spdlog::debug("timed out requests: ", stats.timed_out_requests);
-  spdlog::debug("total requests:     ", stats.total_requests);
-  spdlog::debug("total responses:    ", stats.total_responses);
-  spdlog::debug("simulator ticks:    ", stats.simulator_ticks);
+  spdlog::info("total messages:     {}", stats.total_messages);
+  spdlog::info("dropped messages:   {}", stats.dropped_messages);
+  spdlog::info("timed out requests: {}", stats.timed_out_requests);
+  spdlog::info("total requests:     {}", stats.total_requests);
+  spdlog::info("total responses:    {}", stats.total_responses);
+  spdlog::info("simulator ticks:    {}", stats.simulator_ticks);
 
-  spdlog::debug("========================== SUCCESS :) ==========================");
+  spdlog::info("========================== SUCCESS :) ==========================");
 
   /*
   this is implicit in jthread's dtor
@@ -254,12 +252,12 @@ int main() {
   int n_tests = 50;
 
   for (int i = 0; i < n_tests; i++) {
-    spdlog::debug("========================== NEW SIMULATION {} ==========================", i);
-    spdlog::debug("\tTime\tTerm\tPort\tRole\t\tMessage\n");
+    spdlog::info("========================== NEW SIMULATION {} ==========================", i);
+    spdlog::info("\tTime\t\tTerm\tPort\tRole\t\tMessage\n");
     RunSimulation();
   }
 
-  spdlog::debug("passed {} tests!", n_tests);
+  spdlog::info("passed {} tests!", n_tests);
 
   return 0;
 }

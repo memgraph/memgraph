@@ -394,3 +394,7 @@ add_dependencies(memgraph__unit test_lcp)
 # Test future
 add_unit_test(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
+
+# Test Local Transport
+add_unit_test(local_transport.cpp)
+target_link_libraries(${test_prefix}local_transport mg-io)

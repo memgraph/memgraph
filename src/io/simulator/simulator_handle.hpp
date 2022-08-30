@@ -24,42 +24,13 @@
 
 #include "io/address.hpp"
 #include "io/errors.hpp"
-#include "io/simulator/message_conversion.hpp"
+#include "io/message_conversion.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
 
 namespace memgraph::io::simulator {
-
-using memgraph::io::Duration;
-using memgraph::io::Time;
-
-struct PromiseKey {
-  Address requester_address;
-  uint64_t request_id;
-  // TODO(tyler) possibly remove replier_address from promise key
-  // once we want to support DSR.
-  Address replier_address;
-
- public:
-  friend bool operator<(const PromiseKey &lhs, const PromiseKey &rhs) {
-    if (lhs.requester_address != rhs.requester_address) {
-      return lhs.requester_address < rhs.requester_address;
-    }
-
-    if (lhs.request_id != rhs.request_id) {
-      return lhs.request_id < rhs.request_id;
-    }
-
-    return lhs.replier_address < rhs.replier_address;
-  }
-};
-
-struct DeadlineAndOpaquePromise {
-  Time deadline;
-  OpaquePromise promise;
-};
 
 class SimulatorHandle {
   mutable std::mutex mu_{};
@@ -81,14 +52,6 @@ class SimulatorHandle {
   std::set<Address> server_addresses_;
   std::mt19937 rng_;
   SimulatorConfig config_;
-
-  /// Returns the number of servers currently blocked on Receive, plus
-  /// the servers that are blocked on Futures that were created through
-  /// SimulatorTransport::Request.
-  ///
-  /// TODO(tyler) investigate whether avoiding consideration of Futures
-  /// increases determinism.
-  size_t BlockedServers();
 
   void TimeoutPromisesPastDeadline() {
     const Time now = cluster_wide_time_microseconds_;
@@ -122,14 +85,17 @@ class SimulatorHandle {
   bool ShouldShutDown() const;
 
   template <Message Request, Message Response>
-  void SubmitRequest(Address to_address, Address from_address, uint64_t request_id, Request &&request, Duration timeout,
-                     ResponsePromise<Response> &&promise) {
+  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, Request &&request,
+                     Duration timeout, ResponsePromise<Response> &&promise) {
     std::unique_lock<std::mutex> lock(mu_);
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
     std::any message(request);
-    OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message)};
+    OpaqueMessage om{.to_address = to_address,
+                     .from_address = from_address,
+                     .request_id = request_id,
+                     .message = std::move(message)};
     in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
     PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
@@ -182,10 +148,13 @@ class SimulatorHandle {
   }
 
   template <Message M>
-  void Send(Address to_address, Address from_address, uint64_t request_id, M message) {
+  void Send(Address to_address, Address from_address, RequestId request_id, M message) {
     std::unique_lock<std::mutex> lock(mu_);
     std::any message_any(std::move(message));
-    OpaqueMessage om{.from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
+    OpaqueMessage om{.to_address = to_address,
+                     .from_address = from_address,
+                     .request_id = request_id,
+                     .message = std::move(message_any)};
     in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
 
     stats_.total_messages++;
