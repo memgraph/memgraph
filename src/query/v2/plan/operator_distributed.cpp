@@ -619,8 +619,9 @@ class UnwindCursor : public Cursor {
     SCOPED_PROFILE_OP("Unwind");
     while (true) {
       if (MustAbort(context)) throw HintedAbortError();
-      // NOTE: "Cartesian product" between MultiFrame values and input values because for each Frame the whole input
-      // list has to be evaluated. Evaluation result depends on the frame.
+      // There are three important dimensions: multiframe size, unwind list size.
+      // "Cartesian product" between MultiFrame values and input values because for each Frame the whole input list has
+      // to be evaluated. Evaluation result depends on the frame.
       if (!frame_idx_) {
         if (!input_cursor_->Pull(multiframe, context)) return false;
         frame_idx_ = 0;
@@ -648,9 +649,19 @@ class UnwindCursor : public Cursor {
           frame[self_.output_symbol_] = *input_value_it_++;
           populated_frames_++;
           // TODO(gitbuda): Take invalid frames into account (BUG HERE)!
+          // Taking care if multiframe size is smaller than unwind list size.
           if (populated_frames_ < multiframe.Size()) {
             continue;
+          } else {
+            populated_frames_ = 0;
+            if (input_value_it_ == input_value_.end()) {
+              frame_idx_ = *frame_idx_ + 1;
+            }
+            return true;
           }
+        }
+        // Taking care if multiframe size is bigger than unwind list size.
+        if (populated_frames_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
           populated_frames_ = 0;
           if (input_value_it_ == input_value_.end()) {
             frame_idx_ = *frame_idx_ + 1;
