@@ -34,8 +34,8 @@ struct Address {
 
   static Address TestAddress(uint16_t port) {
     return Address{
-        .last_known_port = port,
         .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        .last_known_port = port,
     };
   }
 
