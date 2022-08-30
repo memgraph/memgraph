@@ -101,6 +101,9 @@ std::vector<std::vector<TypedValue>> CollectProduceDistributed(const distributed
           break;
         }
 
+        // TODO(gvolfing) Remove debug vars
+        auto asd = (*frame)[symbol];
+
         values.emplace_back((*frame)[symbol]);
       }
 

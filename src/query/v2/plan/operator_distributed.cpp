@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+
 #include "query/v2/plan/operator_distributed.hpp"
 
 #include "query/v2/interpret/eval.hpp"
@@ -578,21 +580,38 @@ class DistinctCursor : public Cursor {
   DistinctCursor(const Distinct &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
 
-  bool Pull(MultiFrame &frame, ExecutionContext &context) override {
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(multiframe, context)) return false;
 
-      auto &dummy_frame = *(frame.GetFrames()[0]);
+      // std::vector<bool> checker(multiframe.Size());
+      bool at_least_one_insertion = false;
 
-      utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
-      row.reserve(self_.value_symbols_.size());
-      for (const auto &symbol : self_.value_symbols_) {
-        row.emplace_back(dummy_frame[symbol]);
+      for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+        auto &frame = *(multiframe.GetFrames()[idx]);
+
+        if (!frame.IsValid()) {
+          continue;
+        }
+
+        utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
+        row.reserve(self_.value_symbols_.size());
+        for (const auto &symbol : self_.value_symbols_) {
+          row.emplace_back(frame[symbol]);
+        }
+
+        // Currently this returns true only if the insertion was successful
+        if (seen_rows_.insert(std::move(row)).second) {
+          at_least_one_insertion = true;
+        } else {
+          frame.MakeInvalid();
+        }
       }
 
-      if (seen_rows_.insert(std::move(row)).second) {
+      // If at least one is true return true
+      if (at_least_one_insertion) {
         return true;
       }
     }

@@ -43,12 +43,18 @@ bool ResultsHaveDistinctElementsOnProperty(const std::vector<std::vector<TypedVa
   std::vector<int64_t> values_of_properties;
   for (auto idx = 0; idx < results.size(); ++idx) {
     for (const auto &result : results[idx]) {
-      auto v_acc = result.ValueVertex();
-      auto value_of_prop = v_acc.GetProperty(memgraph::storage::v3::View::NEW, property_id);
-      TypedValue val(value_of_prop.GetValue());
+      if (result.IsInt()) {
+        int i = 2;
+      } else if (result.IsVertex()) {
+        int j = 3;
+      }
+      auto v_acc = result.ValueInt();
+      // auto value_of_prop = v_acc.GetProperty(memgraph::storage::v3::View::NEW, property_id);
+      // TypedValue val(value_of_prop.GetValue());
 
-      auto value_of_set_property = val.ValueInt();
-      values_of_properties.push_back(value_of_set_property);
+      // auto value_of_set_property = val.ValueInt();
+      // values_of_properties.push_back(value_of_set_property);
+      values_of_properties.push_back(v_acc);
     }
   }
   std::set<int64_t> ev_set(values_of_properties.begin(), values_of_properties.end());
@@ -515,6 +521,12 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
 
   const auto [number_of_vertices, frames_per_batch] = GetParam();
 
+  // TODO(gvolfing) Remove debug vars;
+  if (number_of_vertices == 3 && frames_per_batch == 3) {
+    int k = 3;
+    int i = 2;
+  }
+
   auto already_gotten_numbers = std::set<int>{};
 
   storage::v3::PropertyId check_property{db_v3.NameToProperty("number")};
@@ -551,17 +563,42 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
   SymbolTable symbol_table;
 
   // ScanAll
-  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "n");
+  // auto scan_all = MakeScanAllDistributed(storage, symbol_table, "n");
 
-  std::vector<Symbol> symbol_vec{scan_all.sym_};
+  // std::vector<Symbol> symbol_vec{scan_all.sym_};
 
-  auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all.op_, symbol_vec);
+  // auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), check_property);
+  // auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), check_property);
+
+  auto x = symbol_table.CreateSymbol("x", true);
+
+  auto scan_all = std::make_shared<distributed::ScanAll>(nullptr, x, memgraph::storage::v3::View::OLD);
+
+  auto x_expr = IDENT("x");
+  x_expr->MapTo(x);
+  auto x_ne = NEXPR("x", x_expr);
+  x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
+
+  auto n_p = PROPERTY_LOOKUP(x_expr, check_property);
+  auto n_p_ne = NEXPR("np", n_p)->MapTo(symbol_table.CreateSymbol("n_p_ne", true));
+  std::vector<Symbol> symbol_vec{symbol_table.at(*(n_p_ne))};
+
+  auto distinct = std::make_shared<distributed::Distinct>(scan_all, symbol_vec);
+
+  auto produce = MakeProduceDistributed(distinct, n_p_ne);
+
+  // auto n_p_ne = NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n_p_ne", true));
+
+  // symbol_table.at(*(n_p_ne));
+
+  // std::vector<Symbol> symbol_vec{symbol_table.at(*(n_p_ne))};
+  // auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all.op_, symbol_vec);
 
   // Produce n.id?
-  auto output =
-      NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  // auto output =
+  //     NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
-  auto produce = MakeProduceDistributed(distinct, output);
+  // auto produce = MakeProduceDistributed(distinct, n_p_ne);
 
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
 
