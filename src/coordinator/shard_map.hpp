@@ -56,7 +56,7 @@ struct ShardMap {
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
   bool SplitShard(Hlc previous_shard_map_version, Label label, CompoundKey key) {
-    if (CompareShardMapVersions(previous_shard_map_version, shard_map_version)) {
+    if (previous_shard_map_version == shard_map_version) {
       MG_ASSERT(shards.contains(label));
       auto &shards_in_map = shards[label];
       MG_ASSERT(!shards_in_map.contains(key));
@@ -105,31 +105,28 @@ struct ShardMap {
 
   std::map<Label, Shards> &GetShards() noexcept { return shards; }
 
-  Shards GetShardsForRange(Label label, CompoundKey start, CompoundKey end);
+  Shards GetShardsForRange(Label label, CompoundKey start_key, CompoundKey end_key) {
+    MG_ASSERT(start_key <= end_key);
 
-  Shard GetShardForKey(Label label, CompoundKey key) {
-    auto shard_for_label = shards.at(label);
+    const auto &shard_for_label = shards.at(label);
 
-    auto max = (--shard_for_label.end())->first;
+    Shards shards{};
 
-    if (key > max) {
-      return shard_for_label[max];
+    auto it = std::prev(shard_for_label.upper_bound(start_key));
+    const auto end_it = shard_for_label.upper_bound(end_key);
+
+    for (; it != end_it; it++) {
+      shards.emplace(it->first, it->second);
     }
 
-    for (auto it = shard_for_label.lower_bound(key);; --it) {
-      MG_ASSERT(it->first <= key);
-      return it->second;
-    }
-
-    MG_ASSERT(false, "failed to find shard with a key that is less than or equal to the provided key");
+    return shards;
   }
 
- private:
-  // TODO(gabor) later we will want to update the wallclock time with
-  // the given Io<impl>'s time as well. This function should just be
-  // replaced with operator== since it is already overloaded for Hlc
-  // objects.
-  bool CompareShardMapVersions(Hlc one, Hlc two) { return one.logical_id == two.logical_id; }
+  Shard GetShardForKey(Label label, CompoundKey key) {
+    const auto &shard_for_label = shards.at(label);
+
+    return std::prev(shard_for_label.upper_bound(key))->second;
+  }
 };
 
 }  // namespace memgraph::coordinator

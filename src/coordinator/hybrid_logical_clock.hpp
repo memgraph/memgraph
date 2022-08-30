@@ -22,9 +22,7 @@ struct Hlc {
   uint64_t logical_id;
   Time coordinator_wall_clock;
 
-  bool operator==(const Hlc &other) const {
-    return (logical_id == other.logical_id) && (coordinator_wall_clock == other.coordinator_wall_clock);
-  }
+  bool operator==(const Hlc &other) const = default;
 };
 
 }  // namespace memgraph::coordinator
