@@ -1898,8 +1898,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::v3::Shard *db, utils::MemoryResource *execution_memory) {
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::v3::Shard *db, utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
