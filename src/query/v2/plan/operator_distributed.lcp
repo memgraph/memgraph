@@ -335,7 +335,8 @@ and false on every following Pull.")
 If @c storage::v3::View::OLD, @c ScanAll will produce vertices visible in the
 previous graph state, before modifications done by current transaction &
 command. With @c storage::v3::View::NEW, all vertices will be produced the current
-transaction sees along with their modifications."))
+transaction sees along with their modifications.")
+    (had_input "bool" :scope :public))
 
   (:documentation
    "Operator which iterates over all the nodes currently in the database.

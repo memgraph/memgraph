@@ -793,9 +793,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
   auto output_p =
       NEXPR("p", IDENT("p")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
   auto output_n =
-      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+      NEXPR("n", IDENT("n")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
 
-  auto produce = MakeProduceDistributed(scan_all_2.op_, output_p, output_n);
+  auto produce = MakeProduceDistributed(scan_all_2.op_, output_n, output_p);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
 
@@ -810,6 +810,89 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
   ASSERT_EQ(transformed_results.size(), pairs_gids_of_expected_vertices.size());
   for (auto result : transformed_results) {
     ASSERT_TRUE(pairs_gids_of_expected_vertices.end() != pairs_gids_of_expected_vertices.find(result));
+  }
+}
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllScanAllWhileBatching) {
+  /*
+    QUERY:
+      MATCH (n)
+      MATCH (p)
+      MATCH (q)
+      RETURN n,p,q;
+
+    QUERY PLAN:
+      Produce {n, p, q}
+      ScanAll (n)
+      ScanAll (p)
+      ScanAll (q)
+      Once
+  */
+  auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
+
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      ASSERT_TRUE(inserted);
+    }
+
+    // Generate the expected result from the double ScanAll
+    for (auto &outer_gid : gid_of_expected_vertices) {
+      for (auto &middle_gid : gid_of_expected_vertices) {
+        for (auto &inner_gid : gid_of_expected_vertices) {
+          auto [it, inserted] =
+              tuples_gids_of_expected_vertices.insert(std::make_tuple(outer_gid, middle_gid, inner_gid));
+          ASSERT_TRUE(inserted);
+        }
+      }
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (q)
+  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "q");
+  // MATCH (p)
+  auto scan_all_2 = MakeScanAllDistributed(storage, symbol_table, "p", scan_all_1.op_);
+  // MATCH (n)
+  auto scan_all_3 = MakeScanAllDistributed(storage, symbol_table, "n", scan_all_2.op_);
+
+  auto output_q =
+      NEXPR("q", IDENT("q")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_q", true));
+  auto output_p =
+      NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto output_n =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+
+  auto produce = MakeProduceDistributed(scan_all_3.op_, output_n, output_p, output_q);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+
+  auto transformed_results = std::vector<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
+  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
+                 [](const std::vector<TypedValue> &result) {
+                   auto gid_n = result[0].ValueVertex().Gid();
+                   auto gid_p = result[1].ValueVertex().Gid();
+                   auto gid_q = result[1].ValueVertex().Gid();
+                   return std::make_tuple(gid_n, gid_p, gid_q);
+                 });
+
+  ASSERT_EQ(transformed_results.size(), tuples_gids_of_expected_vertices.size());
+  for (auto result : transformed_results) {
+    ASSERT_TRUE(tuples_gids_of_expected_vertices.end() != tuples_gids_of_expected_vertices.find(result));
   }
 }
 

@@ -112,11 +112,12 @@ template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
-                         const char *op_name)
+                         const char *op_name, bool had_input)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        had_input_(had_input) {}
 
   bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
@@ -149,7 +150,9 @@ class ScanAllCursor : public Cursor {
       }
 
       frame[output_symbol_] = *vertices_it_.value();
-      ++vertices_it_.value();
+      if (had_input_) {
+        ++vertices_it_.value();
+      }
       last_filled_frame = idx;
 
       if (vertices_it_.value() == vertices_.value().end() && idx < multiframe.Size() - 1) {
@@ -161,7 +164,9 @@ class ScanAllCursor : public Cursor {
         break;
       }
     }
-
+    if (!had_input_) {
+      ++vertices_it_.value();
+    }
     const auto number_of_frames_to_keep = last_filled_frame + 1;
     multiframe.Resize(number_of_frames_to_keep);
 
@@ -183,10 +188,14 @@ class ScanAllCursor : public Cursor {
   std::optional<typename std::result_of<TVerticesFun(MultiFrame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
+  bool had_input_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
-    : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(output_symbol),
+      view_(view),
+      had_input_(input != nullptr) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
 
@@ -198,7 +207,7 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     return std::make_optional(db->Vertices(view_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAll");
+                                                                std::move(vertices), "ScanAll", had_input_);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -220,8 +229,8 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabel");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel", true /* #NoCommit */);
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -275,7 +284,8 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::PropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
+                                                                std::move(vertices), "ScanAllByLabelPropertyValue",
+                                                                true /* #NoCommit */);
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression_id,
@@ -325,8 +335,8 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     }
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllById", true /* #NoCommit */);
 }
 
 namespace {
