@@ -740,6 +740,78 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
+  /*
+    QUERY:
+      MATCH (n)
+      MATCH (p)
+      RETURN n,p;
+
+    QUERY PLAN:
+      Produce {n, p}
+      ScanAll (n)
+      ScanAll (p)
+      Once
+  */
+  auto pairs_gids_of_expected_vertices = std::set<std::pair<storage::v3::Gid, storage::v3::Gid>>{};
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
+
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      ASSERT_TRUE(inserted);
+    }
+
+    // Generate the expected result from the double ScanAll
+    for (auto &outer_gid : gid_of_expected_vertices) {
+      for (auto &inner_gid : gid_of_expected_vertices) {
+        auto [it, inserted] = pairs_gids_of_expected_vertices.insert(std::make_pair(outer_gid, inner_gid));
+        ASSERT_TRUE(inserted);
+      }
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (p)
+  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "n");
+  auto scan_all_2 = MakeScanAllDistributed(storage, symbol_table, "p", scan_all_1.op_);
+
+  auto output_p =
+      NEXPR("p", IDENT("p")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto output_n =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+
+  auto produce = MakeProduceDistributed(scan_all_2.op_, output_p, output_n);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+
+  auto transformed_results = std::vector<std::pair<storage::v3::Gid, storage::v3::Gid>>{};
+  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
+                 [](const std::vector<TypedValue> &result) {
+                   auto gid_n = result[0].ValueVertex().Gid();
+                   auto gid_p = result[1].ValueVertex().Gid();
+                   return std::make_pair(gid_n, gid_p);
+                 });
+
+  ASSERT_EQ(transformed_results.size(), pairs_gids_of_expected_vertices.size());
+  for (auto result : transformed_results) {
+    ASSERT_TRUE(pairs_gids_of_expected_vertices.end() != pairs_gids_of_expected_vertices.find(result));
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
