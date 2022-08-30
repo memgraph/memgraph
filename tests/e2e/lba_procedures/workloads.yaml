@@ -26,6 +26,20 @@ update_query_modules_cluster: &update_query_modules_cluster
         ]
       validation_queries: []
 
+create_delete_query_modules_cluster: &create_delete_query_modules_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        [
+          "CREATE USER admin IDENTIFIED BY 'test';",
+          "GRANT ALL PRIVILEGES TO admin",
+          "CREATE USER user IDENTIFIED BY 'test';",
+          "GRANT ALL PRIVILEGES TO user",
+        ]
+      validation_queries: []
+
 workloads:
   - name: "read-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -38,3 +52,9 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_query_modules.py"]
     <<: *update_query_modules_cluster
+
+  - name: "create-delete-query-modules"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/create_delete_query_modules.py"]
+    <<: *create_delete_query_modules_cluster
