@@ -717,8 +717,7 @@ struct mgp_vertices_iterator {
   mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
       : memory(memory),
         graph(graph),
-        vertices(std::visit(memgraph::utils::Overloaded{[graph](auto *impl) { return impl->Vertices(graph->view); }},
-                            graph->impl)),
+        vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
         current_it(vertices.begin()) {
     if (current_it != vertices.end()) {
       std::visit(

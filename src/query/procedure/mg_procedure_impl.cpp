@@ -2168,10 +2168,8 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
         std::optional<memgraph::query::VertexAccessor> maybe_vertex = std::visit(
-            memgraph::utils::Overloaded{
-                [graph, id](auto *impl) {
-                  return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
-                },
+            [graph, id](auto *impl) {
+              return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
             },
             graph->impl);
         if (maybe_vertex) {
@@ -2376,8 +2374,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
       throw ImmutableObjectException{"Cannot remove an edge from an immutable graph!"};
     }
 
-    const auto result = std::visit(
-        memgraph::utils::Overloaded{[edge](auto *impl) { return impl->RemoveEdge(&edge->impl); }}, graph->impl);
+    const auto result = std::visit([edge](auto *impl) { return impl->RemoveEdge(&edge->impl); }, graph->impl);
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::NONEXISTENT_OBJECT:
