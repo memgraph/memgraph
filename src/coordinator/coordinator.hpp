@@ -18,9 +18,11 @@
 #include "io/simulator/simulator.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "storage/v3/id_types.hpp"
 
 namespace memgraph::coordinator {
 
+using memgraph::storage::v3::LabelId;
 using Address = memgraph::io::Address;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 
@@ -63,7 +65,7 @@ struct AllocateEdgeIdBatchResponse {
 
 struct SplitShardRequest {
   Hlc previous_shard_map_version;
-  Label label;
+  LabelId label_id;
   CompoundKey split_key;
 };
 
@@ -183,7 +185,7 @@ class Coordinator {
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
       res.success = false;
     } else {
-      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label,
+      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
                                           split_shard_request.split_key);
     }
 
