@@ -52,7 +52,7 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
-using memgraph::storage::PropertyValue;
+using memgraph::storage::v3::PropertyValue;
 
 namespace memgraph::io::rsm {
 

@@ -248,7 +248,7 @@ int main() {
     const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
     const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
 
-    const CompoundKey cm_k = {cm_key_1, cm_key_2};
+    const CompoundKey compound_key = {cm_key_1, cm_key_2};
 
     // Look for Shard
     BasicResult<TimedOut, memgraph::coordinator::ReadResponses> read_res = coordinator_client.SendReadRequest(req);
@@ -273,7 +273,7 @@ int main() {
     //   std::cout << "key: " << key << std::endl;
     // }
 
-    auto target_shard = client_shard_map.GetShardForKey(std::string("label1"), cm_k);
+    auto target_shard = client_shard_map.GetShardForKey(std::string("label1"), compound_key);
 
     // Determine which shard to send the requests to
     auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);
@@ -284,11 +284,8 @@ int main() {
     // Have client use shard map to decide which shard to communicate
     // with in order to write a new value
     // client_shard_map.
-    auto write_key_1 = memgraph::storage::PropertyValue(3);
-    auto write_key_2 = memgraph::storage::PropertyValue(4);
-
     StorageWriteRequest storage_req;
-    storage_req.key = {write_key_1, write_key_2};
+    storage_req.key = compound_key;
     storage_req.value = 1000;
 
     auto write_response_result = storage_client.SendWriteRequest(storage_req);
@@ -307,7 +304,7 @@ int main() {
     // with to read that same value back
 
     StorageReadRequest storage_get_req;
-    storage_get_req.key = {write_key_1, write_key_2};
+    storage_get_req.key = compound_key;
 
     auto get_response_result = storage_client.SendReadRequest(storage_get_req);
     if (get_response_result.HasError()) {
