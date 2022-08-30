@@ -670,6 +670,17 @@ UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
 }
 
+// Returns boolean result of evaluating filter expression. Null is treated as
+// false. Other non boolean values raise a QueryRuntimeException.
+bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
+  TypedValue result = filter->Accept(evaluator);
+  // Null is treated like false.
+  if (result.IsNull()) return false;
+  if (result.type() != TypedValue::Type::Bool)
+    throw QueryRuntimeException("Filter expression must evaluate to bool or null, got {}.", result.type());
+  return result.ValueBool();
+}
+
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
     : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
 
@@ -688,7 +699,23 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
 
 bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Filter");
-  throw QueryRuntimeException("Not yet implemented FilterCursor");
+
+  while (input_cursor_->Pull(multiframe, context)) {
+    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
+        continue;
+      }
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::v3::View::OLD);
+      if (EvaluateFilter(evaluator, self_.expression_)) {
+        frame.MakeValid();
+      } else {
+        frame.MakeInvalid();
+      }
+    }
+    return true;
+  }
   return false;
 }
 
