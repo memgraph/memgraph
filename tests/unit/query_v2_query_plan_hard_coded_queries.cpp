@@ -913,7 +913,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
         std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
                                     iteration only. */
-        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when having
-                                     several iterations. There will be only 42 vertices left on the last batch.*/
+        std::make_pair(34, 10)    /* 34 vertices, 10 frames per batch: to check resizing of frames works when having
+                                       several iterations. There will be only 4 vertices left on the last batch.*/
         ));
 }  // namespace memgraph::query::v2::tests
