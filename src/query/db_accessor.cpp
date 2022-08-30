@@ -96,7 +96,7 @@ SubgraphVertexAccessor SubgraphDbAccessor::InsertVertex() {
 }
 
 VerticesIterable SubgraphDbAccessor::Vertices(storage::View) {  // NOLINT(hicpp-named-parameter)
-  return VerticesIterable(graph_->vertices());
+  return VerticesIterable(&graph_->vertices());
 }
 
 std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, storage::View view) {

@@ -247,7 +247,7 @@ namespace memgraph::query {
 
 class VerticesIterable final {
   std::variant<storage::VerticesIterable, std::unordered_set<VertexAccessor, std::hash<VertexAccessor>,
-                                                             std::equal_to<void>, utils::Allocator<VertexAccessor>>>
+                                                             std::equal_to<void>, utils::Allocator<VertexAccessor>> *>
       iterable_;
 
  public:
@@ -264,11 +264,11 @@ class VerticesIterable final {
         : it_(it) {}
 
     VertexAccessor operator*() const {
-      return std::visit(memgraph::utils::Overloaded{[](auto it_) { return VertexAccessor(*it_); }}, it_);
+      return std::visit([](auto it_) { return VertexAccessor(*it_); }, it_);
     }
 
     Iterator &operator++() {
-      std::visit(memgraph::utils::Overloaded{[this](auto it_) { this->it_ = ++it_; }}, it_);
+      std::visit([this](auto it_) { this->it_ = ++it_; }, it_);
       return *this;
     }
 
@@ -279,18 +279,26 @@ class VerticesIterable final {
 
   explicit VerticesIterable(storage::VerticesIterable iterable) : iterable_(std::move(iterable)) {}
   explicit VerticesIterable(std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
-                                               utils::Allocator<VertexAccessor>>
-                                vertices)
+                                               utils::Allocator<VertexAccessor>> *vertices)
       : iterable_(vertices) {}
 
   Iterator begin() {
-    return std::visit(memgraph::utils::Overloaded{[](auto &iterable_) { return Iterator(iterable_.begin()); }},
+    return std::visit(memgraph::utils::Overloaded{
+                          [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.begin()); },
+                          [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                                utils::Allocator<VertexAccessor>> *iterable_) {
+                            return Iterator(iterable_->begin());
+                          }},
                       iterable_);
   }
 
   Iterator end() {
-    return std::visit(memgraph::utils::Overloaded{[](auto &iterable_) { return Iterator(iterable_.end()); }},
-                      iterable_);
+    return std::visit(
+        memgraph::utils::Overloaded{
+            [](storage::VerticesIterable &iterable_) { return Iterator(iterable_.end()); },
+            [](std::unordered_set<VertexAccessor, std::hash<VertexAccessor>, std::equal_to<void>,
+                                  utils::Allocator<VertexAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
+        iterable_);
   }
 };
 

@@ -2225,11 +2225,9 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
     const auto result =
         std::visit(memgraph::utils::Overloaded{
                        [&](memgraph::query::DbAccessor *impl) {
-                         MG_ASSERT(std::holds_alternative<memgraph::query::VertexAccessor>(vertex->impl));
                          return impl->RemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
                        },
                        [&](memgraph::query::SubgraphDbAccessor *impl) {
-                         MG_ASSERT(std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
                          return impl->RemoveVertex(&(std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl)));
                        }},
                    graph->impl);
@@ -2270,11 +2268,9 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
     const auto result = std::visit(
         memgraph::utils::Overloaded{
             [vertex](memgraph::query::DbAccessor *impl) {
-              MG_ASSERT(std::holds_alternative<memgraph::query::VertexAccessor>(vertex->impl));
               return impl->DetachRemoveVertex(&std::get<memgraph::query::VertexAccessor>(vertex->impl));
             },
             [vertex](memgraph::query::SubgraphDbAccessor *impl) {
-              MG_ASSERT(std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
               return impl->DetachRemoveVertex(&std::get<memgraph::query::SubgraphVertexAccessor>(vertex->impl));
             }},
         graph->impl);
@@ -2327,15 +2323,11 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         auto edge =
             std::visit(memgraph::utils::Overloaded{
                            [from, to, type](memgraph::query::DbAccessor *impl) {
-                             MG_ASSERT(std::holds_alternative<memgraph::query::VertexAccessor>(from->impl) &&
-                                       std::holds_alternative<memgraph::query::VertexAccessor>(to->impl));
                              return impl->InsertEdge(&std::get<memgraph::query::VertexAccessor>(from->impl),
                                                      &std::get<memgraph::query::VertexAccessor>(to->impl),
                                                      impl->NameToEdgeType(type.name));
                            },
                            [from, to, type](memgraph::query::SubgraphDbAccessor *impl) {
-                             MG_ASSERT(std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(from->impl) &&
-                                       std::holds_alternative<memgraph::query::SubgraphVertexAccessor>(to->impl));
                              return impl->InsertEdge(&std::get<memgraph::query::SubgraphVertexAccessor>(from->impl),
                                                      &std::get<memgraph::query::SubgraphVertexAccessor>(to->impl),
                                                      impl->NameToEdgeType(type.name));
