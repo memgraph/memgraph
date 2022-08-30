@@ -659,20 +659,15 @@ class UnwindCursor : public Cursor {
             if (input_value_it_ == input_value_.end()) {
               frame_idx_ = *frame_idx_ + 1;
             }
+            // TODO(gitbuda): Here we have an issue if size is lower then the batch size.
+            if (*frame_idx_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
+              frame_idx_ = std::nullopt;
+            }
             return true;
           }
         }
-        // Taking care if multiframe size is bigger than unwind list size.
-        if (populated_frames_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
-          populated_frames_ = 0;
-          if (input_value_it_ == input_value_.end()) {
-            frame_idx_ = *frame_idx_ + 1;
-          }
-          return true;
-        }
         frame_idx_ = *frame_idx_ + 1;
       }
-
       frame_idx_ = std::nullopt;
     }
   }
