@@ -545,10 +545,8 @@ class Raft {
     // or it can be `auto` if it's a handler for several roles
     // or messages.
     std::optional<Role> new_role = std::visit(
-        [&](auto &&msg, auto &role) {
-          // We use decltype(msg)(msg) in place of std::forward<?> because msg's type
-          // is anonymous from our point of view.
-          return Handle(role, decltype(msg)(msg), request_id, from_address);
+        [&](auto &&msg, auto &role) mutable {
+          return Handle(role, std::forward<decltype(msg)>(msg), request_id, from_address);
         },
         std::forward<ReceiveVariant>(message_variant), role_);
 
