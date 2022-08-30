@@ -19,16 +19,16 @@
 
 namespace memgraph::storage::v3 {
 
-// class Storage {
-//  public:
-//   explicit Storage(Config config);
-//   // Interface toward shard manipulation
-//   // Shard handler -> will use rsm client
+class Storage {
+ public:
+  explicit Storage(Config config);
+  // Interface toward shard manipulation
+  // Shard handler -> will use rsm client
 
-//  private:
-//   std::vector<Shard> shards_;
-//   boost::asio::thread_pool shard_handlers_;
-//   Config config_;
-// };
+ private:
+  std::vector<Shard> shards_;
+  boost::asio::thread_pool shard_handlers_;
+  Config config_;
+};
 
 }  // namespace memgraph::storage::v3

@@ -411,7 +411,7 @@ uint64_t Shard::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *de
     //             "Can't set properties on edges because properties on edges "
     //             "are disabled!");
 
-    //       auto *transaction = get_transaction(timestamp);
+    //   //       auto *transaction = get_transaction(timestamp);
 
     //       // The following block of code effectively implements `FindEdge` and
     //       // yields an accessor that is only valid for managing the edge's

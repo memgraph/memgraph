@@ -51,7 +51,7 @@ class CommitLog final {
   void MarkFinished(uint64_t id);
 
   /// Retrieve the oldest transaction still not marked as finished.
-  uint64_t OldestActive() const;
+  uint64_t OldestActive() const noexcept;
 
  private:
   static constexpr uint64_t kBlockSize = 8192;

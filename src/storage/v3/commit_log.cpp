@@ -54,7 +54,7 @@ void CommitLog::MarkFinished(uint64_t id) {
   }
 }
 
-uint64_t CommitLog::OldestActive() const { return oldest_active_; }
+uint64_t CommitLog::OldestActive() const noexcept { return oldest_active_; }
 
 void CommitLog::UpdateOldestActive() {
   while (head_) {
