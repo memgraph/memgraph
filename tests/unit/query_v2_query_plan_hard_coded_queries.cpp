@@ -817,6 +817,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
         std::make_pair(2, 1),     /* 2 vertices, 1 frame per batch: simple case. */
+        std::make_pair(2, 2),     /* 2 vertices, 1 frame per batch: simple case. */
         std::make_pair(3, 2),     /* 3 vertices, 2 frame per batch: simple case. */
         std::make_pair(3, 3),     /* 3 vertices, 3 frame per batch: simple case. */
         std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
