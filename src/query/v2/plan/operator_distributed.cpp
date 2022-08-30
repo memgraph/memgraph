@@ -234,7 +234,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     return std::make_optional(db->Vertices(view_, label_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel", false /* #NoCommit */);
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel", perform_full_enumeration_);
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -289,7 +289,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllByLabelPropertyValue",
-                                                                false /* #NoCommit */);
+                                                                perform_full_enumeration_);
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression_id,
@@ -340,7 +340,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
-      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllById", false /* #NoCommit */);
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllById", perform_full_enumeration_);
 }
 
 namespace {
