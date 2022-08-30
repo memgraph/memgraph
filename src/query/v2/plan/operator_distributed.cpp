@@ -356,11 +356,7 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
-      view_(view) {
-  if (existing_node) {
-    LOG_FATAL("Not supported at the moment!");
-  }
-}
+      view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -386,6 +382,9 @@ bool Expand::ExpandCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
   SCOPED_PROFILE_OP("Expand");
   // A helper function for expanding a node from an edge.
   auto pull_node_from_edge = [this](const EdgeAccessor &new_edge, EdgeAtom::Direction direction, Frame &frame) {
+    if (self_.common_.existing_node) {
+      return;
+    }
     switch (direction) {
       case EdgeAtom::Direction::IN:
         frame[self_.common_.node_symbol] = new_edge.From();
@@ -520,17 +519,43 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &multiframe, ExecutionContext &c
 
       auto direction = self_.common_.direction;
       if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-        auto edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
-        auto it = edges.begin();
-        in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
-        in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+        if (self_.common_.existing_node) {
+          TypedValue &existing_node = frame[self_.common_.node_symbol];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+            auto edges =
+                UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex()));
+            auto it = edges.begin();
+            in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
+            in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+          }
+        } else {
+          auto edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
+          auto it = edges.begin();
+          in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
+          in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+        }
       }
 
       if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-        auto edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
-        auto it = edges.begin();
-        in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
-        in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+        if (self_.common_.existing_node) {
+          TypedValue &existing_node = frame[self_.common_.node_symbol];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+            auto edges =
+                UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex()));
+            auto it = edges.begin();
+            in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
+            in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+          }
+        } else {
+          auto edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+          auto it = edges.begin();
+          in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
+          in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+        }
       }
 
       value_for_at_least_one_frame = true;

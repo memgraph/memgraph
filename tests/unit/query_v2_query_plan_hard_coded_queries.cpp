@@ -28,6 +28,8 @@
 
 #include <random>
 
+#define GTEST_COUT std::cerr << "[   INFO   ] "  // #NoCommit
+
 using namespace memgraph::query::v2;
 using namespace memgraph::query::v2::plan;
 using test_common::ToIntList;
@@ -81,8 +83,8 @@ class QueryPlanHardCodedQueriesTestFixture : public ::testing::TestWithParam<std
   };
 
   storage::v3::Storage db_v3;
-  const storage::v3::LabelId schema_label{db_v3.NameToLabel("label")};
-  const storage::v3::PropertyId schema_property{db_v3.NameToProperty("property")};
+  storage::v3::LabelId schema_label;
+  storage::v3::PropertyId schema_property;
 };
 
 TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
@@ -486,16 +488,11 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
     RETURN n, p;
 
   QUERY PLAN:
-    Produce {n}
-    Expand (n)<-[anon2:IS_EDGE]-(anon1)
-    ScanAll (n)
+    Produce {n, p}
+    Expand (p)-[anon2:IS_EDGE]->(n)
+    ScanAllByLabel (n :Node)
+    ScanAllByLabel (p :Permission)
     Once
-  */
-  /*  In case of number_of_vertices = 3
-
-      p[0]---------->n[1]
-      p[2]---------->n[3]
-      p[4]---------->n[5]
   */
   const auto [number_of_vertices, frames_per_batch] = GetParam();
 
@@ -548,15 +545,13 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
 
   // Expand (p)-[e]->(n)
   auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
-  auto output_expand_symbol = symbol_table.CreateSymbol("p", true);
 
-  auto expand = std::make_shared<distributed::Expand>(scan_all_2, symbol_n, output_expand_symbol, symbol_anon2,
+  auto expand = std::make_shared<distributed::Expand>(scan_all_2, symbol_n, symbol_p, symbol_anon2,
                                                       EdgeAtom::Direction::IN, expand_edge_types,
-                                                      false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                                                      true /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   auto output_n = NEXPR("n", IDENT("n")->MapTo(symbol_n))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
-  auto output_p =
-      NEXPR("p", IDENT("p")->MapTo(output_expand_symbol))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto output_p = NEXPR("p", IDENT("p")->MapTo(symbol_p))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
   auto produce = MakeProduceDistributed(expand, output_n, output_p);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
@@ -568,7 +563,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
                    auto gid_p = result[1].ValueVertex().Gid();
                    return std::make_pair(gid_n, gid_p);
                  });
-
+  for (auto &res : transformed_results) {
+    GTEST_COUT << "gid_n=" << res.first.AsUint() << " gid_p=" << res.second.AsUint() << std::endl;
+  }
   ASSERT_EQ(transformed_results.size(), gid_of_expected_vertices.size());
   for (auto result : transformed_results) {
     ASSERT_TRUE(gid_of_expected_vertices.end() != gid_of_expected_vertices.find(result));
@@ -748,6 +745,7 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
         std::make_pair(2, 1),     /* 2 vertices, 1 frame per batch: simple case. */
+        std::make_pair(3, 2),     /* 3 vertices, 2 frame per batch: simple case. */
         std::make_pair(3, 3),     /* 3 vertices, 3 frame per batch: simple case. */
         std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
                                     behavior (ie: pre-batching). */
