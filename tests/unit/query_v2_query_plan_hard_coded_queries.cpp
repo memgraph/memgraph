@@ -529,15 +529,17 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
   SymbolTable symbol_table;
 
   // ScanAll (anon1)
-  auto n = symbol_table.CreateSymbol("n", true);
+  // auto n = symbol_table.CreateSymbol("n", true);
 
-  auto scan_all = MakeScanAllDistributed(storage, symbol_table, n);
+  auto scan_all = MakeScanAllDistributed(storage, symbol_table, "n");
+
+  std::vector<Symbol> symbol_vec{scan_all.sym_};
+
+  auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all.op_, symbol_vec);
 
   // Produce n.id
   auto output =
       NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
-
-  auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all, std::vector<Symbol>{output});
 
   auto produce = MakeProduceDistributed(scan_all.op_, output);
 
