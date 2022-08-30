@@ -588,8 +588,13 @@ class DistinctCursor : public Cursor {
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
-      for (const auto &symbol : self_.value_symbols_) row.emplace_back(dummy_frame[symbol]);
-      if (seen_rows_.insert(std::move(row)).second) return true;
+      for (const auto &symbol : self_.value_symbols_) {
+        row.emplace_back(dummy_frame[symbol]);
+      }
+
+      if (seen_rows_.insert(std::move(row)).second) {
+        return true;
+      }
     }
   }
 

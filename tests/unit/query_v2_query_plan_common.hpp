@@ -134,6 +134,10 @@ auto MakeProduceDistributed(std::shared_ptr<distributed::LogicalOperator> input,
   return std::make_shared<distributed::Produce>(input, std::vector<NamedExpression *>{named_expressions...});
 }
 
+auto MakeDistinctDistributed(std::shared_ptr<distributed::LogicalOperator> input, std::vector<Symbol> symbols) {
+  return std::make_shared<distributed::Distinct>(input, symbols);
+}
+
 struct ScanAllTuple {
   NodeAtom *node_;
   std::shared_ptr<LogicalOperator> op_;

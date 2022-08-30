@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <iterator>
 #include <memory>
+#include <random>
 #include <vector>
 
 #include "common/types.hpp"
@@ -474,6 +475,79 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
     auto it_found = gid_of_expected_vertices.find(gid);
     ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
   }
+}
+
+TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
+  /*
+
+
+  QUERY:
+    MATCH(n) RETURN DISTINCT n.id;
+
+  QUERY PLAN:
+    Distinct
+    Produce {n.id}
+    ScanAll (n)
+    Once
+  */
+
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+
+  auto already_gotten_numbers = std::set<int>{};
+
+  storage::v3::PropertyId check_property{db_v3.NameToProperty("number")};
+
+  {  // Inserting data
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(0, 10);
+
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto current_number = dist(gen);
+      already_gotten_numbers.insert(current_number);
+
+      auto vertex = *dba.InsertVertexAndValidate(schema_label, {},
+                                                 {{schema_property, storage::v3::PropertyValue(++property_index)},
+                                                  {check_property, storage::v3::PropertyValue(current_number)}});
+
+      // ASSERT_TRUE(dba.InsertEdge(&vertex_center, &other_vertex, edge_type).HasValue());
+      // auto [it, inserted] = gid_of_expected_vertices.insert(other_vertex.Gid());
+      // ASSERT_TRUE(inserted);
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // ScanAll (anon1)
+  auto n = symbol_table.CreateSymbol("n", true);
+
+  auto scan_all = MakeScanAllDistributed(storage, symbol_table, n);
+
+  // Produce n.id
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+
+  auto distinct = std::make_shared<plan::distributed::Distinct>(scan_all, std::vector<Symbol>{output});
+
+  auto produce = MakeProduceDistributed(scan_all.op_, output);
+
+  // Distinct
+  // symbols.emplace_back(context->symbol_table.at(*named_expression));
+  // auto distinct = MakeDistinctDistributed(produce, {symbol_table.at(*output)});
+
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
 }
 
 TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
