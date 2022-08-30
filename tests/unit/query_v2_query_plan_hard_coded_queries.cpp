@@ -786,8 +786,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
   SymbolTable symbol_table;
 
   // MATCH (p)
-  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "n");
-  auto scan_all_2 = MakeScanAllDistributed(storage, symbol_table, "p", scan_all_1.op_);
+  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "p");
+  // MATCH (n)
+  auto scan_all_2 = MakeScanAllDistributed(storage, symbol_table, "n", scan_all_1.op_);
 
   auto output_p =
       NEXPR("p", IDENT("p")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
