@@ -43,7 +43,8 @@ class StorageV3Accessor : public ::testing::Test {
     return *vtx;
   }
 
-  Shard storage;
+  const std::vector<PropertyValue> pk{PropertyValue{0}};
+  Shard storage{"label", pk, std::nullopt};
   const LabelId primary_label{storage.NameToLabel("label")};
   const PropertyId primary_property{storage.NameToProperty("property")};
 };

@@ -45,10 +45,10 @@ class StorageV3 : public ::testing::Test {
     return *vtx;
   }
 
-  Shard store;
+  const std::vector<PropertyValue> pk{PropertyValue{0}};
+  Shard store{"label", pk, std::nullopt};
   const LabelId primary_label{store.NameToLabel("label")};
   const PropertyId primary_property{store.NameToProperty("property")};
-  const std::vector<PropertyValue> pk{PropertyValue{0}};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2552,25 +2552,9 @@ TEST_F(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    const auto label1 = store.NameToLabel("new_primary_label");
-    const auto prop1 = store.NameToProperty("key1");
-    const auto prop2 = store.NameToProperty("key2");
-    ASSERT_TRUE(store.CreateSchema(
-        label1, {SchemaProperty{prop1, common::SchemaType::INT}, SchemaProperty{prop2, common::SchemaType::STRING}}));
-    auto acc = store.Access();
-    auto vertex = acc.CreateVertexAndValidate(label1, {}, {{prop1, PropertyValue(21)}, {prop2, PropertyValue("test")}});
-    ASSERT_TRUE(vertex.HasValue());
-    ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
-    EXPECT_EQ(vertex->PrimaryLabel(View::NEW).GetValue(), label1);
-    ASSERT_TRUE(vertex->PrimaryKey(View::NEW).HasValue());
-    EXPECT_EQ(vertex->PrimaryKey(View::NEW).GetValue(), (PrimaryKey{{PropertyValue(21), PropertyValue("test")}}));
-    ASSERT_TRUE(vertex->Properties(View::NEW).HasValue());
-    EXPECT_TRUE(vertex->Properties(View::NEW).GetValue().empty());
-  }
-  {
     ASSERT_DEATH(
         {
-          Shard store;
+          Shard store("label", pk, std::nullopt);
           ASSERT_TRUE(store.CreateSchema(primary_label,
                                          {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
           auto acc = store.Access();

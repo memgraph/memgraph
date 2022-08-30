@@ -210,8 +210,8 @@ class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-                 Config config = Config());
+  explicit Shard(const std::string &primary_label, PrimaryKey min_primary_key,
+                 std::optional<PrimaryKey> max_primary_key, Config config = Config());
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
@@ -515,6 +515,7 @@ class Shard final {
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   // Main object storage
+  NameIdMapper name_id_mapper_;
   LabelId primary_label_;
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
@@ -525,8 +526,6 @@ class Shard final {
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
   uint64_t edge_count_{0};
-
-  NameIdMapper name_id_mapper_;
 
   SchemaValidator schema_validator_;
   Constraints constraints_;

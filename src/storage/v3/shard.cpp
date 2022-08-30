@@ -315,21 +315,21 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
+Shard::Shard(const std::string &primary_label, const PrimaryKey min_primary_key,
              const std::optional<PrimaryKey> max_primary_key, Config config)
-    : primary_label_{primary_label},
+    : primary_label_{NameToLabel(primary_label)},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
-      schema_validator_(schemas_),
-      indices_(&constraints_, config.items, schema_validator_),
-      isolation_level_(config.transaction.isolation_level),
-      config_(config),
-      snapshot_directory_(config_.durability.storage_directory / durability::kSnapshotDirectory),
-      wal_directory_(config_.durability.storage_directory / durability::kWalDirectory),
-      lock_file_path_(config_.durability.storage_directory / durability::kLockFile),
-      uuid_(utils::GenerateUUID()),
-      epoch_id_(utils::GenerateUUID()),
-      global_locker_(file_retainer_.AddLocker()) {
+      schema_validator_{schemas_},
+      indices_{&constraints_, config.items, schema_validator_},
+      isolation_level_{config.transaction.isolation_level},
+      config_{config},
+      snapshot_directory_{config_.durability.storage_directory / durability::kSnapshotDirectory},
+      wal_directory_{config_.durability.storage_directory / durability::kWalDirectory},
+      lock_file_path_{config_.durability.storage_directory / durability::kLockFile},
+      uuid_{utils::GenerateUUID()},
+      epoch_id_{utils::GenerateUUID()},
+      global_locker_{file_retainer_.AddLocker()} {
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
       replication_role_ == ReplicationRole::MAIN) {
     spdlog::warn(
@@ -356,8 +356,8 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
     // holding the file opened.
     lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
     MG_ASSERT(lock_file_handle_.AcquireLock(),
-              "Couldn't acquire lock on the storage directory {}"
-              "!\nAnother Memgraph process is currently running with the same "
+              "Couldn't acquire lock on the storage directory {}!\n"
+              "Another Memgraph process is currently running with the same "
               "storage directory, please stop it first before starting this "
               "process!",
               config_.durability.storage_directory);
@@ -477,6 +477,7 @@ Shard::Accessor::~Accessor() {
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
+  MG_ASSERT(primary_label == shard_->primary_label_, "Cannot store vertex vertex of different primary label!");
   auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
   if (maybe_schema_violation) {
     return {std::move(*maybe_schema_violation)};
