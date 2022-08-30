@@ -685,24 +685,22 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
   auto scan_all_2 = std::make_shared<distributed::ScanAllByLabel>(scan_all_1, symbol_p, label_permission,
                                                                   memgraph::storage::v3::View::OLD);
 
-  // (n:Node)<-[:IS_FOR_NODE]-(p:Permission)
+  // (n:Node)<-[anon3:IS_FOR_NODE]-(p:Permission)
   auto expand_1_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_node};
-  // #NoCommit not sure about the two symbol_p, should we creat another symbol and map it (or not)?
-  auto expand_1 = std::make_shared<distributed::Expand>(scan_all_2, symbol_p, symbol_p, symbol_anon3,
+  auto expand_1 = std::make_shared<distributed::Expand>(scan_all_2, symbol_p, symbol_n, symbol_anon3,
                                                         EdgeAtom::Direction::OUT, expand_1_edge_types,
-                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                                                        true /*existing_node*/, memgraph::storage::v3::View::OLD);
 
   // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
   auto scan_all_3 = std::make_shared<distributed::ScanAllByLabelPropertyValue>(
       expand_1, symbol_i, label_identity, property_identity_email, "email", LITERAL("rrr@clientdrive.com"),
       memgraph::storage::v3::View::OLD);
 
-  // (p:Permission)-[:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
+  // (p:Permission)-[anon1:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
   auto expand_2_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_identity};
-  // #NoCommit not sure about the two symbol_i, should we creat another symbol and map it (or not)?
-  auto expand_2 = std::make_shared<distributed::Expand>(scan_all_3, symbol_i, symbol_i, symbol_anon1,
+  auto expand_2 = std::make_shared<distributed::Expand>(scan_all_3, symbol_i, symbol_p, symbol_anon1,
                                                         EdgeAtom::Direction::IN, expand_2_edge_types,
-                                                        false /*existing_node*/, memgraph::storage::v3::View::OLD);
+                                                        true /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking result from:
@@ -793,9 +791,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
   auto output_p =
       NEXPR("p", IDENT("p")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
   auto output_n =
-      NEXPR("n", IDENT("n")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+      NEXPR("n", IDENT("n")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
 
-  auto produce = MakeProduceDistributed(scan_all_2.op_, output_p, output_n);
+  auto produce = MakeProduceDistributed(scan_all_2.op_, output_n, output_p);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
 
@@ -813,13 +811,95 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllWhileBatching) {
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllScanAllWhileBatching) {
+  /*
+    QUERY:
+      MATCH (n)
+      MATCH (p)
+      MATCH (q)
+      RETURN n,p,q;
+
+    QUERY PLAN:
+      Produce {n, p, q}
+      ScanAll (n)
+      ScanAll (p)
+      ScanAll (q)
+      Once
+  */
+  auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
+  auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
+
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+  {  // Inserting data
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto vertex_node = *dba.InsertVertexAndValidate(
+          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      ASSERT_TRUE(inserted);
+    }
+
+    // Generate the expected result from the double ScanAll
+    for (auto &outer_gid : gid_of_expected_vertices) {
+      for (auto &middle_gid : gid_of_expected_vertices) {
+        for (auto &inner_gid : gid_of_expected_vertices) {
+          auto [it, inserted] =
+              tuples_gids_of_expected_vertices.insert(std::make_tuple(outer_gid, middle_gid, inner_gid));
+          ASSERT_TRUE(inserted);
+        }
+      }
+    }
+
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // MATCH (q)
+  auto scan_all_1 = MakeScanAllDistributed(storage, symbol_table, "q");
+  // MATCH (p)
+  auto scan_all_2 = MakeScanAllDistributed(storage, symbol_table, "p", scan_all_1.op_);
+  // MATCH (n)
+  auto scan_all_3 = MakeScanAllDistributed(storage, symbol_table, "n", scan_all_2.op_);
+
+  auto output_q =
+      NEXPR("q", IDENT("q")->MapTo(scan_all_1.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_q", true));
+  auto output_p =
+      NEXPR("p", IDENT("p")->MapTo(scan_all_2.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_p", true));
+  auto output_n =
+      NEXPR("n", IDENT("n")->MapTo(scan_all_3.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_n", true));
+
+  auto produce = MakeProduceDistributed(scan_all_3.op_, output_n, output_p, output_q);
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
+
+  auto transformed_results = std::vector<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
+  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
+                 [](const std::vector<TypedValue> &result) {
+                   auto gid_n = result[0].ValueVertex().Gid();
+                   auto gid_p = result[1].ValueVertex().Gid();
+                   auto gid_q = result[1].ValueVertex().Gid();
+                   return std::make_tuple(gid_n, gid_p, gid_q);
+                 });
+
+  ASSERT_EQ(transformed_results.size(), tuples_gids_of_expected_vertices.size());
+  for (auto result : transformed_results) {
+    ASSERT_TRUE(tuples_gids_of_expected_vertices.end() != tuples_gids_of_expected_vertices.find(result));
+  }
+}
+
 TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchUnwindQuery) {
   /*
     QUERY:
       MATCH (n)
       UNWIND [1, n] AS x
       RETURN x;
-
     QUERY PLAN:
       Produce {x}
       Unwind [1, n]
@@ -879,7 +959,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
         std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
                                     iteration only. */
-        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when having
-                                     several iterations. There will be only 42 vertices left on the last batch.*/
+        std::make_pair(34, 10)    /* 34 vertices, 10 frames per batch: to check resizing of frames works when having
+                                       several iterations. There will be only 4 vertices left on the last batch.*/
         ));
 }  // namespace memgraph::query::v2::tests
