@@ -560,13 +560,18 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
   auto produce = MakeProduceDistributed(expand, output_n, output_p);
   auto context = MakeContextDistributed(storage, symbol_table, &dba);
   auto results = CollectProduceDistributed(*produce, &context, frames_per_batch);
-  ASSERT_EQ(results.size(), gid_of_expected_vertices.size());
-  for (auto result : results) {
-    ASSERT_TRUE(result[0].IsVertex());
-    auto gid_n = result[0].ValueVertex().Gid();
-    auto gid_p = result[1].ValueVertex().Gid();
-    auto it_found = gid_of_expected_vertices.find(std::make_pair(gid_n, gid_p));
-    ASSERT_TRUE(it_found != gid_of_expected_vertices.end());
+
+  auto transformed_results = std::vector<std::pair<storage::v3::Gid, storage::v3::Gid>>{};
+  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
+                 [](const std::vector<TypedValue> &result) {
+                   auto gid_n = result[0].ValueVertex().Gid();
+                   auto gid_p = result[1].ValueVertex().Gid();
+                   return std::make_pair(gid_n, gid_p);
+                 });
+
+  ASSERT_EQ(transformed_results.size(), gid_of_expected_vertices.size());
+  for (auto result : transformed_results) {
+    ASSERT_TRUE(gid_of_expected_vertices.end() != gid_of_expected_vertices.find(result));
   }
 }
 
