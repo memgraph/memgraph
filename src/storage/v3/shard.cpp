@@ -315,8 +315,12 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Shard::Shard(Config config)
-    : schema_validator_(schemas_),
+Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
+             const std::optional<PrimaryKey> max_primary_key, Config config)
+    : primary_label_{primary_label},
+      min_primary_key_{min_primary_key},
+      max_primary_key_{max_primary_key},
+      schema_validator_(schemas_),
       indices_(&constraints_, config.items, schema_validator_),
       isolation_level_(config.transaction.isolation_level),
       config_(config),

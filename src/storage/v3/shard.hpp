@@ -210,7 +210,8 @@ class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Shard(Config config = Config());
+  explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+                 Config config = Config());
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
