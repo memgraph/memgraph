@@ -90,14 +90,7 @@ void Storage::ReplicationClient::FrequentCheck() {
 void Storage::ReplicationClient::InitializeClient() {
   uint64_t current_commit_timestamp{kTimestampInitialId};
 
-  std::optional<std::string> epoch_id;
-  {
-    // epoch_id_ can be changed if we don't take this lock
-    std::unique_lock engine_guard(storage_->engine_lock_);
-    epoch_id.emplace(storage_->epoch_id_);
-  }
-
-  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, std::move(*epoch_id))};
+  auto stream{rpc_client_->Stream<replication::HeartbeatRpc>(storage_->last_commit_timestamp_, storage_->epoch_id_)};
 
   const auto response = stream.AwaitResponse();
   std::optional<uint64_t> branching_point;
@@ -122,8 +115,8 @@ void Storage::ReplicationClient::InitializeClient() {
 
   current_commit_timestamp = response.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica: {}", current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_.load());
-  if (current_commit_timestamp == storage_->last_commit_timestamp_.load()) {
+  spdlog::trace("Current timestamp on main: {}", storage_->last_commit_timestamp_);
+  if (current_commit_timestamp == storage_->last_commit_timestamp_) {
     spdlog::debug("Replica '{}' up to date", name_);
     std::unique_lock client_guard{client_lock_};
     replica_state_.store(replication::ReplicaState::READY);
@@ -197,7 +190,7 @@ void Storage::ReplicationClient::StartTransactionReplication(const uint64_t curr
     case replication::ReplicaState::READY:
       MG_ASSERT(!replica_stream_);
       try {
-        replica_stream_.emplace(ReplicaStream{this, storage_->last_commit_timestamp_.load(), current_wal_seq_num});
+        replica_stream_.emplace(ReplicaStream{this, storage_->last_commit_timestamp_, current_wal_seq_num});
         replica_state_.store(replication::ReplicaState::REPLICATING);
       } catch (const rpc::RpcFailedException &) {
         replica_state_.store(replication::ReplicaState::INVALID);
@@ -319,10 +312,8 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
                 auto response = TransferWalFiles(arg);
                 replica_commit = response.current_commit_timestamp;
               } else if constexpr (std::is_same_v<StepType, RecoveryCurrentWal>) {
-                std::unique_lock transaction_guard(storage_->engine_lock_);
                 if (storage_->wal_file_ && storage_->wal_file_->SequenceNumber() == arg.current_wal_seq_num) {
                   storage_->wal_file_->DisableFlushing();
-                  transaction_guard.unlock();
                   spdlog::debug("Sending current wal file");
                   replica_commit = ReplicateCurrentWal();
                   storage_->wal_file_->EnableFlushing();
@@ -355,7 +346,7 @@ void Storage::ReplicationClient::RecoverReplica(uint64_t replica_commit) {
     std::unique_lock client_guard{client_lock_};
     SPDLOG_INFO("Replica timestamp: {}", replica_commit);
     SPDLOG_INFO("Last commit: {}", storage_->last_commit_timestamp_);
-    if (storage_->last_commit_timestamp_.load() == replica_commit) {
+    if (storage_->last_commit_timestamp_ == replica_commit) {
       replica_state_.store(replication::ReplicaState::READY);
       return;
     }
@@ -403,7 +394,7 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
-  if (std::unique_lock transtacion_guard(storage_->engine_lock_); storage_->wal_file_) {
+  if (storage_->wal_file_) {
     current_wal_seq_num.emplace(storage_->wal_file_->SequenceNumber());
     current_wal_from_timestamp.emplace(storage_->wal_file_->FromTimestamp());
   }

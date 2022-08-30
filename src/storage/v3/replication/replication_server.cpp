@@ -87,7 +87,7 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
 void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_.load(), storage_->epoch_id_};
+  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_, storage_->epoch_id_};
   slk::Save(res, res_builder);
 }
 
@@ -125,7 +125,7 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
     storage_->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_.load()) {
+  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -134,14 +134,14 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
-    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_.load()};
+    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_};
     slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(&decoder);
 
-  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -157,7 +157,6 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  std::unique_lock<utils::RWLock> storage_guard(storage_->main_lock_);
   // Clear the database
   storage_->vertices_.clear();
   storage_->edges_.clear();
@@ -188,9 +187,8 @@ void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::B
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }
-  storage_guard.unlock();
 
-  replication::SnapshotRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::SnapshotRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 
   // Delete other durability files
@@ -226,7 +224,7 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
     LoadWal(&decoder);
   }
 
-  replication::WalFilesRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::WalFilesRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -240,7 +238,7 @@ void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk:
 
   LoadWal(&decoder);
 
-  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_.load()};
+  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
@@ -298,17 +296,17 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   // auto vertex_acc = storage_->vertices_.access();
 
   std::optional<std::pair<uint64_t, Storage::Accessor>> commit_timestamp_and_accessor;
-  auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
-    if (!commit_timestamp_and_accessor) {
-      commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
-    } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
-      throw utils::BasicException("Received more than one transaction!");
-    }
-    return &commit_timestamp_and_accessor->second;
-  };
+  // auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
+  //   if (!commit_timestamp_and_accessor) {
+  //     commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
+  //   } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
+  //     throw utils::BasicException("Received more than one transaction!");
+  //   }
+  //   return &commit_timestamp_and_accessor->second;
+  // };
 
   uint64_t applied_deltas = 0;
-  auto max_commit_timestamp = storage_->last_commit_timestamp_.load();
+  auto max_commit_timestamp = storage_->last_commit_timestamp_;
 
   for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
     const auto [timestamp, delta] = ReadDelta(decoder);
@@ -423,13 +421,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       // The edge visibility check must be done here manually because we
     //       // don't allow direct access to the edges through the public API.
     //       {
-    //         bool is_visible = true;
-    //         Delta *delta = nullptr;
-    //         {
-    //           std::lock_guard<utils::SpinLock> guard(edge->lock);
-    //           is_visible = !edge->deleted;
-    //           delta = edge->delta;
-    //         }
+    //         auto is_visible = !edge->deleted;
+    //         auto *delta = edge->delta;
     //         ApplyDeltasForRead(&transaction->transaction_, delta, View::NEW, [&is_visible](const Delta &delta) {
     //           switch (delta.action) {
     //             case Delta::Action::ADD_LABEL:
@@ -466,8 +459,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //                              &storage_->indices_,
     //                              &storage_->constraints_,
     //                              storage_->config_.items,
-    //                              storage_->schema_validator_,
-    //                              storage_->schemas_};
+    //                              storage_->schema_validator_};
 
     //       auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
     //                                 delta.vertex_edge_set_property.value);

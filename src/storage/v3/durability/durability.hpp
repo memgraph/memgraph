@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -102,10 +101,12 @@ void RecoverIndicesAndConstraints(const RecoveredIndicesAndConstraints &indices_
 /// Recovers data either from a snapshot and/or WAL files.
 /// @throw RecoveryFailure
 /// @throw std::bad_alloc
-std::optional<RecoveryInfo> RecoverData(
-    const std::filesystem::path &snapshot_directory, const std::filesystem::path &wal_directory, std::string *uuid,
-    std::string *epoch_id, std::deque<std::pair<std::string, uint64_t>> *epoch_history, VerticesSkipList *vertices,
-    utils::SkipList<Edge> *edges, std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper, Indices *indices,
-    Constraints *constraints, Config::Items items, uint64_t *wal_seq_num);
+std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_directory,
+                                        const std::filesystem::path &wal_directory, std::string *uuid,
+                                        std::string *epoch_id,
+                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                        VerticesSkipList *vertices, utils::SkipList<Edge> *edges, uint64_t *edge_count,
+                                        NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+                                        Config::Items items, uint64_t *wal_seq_num);
 
 }  // namespace memgraph::storage::v3::durability

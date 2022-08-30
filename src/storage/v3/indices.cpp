@@ -53,7 +53,6 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
@@ -106,7 +105,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     deleted = vertex.deleted;
@@ -165,7 +163,6 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
   bool has_label{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     delta = vertex.delta;
@@ -217,7 +214,6 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
   bool current_value_equal_to_value = value.IsNull();
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);

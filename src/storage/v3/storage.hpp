@@ -355,7 +355,6 @@ class Storage final {
     Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
 
     Storage *storage_;
-    std::shared_lock<utils::RWLock> storage_guard_;
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
@@ -510,22 +509,14 @@ class Storage final {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
-  // Main storage lock.
-  //
-  // Accessors take a shared lock when starting, so it is possible to block
-  // creation of new accessors by taking a unique lock. This is used when doing
-  // operations on storage that affect the global state, for example index
-  // creation.
-  mutable utils::RWLock main_lock_{utils::RWLock::Priority::WRITE};
-
   // Main object storage
   VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
-  std::atomic<uint64_t> edge_id_{0};
+  uint64_t edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
-  std::atomic<uint64_t> edge_count_{0};
+  uint64_t edge_count_{0};
 
   NameIdMapper name_id_mapper_;
 
@@ -535,7 +526,6 @@ class Storage final {
   Schemas schemas_;
 
   // Transaction engine
-  utils::SpinLock engine_lock_;
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
   // TODO: This isn't really a commit log, it doesn't even care if a
@@ -544,19 +534,17 @@ class Storage final {
   // whatever.
   std::optional<CommitLog> commit_log_;
 
-  utils::Synchronized<std::list<Transaction>, utils::SpinLock> committed_transactions_;
+  std::list<Transaction> committed_transactions_;
   IsolationLevel isolation_level_;
 
   Config config_;
-  utils::Scheduler gc_runner_;
-  std::mutex gc_lock_;
 
   // Undo buffers that were unlinked and now are waiting to be freed.
-  utils::Synchronized<std::list<std::pair<uint64_t, std::list<Delta>>>, utils::SpinLock> garbage_undo_buffers_;
+  std::list<std::pair<uint64_t, std::list<Delta>>> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
-  utils::Synchronized<std::list<PrimaryKey>, utils::SpinLock> deleted_vertices_;
+  std::list<PrimaryKey> deleted_vertices_;
 
   // Vertices that are logically deleted and removed from indices and now wait
   // to be removed from the main storage.
@@ -564,16 +552,13 @@ class Storage final {
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
-  utils::Synchronized<std::list<Gid>, utils::SpinLock> deleted_edges_;
+  std::list<Gid> deleted_edges_;
 
   // Durability
   std::filesystem::path snapshot_directory_;
   std::filesystem::path wal_directory_;
   std::filesystem::path lock_file_path_;
   utils::OutputFile lock_file_handle_;
-
-  utils::Scheduler snapshot_runner_;
-  utils::SpinLock snapshot_lock_;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;
@@ -609,7 +594,7 @@ class Storage final {
   utils::FileRetainer::FileLocker global_locker_;
 
   // Last commited timestamp
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+  uint64_t last_commit_timestamp_{kTimestampInitialId};
 
   class ReplicationServer;
   std::unique_ptr<ReplicationServer> replication_server_{nullptr};
@@ -628,7 +613,7 @@ class Storage final {
   using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
   ReplicationClientList replication_clients_;
 
-  std::atomic<ReplicationRole> replication_role_{ReplicationRole::MAIN};
+  ReplicationRole replication_role_{ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage::v3

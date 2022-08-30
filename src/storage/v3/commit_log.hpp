@@ -51,7 +51,7 @@ class CommitLog final {
   void MarkFinished(uint64_t id);
 
   /// Retrieve the oldest transaction still not marked as finished.
-  uint64_t OldestActive();
+  uint64_t OldestActive() const noexcept;
 
  private:
   static constexpr uint64_t kBlockSize = 8192;
@@ -72,7 +72,6 @@ class CommitLog final {
   uint64_t head_start_{0};
   uint64_t next_start_{0};
   uint64_t oldest_active_{0};
-  utils::SpinLock lock_;
   utils::Allocator<Block> allocator_;
 };
 

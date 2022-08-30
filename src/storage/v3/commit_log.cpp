@@ -47,8 +47,6 @@ CommitLog::~CommitLog() {
 }
 
 void CommitLog::MarkFinished(uint64_t id) {
-  std::lock_guard<utils::SpinLock> guard(lock_);
-
   Block *block = FindOrCreateBlock(id);
   block->field[(id % kIdsInBlock) / kIdsInField] |= 1ULL << (id % kIdsInField);
   if (id == oldest_active_) {
@@ -56,10 +54,7 @@ void CommitLog::MarkFinished(uint64_t id) {
   }
 }
 
-uint64_t CommitLog::OldestActive() {
-  std::lock_guard<utils::SpinLock> guard(lock_);
-  return oldest_active_;
-}
+uint64_t CommitLog::OldestActive() const noexcept { return oldest_active_; }
 
 void CommitLog::UpdateOldestActive() {
   while (head_) {

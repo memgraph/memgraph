@@ -162,7 +162,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipList *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items) {
+                               NameIdMapper *name_id_mapper, uint64_t *edge_count, Config::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -226,7 +226,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
   };
 
   // Reset current edge count.
-  edge_count->store(0, std::memory_order_release);
+  *edge_count = 0;
 
   {
     // Recover edges.
@@ -485,7 +485,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
         }
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.
-        edge_count->fetch_add(*out_size, std::memory_order_acq_rel);
+        *edge_count += *out_size;
       }
     }
     spdlog::info("Connectivity is recovered.");
@@ -687,13 +687,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     for (auto &edge : acc) {
       // The edge visibility check must be done here manually because we don't
       // allow direct access to the edges through the public API.
-      bool is_visible = true;
-      Delta *delta = nullptr;
-      {
-        std::lock_guard<utils::SpinLock> guard(edge.lock);
-        is_visible = !edge.deleted;
-        delta = edge.delta;
-      }
+      auto is_visible = !edge.deleted;
+      auto *delta = edge.delta;
       ApplyDeltasForRead(transaction, delta, View::OLD, [&is_visible](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:

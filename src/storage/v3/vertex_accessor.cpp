@@ -33,7 +33,6 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex->lock);
     deleted = vertex->deleted;
     delta = vertex->delta;
   }
@@ -80,7 +79,6 @@ bool VertexAccessor::IsVisible(View view) const {
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -102,7 +100,6 @@ ResultSchema<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
     return {*maybe_violation_error};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return {Error::SERIALIZATION_ERROR};
 
@@ -120,8 +117,6 @@ ResultSchema<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
 }
 
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
@@ -140,7 +135,6 @@ ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
   if (const auto maybe_violation_error = vertex_validator_.ValidateRemoveLabel(label); maybe_violation_error) {
     return {*maybe_violation_error};
   }
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return {Error::SERIALIZATION_ERROR};
 
@@ -162,7 +156,6 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool has_label = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     has_label = VertexHasLabel(*vertex_, label);
     delta = vertex_->delta;
@@ -209,7 +202,6 @@ Result<LabelId> VertexAccessor::PrimaryLabel(const View view) const {
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     delta = vertex_->delta;
   }
@@ -243,7 +235,6 @@ Result<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
   bool deleted = false;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     delta = vertex_->delta;
   }
@@ -282,7 +273,6 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   std::vector<LabelId> labels;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     labels = vertex_->labels;
     delta = vertex_->delta;
@@ -327,7 +317,6 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
@@ -353,7 +342,6 @@ ResultSchema<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pr
     return {*maybe_violation_error};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
 
   if (!PrepareForWrite(transaction_, vertex_)) {
     return {Error::SERIALIZATION_ERROR};
@@ -379,8 +367,6 @@ ResultSchema<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId pr
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
-  std::lock_guard<utils::SpinLock> guard(vertex_->lock);
-
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
@@ -402,7 +388,6 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   PropertyValue value;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
@@ -443,7 +428,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   std::map<PropertyId, PropertyValue> properties;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
@@ -495,7 +479,6 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     if (edge_types.empty() && !destination) {
       in_edges = vertex_->in_edges;
@@ -576,7 +559,6 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     if (edge_types.empty() && !destination) {
       out_edges = vertex_->out_edges;
@@ -655,7 +637,6 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     degree = vertex_->in_edges.size();
     delta = vertex_->delta;
@@ -693,7 +674,6 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   size_t degree = 0;
   Delta *delta = nullptr;
   {
-    std::lock_guard<utils::SpinLock> guard(vertex_->lock);
     deleted = vertex_->deleted;
     degree = vertex_->out_edges.size();
     delta = vertex_->delta;
