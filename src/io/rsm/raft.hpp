@@ -179,8 +179,10 @@ concept AllRoles = memgraph::utils::SameAsAnyOf<Role, Leader, Follower, Candidat
 template <typename Role>
 concept LeaderOrFollower = memgraph::utils::SameAsAnyOf<Role, Leader, Follower>;
 
-/*
+template <typename Role>
+concept FollowerOrCandidate = memgraph::utils::SameAsAnyOf<Role, Follower, Candidate>;
 
+/*
 all ReplicatedState classes should have an Apply method
 that returns our WriteResponseValue after consensus, and
 a Read method that returns our ReadResponseValue without
@@ -548,10 +550,8 @@ class Raft {
     // or it can be `auto` if it's a handler for several roles
     // or messages.
     std::optional<Role> new_role = std::visit(
-        [&](auto &&msg, auto &role) {
-          // We use decltype(msg)(msg) in place of std::forward<?> because msg's type
-          // is anonymous from our point of view.
-          return Handle(role, decltype(msg)(msg), request_id, from_address);
+        [&](auto &&msg, auto &role) mutable {
+          return Handle(role, std::forward<decltype(msg)>(msg), request_id, from_address);
         },
         std::forward<ReceiveVariant>(message_variant), role_);
 
@@ -793,8 +793,8 @@ class Raft {
     return std::nullopt;
   }
 
-  template <AllRoles ALL>
-  std::optional<Role> Handle(ALL & /* variable */, AppendResponse && /* variable */, RequestId /* variable */,
+  template <FollowerOrCandidate FOC>
+  std::optional<Role> Handle(FOC & /* variable */, AppendResponse && /* variable */, RequestId /* variable */,
                              Address /* variable */) {
     // we used to be the leader, and are getting old delayed responses
     return std::nullopt;
