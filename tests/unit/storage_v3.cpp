@@ -25,6 +25,7 @@
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage_v3_test_utils.hpp"
+#include "utils/exceptions.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -2550,6 +2551,17 @@ TEST_F(StorageV3, TestCreateVertexAndValidate) {
     ASSERT_TRUE(vertex->Properties(View::NEW).HasValue());
     EXPECT_EQ(vertex->Properties(View::NEW).GetValue(),
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
+  }
+  {
+    auto acc = store.Access();
+    const auto label1 = store.NameToLabel("label1");
+    const auto prop1 = store.NameToProperty("prop1");
+    EXPECT_THROW(
+        {
+          auto vertex = acc.CreateVertexAndValidate(
+              label1, {}, {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
+        },
+        utils::BasicException);
   }
   {
     ASSERT_DEATH(

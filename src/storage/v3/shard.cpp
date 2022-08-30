@@ -477,7 +477,9 @@ Shard::Accessor::~Accessor() {
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
-  MG_ASSERT(primary_label == shard_->primary_label_, "Cannot store vertex vertex of different primary label!");
+  if (primary_label != shard_->primary_label_) {
+    throw utils::BasicException("Cannot add vertex to shard which does not hold the given primary label!");
+  }
   auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
   if (maybe_schema_violation) {
     return {std::move(*maybe_schema_violation)};
