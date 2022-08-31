@@ -585,8 +585,6 @@ class DistinctCursor : public Cursor {
 
     while (true) {
       if (!input_cursor_->Pull(multiframe, context)) return false;
-
-      // std::vector<bool> checker(multiframe.Size());
       bool at_least_one_insertion = false;
 
       for (auto idx = 0; idx < multiframe.Size(); ++idx) {
@@ -599,9 +597,6 @@ class DistinctCursor : public Cursor {
         utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
         row.reserve(self_.value_symbols_.size());
         for (const auto &symbol : self_.value_symbols_) {
-          // TODO(gvolfing) remove debug vars
-          auto asd = frame[symbol];
-
           row.emplace_back(frame[symbol]);
         }
 
@@ -621,9 +616,7 @@ class DistinctCursor : public Cursor {
       // is no point in propagating upwards in the pull chain. This also
       // prevents infinite recursion with this operator's input, where continue
       // would be always called.
-      else {
-        multiframe.ResetAll();
-      }
+      multiframe.ResetAll();
     }
   }
 
