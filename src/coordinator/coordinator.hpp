@@ -19,6 +19,7 @@
 #include "io/time.hpp"
 #include "io/transport.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/schemas.hpp"
 
 namespace memgraph::coordinator {
 
@@ -26,6 +27,7 @@ using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
 using Address = memgraph::io::Address;
 using SimT = memgraph::io::simulator::SimulatorTransport;
+using memgraph::storage::v3::SchemaProperty;
 
 struct HlcRequest {
   Hlc last_shard_map_version;
@@ -100,6 +102,7 @@ struct DeregisterStorageEngineResponse {
 
 struct InitializeLabelRequest {
   std::string label_name;
+  std::vector<SchemaProperty> schema;
   Hlc last_shard_map_version;
 };
 
@@ -108,15 +111,17 @@ struct InitializeLabelResponse {
   std::optional<ShardMap> fresher_shard_map;
 };
 
-using WriteRequests =
-    std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
-using WriteResponses = std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                                    RegisterStorageEngineResponse, DeregisterStorageEngineResponse,
-                                    InitializeLabelResponse, AllocatePropertyIdsResponse>;
+using CoordinatorWriteRequests =
+    std::variant<HlcRequest, AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest,
+                 RegisterStorageEngineRequest, DeregisterStorageEngineRequest, InitializeLabelRequest,
+                 AllocatePropertyIdsRequest>;
+using CoordinatorWriteResponses =
+    std::variant<HlcResponse, AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                 RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse,
+                 AllocatePropertyIdsResponse>;
 
-using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
-using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
+using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
+using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
@@ -138,8 +143,13 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  /// Increment our
-  ReadResponses HandleRead(HlcRequest &&hlc_request) {
+  CoordinatorReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
+    GetShardMapResponse res;
+    res.shard_map = shard_map_;
+    return res;
+  }
+
+  CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request) {
     HlcResponse res{};
 
     auto hlc_shard_map = shard_map_.GetHlc();
@@ -158,19 +168,13 @@ class Coordinator {
     return res;
   }
 
-  ReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
-    GetShardMapResponse res;
-    res.shard_map = shard_map_;
-    return res;
-  }
-
-  WriteResponses ApplyWrite(AllocateHlcBatchRequest &&ahr) {
+  CoordinatorWriteResponses ApplyWrite(AllocateHlcBatchRequest &&ahr) {
     AllocateHlcBatchResponse res{};
 
     return res;
   }
 
-  WriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr) {
+  CoordinatorWriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr) {
     AllocateEdgeIdBatchResponse res{};
 
     uint64_t low = highest_allocated_edge_id_;
@@ -188,7 +192,7 @@ class Coordinator {
   /// This splits the shard immediately beneath the provided
   /// split key, keeping the assigned peers identical for now,
   /// but letting them be gradually migrated over time.
-  WriteResponses ApplyWrite(SplitShardRequest &&split_shard_request) {
+  CoordinatorWriteResponses ApplyWrite(SplitShardRequest &&split_shard_request) {
     SplitShardResponse res{};
 
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
@@ -203,7 +207,7 @@ class Coordinator {
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
-  WriteResponses ApplyWrite(RegisterStorageEngineRequest &&register_storage_engine_request) {
+  CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest &&register_storage_engine_request) {
     RegisterStorageEngineResponse res{};
     // TODO
 
@@ -212,7 +216,7 @@ class Coordinator {
 
   /// This begins the process of draining the provided storage engine from all raft
   /// clusters that it might be participating in.
-  WriteResponses ApplyWrite(DeregisterStorageEngineRequest &&register_storage_engine_request) {
+  CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest &&register_storage_engine_request) {
     DeregisterStorageEngineResponse res{};
     // TODO
     // const Address &address = register_storage_engine_request.address;
@@ -222,10 +226,10 @@ class Coordinator {
     return res;
   }
 
-  WriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
+  CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
     InitializeLabelResponse res{};
 
-    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name,
+    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name, initialize_label_request.schema,
                                                  initialize_label_request.last_shard_map_version);
 
     if (success) {
@@ -239,7 +243,7 @@ class Coordinator {
     return res;
   }
 
-  WriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request) {
+  CoordinatorWriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request) {
     AllocatePropertyIdsResponse res{};
 
     auto property_ids = shard_map_.AllocatePropertyIds(allocate_property_ids_request.property_names);
@@ -252,12 +256,12 @@ class Coordinator {
  public:
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
-  ReadResponses Read(ReadRequests requests) {
+  CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
     return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
 
-  WriteResponses Apply(WriteRequests requests) {
+  CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }

@@ -17,7 +17,7 @@
 namespace memgraph::coordinator {
 
 template <typename IoImpl>
-using CoordinatorRsm =
-    memgraph::io::rsm::Raft<IoImpl, Coordinator, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
+using CoordinatorRsm = memgraph::io::rsm::Raft<IoImpl, Coordinator, CoordinatorWriteRequests, CoordinatorWriteResponses,
+                                               CoordinatorReadRequests, CoordinatorReadResponses>;
 
 }  // namespace memgraph::coordinator
