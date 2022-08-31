@@ -350,12 +350,15 @@ class DbAccessor final {
 
   // TODO(jbajic) Query engine should have a map of labels, properties and edge
   // types
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::PropertyId NameToProperty(const std::string_view /*name*/) {
     return storage::v3::PropertyId::FromUint(0);
   }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::LabelId NameToLabel(const std::string_view /*name*/) { return storage::v3::LabelId::FromUint(0); }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::EdgeTypeId NameToEdgeType(const std::string_view /*name*/) {
     return storage::v3::EdgeTypeId::FromUint(0);
   }
