@@ -24,7 +24,7 @@ def connect(**kwargs) -> mgclient.Connection:
     return connection
 
 
-def reset_permissions(admin_cursor: mgclient.Cursor):
+def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool):
     execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
     execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
@@ -32,3 +32,7 @@ def reset_permissions(admin_cursor: mgclient.Cursor):
     execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label;")
 
     execute_and_fetch_all(admin_cursor, "CREATE (n:read_label {prop: 5});")
+
+    if create_index:
+        execute_and_fetch_all(admin_cursor, "CREATE INDEX ON :read_label;")
+        execute_and_fetch_all(admin_cursor, "CREATE INDEX ON :read_label(prop);")
