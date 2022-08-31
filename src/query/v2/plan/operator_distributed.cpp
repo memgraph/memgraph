@@ -9,12 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+
 #include "query/v2/plan/operator_distributed.hpp"
 
 #include "query/v2/interpret/eval.hpp"
 #include "query/v2/interpret/multiframe.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/pmr/unordered_set.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -44,6 +47,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
+extern const Event DistinctOperator;
 extern const Event ProduceOperator;
 extern const Event UnwindOperator;
 extern const Event FilterOperator;
@@ -83,6 +87,31 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 //   frames.resize(last_filled_frame + 1);
 // }
+
+// Custom equality function for a vector of typed values.
+// Used in unordered_maps in Aggregate and Distinct operators.
+struct TypedValueVectorEqual {
+  template <class TAllocator>
+  bool operator()(const std::vector<TypedValue, TAllocator> &left,
+                  const std::vector<TypedValue, TAllocator> &right) const {
+    MG_ASSERT(left.size() == right.size(),
+              "TypedValueVector comparison should only be done over vectors "
+              "of the same size");
+    return std::equal(left.begin(), left.end(), right.begin(), TypedValue::BoolEqual{});
+  }
+};
+
+// Returns boolean result of evaluating filter expression. Null is treated as
+// false. Other non boolean values raise a QueryRuntimeException.
+bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
+  TypedValue result = filter->Accept(evaluator);
+  // Null is treated like false.
+  if (result.IsNull()) return false;
+  if (result.type() != TypedValue::Type::Bool)
+    throw QueryRuntimeException("Filter expression must evaluate to bool or null, got {}.", result.type());
+  return result.ValueBool();
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -587,6 +616,88 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &multiframe, ExecutionContext &c
   return false;
 }
 
+class DistinctCursor : public Cursor {
+ public:
+  DistinctCursor(const Distinct &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), seen_rows_(mem) {}
+
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Distinct");
+
+    while (true) {
+      if (!input_cursor_->Pull(multiframe, context)) return false;
+      bool at_least_one_insertion = false;
+
+      for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+        auto &frame = *(multiframe.GetFrames()[idx]);
+
+        if (!frame.IsValid()) {
+          continue;
+        }
+
+        utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
+        row.reserve(self_.value_symbols_.size());
+        for (const auto &symbol : self_.value_symbols_) {
+          row.emplace_back(frame[symbol]);
+        }
+
+        // Currently this returns true only if the insertion was successful
+        if (seen_rows_.insert(std::move(row)).second) {
+          at_least_one_insertion = true;
+        } else {
+          frame.MakeInvalid();
+        }
+      }
+
+      // If at least one is true return true
+      if (at_least_one_insertion) {
+        return true;
+      }
+      // If all of the gotten elements are already stored in the set, there
+      // is no point in propagating upwards in the pull chain. This also
+      // prevents infinite recursion with this operator's input, where continue
+      // would be always called.
+      multiframe.ResetAll();
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    seen_rows_.clear();
+  }
+
+ private:
+  const Distinct &self_;
+  const UniqueCursorPtr input_cursor_;
+  // a set of already seen rows
+  utils::pmr::unordered_set<utils::pmr::vector<TypedValue>,
+                            // use FNV collection hashing specialized for a
+                            // vector of TypedValue
+                            utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                            TypedValueVectorEqual>
+      seen_rows_;
+};
+
+Distinct::Distinct(const std::shared_ptr<LogicalOperator> &input, const std::vector<Symbol> &value_symbols)
+    : input_(input ? input : std::make_shared<Once>()), value_symbols_(value_symbols) {}
+
+ACCEPT_WITH_INPUT(Distinct)
+
+UniqueCursorPtr Distinct::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::DistinctOperator);
+
+  return MakeUniqueCursorPtr<DistinctCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
+std::vector<Symbol> Distinct::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input, const std::vector<NamedExpression *> &named_expressions)
     : input_(input ? input : std::make_shared<Once>()), named_expressions_(named_expressions) {}
 
@@ -737,17 +848,6 @@ UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::UnwindOperator);
 
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
-}
-
-// Returns boolean result of evaluating filter expression. Null is treated as
-// false. Other non boolean values raise a QueryRuntimeException.
-bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
-  TypedValue result = filter->Accept(evaluator);
-  // Null is treated like false.
-  if (result.IsNull()) return false;
-  if (result.type() != TypedValue::Type::Bool)
-    throw QueryRuntimeException("Filter expression must evaluate to bool or null, got {}.", result.type());
-  return result.ValueBool();
 }
 
 Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)

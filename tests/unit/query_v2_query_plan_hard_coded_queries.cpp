@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <iterator>
 #include <memory>
+#include <random>
+#include <set>
 #include <vector>
 
 #include "common/types.hpp"
@@ -35,6 +37,23 @@ using namespace memgraph::query::v2::plan;
 using test_common::ToIntList;
 using test_common::ToIntMap;
 using testing::UnorderedElementsAre;
+
+namespace {
+
+bool ResultsHaveDistinctElementsOnIntegerProperty(const std::vector<std::vector<TypedValue>> &results,
+                                                  const memgraph::storage::v3::PropertyId &property_id) {
+  std::vector<int64_t> values_of_properties;
+  for (auto idx = 0; idx < results.size(); ++idx) {
+    for (const auto &result : results[idx]) {
+      auto v_acc = result.ValueInt();
+      values_of_properties.push_back(v_acc);
+    }
+  }
+  std::set<int64_t> ev_set(values_of_properties.begin(), values_of_properties.end());
+  return ev_set.size() == results.size();
+}
+
+}  // namespace
 
 namespace memgraph::query::v2::tests {
 
@@ -894,6 +913,78 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllScanAllWhileBatching
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, MultiFrameDistinctTest) {
+  /*
+  Creating [number_of_vertices] vertices, assigning random numbers as their
+  "number" properties.
+  QUERY:
+    MATCH(n) RETURN DISTINCT n.id;
+  QUERY PLAN:
+    Distinct
+    Produce {n.id}
+    ScanAll (n)
+    Once
+  */
+
+  const auto [number_of_vertices, frames_per_batch] = GetParam();
+  auto already_gotten_numbers = std::set<int>{};
+  storage::v3::PropertyId check_property{db_v3.NameToProperty("number")};
+
+  {  // Inserting data
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(0, 20);
+
+    auto storage_dba = db_v3.Access();
+    DbAccessor dba(&storage_dba);
+
+    auto property_index = 0;
+
+    for (auto idx = 0; idx < number_of_vertices; ++idx) {
+      auto current_number = dist(gen);
+      already_gotten_numbers.insert(current_number);
+
+      *dba.InsertVertexAndValidate(schema_label, {},
+                                   {{schema_property, storage::v3::PropertyValue(++property_index)},
+                                    {check_property, storage::v3::PropertyValue(current_number)}});
+    }
+    ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  auto x = symbol_table.CreateSymbol("x", true);
+
+  // ScanAll
+  auto scan_all = std::make_shared<distributed::ScanAll>(nullptr, x, memgraph::storage::v3::View::OLD);
+
+  auto x_expr = IDENT("x");
+  x_expr->MapTo(x);
+  auto x_ne = NEXPR("x", x_expr);
+  x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
+
+  // Set the property lookup
+  auto n_p = PROPERTY_LOOKUP(x_expr, check_property);
+  auto n_p_ne = NEXPR("np", n_p)->MapTo(symbol_table.CreateSymbol("n_p_ne", true));
+  std::vector<Symbol> symbol_vec{symbol_table.at(*(n_p_ne))};
+
+  // Produce the result of ScanAll
+  auto produce = MakeProduceDistributed(scan_all, n_p_ne);
+  auto distinct = std::make_shared<distributed::Distinct>(produce, symbol_vec);
+
+  // Produce the result of Distinct
+  auto produce2 = MakeProduceDistributed(distinct, n_p_ne);
+
+  auto context = MakeContextDistributed(storage, symbol_table, &dba);
+  auto results = CollectProduceDistributed(*produce2, &context, frames_per_batch);
+
+  ASSERT_EQ(results.size(), already_gotten_numbers.size());
+  ASSERT_TRUE(ResultsHaveDistinctElementsOnIntegerProperty(results, check_property));
+}
+
 TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchUnwindQuery) {
   /*
     QUERY:
@@ -950,8 +1041,8 @@ INSTANTIATE_TEST_CASE_P(
         std::make_pair(2, 2),     /* 2 vertices, 1 frame per batch: simple case. */
         std::make_pair(3, 2),     /* 3 vertices, 2 frame per batch: simple case. */
         std::make_pair(3, 3),     /* 3 vertices, 3 frame per batch: simple case. */
-        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous
-                                    behavior (ie: pre-batching). */
+        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous behavior (ie: pre-batching).
+                                   */
         std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
         std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
         std::make_pair(5, 2),     /* 5 vertices, 2 frames per batch. */
