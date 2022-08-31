@@ -271,8 +271,8 @@ int main() {
     const CompoundKey compound_key = {cm_key_1, cm_key_2};
 
     // Look for Shard
-    BasicResult<TimedOut, memgraph::coordinator::CoordinatorReadResponses> read_res =
-        coordinator_client.SendReadRequest(req);
+    BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res =
+        coordinator_client.SendWriteRequest(req);
 
     if (read_res.HasError()) {
       // timeout
