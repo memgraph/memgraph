@@ -831,6 +831,148 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
   }
 }
 
+TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery02) {
+  /*
+  INDEXES:
+    // Index on label only
+    CREATE INDEX ON :N;
+    CREATE INDEX ON :P;
+    CREATE INDEX ON :I;
+    CREATE INDEX ON :D;
+    CREATE INDEX ON :C;
+
+    // Index on label+property
+    CREATE INDEX ON :N(pId);
+    CREATE INDEX ON :N(name);
+    CREATE INDEX ON :P(name);
+    CREATE INDEX ON :I(email);
+
+  QUERY:
+    MATCH (nodeN:N)<-[:IS_FOR_N]-(nodeP:P)
+    OPTIONAL MATCH (nodeN)-[:HAS_PARENT]->(anon1:N)<-[:IS_FOR_N]-(parentNodeP:P)
+    WITH nodeN AS nodeNs, collect(parentNodeP)+collect(nodeP) AS nodePs
+    UNWIND nodePs AS uniqnodePs
+    MATCH (uniqnodePs)-[:IS_FOR_I]->(nodeI:I)-[:IS_FROM_D]->(nodeD:D)
+        <-[r:HAS_INTERNAL_D]-(nodeC:C)
+    WITH DISTINCT nodeNs AS nodes, uniqnodePs, nodeI, nodeC
+    RETURN nodes, uniqnodePs, nodeI, nodeC
+    ORDER BY nodeI.email, uniqnodePs.name, nodes.name
+    // SKIP is also important here because of the infinite scroll
+    LIMIT 50;
+
+
+  QUERY PLAN:
+    (27) Limit
+    (26) OrderBy {nodes, uniqnodePs, nodeI, nodeC}
+    (25) Produce {nodes, uniqnodePs, nodeI, nodeC}
+    (24) Distinct
+    (23) Produce {nodes, uniqnodePs, nodeI, nodeC}
+    (22) EdgeUniquenessFilter
+    (21) Expand (nodeI)<-[anon7:IS_FOR_I]-(uniqnodePs)
+    (20) EdgeUniquenessFilter
+    (19) Expand (nodeD)<-[anon8:IS_FROM_D]-(nodeI)
+    (18) ScanAllByLabel (nodeI :I)
+    (17) Expand (nodeC)-[r:HAS_INTERNAL_D]->(nodeD)
+    (16) ScanAllByLabel (nodeD :D)
+    (15) ScanAllByLabel (nodeC :C)
+    (14) Unwind
+    (13) Produce {nodeNs, nodePs}
+    (12) Aggregate {COLLECT-1, COLLECT-1} {nodeN}
+    (11) Optional
+    (10)  \\
+    (9)   * EdgeUniquenessFilter
+    (8)   * Expand (anon1)<-[anon4:HAS_PARENT]-(nodeN)
+    (7)   * Expand (parentNodeP)-[anon5:IS_FOR_N]->(anon1)
+    (6)   * ScanAllByLabel (anon1 :N)
+    (5)     * ScanAllByLabel (parentNodeP :P)
+    (4)       * Once
+    (3)   Expand (nodeP)-[anon2:IS_FOR_N]->(nodeN)
+    (2)   ScanAllByLabel (nodeN :N)
+    (1)   ScanAllByLabel (nodeP :P)
+    (0)   Once
+  */
+
+  const auto [number_of_clusters, unused_frames_per_batch] = GetParam();
+  auto label_N = db_v3.NameToLabel("N");
+  auto label_P = db_v3.NameToLabel("P");
+  auto label_I = db_v3.NameToLabel("I");
+  auto label_D = db_v3.NameToLabel("D");
+  auto label_C = db_v3.NameToLabel("C");
+
+  auto property_N_pId = db_v3.NameToProperty("pId");
+  auto property_N_name = db_v3.NameToProperty("name");
+  auto property_P_name = db_v3.NameToProperty("name");
+  auto property_I_email = db_v3.NameToProperty("email");
+
+  auto edge_IS_FOR_I = db_v3.NameToEdgeType("IS_FOR_I");
+  auto edge_IS_FROM_D = db_v3.NameToEdgeType("IS_FROM_D");
+  auto edge_HAS_INTERNAL_D = db_v3.NameToEdgeType("HAS_INTERNAL_D");
+  auto edge_IS_FOR_N = db_v3.NameToEdgeType("IS_FOR_N");
+  auto edge_HAS_PARENT = db_v3.NameToEdgeType("HAS_PARENT");
+
+  auto n_gids = std::set<storage::v3::Gid>{};
+  auto p_gids = std::set<storage::v3::Gid>{};
+  auto i_gids = std::set<storage::v3::Gid>{};
+
+  auto expected_final_results = std::set<Result>{};
+
+  {  // Inserting data
+     // auto storage_dba = db_v3.Access();
+     // DbAccessor dba(&storage_dba);
+
+    // auto property_index = 0;
+    // #NoCommit
+    // ASSERT_FALSE(dba.Commit().HasError());
+  }
+
+  // INDEX CREATION
+  db_v3.CreateIndex(label_N);
+  db_v3.CreateIndex(label_P);
+  db_v3.CreateIndex(label_I);
+  db_v3.CreateIndex(label_D);
+  db_v3.CreateIndex(label_C);
+  db_v3.CreateIndex(label_N, property_N_pId);
+  db_v3.CreateIndex(label_N, property_N_name);
+  db_v3.CreateIndex(label_P, property_P_name);
+  db_v3.CreateIndex(label_I, property_I_email);
+
+  auto storage_dba = db_v3.Access();
+  DbAccessor dba(&storage_dba);
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // Create our symbols
+  auto symbol_anon1 = symbol_table.CreateSymbol("anon1", true);
+  auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
+  auto symbol_anon4 = symbol_table.CreateSymbol("anon4", true);
+  auto symbol_anon5 = symbol_table.CreateSymbol("anon5", true);
+  auto symbol_anon7 = symbol_table.CreateSymbol("anon7", true);
+  auto symbol_anon8 = symbol_table.CreateSymbol("anon8", true);
+  auto symbol_nodeC = symbol_table.CreateSymbol("nodeC", true);
+  auto symbol_nodeD = symbol_table.CreateSymbol("nodeD", true);
+  auto symbol_nodeI = symbol_table.CreateSymbol("nodeI", true);
+  auto symbol_nodeN = symbol_table.CreateSymbol("nodeN", true);
+  auto symbol_nodeNs = symbol_table.CreateSymbol("nodeNs", true);
+  auto symbol_nodeP = symbol_table.CreateSymbol("nodeP", true);
+  auto symbol_nodePs = symbol_table.CreateSymbol("nodePs", true);
+  auto symbol_nodes = symbol_table.CreateSymbol("nodes", true);
+  auto symbol_parentNodeP = symbol_table.CreateSymbol("parentNodeP", true);
+  auto symbol_r = symbol_table.CreateSymbol("r", true);
+  auto symbol_uniqnodePs = symbol_table.CreateSymbol("uniqnodePs", true);
+
+  auto scan_all_1 =
+      std::make_shared<ScanAllByLabel>(nullptr /*input*/, symbol_nodeP, label_P, memgraph::storage::v3::View::OLD);
+  auto scan_all_2 =
+      std::make_shared<ScanAllByLabel>(scan_all_1, symbol_nodeN, label_N, memgraph::storage::v3::View::OLD);
+
+  auto expand_3_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_IS_FOR_N};
+  auto expand_3 =
+      std::make_shared<Expand>(scan_all_2, symbol_nodeN, symbol_nodeP, symbol_anon2, EdgeAtom::Direction::IN,
+                               expand_3_edge_types, true /*existing_node*/, memgraph::storage::v3::View::OLD);
+
+  // Run the query, see HardCodedQuery01
+}
+
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
