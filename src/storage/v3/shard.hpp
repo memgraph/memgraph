@@ -210,8 +210,8 @@ class Shard final {
  public:
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit Shard(const std::string &primary_label, PrimaryKey min_primary_key,
-                 std::optional<PrimaryKey> max_primary_key, Config config = Config());
+  explicit Shard(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+                 Config config = Config());
 
   Shard(const Shard &) = delete;
   Shard(Shard &&) noexcept = delete;
@@ -310,15 +310,6 @@ class Shard final {
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    LabelId NameToLabel(std::string_view name);
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    PropertyId NameToProperty(std::string_view name);
-
-    /// @throw std::bad_alloc if unable to insert a new mapping
-    EdgeTypeId NameToEdgeType(std::string_view name);
 
     bool LabelIndexExists(LabelId label) const { return shard_->indices_.label_index.IndexExists(label); }
 

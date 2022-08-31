@@ -315,9 +315,9 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   }
 }
 
-Shard::Shard(const std::string &primary_label, const PrimaryKey min_primary_key,
+Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
              const std::optional<PrimaryKey> max_primary_key, Config config)
-    : primary_label_{NameToLabel(primary_label)},
+    : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
       schema_validator_{schemas_},
@@ -788,12 +788,6 @@ const std::string &Shard::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
   return shard_->EdgeTypeToName(edge_type);
 }
 
-LabelId Shard::Accessor::NameToLabel(const std::string_view name) { return shard_->NameToLabel(name); }
-
-PropertyId Shard::Accessor::NameToProperty(const std::string_view name) { return shard_->NameToProperty(name); }
-
-EdgeTypeId Shard::Accessor::NameToEdgeType(const std::string_view name) { return shard_->NameToEdgeType(name); }
-
 void Shard::Accessor::AdvanceCommand() { ++transaction_.command_id; }
 
 utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
@@ -1068,16 +1062,6 @@ const std::string &Shard::PropertyToName(PropertyId property) const {
 
 const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
-}
-
-LabelId Shard::NameToLabel(const std::string_view name) { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
-
-PropertyId Shard::NameToProperty(const std::string_view name) {
-  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
-}
-
-EdgeTypeId Shard::NameToEdgeType(const std::string_view name) {
-  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
