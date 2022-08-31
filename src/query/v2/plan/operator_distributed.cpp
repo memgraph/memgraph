@@ -617,6 +617,13 @@ class DistinctCursor : public Cursor {
       if (at_least_one_insertion) {
         return true;
       }
+      // If all of the gotten elements are already stored in the set, there
+      // is no point in propagating upwards in the pull chain. This also
+      // prevents infinite recursion with this operator's input, where continue
+      // would be always called.
+      else {
+        multiframe.ResetAll();
+      }
     }
   }
 

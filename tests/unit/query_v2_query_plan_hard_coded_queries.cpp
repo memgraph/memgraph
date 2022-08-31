@@ -522,7 +522,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
   const auto [number_of_vertices, frames_per_batch] = GetParam();
 
   // TODO(gvolfing) Remove debug vars;
-  if (number_of_vertices == 3 && frames_per_batch == 3) {
+  if (number_of_vertices == 100 && frames_per_batch == 1) {
     int k = 3;
     int i = 2;
   }
@@ -534,7 +534,7 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, DistinctTest) {
   {  // Inserting data
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dist(0, 10);
+    std::uniform_int_distribution<> dist(0, 1);
 
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -765,20 +765,20 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery) {
 INSTANTIATE_TEST_CASE_P(
     QueryPlanHardCodedQueriesTest, QueryPlanHardCodedQueriesTestFixture,
     ::testing::Values(
-        std::make_pair(1, 1), /* 1 vertex, 1 frame per batch: simple case. */
-        std::make_pair(2, 1), /* 2 vertices, 1 frame per batch: simple case. */
-        std::make_pair(3, 3), /* 3 vertices, 3 frame per batch: simple case. */
-        // std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous behavior (ie: pre-batching).
-        // */
+        std::make_pair(1, 1),     /* 1 vertex, 1 frame per batch: simple case. */
+        std::make_pair(2, 1),     /* 2 vertices, 1 frame per batch: simple case. */
+        std::make_pair(3, 3),     /* 3 vertices, 3 frame per batch: simple case. */
+        std::make_pair(100, 1),   /* 100 vertices, 1 frame per batch: to check previous behavior (ie: pre-batching).
+                                   */
         std::make_pair(1, 2),     /* 1 vertex, 2 batches. */
         std::make_pair(4, 2),     /* 4 vertices, 2 frames per batch. */
         std::make_pair(5, 2),     /* 5 vertices, 2 frames per batch. */
         std::make_pair(100, 100), /* 100 vertices, 100 frames per batch: to check batching works with 1 iteration. */
         std::make_pair(100, 50),  /* 100 vertices, 50 frames per batch: to check batching works with 2 iterations. */
-        std::make_pair(37, 100)   /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
-                                     iteration only. */
-        // std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when
-        // having
-        //                              several iterations. There will be only 42 vertices left on the last batch.*/
+        std::make_pair(37, 100),  /* 37 vertices, 100 frames per batch: to check resizing of frames works when having 1
+                                    iteration only. */
+        std::make_pair(342, 100)  /* 342 vertices, 100 frames per batch: to check resizing of frames works when
+         having
+                                      several iterations. There will be only 42 vertices left on the last batch.*/
         ));
 }  // namespace memgraph::query::v2::tests
