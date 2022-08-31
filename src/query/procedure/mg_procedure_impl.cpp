@@ -1627,6 +1627,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
+    if (v->graph->ctx && v->graph->ctx->auth_checker &&
+        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+      return;
+    }
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
@@ -1660,8 +1665,8 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
-        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl,
-                                             v->graph->view /*, CREATE_DELETE*/)) {
+        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
 
@@ -1701,7 +1706,8 @@ mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result
 
 void mgp_vertex_destroy(mgp_vertex *v) {
   if (v->graph->ctx && v->graph->ctx->auth_checker &&
-      !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view /*, CREATE_DELETE*/)) {
+      !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                           memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
     return;
   }
 
@@ -2007,7 +2013,8 @@ mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
 
 void mgp_edge_destroy(mgp_edge *e) {
   if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
-      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl /*, CREATE_DELETE*/)) {
+      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl,
+                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
     return;
   }
 
@@ -2185,7 +2192,8 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
 mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
-        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view /*, CREATE_DELETE*/)) {
+        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view,
+                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
     if (!MgpGraphIsMutable(*graph)) {
@@ -2224,7 +2232,8 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
-        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view /*, CREATE_DELETE*/)) {
+        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view,
+                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
     if (!MgpGraphIsMutable(*graph)) {
@@ -2312,7 +2321,8 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
 mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
-        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, edge->impl /*, CREATE_DELETE*/)) {
+        !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, edge->impl,
+                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
     if (!MgpGraphIsMutable(*graph)) {
