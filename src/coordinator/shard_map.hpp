@@ -18,12 +18,14 @@
 #include "io/address.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 
 namespace memgraph::coordinator {
 
 using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
+using memgraph::storage::v3::SchemaProperty;
 
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,
@@ -45,13 +47,19 @@ using LabelName = std::string;
 using PropertyName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
 
+struct LabelSpace {
+  std::vector<SchemaProperty> schema;
+  std::map<CompoundKey, Shard> shards;
+};
+
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id;
   std::map<PropertyName, PropertyId> properties;
   uint64_t max_label_id;
   std::map<LabelName, LabelId> labels;
-  std::map<LabelId, Shards> shards;
+  std::map<LabelId, LabelSpace> label_spaces;
+  std::map<LabelId, std::vector<SchemaProperty>> schemas;
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
@@ -67,11 +75,12 @@ struct ShardMap {
       return false;
     }
 
-    if (!shards.contains(label_id)) {
+    if (!label_spaces.contains(label_id)) {
       return false;
     }
 
-    auto &shards_in_map = shards.at(label_id);
+    auto &label_space = label_spaces.at(label_id);
+    auto &shards_in_map = label_space.shards;
     MG_ASSERT(!shards_in_map.contains(key));
 
     // Finding the Shard that the new CompoundKey should map to.
@@ -93,7 +102,7 @@ struct ShardMap {
     return true;
   }
 
-  bool InitializeNewLabel(std::string label_name, Hlc last_shard_map_version) {
+  bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, Hlc last_shard_map_version) {
     if (shard_map_version != last_shard_map_version) {
       return false;
     }
@@ -105,7 +114,13 @@ struct ShardMap {
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
     labels.emplace(label_name, label_id);
-    shards.emplace(label_id, Shards{});
+
+    LabelSpace label_space{
+        .schema = schema,
+        .shards = Shards{},
+    };
+
+    label_spaces.emplace(label_id, label_space);
 
     IncrementShardMapVersion();
 
@@ -122,10 +137,11 @@ struct ShardMap {
 
     LabelId label_id = labels.at(label_name);
 
-    const auto &shard_for_label = shards.at(label_id);
+    const auto &label_space = label_spaces.at(label_id);
+    const auto &shards_for_label = label_space.shards;
 
-    auto it = std::prev(shard_for_label.upper_bound(start_key));
-    const auto end_it = shard_for_label.upper_bound(end_key);
+    auto it = std::prev(shards_for_label.upper_bound(start_key));
+    const auto end_it = shards_for_label.upper_bound(end_key);
 
     Shards shards{};
 
@@ -141,12 +157,12 @@ struct ShardMap {
 
     LabelId label_id = labels.at(label_name);
 
-    const auto &shard_for_label = shards.at(label_id);
+    const auto &label_space = label_spaces.at(label_id);
 
-    return std::prev(shard_for_label.upper_bound(key))->second;
+    return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
-  PropertyMap AllocatePropertyIds(std::vector<PropertyName> &new_properties) {
+  PropertyMap AllocatePropertyIds(std::vector<PropertyName> const &new_properties) {
     PropertyMap ret{};
 
     bool mutated = false;
@@ -173,7 +189,7 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(std::string &property_name) {
+  std::optional<PropertyId> GetPropertyId(std::string const &property_name) {
     if (properties.contains(property_name)) {
       return properties.at(property_name);
     } else {
