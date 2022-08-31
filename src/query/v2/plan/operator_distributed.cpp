@@ -45,6 +45,8 @@ extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
 extern const Event ProduceOperator;
+extern const Event UnwindOperator;
+extern const Event FilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::v2::plan::distributed {
@@ -633,5 +635,161 @@ bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &cont
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
+
+Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_expression_(input_expression),
+      output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Unwind)
+
+std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
+class UnwindCursor : public Cursor {
+ public:
+  UnwindCursor(const Unwind &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
+
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Unwind");
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      // There are two important dimensions: multiframe size, unwind list size.
+      // "Cartesian product" between MultiFrame values and input values because for each Frame the whole input list has
+      // to be evaluated. Evaluation result depends on the frame.
+      if (!frame_idx_) {
+        if (!input_cursor_->Pull(multiframe, context)) return false;
+        frame_idx_ = 0;
+      }
+
+      for (; *frame_idx_ < multiframe.Size();) {
+        auto &frame = multiframe.GetFrame(*frame_idx_);
+        if (!frame.IsValid()) {
+          frame_idx_ = *frame_idx_ + 1;
+          continue;
+        }
+        if (input_value_it_ == input_value_.end()) {
+          ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                        storage::v3::View::OLD);
+          TypedValue input_value = self_.input_expression_->Accept(evaluator);
+          if (input_value.type() != TypedValue::Type::List) {
+            throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.",
+                                        input_value.type());
+          }
+          input_value_ = input_value.ValueList();
+          input_value_it_ = input_value_.begin();
+        }
+        // NOTE: Here we have to populate to as many frames as we have them, but not more.
+        while (input_value_it_ != input_value_.end()) {
+          // TODO(gitbuda): Take invalid frames into account (BUG HERE)!
+          auto &frame = multiframe.GetFrame(populated_frames_);
+          frame[self_.output_symbol_] = *input_value_it_++;
+          populated_frames_++;
+          // Taking care if multiframe size is smaller than unwind list size.
+          if (populated_frames_ < multiframe.Size()) {
+            continue;
+          }
+          // TODO(gitbuda): Here we have an issue if size is lower then the batch size.
+          if (populated_frames_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
+            populated_frames_ = 0;
+            if (input_value_it_ != input_value_.end()) {
+              return true;
+            }
+            if (input_value_it_ == input_value_.end()) {
+              frame_idx_ = *frame_idx_ + 1;
+            }
+            if (*frame_idx_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
+              frame_idx_ = std::nullopt;
+            }
+            return true;
+          }
+        }
+        frame_idx_ = *frame_idx_ + 1;
+      }
+      frame_idx_ = std::nullopt;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    input_value_.clear();
+    input_value_it_ = input_value_.end();
+  }
+
+ private:
+  const Unwind &self_;
+  const UniqueCursorPtr input_cursor_;
+  // typed values we are unwinding and yielding
+  utils::pmr::vector<TypedValue> input_value_;
+  // current position in input_value_
+  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+  std::optional<size_t> frame_idx_{std::nullopt};
+  size_t populated_frames_{0};
+};
+
+UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
+}
+
+// Returns boolean result of evaluating filter expression. Null is treated as
+// false. Other non boolean values raise a QueryRuntimeException.
+bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
+  TypedValue result = filter->Accept(evaluator);
+  // Null is treated like false.
+  if (result.IsNull()) return false;
+  if (result.type() != TypedValue::Type::Bool)
+    throw QueryRuntimeException("Filter expression must evaluate to bool or null, got {}.", result.type());
+  return result.ValueBool();
+}
+
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Filter)
+
+UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+
+  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+
+  while (input_cursor_->Pull(multiframe, context)) {
+    // TODO(gitbuda): Make frames invalid only there is something to return because in the case with many pull without
+    // return multiframe will be in a "polluted" state.
+    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
+        continue;
+      }
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::v3::View::OLD);
+      if (!EvaluateFilter(evaluator, self_.expression_)) {
+        frame.MakeInvalid();
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 }  // namespace memgraph::query::v2::plan::distributed

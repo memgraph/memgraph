@@ -342,6 +342,19 @@ UnwindTuple MakeUnwind(SymbolTable &symbol_table, const std::string &symbol_name
   return UnwindTuple{sym, op};
 }
 
+struct UnwindDistributedTuple {
+  Symbol sym_;
+  std::shared_ptr<distributed::LogicalOperator> op_;
+};
+
+UnwindDistributedTuple MakeUnwindDistributed(SymbolTable &symbol_table, const std::string &symbol_name,
+                                             std::shared_ptr<distributed::LogicalOperator> input,
+                                             Expression *input_expression) {
+  auto sym = symbol_table.CreateSymbol(symbol_name, true);
+  auto op = std::make_shared<distributed::Unwind>(input, input_expression, sym);
+  return UnwindDistributedTuple{sym, op};
+}
+
 template <typename TIterable>
 auto CountIterable(TIterable &&iterable) {
   uint64_t count = 0;
