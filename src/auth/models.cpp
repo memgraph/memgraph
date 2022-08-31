@@ -101,6 +101,35 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
+FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permission) {
+  if (permission & FineGrainedPermission::CREATE_DELETE) {
+    return FineGrainedPermission::CREATE_DELETE;
+  }
+
+  if (permission & FineGrainedPermission::UPDATE) {
+    return FineGrainedPermission::UPDATE;
+  }
+
+  if (permission & FineGrainedPermission::READ) {
+    return FineGrainedPermission::READ;
+  }
+
+  return FineGrainedPermission::NO_PERMISSION;
+}
+
+std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
+  switch (level) {
+    case FineGrainedPermission::CREATE_DELETE:
+      return "CREATE_DELETE";
+    case FineGrainedPermission::UPDATE:
+      return "UPDATE";
+    case FineGrainedPermission::READ:
+      return "READ";
+    case FineGrainedPermission::NO_PERMISSION:
+      return "NO_PERMISSION";
+  }
+}
+
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
   std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
@@ -370,6 +399,14 @@ const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
+
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions() const {
+  return fine_grained_access_handler_.label_permissions();
+}
+
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions() const {
+  return fine_grained_access_handler_.edge_type_permissions();
+}
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
