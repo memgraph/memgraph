@@ -249,7 +249,10 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-void ScanAll::PerformFullEnumeration() { perform_full_enumeration_ = true; }
+void ScanAll::PerformFullEnumeration() {
+  perform_full_enumeration_ = true;           // Specific to ScanAll
+  LogicalOperator::PerformFullEnumeration();  // We need to propagate it below
+}
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                storage::v3::LabelId label, storage::v3::View view)

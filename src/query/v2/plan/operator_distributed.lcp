@@ -189,7 +189,11 @@ can serve as inputs to others and thus a sequence of operations is formed.")
      std::vector<std::shared_ptr<LogicalOperator>> loaded_ops;
    };
 
-   virtual void PerformFullEnumeration() {} // #NoCommit =0 by default, only temporary so peers can work: all operators should implement it, perhaps it's not only about ScanAll
+   virtual void PerformFullEnumeration() {
+    if (HasSingleInput()) {
+      input()->PerformFullEnumeration();
+      }
+    } // #NoCommit =0 by default? only temporary so peers can work: all operators should implement it, perhaps it's not only about ScanAll
    cpp<#)
   (:serialize
    (:slk :base t
