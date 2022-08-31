@@ -23,6 +23,7 @@ namespace memgraph::coordinator {
 
 using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
+using memgraph::storage::v3::PropertyId;
 
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,
@@ -41,12 +42,16 @@ using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<CompoundKey, Shard>;
 using LabelName = std::string;
+using PropertyName = std::string;
+using PropertyMap = std::map<PropertyName, PropertyId>;
 
 struct ShardMap {
   Hlc shard_map_version;
+  uint64_t max_property_id;
+  std::map<PropertyName, PropertyId> properties;
+  uint64_t max_label_id;
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, Shards> shards;
-  uint64_t max_label_id;
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
@@ -139,6 +144,33 @@ struct ShardMap {
     const auto &shard_for_label = shards.at(label_id);
 
     return std::prev(shard_for_label.upper_bound(key))->second;
+  }
+
+  PropertyMap AllocatePropertyIds(std::vector<PropertyName> &new_properties) {
+    PropertyMap ret{};
+
+    bool mutated = false;
+
+    for (const auto &property_name : new_properties) {
+      if (properties.contains(property_name)) {
+        auto property_id = properties.at(property_name);
+        ret.emplace(property_name, property_id);
+      } else {
+        mutated = true;
+
+        const PropertyId property_id = PropertyId::FromUint(++max_property_id);
+
+        ret.emplace(property_name, property_id);
+
+        properties.emplace(property_name, property_id);
+      }
+    }
+
+    if (mutated) {
+      IncrementShardMapVersion();
+    }
+
+    return ret;
   }
 };
 
