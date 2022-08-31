@@ -51,9 +51,9 @@ using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::RsmClient;
+using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
-using memgraph::io::rsm::StorageRsm;
 using memgraph::io::rsm::StorageWriteRequest;
 using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::io::rsm::WriteRequest;
@@ -65,7 +65,7 @@ using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::utils::BasicResult;
 
-using StorageClient =
+using ShardClient =
     RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
 
@@ -110,9 +110,9 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   return sm;
 }
 
-std::optional<StorageClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
-                                                    StorageClient a_client, const std::vector<Address> &b_addrs,
-                                                    StorageClient b_client) {
+std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
+                                                  ShardClient a_client, const std::vector<Address> &b_addrs,
+                                                  ShardClient b_client) {
   for (const auto &addr : target_shard) {
     if (addr.address == b_addrs[0]) {
       return b_client;
@@ -127,13 +127,12 @@ std::optional<StorageClient> DetermineShardLocation(Shard target_shard, const st
 }  // namespace
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteStorageRsm = Raft<SimulatorTransport, StorageRsm, StorageWriteRequest, StorageWriteResponse,
-                                StorageReadRequest, StorageReadResponse>;
+using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, StorageWriteRequest, StorageWriteResponse,
+                              StorageReadRequest, StorageReadResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, StorageRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>
-        server) {
+    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse> server) {
   server.Run();
 }
 
@@ -175,9 +174,9 @@ int main() {
   std::vector<Address> a_2_peers = {a_addrs[0], a_addrs[2]};
   std::vector<Address> a_3_peers = {a_addrs[0], a_addrs[1]};
 
-  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, StorageRsm{}};
-  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, StorageRsm{}};
-  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, StorageRsm{}};
+  ConcreteShardRsm a_1{std::move(a_io_1), a_1_peers, ShardRsm{}};
+  ConcreteShardRsm a_2{std::move(a_io_2), a_2_peers, ShardRsm{}};
+  ConcreteShardRsm a_3{std::move(a_io_3), a_3_peers, ShardRsm{}};
 
   auto a_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(a_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(a_addrs[0]);
@@ -195,9 +194,9 @@ int main() {
   std::vector<Address> b_2_peers = {b_addrs[0], b_addrs[2]};
   std::vector<Address> b_3_peers = {b_addrs[0], b_addrs[1]};
 
-  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, StorageRsm{}};
-  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, StorageRsm{}};
-  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, StorageRsm{}};
+  ConcreteShardRsm b_1{std::move(b_io_1), b_1_peers, ShardRsm{}};
+  ConcreteShardRsm b_2{std::move(b_io_2), b_2_peers, ShardRsm{}};
+  ConcreteShardRsm b_3{std::move(b_io_3), b_3_peers, ShardRsm{}};
 
   auto b_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[0]);
@@ -239,8 +238,8 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  StorageClient shard_a_client(cli_io, a_addrs[0], a_addrs);
-  StorageClient shard_b_client(cli_io, b_addrs[0], b_addrs);
+  ShardClient shard_a_client(cli_io, a_addrs[0], a_addrs);
+  ShardClient shard_b_client(cli_io, b_addrs[0], b_addrs);
 
   memgraph::coordinator::HlcRequest req;
 
