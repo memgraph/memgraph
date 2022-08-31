@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "auth/models.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 
@@ -34,19 +35,22 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view) const = 0;
+                                    const memgraph::storage::View &view,
+                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const = 0;
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
+                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 };
 
 class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
-              const memgraph::storage::View &view) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View &view,
+              const memgraph::auth::FineGrainedPermission) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
+              const memgraph::auth::FineGrainedPermission) const override {
     return true;
   }
 };
