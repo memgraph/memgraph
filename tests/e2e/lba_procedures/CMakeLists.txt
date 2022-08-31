@@ -4,6 +4,7 @@ endfunction()
 
 copy_lba_procedures_e2e_python_files(common.py)
 copy_lba_procedures_e2e_python_files(lba_procedures.py)
+copy_lba_procedures_e2e_python_files(show_privileges.py)
 copy_lba_procedures_e2e_python_files(update_permission_queries.py)
 
 
