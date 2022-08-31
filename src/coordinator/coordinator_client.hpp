@@ -19,6 +19,7 @@ namespace memgraph::coordinator {
 using memgraph::io::rsm::RsmClient;
 
 template <typename IoImpl>
-using CoordinatorClient = RsmClient<IoImpl, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
+using CoordinatorClient = RsmClient<IoImpl, CoordinatorWriteRequests, CoordinatorWriteResponses,
+                                    CoordinatorReadRequests, CoordinatorReadResponses>;
 
 }  // namespace memgraph::coordinator
