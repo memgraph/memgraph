@@ -22,9 +22,8 @@ remove_label_vertex_query = "CALL create_delete.remove_label() YIELD node RETURN
 set_label_vertex_query = 'CALL create_delete.set_label("new_create_delete_label") YIELD node RETURN labels(node);'
 
 # TODO: Create delete vertex, edge, delete edge tests
-create_edge_query = (
-    "MATCH (n:create_delete_label_1), (m:create_delete_label_2) CALL create_delete.create_edge(n, m) YIELD * RETURN *;"
-)
+create_edge_query = "MATCH (n:create_delete_label_1), (m:create_delete_label_2) CALL create_delete.create_edge(n, m) YIELD nr_of_edges RETURN nr_of_edges;"
+
 delete_edge_query = "CALL create_delete.delete_edge() YIELD * RETURN *;"
 
 
@@ -194,6 +193,46 @@ def test_can_not_set_vertex_label_when_given_global_update():
     result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
     assert len(result[0][0]) == 1
+
+
+def test_can_not_create_edge_when_given_nothing():
+    admin_cursor = connect(username="admin", password="test").cursor()
+    reset_create_delete_permissions(admin_cursor)
+
+    test_cursor = connect(username="user", password="test").cursor()
+
+    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+
+    assert no_of_edges[0][0] == 1
+
+
+def test_can_not_create_edge_when_given_update():
+    admin_cursor = connect(username="admin", password="test").cursor()
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGE_TYPES :create_delete_edge_type TO user")
+
+    test_cursor = connect(username="user", password="test").cursor()
+
+    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+
+    assert no_of_edges[0][0] == 1
+
+
+def test_can_create_edge_when_given_create_delete():
+    admin_cursor = connect(username="admin", password="test").cursor()
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(
+        admin_cursor,
+        "GRANT CREATE_DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
+    )
+
+    test_cursor = connect(username="user", password="test").cursor()
+
+    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+
+    assert no_of_edges[0][0] == 2
 
 
 if __name__ == "__main__":

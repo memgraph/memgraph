@@ -48,6 +48,10 @@ def reset_update_permissions(admin_cursor: mgclient.Cursor):
 def reset_create_delete_permissions(admin_cursor: mgclient.Cursor):
     execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
     execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES * TO user;")
+
     execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
 
     execute_and_fetch_all(admin_cursor, "CREATE (n:create_delete_label);")

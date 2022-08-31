@@ -43,9 +43,15 @@ def set_label(ctx: mgp.ProcCtx, new_label: str) -> mgp.Record(node=mgp.Vertex):
 
 
 @mgp.write_proc
-def create_edge_edge(ctx: mgp.ProcCtx, v1: mgp.Vertex, v2: mgp.Vertex) -> mgp.Record():
-    ctx.graph.create_edge(v1, v2, "new_create_delete_edge_type")
-    return mgp.Record()
+def create_edge(ctx: mgp.ProcCtx, v1: mgp.Vertex, v2: mgp.Vertex) -> mgp.Record(nr_of_edges=int):
+    ctx.graph.create_edge(v1, v2, mgp.EdgeType("new_create_delete_edge_type"))
+
+    count = 0
+    for vertex in ctx.graph.vertices:
+        for _ in vertex.out_edges:
+            count += 1
+
+    return mgp.Record(nr_of_edges=55)
 
 
 @mgp.write_proc
