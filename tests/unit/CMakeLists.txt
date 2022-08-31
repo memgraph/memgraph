@@ -353,6 +353,9 @@ target_link_libraries(${test_prefix}query_v2_cypher_main_visitor mg-query-v2)
 add_unit_test(query_v2_query_required_privileges.cpp)
 target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-v2)
 
+add_unit_test(query_v2_query_plan_hard_coded_queries_single_frame.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_hard_coded_queries_single_frame mg-query-v2)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
