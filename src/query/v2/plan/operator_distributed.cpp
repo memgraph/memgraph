@@ -599,6 +599,9 @@ class DistinctCursor : public Cursor {
         utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
         row.reserve(self_.value_symbols_.size());
         for (const auto &symbol : self_.value_symbols_) {
+          // TODO(gvolfing) remove debug vars
+          auto asd = frame[symbol];
+
           row.emplace_back(frame[symbol]);
         }
 
