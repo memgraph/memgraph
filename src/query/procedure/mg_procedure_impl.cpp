@@ -1066,19 +1066,9 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
     auto *src_vertex = &path->vertices.back();
     mgp_vertex *dst_vertex{nullptr};
 
-    auto has_permission = [](const auto &vertex) -> bool {
-      const auto *ctx = vertex.graph->ctx;
-
-      if (ctx && ctx->auth_checker) {
-        return ctx->auth_checker->Accept(*ctx->db_accessor, vertex.impl, vertex.graph->view);
-      }
-
-      return true;
-    };
-
-    if (has_permission(edge->from) && (edge->to == *src_vertex)) {
+    if (edge->to == *src_vertex) {
       dst_vertex = &edge->from;
-    } else if (has_permission(edge->to) && (edge->from == *src_vertex)) {
+    } else if (edge->from == *src_vertex) {
       dst_vertex = &edge->to;
     } else {
       // edge is not a continuation on src_vertex
@@ -1850,17 +1840,22 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
 void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
 namespace {
-void NextPermittedEdge(const mgp_edges_iterator &it, const bool for_in) {
-  if (!it.source_vertex.graph->ctx) return;
-  if (!it.source_vertex.graph->ctx->auth_checker) return;
+void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
+  if (!it.source_vertex.graph->ctx || !it.source_vertex.graph->ctx->auth_checker) return;
 
-  auto impl_it = for_in ? it.in_it : it.out_it;
-  const auto end = for_in ? it.in->end() : it.out->end();
+  auto &impl_it = for_in ? it.in_it : it.out_it;
+  const auto &end = for_in ? it.in->end() : it.out->end();
 
   if (impl_it) {
+    const auto &auth_checker = it.source_vertex.graph->ctx->auth_checker;
+    const auto db_accessor = *it.source_vertex.graph->ctx->db_accessor;
+    const auto &view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (it.source_vertex.graph->ctx->auth_checker->Accept(*it.source_vertex.graph->ctx->db_accessor, **impl_it)) {
-        break;
+      if (auth_checker->Accept(db_accessor, **impl_it)) {
+        const auto &check_vertex = it.source_vertex.impl == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
+        if (auth_checker->Accept(db_accessor, check_vertex, view)) {
+          break;
+        }
       }
 
       ++*impl_it;
