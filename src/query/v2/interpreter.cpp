@@ -914,7 +914,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.header = {"property_name", "property_type"};
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         const auto *schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
@@ -939,11 +939,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_,
                      schema_type_map = std::move(schema_type_map)]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         std::vector<storage::v3::SchemaProperty> schemas_types;
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
-          auto property_id = db->NameToProperty(schema_type.first.name);
+          auto property_id = interpreter_context->NameToPropertyId(schema_type.first.name);
           schemas_types.push_back({property_id, schema_type.second});
         }
         if (!db->CreateSchema(label, schemas_types)) {
@@ -958,7 +958,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
     case SchemaQuery::Action::DROP_SCHEMA: {
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
 
         if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
@@ -1428,14 +1428,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   };
 
-  auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
+  auto label = interpreter_context->NameToLabelId(index_query->label_.name);
 
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -1995,13 +1995,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
+  auto label = interpreter_context->NameToLabelId(constraint_query->constraint_.label.name);
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
   properties_string.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");

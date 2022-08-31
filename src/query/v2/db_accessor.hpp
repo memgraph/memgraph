@@ -348,11 +348,17 @@ class DbAccessor final {
     return {std::make_optional<VertexAccessor>(*value)};
   }
 
-  storage::v3::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
+  // TODO(jbajic) Query engine should have a map of labels, properties and edge
+  // types
+  storage::v3::PropertyId NameToProperty(const std::string_view /*name*/) {
+    return storage::v3::PropertyId::FromUint(0);
+  }
 
-  storage::v3::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
+  storage::v3::LabelId NameToLabel(const std::string_view /*name*/) { return storage::v3::LabelId::FromUint(0); }
 
-  storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
+  storage::v3::EdgeTypeId NameToEdgeType(const std::string_view /*name*/) {
+    return storage::v3::EdgeTypeId::FromUint(0);
+  }
 
   const std::string &PropertyToName(storage::v3::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 

@@ -31,6 +31,7 @@
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -186,6 +187,22 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::v2::stream::Streams streams;
+
+  storage::v3::LabelId NameToLabelId(std::string_view label_name) {
+    return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
+  }
+
+  storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
+    return storage::v3::PropertyId::FromUint(query_id_mapper.NameToId(property_name));
+  }
+
+  storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
+    return storage::v3::EdgeTypeId::FromUint(query_id_mapper.NameToId(edge_type_name));
+  }
+
+ private:
+  // TODO Replace with local map of labels, properties and edge type ids
+  storage::v3::NameIdMapper query_id_mapper;
 };
 
 /// Function that is used to tell all active interpreters that they should stop

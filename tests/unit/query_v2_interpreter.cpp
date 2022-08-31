@@ -30,6 +30,7 @@
 #include "result_stream_faker.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
@@ -114,11 +115,20 @@ class InterpreterTest : public ::testing::Test {
     return default_interpreter.Interpret(query, params);
   }
 
+  storage::v3::LabelId NameToLabelId(std::string_view label_name) {
+    return storage::v3::LabelId::FromUint(id_mapper.NameToId(label_name));
+  }
+
+  storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
+    return storage::v3::PropertyId::FromUint(id_mapper.NameToId(property_name));
+  }
+
   storage::v3::PrimaryKey pk{storage::v3::PropertyValue(0)};
-  memgraph::storage::v3::Shard db_{"label", pk, std::nullopt};
+  memgraph::storage::v3::NameIdMapper id_mapper;
+  const storage::v3::LabelId label{NameToLabelId("label")};
+  storage::v3::Shard db_{label, pk, std::nullopt};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
-  const storage::v3::LabelId label{db_.NameToLabel("label")};
-  const storage::v3::PropertyId property{db_.NameToProperty("property")};
+  const storage::v3::PropertyId property{NameToPropertyId("property")};
   InterpreterFaker default_interpreter{&db_, {}, data_directory};
 };
 

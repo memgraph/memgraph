@@ -43,10 +43,17 @@ class StorageV3Accessor : public ::testing::Test {
     return *vtx;
   }
 
+  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+
+  PropertyId NameToPropertyId(std::string_view property_name) {
+    return PropertyId::FromUint(id_mapper.NameToId(property_name));
+  }
+
   const std::vector<PropertyValue> pk{PropertyValue{0}};
-  Shard storage{"label", pk, std::nullopt};
-  const LabelId primary_label{storage.NameToLabel("label")};
-  const PropertyId primary_property{storage.NameToProperty("property")};
+  NameIdMapper id_mapper;
+  Shard storage{NameToLabelId("label"), pk, std::nullopt};
+  const LabelId primary_label{NameToLabelId("label")};
+  const PropertyId primary_property{NameToPropertyId("property")};
 };
 
 TEST_F(StorageV3Accessor, TestPrimaryLabel) {
@@ -86,9 +93,9 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
 TEST_F(StorageV3Accessor, TestAddLabels) {
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label1");
-    const auto label2 = storage.NameToLabel("label2");
-    const auto label3 = storage.NameToLabel("label3");
+    const auto label1 = NameToLabelId("label1");
+    const auto label2 = NameToLabelId("label2");
+    const auto label3 = NameToLabelId("label3");
     const auto vertex =
         CreateVertexAndValidate(acc, primary_label, {label1, label2, label3}, {{primary_property, PropertyValue(0)}});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
@@ -97,9 +104,9 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
   }
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label1");
-    const auto label2 = storage.NameToLabel("label2");
-    const auto label3 = storage.NameToLabel("label3");
+    const auto label1 = NameToLabelId("label1");
+    const auto label2 = NameToLabelId("label2");
+    const auto label3 = NameToLabelId("label3");
     auto vertex = CreateVertexAndValidate(acc, primary_label, {label1}, {{primary_property, PropertyValue(1)}});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     ASSERT_FALSE(vertex.Labels(View::OLD).HasValue());
@@ -112,7 +119,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
   }
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label");
+    const auto label1 = NameToLabelId("label");
     auto vertex = acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(2)}});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
@@ -121,7 +128,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
   }
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label");
+    const auto label1 = NameToLabelId("label");
     auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
     ASSERT_TRUE(vertex.HasValue());
     const auto schema_violation = vertex->AddLabelAndValidate(label1);
@@ -135,9 +142,9 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
 TEST_F(StorageV3Accessor, TestRemoveLabels) {
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label1");
-    const auto label2 = storage.NameToLabel("label2");
-    const auto label3 = storage.NameToLabel("label3");
+    const auto label1 = NameToLabelId("label1");
+    const auto label2 = NameToLabelId("label2");
+    const auto label3 = NameToLabelId("label3");
     auto vertex =
         CreateVertexAndValidate(acc, primary_label, {label1, label2, label3}, {{primary_property, PropertyValue(0)}});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
@@ -158,7 +165,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
   }
   {
     auto acc = storage.Access();
-    const auto label1 = storage.NameToLabel("label1");
+    const auto label1 = NameToLabelId("label1");
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     EXPECT_TRUE(vertex.Labels(View::NEW).GetValue().empty());
@@ -180,7 +187,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
 TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
   {
     auto acc = storage.Access();
-    const PropertyId prop1{storage.NameToProperty("prop1")};
+    const PropertyId prop1{NameToPropertyId("prop1")};
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(0)}});
     const auto res = vertex.SetPropertyAndValidate(prop1, PropertyValue(1));
     ASSERT_TRUE(res.HasValue());
