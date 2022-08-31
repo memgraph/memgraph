@@ -27,6 +27,7 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "storage/v3/id_types.hpp"
 #include "utils/result.hpp"
 
 using memgraph::coordinator::AddressAndStatus;
@@ -61,48 +62,52 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+using memgraph::storage::v3::LabelId;
 using memgraph::utils::BasicResult;
 
 using StorageClient =
     RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
 
+const std::string label_name = std::string("test_label");
+
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
                              memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
                              memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
-  ShardMap sm1;
-  auto &shards = sm1.GetShards();
+  ShardMap sm;
 
-  // 1
-  std::string label1 = std::string("label1");
-  auto key1 = memgraph::storage::v3::PropertyValue(3);
-  auto key2 = memgraph::storage::v3::PropertyValue(4);
-  CompoundKey cm1 = {key1, key2};
+  // register new label space
+  bool label_success = sm.InitializeNewLabel(label_name, sm.shard_map_version);
+  MG_ASSERT(label_success);
+
+  LabelId label_id = sm.labels.at(label_name);
+  Shards &shards_for_label = sm.shards.at(label_id);
+
+  // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard1 = {aas1_1, aas1_2, aas1_3};
-  Shards shards1;
-  shards1[cm1] = shard1;
 
-  // 2
-  std::string label2 = std::string("label2");
-  auto key3 = memgraph::storage::v3::PropertyValue(12);
-  auto key4 = memgraph::storage::v3::PropertyValue(13);
-  CompoundKey cm2 = {key3, key4};
+  auto key1 = memgraph::storage::v3::PropertyValue(0);
+  auto key2 = memgraph::storage::v3::PropertyValue(0);
+  CompoundKey compound_key_1 = {key1, key2};
+  shards_for_label[compound_key_1] = shard1;
+
+  // add second shard at [12, 13]
   AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard2 = {aas2_1, aas2_2, aas2_3};
-  Shards shards2;
-  shards2[cm2] = shard2;
 
-  shards[label1] = shards1;
-  shards[label2] = shards2;
+  auto key3 = memgraph::storage::v3::PropertyValue(12);
+  auto key4 = memgraph::storage::v3::PropertyValue(13);
+  CompoundKey compound_key_2 = {key3, key4};
+  shards_for_label[compound_key_2] = shard2;
 
-  return sm1;
+  return sm;
 }
 
 std::optional<StorageClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
@@ -248,7 +253,7 @@ int main() {
     const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
     const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
 
-    const CompoundKey cm_k = {cm_key_1, cm_key_2};
+    const CompoundKey compound_key = {cm_key_1, cm_key_2};
 
     // Look for Shard
     BasicResult<TimedOut, memgraph::coordinator::ReadResponses> read_res = coordinator_client.SendReadRequest(req);
@@ -268,28 +273,24 @@ int main() {
       client_shard_map = hlc_response.fresher_shard_map.value();
     }
 
-    // TODO(gabor) check somewhere in the call chain if the entries are actually valid
-    // for (auto &[key, val] : client_shard_map.GetShards()) {
-    //   std::cout << "key: " << key << std::endl;
-    // }
+    auto target_shard = client_shard_map.GetShardForKey(label_name, compound_key);
 
-    auto target_shard = client_shard_map.GetShardForKey(std::string("label1"), cm_k);
-
-    // Determine which shard to send the requests to
+    // Determine which shard to send the requests to. This should be a more proper client cache in the "real" version.
     auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);
     MG_ASSERT(storage_client_opt);
 
     auto storage_client = storage_client_opt.value();
 
+    LabelId label_id = client_shard_map.labels.at(label_name);
+
     // Have client use shard map to decide which shard to communicate
     // with in order to write a new value
     // client_shard_map.
-    auto write_key_1 = memgraph::storage::PropertyValue(3);
-    auto write_key_2 = memgraph::storage::PropertyValue(4);
-
     StorageWriteRequest storage_req;
-    storage_req.key = {write_key_1, write_key_2};
+    storage_req.label_id = label_id;
+    storage_req.key = compound_key;
     storage_req.value = 1000;
+    storage_req.transaction_id = transaction_id;
 
     auto write_response_result = storage_client.SendWriteRequest(storage_req);
     if (write_response_result.HasError()) {
@@ -307,7 +308,9 @@ int main() {
     // with to read that same value back
 
     StorageReadRequest storage_get_req;
-    storage_get_req.key = {write_key_1, write_key_2};
+    storage_get_req.label_id = label_id;
+    storage_get_req.key = compound_key;
+    storage_get_req.transaction_id = transaction_id;
 
     auto get_response_result = storage_client.SendReadRequest(storage_get_req);
     if (get_response_result.HasError()) {

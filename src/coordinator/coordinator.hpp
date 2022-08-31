@@ -18,9 +18,12 @@
 #include "io/simulator/simulator.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "storage/v3/id_types.hpp"
 
 namespace memgraph::coordinator {
 
+using memgraph::storage::v3::LabelId;
+using memgraph::storage::v3::PropertyId;
 using Address = memgraph::io::Address;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 
@@ -61,9 +64,17 @@ struct AllocateEdgeIdBatchResponse {
   uint64_t high;
 };
 
+struct AllocatePropertyIdsRequest {
+  std::vector<std::string> property_names;
+};
+
+struct AllocatePropertyIdsResponse {
+  std::map<std::string, PropertyId> property_ids;
+};
+
 struct SplitShardRequest {
   Hlc previous_shard_map_version;
-  Label label;
+  LabelId label_id;
   CompoundKey split_key;
 };
 
@@ -99,10 +110,10 @@ struct InitializeLabelResponse {
 
 using WriteRequests =
     std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest>;
-using WriteResponses =
-    std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                 RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse>;
+                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
+using WriteResponses = std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                                    RegisterStorageEngineResponse, DeregisterStorageEngineResponse,
+                                    InitializeLabelResponse, AllocatePropertyIdsResponse>;
 
 using ReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
 using ReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
@@ -183,7 +194,7 @@ class Coordinator {
     if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
       res.success = false;
     } else {
-      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label,
+      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
                                           split_shard_request.split_key);
     }
 
@@ -228,15 +239,27 @@ class Coordinator {
     return res;
   }
 
+  WriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request) {
+    AllocatePropertyIdsResponse res{};
+
+    auto property_ids = shard_map_.AllocatePropertyIds(allocate_property_ids_request.property_names);
+
+    res.property_ids = property_ids;
+
+    return res;
+  }
+
  public:
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
   ReadResponses Read(ReadRequests requests) {
-    return std::visit([&](auto &&requests) { return HandleRead(std::move(requests)); }, std::move(requests));
+    return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
+                      std::move(requests));
   }
 
   WriteResponses Apply(WriteRequests requests) {
-    return std::visit([&](auto &&requests) { return ApplyWrite(std::move(requests)); }, std::move(requests));
+    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
+                      std::move(requests));
   }
 };
 

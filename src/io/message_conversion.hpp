@@ -13,13 +13,35 @@
 
 #include "io/transport.hpp"
 
-namespace memgraph::io::simulator {
+namespace memgraph::io {
 
 using memgraph::io::Duration;
 using memgraph::io::Message;
 using memgraph::io::Time;
 
+struct PromiseKey {
+  Address requester_address;
+  uint64_t request_id;
+  // TODO(tyler) possibly remove replier_address from promise key
+  // once we want to support DSR.
+  Address replier_address;
+
+ public:
+  friend bool operator<(const PromiseKey &lhs, const PromiseKey &rhs) {
+    if (lhs.requester_address != rhs.requester_address) {
+      return lhs.requester_address < rhs.requester_address;
+    }
+
+    if (lhs.request_id != rhs.request_id) {
+      return lhs.request_id < rhs.request_id;
+    }
+
+    return lhs.replier_address < rhs.replier_address;
+  }
+};
+
 struct OpaqueMessage {
+  Address to_address;
   Address from_address;
   uint64_t request_id;
   std::any message;
@@ -65,6 +87,7 @@ struct OpaqueMessage {
       return RequestEnvelope<Ms...>{
           .message = std::move(*m_opt),
           .request_id = request_id,
+          .to_address = to_address,
           .from_address = from_address,
       };
     }
@@ -99,6 +122,7 @@ class OpaquePromiseTrait : public OpaquePromiseTraitBase {
     T message = std::any_cast<T>(std::move(opaque_message.message));
     auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                  .request_id = opaque_message.request_id,
+                                                 .to_address = opaque_message.to_address,
                                                  .from_address = opaque_message.from_address};
     auto promise = static_cast<ResponsePromise<T> *>(ptr);
     auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
@@ -174,4 +198,9 @@ class OpaquePromise {
   }
 };
 
-}  // namespace memgraph::io::simulator
+struct DeadlineAndOpaquePromise {
+  Time deadline;
+  OpaquePromise promise;
+};
+
+}  // namespace memgraph::io

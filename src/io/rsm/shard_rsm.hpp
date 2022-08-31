@@ -34,31 +34,25 @@
 #include "io/rsm/raft.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
 
+namespace memgraph::io::rsm {
+
 using memgraph::coordinator::Hlc;
-using memgraph::io::Address;
-using memgraph::io::Io;
-using memgraph::io::ResponseEnvelope;
-using memgraph::io::ResponseFuture;
-using memgraph::io::ResponseResult;
-using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
-using memgraph::io::rsm::WriteRequest;
-using memgraph::io::rsm::WriteResponse;
 using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
-using memgraph::storage::PropertyValue;
-
-namespace memgraph::io::rsm {
+using memgraph::storage::v3::LabelId;
+using memgraph::storage::v3::PropertyValue;
 
 using ShardRsmKey = std::vector<PropertyValue>;
 
 struct StorageWriteRequest {
+  LabelId label_id;
+  Hlc transaction_id;
   ShardRsmKey key;
   std::optional<int> value;
 };
@@ -71,6 +65,8 @@ struct StorageWriteResponse {
 };
 
 struct StorageReadRequest {
+  LabelId label_id;
+  Hlc transaction_id;
   ShardRsmKey key;
 };
 

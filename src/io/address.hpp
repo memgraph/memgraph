@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
 
 namespace memgraph::io {
@@ -32,9 +33,16 @@ struct Address {
   uint16_t last_known_port;
 
   static Address TestAddress(uint16_t port) {
-    Address ret;
-    ret.last_known_port = port;
-    return ret;
+    return Address{
+        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        .last_known_port = port,
+    };
+  }
+
+  static Address UniqueLocalAddress() {
+    return Address{
+        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+    };
   }
 
   friend bool operator==(const Address &lhs, const Address &rhs) = default;
