@@ -62,3 +62,5 @@ bool MultiFrame::Empty() const noexcept { return frames_.empty(); }
 bool MultiFrame::HasValidFrames() const {
   return std::any_of(frames_.begin(), frames_.end(), [](auto *frame) { return frame->IsValid(); });
 }
+
+size_t MultiFrame::GetOriginalBatchSize() const noexcept { return frames_memory_owner_.size(); }

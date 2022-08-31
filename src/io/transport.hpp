@@ -32,10 +32,13 @@ using memgraph::utils::BasicResult;
 template <typename T>
 concept Message = std::same_as<T, std::decay_t<T>>;
 
+using RequestId = uint64_t;
+
 template <Message M>
 struct ResponseEnvelope {
   M message;
-  uint64_t request_id;
+  RequestId request_id;
+  Address to_address;
   Address from_address;
 };
 
@@ -51,7 +54,8 @@ using ResponsePromise = memgraph::io::Promise<ResponseResult<M>>;
 template <Message... Ms>
 struct RequestEnvelope {
   std::variant<Ms...> message;
-  uint64_t request_id;
+  RequestId request_id;
+  Address to_address;
   Address from_address;
 };
 
@@ -62,7 +66,7 @@ template <typename I>
 class Io {
   I implementation_;
   Address address_;
-  uint64_t request_id_counter_ = 0;
+  RequestId request_id_counter_ = 0;
   Duration default_timeout_ = std::chrono::microseconds{50000};
 
  public:
@@ -75,7 +79,7 @@ class Io {
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
   template <Message Request, Message Response>
   ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {
-    const uint64_t request_id = ++request_id_counter_;
+    const RequestId request_id = ++request_id_counter_;
     return implementation_.template Request<Request, Response>(address, request_id, request, timeout);
   }
 
@@ -83,7 +87,7 @@ class Io {
   /// to be used by clients.
   template <Message Request, Message Response>
   ResponseFuture<Response> Request(Address address, Request request) {
-    const uint64_t request_id = ++request_id_counter_;
+    const RequestId request_id = ++request_id_counter_;
     const Duration timeout = default_timeout_;
     return implementation_.template Request<Request, Response>(address, request_id, std::move(request), timeout);
   }
@@ -107,8 +111,9 @@ class Io {
   /// responses are not necessarily expected, and for servers to respond to requests.
   /// If you need reliable delivery, this must be built on-top. TCP is not enough for most use cases.
   template <Message M>
-  void Send(Address address, uint64_t request_id, M message) {
-    return implementation_.template Send<M>(address, request_id, std::move(message));
+  void Send(Address to_address, RequestId request_id, M message) {
+    Address from_address = address_;
+    return implementation_.template Send<M>(to_address, from_address, request_id, std::move(message));
   }
 
   /// The current system time. This time source should be preferred over any other,

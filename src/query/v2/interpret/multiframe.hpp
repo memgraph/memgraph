@@ -56,6 +56,8 @@ class MultiFrame {
 
   bool HasValidFrames() const;
 
+  size_t GetOriginalBatchSize() const noexcept;
+
  private:
   memgraph::utils::pmr::vector<std::unique_ptr<Frame>> frames_memory_owner_ =
       memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());

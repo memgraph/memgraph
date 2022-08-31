@@ -49,6 +49,8 @@ extern const Event ScanAllByIdOperator;
 extern const Event ExpandOperator;
 extern const Event DistinctOperator;
 extern const Event ProduceOperator;
+extern const Event UnwindOperator;
+extern const Event FilterOperator;
 }  // namespace EventCounter
 
 namespace memgraph::query::v2::plan::distributed {
@@ -141,11 +143,12 @@ template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
   explicit ScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, TVerticesFun get_vertices,
-                         const char *op_name)
+                         const char *op_name, bool perform_full_enumeration)
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         get_vertices_(std::move(get_vertices)),
-        op_name_(op_name) {}
+        op_name_(op_name),
+        perform_full_enumeration_(perform_full_enumeration) {}
 
   bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
@@ -178,7 +181,9 @@ class ScanAllCursor : public Cursor {
       }
 
       frame[output_symbol_] = *vertices_it_.value();
-      ++vertices_it_.value();
+      if (!perform_full_enumeration_) {
+        ++vertices_it_.value();
+      }
       last_filled_frame = idx;
 
       if (vertices_it_.value() == vertices_.value().end() && idx < multiframe.Size() - 1) {
@@ -190,7 +195,9 @@ class ScanAllCursor : public Cursor {
         break;
       }
     }
-
+    if (perform_full_enumeration_) {
+      ++vertices_it_.value();
+    }
     const auto number_of_frames_to_keep = last_filled_frame + 1;
     multiframe.Resize(number_of_frames_to_keep);
 
@@ -212,10 +219,16 @@ class ScanAllCursor : public Cursor {
   std::optional<typename std::result_of<TVerticesFun(MultiFrame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
+  bool perform_full_enumeration_ = false;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
-    : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
+    : input_(input ? input : std::make_shared<Once>()),
+      output_symbol_(output_symbol),
+      view_(view),
+      perform_full_enumeration_(false) {
+  input_->PerformFullEnumeration();
+}
 
 ACCEPT_WITH_INPUT(ScanAll)
 
@@ -226,8 +239,8 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAll");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAll", perform_full_enumeration_);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -235,6 +248,8 @@ std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
   symbols.emplace_back(output_symbol_);
   return symbols;
 }
+
+void ScanAll::PerformFullEnumeration() { perform_full_enumeration_ = true; }
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                storage::v3::LabelId label, storage::v3::View view)
@@ -249,8 +264,8 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     return std::make_optional(db->Vertices(view_, label_));
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabel");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllByLabel", perform_full_enumeration_);
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -304,7 +319,8 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::PropertyValue(value)));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
+                                                                std::move(vertices), "ScanAllByLabelPropertyValue",
+                                                                perform_full_enumeration_);
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression_id,
@@ -354,8 +370,8 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     }
     return std::vector<VertexAccessor>{*maybe_vertex};
   };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllById");
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(
+      mem, output_symbol_, input_->MakeCursor(mem), std::move(vertices), "ScanAllById", perform_full_enumeration_);
 }
 
 namespace {
@@ -385,11 +401,7 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
-      view_(view) {
-  if (existing_node) {
-    LOG_FATAL("Not supported at the moment!");
-  }
-}
+      view_(view) {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -415,6 +427,9 @@ bool Expand::ExpandCursor::Pull(MultiFrame &multiframe, ExecutionContext &contex
   SCOPED_PROFILE_OP("Expand");
   // A helper function for expanding a node from an edge.
   auto pull_node_from_edge = [this](const EdgeAccessor &new_edge, EdgeAtom::Direction direction, Frame &frame) {
+    if (self_.common_.existing_node) {
+      return;
+    }
     switch (direction) {
       case EdgeAtom::Direction::IN:
         frame[self_.common_.node_symbol] = new_edge.From();
@@ -549,17 +564,43 @@ bool Expand::ExpandCursor::InitEdges(MultiFrame &multiframe, ExecutionContext &c
 
       auto direction = self_.common_.direction;
       if (direction == EdgeAtom::Direction::IN || direction == EdgeAtom::Direction::BOTH) {
-        auto edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
-        auto it = edges.begin();
-        in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
-        in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+        if (self_.common_.existing_node) {
+          TypedValue &existing_node = frame[self_.common_.node_symbol];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+            auto edges =
+                UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex()));
+            auto it = edges.begin();
+            in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
+            in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+          }
+        } else {
+          auto edges = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
+          auto it = edges.begin();
+          in_out_edge.in_.emplace(InEdge{.in_edges_ = std::move(edges), .in_edges_it_ = std::move(it)});
+          in_out_edge.in_.value().in_edges_it_ = in_out_edge.in_.value().in_edges_.begin();  // #NoCommit
+        }
       }
 
       if (direction == EdgeAtom::Direction::OUT || direction == EdgeAtom::Direction::BOTH) {
-        auto edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
-        auto it = edges.begin();
-        in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
-        in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+        if (self_.common_.existing_node) {
+          TypedValue &existing_node = frame[self_.common_.node_symbol];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_.common_.node_symbol, existing_node, TypedValue::Type::Vertex);
+            auto edges =
+                UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node.ValueVertex()));
+            auto it = edges.begin();
+            in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
+            in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+          }
+        } else {
+          auto edges = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+          auto it = edges.begin();
+          in_out_edge.out_.emplace(OutEdge{.out_edges_ = std::move(edges), .out_edges_it_ = std::move(it)});
+          in_out_edge.out_.value().out_edges_it_ = in_out_edge.out_.value().out_edges_.begin();  // #NoCommit
+        }
       }
 
       value_for_at_least_one_frame = true;
@@ -705,5 +746,150 @@ bool Produce::ProduceCursor::Pull(MultiFrame &multiframe, ExecutionContext &cont
 void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
+
+Unwind::Unwind(const std::shared_ptr<LogicalOperator> &input, Expression *input_expression, Symbol output_symbol)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_expression_(input_expression),
+      output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Unwind)
+
+std::vector<Symbol> Unwind::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
+class UnwindCursor : public Cursor {
+ public:
+  UnwindCursor(const Unwind &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
+
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Unwind");
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      // There are two important dimensions: multiframe size, unwind list size.
+      // "Cartesian product" between MultiFrame values and input values because for each Frame the whole input list has
+      // to be evaluated. Evaluation result depends on the frame.
+      if (!frame_idx_) {
+        if (!input_cursor_->Pull(multiframe, context)) return false;
+        frame_idx_ = 0;
+      }
+
+      for (; *frame_idx_ < multiframe.Size();) {
+        auto &frame = multiframe.GetFrame(*frame_idx_);
+        if (!frame.IsValid()) {
+          frame_idx_ = *frame_idx_ + 1;
+          continue;
+        }
+        if (input_value_it_ == input_value_.end()) {
+          ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                        storage::v3::View::OLD);
+          TypedValue input_value = self_.input_expression_->Accept(evaluator);
+          if (input_value.type() != TypedValue::Type::List) {
+            throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.",
+                                        input_value.type());
+          }
+          input_value_ = input_value.ValueList();
+          input_value_it_ = input_value_.begin();
+        }
+        // NOTE: Here we have to populate to as many frames as we have them, but not more.
+        while (input_value_it_ != input_value_.end()) {
+          // TODO(gitbuda): Take invalid frames into account (BUG HERE)!
+          auto &frame = multiframe.GetFrame(populated_frames_);
+          frame[self_.output_symbol_] = *input_value_it_++;
+          populated_frames_++;
+          // Taking care if multiframe size is smaller than unwind list size.
+          if (populated_frames_ < multiframe.Size()) {
+            continue;
+          }
+          // TODO(gitbuda): Here we have an issue if size is lower then the batch size.
+          if (populated_frames_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
+            populated_frames_ = 0;
+            if (input_value_it_ != input_value_.end()) {
+              return true;
+            }
+            if (input_value_it_ == input_value_.end()) {
+              frame_idx_ = *frame_idx_ + 1;
+            }
+            if (*frame_idx_ == multiframe.Size()) {  // TODO(gitbuda): Assert no bigger.
+              frame_idx_ = std::nullopt;
+            }
+            return true;
+          }
+        }
+        frame_idx_ = *frame_idx_ + 1;
+      }
+      frame_idx_ = std::nullopt;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    input_value_.clear();
+    input_value_it_ = input_value_.end();
+  }
+
+ private:
+  const Unwind &self_;
+  const UniqueCursorPtr input_cursor_;
+  // typed values we are unwinding and yielding
+  utils::pmr::vector<TypedValue> input_value_;
+  // current position in input_value_
+  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+  std::optional<size_t> frame_idx_{std::nullopt};
+  size_t populated_frames_{0};
+};
+
+UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::UnwindOperator);
+
+  return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem);
+}
+
+Filter::Filter(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
+    : input_(input ? input : std::make_shared<Once>()), expression_(expression) {}
+
+ACCEPT_WITH_INPUT(Filter)
+
+UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem) const {
+  EventCounter::IncrementCounter(EventCounter::FilterOperator);
+
+  return MakeUniqueCursorPtr<FilterCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
+
+Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self_.input_->MakeCursor(mem)) {}
+
+bool Filter::FilterCursor::Pull(MultiFrame &multiframe, ExecutionContext &context) {
+  SCOPED_PROFILE_OP("Filter");
+
+  while (input_cursor_->Pull(multiframe, context)) {
+    // TODO(gitbuda): Make frames invalid only there is something to return because in the case with many pull without
+    // return multiframe will be in a "polluted" state.
+    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
+      auto &frame = multiframe.GetFrame(idx);
+      if (!frame.IsValid()) {
+        continue;
+      }
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::v3::View::OLD);
+      if (!EvaluateFilter(evaluator, self_.expression_)) {
+        frame.MakeInvalid();
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 }  // namespace memgraph::query::v2::plan::distributed
