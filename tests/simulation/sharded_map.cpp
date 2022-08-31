@@ -65,7 +65,7 @@ using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::utils::BasicResult;
 
-using StorageClient =
+using ShardClient =
     RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
 
@@ -110,9 +110,9 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   return sm;
 }
 
-std::optional<StorageClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
-                                                    StorageClient a_client, const std::vector<Address> &b_addrs,
-                                                    StorageClient b_client) {
+std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
+                                                  ShardClient a_client, const std::vector<Address> &b_addrs,
+                                                  ShardClient b_client) {
   for (const auto &addr : target_shard) {
     if (addr.address == b_addrs[0]) {
       return b_client;
@@ -238,8 +238,8 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  StorageClient shard_a_client(cli_io, a_addrs[0], a_addrs);
-  StorageClient shard_b_client(cli_io, b_addrs[0], b_addrs);
+  ShardClient shard_a_client(cli_io, a_addrs[0], a_addrs);
+  ShardClient shard_b_client(cli_io, b_addrs[0], b_addrs);
 
   memgraph::coordinator::HlcRequest req;
 
