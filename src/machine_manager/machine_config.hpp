@@ -10,3 +10,18 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include "storage/v3/property_value.hpp"
+
+namespace memgraph::machine_manager {
+
+struct InitialShard {
+  std::string label_name;
+  std::vector<memgraph::storage::v3::PropertyValue> low_key;
+};
+
+struct MachineConfig {
+  std::vector<InitialShard> initial_shards;
+};
+
+}  // namespace memgraph::machine_manager
