@@ -14,12 +14,20 @@
 #include <boost/uuid/uuid.hpp>
 #include "io/rsm/coordinator_rsm.hpp"
 #include "io/rsm/rsm_client.hpp"
+#include "io/time.hpp"
 
 namespace memgraph::machine_manager {
 
 using boost::uuids::uuid;
 using memgraph::coordinator;
-using memgraph::io::rsm::RsmClient;
+using memgraph::io::Duration;
+
+std::variant<std::monostate> CoordinatorMessages;
+std::variant<std::monostate> ShardMessages;
+std::variant<std::monostate> ShardManagerMessages;
+std::variant<std::monostate> MachineManagerMessages;
+
+std::variant<CoordinatorMessages, ShardMessages, ShardManagerMessages, MachineManagerMessages> UberMessage;
 
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level
@@ -47,27 +55,34 @@ class MachineManager {
     }
   }
 
- private:
   void Run() {
-    Time last_cron = io_.Now();
+    Time next_cron = io_.Now();
 
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
 
-      /*
-      auto request_result =
-          io_.template ReceiveWithTimeout<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
-                                          WriteRequest<WriteOperation>, VoteRequest, VoteResponse>(receive_timeout);
+      if (now >= next_cron) {
+        Duration next_duration = Cron();
+        next_cron = now + next_duration;
+      }
+
+      Duration receive_timeout = next_cron - now;
+
+      auto request_result = io_.template ReceiveWithTimeout<UberMessage>(receive_timeout);
+
       if (request_result.HasError()) {
+        // time to do Cron
         continue;
       }
 
       auto request = std::move(request_result.GetValue());
 
-      Handle(std::move(request.message), request.request_id, request.from_address);
-      */
+      Dispatch(std::move(request.message), request.request_id, request.from_address);
     }
   }
+
+ private:
+  Duration Cron() { return shard_manager_.Cron(); }
 };
 
 }  // namespace memgraph::machine_manager

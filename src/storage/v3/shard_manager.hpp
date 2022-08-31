@@ -12,16 +12,14 @@
 #pragma once
 
 #include <boost/uuid/uuid.hpp>
-#include "io/rsm/coordinator_rsm.hpp"
-#include "io/rsm/rsm_client.hpp"
+#include "io/rsm/shard_rsm.hpp"
 
 namespace memgraph::storage::v3 {
 
 using boost::uuids::uuid;
-using memgraph::coordinator;
-using memgraph::io::rsm::RsmClient;
+using memgraph::io::rsm::ShardRsm;
 
-/// The StorageManager is responsible for:
+/// The ShardManager is responsible for:
 /// * reconciling the storage engine's local configuration with the Coordinator's
 ///   intentions for how it should participate in multiple raft clusters
 /// * replying to heartbeat requests to the Coordinator
@@ -29,12 +27,18 @@ using memgraph::io::rsm::RsmClient;
 ///
 /// Every storage engine has exactly one RsmEngine.
 template <typename IoImpl>
-class StorageManager {
+class ShardManager {
   Io<IoImpl> io_;
-  std::map<uuid, StorageRsm> rsm_map_;
+  std::map<uuid, ShardRsm> rsm_map_;
 
  public:
-  RsmEngine(Io<IoImpl> io) : io_(io) {}
+  ShardManager(Io<IoImpl> io) : io_(io) {}
+
+  Duration Cron() {
+    using namespace std::chrono_literals;
+
+    return 50ms;
+  }
 };
 
 }  // namespace memgraph::storage::v3

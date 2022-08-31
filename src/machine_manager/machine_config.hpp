@@ -12,16 +12,21 @@
 #pragma once
 
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 
 namespace memgraph::machine_manager {
 
-struct InitialShard {
+using memgraph::storage::v3::SchemaProperty;
+using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
+
+struct InitialLabelSpace {
   std::string label_name;
-  std::vector<memgraph::storage::v3::PropertyValue> low_key;
+  std::vector<SchemaProperty> schema;
+  std::vector<CompoundKey> split_points;
 };
 
 struct MachineConfig {
-  std::vector<InitialShard> initial_shards;
+  std::vector<InitialLabelSpaces> initial_label_spaces;
 };
 
 }  // namespace memgraph::machine_manager
