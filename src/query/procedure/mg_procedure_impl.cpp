@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "auth/models.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -1580,7 +1581,8 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
 mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
-        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view /*, UPDATE*/)) {
+        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                             memgraph::auth::FineGrainedPermission::UPDATE)) {
       return;
     }
 
@@ -1625,11 +1627,6 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
-    if (v->graph->ctx && v->graph->ctx->auth_checker &&
-        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view)) {
-      return;
-    }
-
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
@@ -1851,9 +1848,9 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
     const auto db_accessor = *it.source_vertex.graph->ctx->db_accessor;
     const auto &view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (auth_checker->Accept(db_accessor, **impl_it)) {
+      if (auth_checker->Accept(db_accessor, **impl_it, memgraph::auth::FineGrainedPermission::READ)) {
         const auto &check_vertex = it.source_vertex.impl == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
-        if (auth_checker->Accept(db_accessor, check_vertex, view)) {
+        if (auth_checker->Accept(db_accessor, check_vertex, view, memgraph::auth::FineGrainedPermission::READ)) {
           break;
         }
       }
@@ -2017,21 +2014,11 @@ mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
 }
 
 mgp_error mgp_edge_get_from(mgp_edge *e, mgp_vertex **result) {
-  if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
-      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->from.impl, e->from.graph->view)) {
-    return mgp_error::MGP_ERROR_NO_ERROR;
-  }
-
   *result = &e->from;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_edge_get_to(mgp_edge *e, mgp_vertex **result) {
-  if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
-      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->from.impl, e->from.graph->view)) {
-    return mgp_error::MGP_ERROR_NO_ERROR;
-  }
-
   *result = &e->to;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -2063,7 +2050,8 @@ mgp_error mgp_edge_get_property(mgp_edge *e, const char *name, mgp_memory *memor
 mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, mgp_value *property_value) {
   return WrapExceptions([=] {
     if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
-        !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl)) {
+        !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl,
+                                                  memgraph::auth::FineGrainedPermission::UPDATE)) {
       return;
     }
     if (!MgpEdgeIsMutable(*e)) {
@@ -2323,7 +2311,8 @@ void NextPermitted(mgp_vertices_iterator &it) {
   }
 
   while (it.current_it != it.vertices.end()) {
-    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view)) {
+    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view,
+                                            memgraph::auth::FineGrainedPermission::READ)) {
       break;
     }
 

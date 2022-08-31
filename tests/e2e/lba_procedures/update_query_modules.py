@@ -14,7 +14,6 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
-    reset_permissions,
     reset_update_permissions,
 )
 
@@ -90,7 +89,7 @@ def test_can_not_update_vertex_when_denied_update_and_granted_global_update_on_l
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
@@ -103,7 +102,7 @@ def test_can_not_update_vertex_when_denied_update_and_granted_global_create_dele
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
     execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()

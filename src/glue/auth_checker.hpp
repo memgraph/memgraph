@@ -42,10 +42,12 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
   explicit FineGrainedAuthChecker(auth::User user);
 
-  virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                      const memgraph::storage::View &view) const override;
+  bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
+              const memgraph::storage::View &view,
+              const memgraph::auth::FineGrainedPermission fine_grained_permission) const override;
 
-  virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const override;
+  bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
+              const memgraph::auth::FineGrainedPermission fine_grained_permission) const override;
 
  private:
   auth::User user_;
