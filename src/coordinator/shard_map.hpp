@@ -172,6 +172,14 @@ struct ShardMap {
 
     return ret;
   }
+
+  std::optional<PropertyId> GetPropertyId(std::string &property_name) {
+    if (properties.contains(property_name)) {
+      return properties.at(property_name);
+    } else {
+      return std::nullopt;
+    }
+  }
 };
 
 }  // namespace memgraph::coordinator
