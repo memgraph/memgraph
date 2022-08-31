@@ -51,7 +51,7 @@ def create_edge(ctx: mgp.ProcCtx, v1: mgp.Vertex, v2: mgp.Vertex) -> mgp.Record(
         for _ in vertex.out_edges:
             count += 1
 
-    return mgp.Record(nr_of_edges=55)
+    return mgp.Record(nr_of_edges=count)
 
 
 @mgp.write_proc
