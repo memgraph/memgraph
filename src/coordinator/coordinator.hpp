@@ -112,15 +112,16 @@ struct InitializeLabelResponse {
 };
 
 using CoordinatorWriteRequests =
-    std::variant<AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
+    std::variant<HlcRequest, AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest,
+                 RegisterStorageEngineRequest, DeregisterStorageEngineRequest, InitializeLabelRequest,
+                 AllocatePropertyIdsRequest>;
 using CoordinatorWriteResponses =
-    std::variant<AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+    std::variant<HlcResponse, AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
                  RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse,
                  AllocatePropertyIdsResponse>;
 
-using CoordinatorReadRequests = std::variant<HlcRequest, GetShardMapRequest>;
-using CoordinatorReadResponses = std::variant<HlcResponse, GetShardMapResponse>;
+using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
+using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
@@ -142,8 +143,13 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  /// Increment our
-  CoordinatorReadResponses HandleRead(HlcRequest &&hlc_request) {
+  CoordinatorReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
+    GetShardMapResponse res;
+    res.shard_map = shard_map_;
+    return res;
+  }
+
+  CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request) {
     HlcResponse res{};
 
     auto hlc_shard_map = shard_map_.GetHlc();
@@ -159,12 +165,6 @@ class Coordinator {
     // Allways return fresher shard_map for now.
     res.fresher_shard_map = std::make_optional(shard_map_);
 
-    return res;
-  }
-
-  CoordinatorReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
-    GetShardMapResponse res;
-    res.shard_map = shard_map_;
     return res;
   }
 
