@@ -26,6 +26,9 @@ import log
 import helpers
 import runners
 
+WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
+WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
+
 
 def get_queries(gen, count):
     # Make the generator deterministic.
@@ -162,7 +165,6 @@ results = helpers.RecursiveDict()
 
 # Filter out the generators.
 benchmarks = filter_benchmarks(generators, args.benchmarks)
-
 # Run all specified benchmarks.
 for dataset, tests in benchmarks:
     log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
@@ -205,8 +207,9 @@ for dataset, tests in benchmarks:
     # TODO: cache import data
 
     # Run all benchmarks in all available groups.
-    for with_user in [False, True]:
-        if with_user:
+
+    for with_fine_grained_authorization in [False, True]:
+        if with_fine_grained_authorization:
             memgraph.start_preparation()
             client.execute(
                 queries=[
@@ -218,7 +221,9 @@ for dataset, tests in benchmarks:
             client = runners.Client(args.client_binary, args.temporary_directory, username="user", password="test")
             memgraph.stop()
 
-        test_type = "with_user_existing" if with_user else "without_user_existing"
+        test_type = (
+            WITH_FINE_GRAINED_AUTHORIZATION if with_fine_grained_authorization else WITHOUT_FINE_GRAINED_AUTHORIZATION
+        )
 
         for group in sorted(tests.keys()):
             for test, funcname in tests[group]:
@@ -301,7 +306,7 @@ for dataset, tests in benchmarks:
                 log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 
                 # Save results.
-                results_key = [dataset.NAME, dataset.get_variant(), group, test, with_user]
+                results_key = [dataset.NAME, dataset.get_variant(), group, test, test_type]
                 results.set_value(*results_key, value=ret)
 
 # Save configuration.

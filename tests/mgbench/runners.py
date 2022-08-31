@@ -121,7 +121,7 @@ class Memgraph:
 
 
 class Client:
-    def __init__(self, client_binary, temporary_directory, username="", password=""):
+    def __init__(self, client_binary: str, temporary_directory: str, username: str = "", password: str = ""):
         self._client_binary = client_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_directory)
         self._username = username
@@ -156,5 +156,4 @@ class Client:
         )
         ret = subprocess.run(args, stdout=subprocess.PIPE, check=True)
         data = ret.stdout.decode("utf-8").strip().split("\n")
-        data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
