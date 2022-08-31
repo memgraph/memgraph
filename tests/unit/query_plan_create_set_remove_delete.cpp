@@ -80,8 +80,8 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   memgraph::storage::Storage db;
   auto dba = db.Access();
   DbAccessor execution_dba(&dba);
-  auto label = dba.NameToLabel("label1");
-  auto property = memgraph::storage::PropertyId::FromInt(1);
+  const auto label = dba.NameToLabel("label1");
+  const auto property = memgraph::storage::PropertyId::FromInt(1);
 
   memgraph::query::plan::NodeCreationInfo node;
   std::get<std::vector<std::pair<memgraph::storage::PropertyId, Expression *>>>(node.properties)
@@ -90,7 +90,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   node.symbol = symbol_table.CreateSymbol("n", true);
   node.labels.emplace_back(label);
 
-  auto test_create = [&](memgraph::auth::User &user) {
+  const auto test_create = [&](memgraph::auth::User &user) {
     memgraph::glue::FineGrainedAuthChecker auth_checker{user};
     auto context = MakeContextWithFineGrainedChecker(ast, symbol_table, &execution_dba, &auth_checker);
     auto create = std::make_shared<CreateNode>(nullptr, node);
@@ -161,8 +161,8 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  memgraph::storage::LabelId label = dba.NameToLabel("label");
-  auto property = PROPERTY_PAIR("property");
+  const auto label = dba.NameToLabel("label");
+  const auto property = PROPERTY_PAIR("property");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -298,10 +298,10 @@ TEST(QueryPlan, FineGrainedCreateExpand) {
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
 
-    memgraph::storage::LabelId label_node_1 = dba.NameToLabel("Node1");
-    memgraph::storage::LabelId label_node_2 = dba.NameToLabel("Node2");
-    auto property = PROPERTY_PAIR("property");
-    memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+    const auto label_node_1 = dba.NameToLabel("Node1");
+    const auto label_node_2 = dba.NameToLabel("Node2");
+    const auto property = PROPERTY_PAIR("property");
+    const auto edge_type = dba.NameToEdgeType("edge_type");
 
     SymbolTable symbol_table;
     AstStorage storage;
