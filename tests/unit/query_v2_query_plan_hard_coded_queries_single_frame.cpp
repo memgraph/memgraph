@@ -64,18 +64,18 @@ class QueryPlanHardCodedQueriesTestFixture : public ::testing::TestWithParam<std
   }
 
   struct Result {
-    storage::v3::Gid node_gid_;
-    storage::v3::Gid permission_gid_;
-    storage::v3::Gid identity_gid_;
+    storage::v3::Gid n_gid_;
+    storage::v3::Gid p_gid_;
+    storage::v3::Gid i_gid_;
 
     bool operator<(const Result &other) const {
-      if (node_gid_ != other.node_gid_) {
-        return node_gid_ < other.node_gid_;
+      if (n_gid_ != other.n_gid_) {
+        return n_gid_ < other.n_gid_;
       }
-      if (permission_gid_ != other.permission_gid_) {
-        return permission_gid_ < other.permission_gid_;
+      if (p_gid_ != other.p_gid_) {
+        return p_gid_ < other.p_gid_;
       }
-      return identity_gid_ < other.identity_gid_;
+      return i_gid_ < other.i_gid_;
     }
   };
 
@@ -103,9 +103,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWhileBatching) {
 
     auto property_index = 0;
     for (auto idx = 0; idx < number_of_vertices; ++idx) {
-      auto vertex_node = *dba.InsertVertexAndValidate(
-          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_node.Gid());
+      auto vertex_n = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      auto [it, inserted] = gid_of_expected_vertices.insert(vertex_n.Gid());
       ASSERT_TRUE(inserted);
     }
 
@@ -427,26 +427,26 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching2) {
 
 TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {  // #NoCommit better naming
   /*
-    CREATE INDEX ON :Node;
-    CREATE INDEX ON :Permission;
+    CREATE INDEX ON :N;
+    CREATE INDEX ON :P;
 
   QUERY:
-    MATCH (n:Node)
-    MATCH (p:Permission)-[:IS_EDGE]->(n:Node)
+    MATCH (n:N)
+    MATCH (p:P)-[:IS_EDGE]->(n:N)
     RETURN n, p;
 
   QUERY PLAN:
     Produce {n, p}
     Expand (p)-[anon2:IS_EDGE]->(n)
-    ScanAllByLabel (n :Node)
-    ScanAllByLabel (p :Permission)
+    ScanAllByLabel (n :N)
+    ScanAllByLabel (p :P)
     Once
   */
   const auto [number_of_vertices, unused_frames_per_batch] = GetParam();
 
   storage::v3::EdgeTypeId edge_type{db_v3.NameToEdgeType("IS_EDGE")};
-  auto label_node = db_v3.NameToLabel("Node");
-  auto label_permission = db_v3.NameToLabel("Permission");
+  auto label_n = db_v3.NameToLabel("N");
+  auto label_p = db_v3.NameToLabel("P");
 
   auto gid_of_expected_vertices = std::set<std::pair<storage::v3::Gid, storage::v3::Gid>>{};
   {  // Inserting data
@@ -458,11 +458,11 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
     for (auto idx = 0; idx < number_of_vertices; ++idx) {
       auto vertex_n = *dba.InsertVertexAndValidate(schema_label, {},
                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_n.AddLabel(label_node).HasValue());
+      ASSERT_TRUE(vertex_n.AddLabel(label_n).HasValue());
 
       auto vertex_p = *dba.InsertVertexAndValidate(schema_label, {},
                                                    {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_p.AddLabel(label_permission).HasValue());
+      ASSERT_TRUE(vertex_p.AddLabel(label_p).HasValue());
 
       ASSERT_TRUE(dba.InsertEdge(&vertex_p, &vertex_n, edge_type).HasValue());
       auto [it, inserted] = gid_of_expected_vertices.insert(std::make_pair(vertex_n.Gid(), vertex_p.Gid()));
@@ -471,8 +471,8 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
 
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db_v3.CreateIndex(label_node);
-  db_v3.CreateIndex(label_permission);
+  db_v3.CreateIndex(label_n);
+  db_v3.CreateIndex(label_p);
 
   auto storage_dba = db_v3.Access();
   DbAccessor dba(&storage_dba);
@@ -483,13 +483,11 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, MatchAllWithExpandWhileBatching3) {
   auto symbol_p = symbol_table.CreateSymbol("p", true);
   auto symbol_anon2 = symbol_table.CreateSymbol("anon2", true);
 
-  // ScanAllByLabel (p :Permission)
-  auto scan_all_1 =
-      std::make_shared<ScanAllByLabel>(nullptr, symbol_p, label_permission, memgraph::storage::v3::View::OLD);
+  // ScanAllByLabel (p :P)
+  auto scan_all_1 = std::make_shared<ScanAllByLabel>(nullptr, symbol_p, label_p, memgraph::storage::v3::View::OLD);
 
-  // ScanAllByLabel (n :Node)
-  auto scan_all_2 =
-      std::make_shared<ScanAllByLabel>(scan_all_1, symbol_n, label_node, memgraph::storage::v3::View::OLD);
+  // ScanAllByLabel (n :N)
+  auto scan_all_2 = std::make_shared<ScanAllByLabel>(scan_all_1, symbol_n, label_n, memgraph::storage::v3::View::OLD);
 
   // Expand (p)-[e]->(n)
   auto expand_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_type};
@@ -676,39 +674,39 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, ScallAllScanAllScanAllWhileBatching
 TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
   /*
   INDEXES:
-    CREATE INDEX ON :Node(platformId);
-    CREATE INDEX ON :Permission;
-    CREATE INDEX ON :Identity(email);
+    CREATE INDEX ON :N(pId);
+    CREATE INDEX ON :P;
+    CREATE INDEX ON :I(email);
 
   QUERY:
-    MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-    MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-    MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+    MATCH (i:I {email: 'rrr@test.com'})<-[:IS_FOR_I]-(p:P)
+    MATCH (p:P)-[:IS_FOR_N]->(n:N)
+    MATCH (n:N {pId: 'XXXXXXXXXXXXZZZZZZZZZ'})
     RETURN *;
 
   QUERY PLAN:
     Produce {i, n, p}
-    Expand (p)-[anon1:IS_FOR_IDENTITY]->(i)
-    ScanAllByLabelPropertyValue (i :Identity {email})
-    Expand (n)<-[anon3:IS_FOR_NODE]-(p)
-    ScanAllByLabel (p :Permission)
-    ScanAllByLabelPropertyValue (n :Node {platformId})
+    Expand (p)-[anon1:IS_FOR_I]->(i)
+    ScanAllByLabelPropertyValue (i :I {email})
+    Expand (n)<-[anon3:IS_FOR_N]-(p)
+    ScanAllByLabel (p :P)
+    ScanAllByLabelPropertyValue (n :Node {pId})
     Once
   */
   const auto [number_of_clusters, unused_frames_per_batch] = GetParam();
-  auto label_node = db_v3.NameToLabel("Node");
-  auto property_node_platformId = db_v3.NameToProperty("platformId");
+  auto label_n = db_v3.NameToLabel("N");
+  auto property_n_pId = db_v3.NameToProperty("pId");
 
-  auto label_permission = db_v3.NameToLabel("Permission");
+  auto label_p = db_v3.NameToLabel("P");
 
-  auto label_identity = db_v3.NameToLabel("Idendity");
-  auto property_identity_email = db_v3.NameToProperty("email");
+  auto label_i = db_v3.NameToLabel("I");
+  auto property_i_email = db_v3.NameToProperty("email");
 
-  storage::v3::EdgeTypeId edge_is_for_node{db_v3.NameToEdgeType("IS_FOR_NODE")};
-  storage::v3::EdgeTypeId edge_is_for_identity{db_v3.NameToEdgeType("IS_FOR_IDENTITY")};
-  auto node_gids = std::set<storage::v3::Gid>{};
-  auto permission_gids = std::set<storage::v3::Gid>{};
-  auto identity_gids = std::set<storage::v3::Gid>{};
+  storage::v3::EdgeTypeId edge_is_for_n{db_v3.NameToEdgeType("IS_FOR_N")};
+  storage::v3::EdgeTypeId edge_is_for_i{db_v3.NameToEdgeType("IS_FOR_I")};
+  auto n_gids = std::set<storage::v3::Gid>{};
+  auto p_gids = std::set<storage::v3::Gid>{};
+  auto i_gids = std::set<storage::v3::Gid>{};
 
   auto expected_final_results = std::set<Result>{};
 
@@ -718,40 +716,37 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
 
     auto property_index = 0;
     for (auto idx = 0; idx < number_of_clusters; ++idx) {
-      storage::v3::Gid node_gid;
-      storage::v3::Gid permission_gid;
-      storage::v3::Gid identity_gid;
+      storage::v3::Gid n_gid;
+      storage::v3::Gid p_gid;
+      storage::v3::Gid i_gid;
 
-      auto vertex_node = *dba.InsertVertexAndValidate(
-          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_node.AddLabel(label_node).HasValue());
-      ASSERT_TRUE(vertex_node.SetProperty(property_node_platformId, storage::v3::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ"))
-                      .HasValue());
-      node_gid = vertex_node.Gid();
-      node_gids.insert(node_gid);
+      auto vertex_n = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_n.AddLabel(label_n).HasValue());
+      ASSERT_TRUE(vertex_n.SetProperty(property_n_pId, storage::v3::PropertyValue("XXXXXXXXXXXXZZZZZZZZZ")).HasValue());
+      n_gid = vertex_n.Gid();
+      n_gids.insert(n_gid);
 
-      auto vertex_permission = *dba.InsertVertexAndValidate(
-          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_permission.AddLabel(label_permission).HasValue());
-      permission_gid = vertex_permission.Gid();
-      permission_gids.insert(permission_gid);
+      auto vertex_p = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_p.AddLabel(label_p).HasValue());
+      p_gid = vertex_p.Gid();
+      p_gids.insert(p_gid);
 
-      auto edge_permission_to_node = dba.InsertEdge(&vertex_permission, &vertex_node, edge_is_for_node);
-      ASSERT_TRUE(edge_permission_to_node.HasValue());
+      auto edge_p_to_n = dba.InsertEdge(&vertex_p, &vertex_n, edge_is_for_n);
+      ASSERT_TRUE(edge_p_to_n.HasValue());
 
-      auto vertex_identity = *dba.InsertVertexAndValidate(
-          schema_label, {}, {{schema_property, storage::v3::PropertyValue(++property_index)}});
-      ASSERT_TRUE(vertex_identity.AddLabel(label_identity).HasValue());
-      ASSERT_TRUE(
-          vertex_identity.SetProperty(property_identity_email, storage::v3::PropertyValue("rrr@clientdrive.com"))
-              .HasValue());
-      identity_gid = vertex_identity.Gid();
-      identity_gids.insert(identity_gid);
+      auto vertex_i = *dba.InsertVertexAndValidate(schema_label, {},
+                                                   {{schema_property, storage::v3::PropertyValue(++property_index)}});
+      ASSERT_TRUE(vertex_i.AddLabel(label_i).HasValue());
+      ASSERT_TRUE(vertex_i.SetProperty(property_i_email, storage::v3::PropertyValue("rrr@test.com")).HasValue());
+      i_gid = vertex_i.Gid();
+      i_gids.insert(i_gid);
 
-      auto edge_permission_to_identity = dba.InsertEdge(&vertex_permission, &vertex_identity, edge_is_for_identity);
-      ASSERT_TRUE(edge_permission_to_identity.HasValue());
+      auto edge_p_to_i = dba.InsertEdge(&vertex_p, &vertex_i, edge_is_for_i);
+      ASSERT_TRUE(edge_p_to_i.HasValue());
 
-      auto result = Result{.node_gid_ = node_gid, .permission_gid_ = permission_gid, .identity_gid_ = identity_gid};
+      auto result = Result{.n_gid_ = n_gid, .p_gid_ = p_gid, .i_gid_ = i_gid};
       auto [it, inserted] = expected_final_results.insert(result);
       ASSERT_TRUE(inserted);
     }
@@ -760,9 +755,9 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
   }
 
   // INDEX CREATION
-  db_v3.CreateIndex(label_node, property_node_platformId);
-  db_v3.CreateIndex(label_permission);
-  db_v3.CreateIndex(label_identity, property_identity_email);
+  db_v3.CreateIndex(label_n, property_n_pId);
+  db_v3.CreateIndex(label_p);
+  db_v3.CreateIndex(label_i, property_i_email);
 
   auto storage_dba = db_v3.Access();
   DbAccessor dba(&storage_dba);
@@ -776,37 +771,36 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
   auto symbol_anon1 = symbol_table.CreateSymbol("anon1", true);
   auto symbol_anon3 = symbol_table.CreateSymbol("anon3", true);
 
-  // MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
-  auto scan_all_1 = std::make_shared<ScanAllByLabelPropertyValue>(
-      nullptr /*input*/, symbol_n, label_node, property_node_platformId, "platformId", LITERAL("XXXXXXXXXXXXZZZZZZZZZ"),
-      memgraph::storage::v3::View::OLD);
+  // MATCH (n:N {pId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+  auto scan_all_1 =
+      std::make_shared<ScanAllByLabelPropertyValue>(nullptr /*input*/, symbol_n, label_n, property_n_pId, "pId",
+                                                    LITERAL("XXXXXXXXXXXXZZZZZZZZZ"), memgraph::storage::v3::View::OLD);
 
-  // MATCH (p:Permission)
-  auto scan_all_2 =
-      std::make_shared<ScanAllByLabel>(scan_all_1, symbol_p, label_permission, memgraph::storage::v3::View::OLD);
+  // MATCH (p:P)
+  auto scan_all_2 = std::make_shared<ScanAllByLabel>(scan_all_1, symbol_p, label_p, memgraph::storage::v3::View::OLD);
 
-  // (n:Node)<-[anon3:IS_FOR_NODE]-(p:Permission)
-  auto expand_1_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_node};
+  // (n:N)<-[anon3:IS_FOR_N]-(p:P)
+  auto expand_1_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_n};
   auto expand_1 =
       std::make_shared<Expand>(scan_all_2, symbol_p, symbol_n, symbol_anon3, EdgeAtom::Direction::OUT,
                                expand_1_edge_types, true /*existing_node*/, memgraph::storage::v3::View::OLD);
 
-  // MATCH (i:Identity {email: 'rrr@clientdrive.com'})
-  auto scan_all_3 = std::make_shared<ScanAllByLabelPropertyValue>(
-      expand_1, symbol_i, label_identity, property_identity_email, "email", LITERAL("rrr@clientdrive.com"),
-      memgraph::storage::v3::View::OLD);
+  // MATCH (i:Iy {email: 'rrr@test.com'})
+  auto scan_all_3 =
+      std::make_shared<ScanAllByLabelPropertyValue>(expand_1, symbol_i, label_i, property_i_email, "email",
+                                                    LITERAL("rrr@test.com"), memgraph::storage::v3::View::OLD);
 
-  // (p:Permission)-[anon1:IS_FOR_IDENTITY]->(i:Identity {email: 'rrr@clientdrive.com'})
-  auto expand_2_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_identity};
+  // (p:Pn)-[anon1:IS_FOR_I]->(i:I {email: 'rrr@test.com'})
+  auto expand_2_edge_types = std::vector<memgraph::storage::v3::EdgeTypeId>{edge_is_for_i};
   auto expand_2 =
       std::make_shared<Expand>(scan_all_3, symbol_i, symbol_p, symbol_anon1, EdgeAtom::Direction::IN,
                                expand_2_edge_types, true /*existing_node*/, memgraph::storage::v3::View::OLD);
   {
     /*
     Checking result from:
-      MATCH (i:Identity {email: 'rrr@clientdrive.com'})<-[:IS_FOR_IDENTITY]-(p:Permission)
-      MATCH (p:Permission)-[:IS_FOR_NODE]->(n:Node)
-      MATCH (n:Node {platformId: 'XXXXXXXXXXXXZZZZZZZZZ'})
+      MATCH (i:I {email: 'rrr@test.com'})<-[:IS_FOR_I]-(p:P)
+      MATCH (p:P)-[:IS_FOR_N]->(n:N)
+      MATCH (n:N {pId: 'XXXXXXXXXXXXZZZZZZZZZ'})
       RETURN *;
     */
     auto output_n =
@@ -823,11 +817,10 @@ TEST_P(QueryPlanHardCodedQueriesTestFixture, HardCodedQuery01) {
     auto transformed_results = std::vector<Result>{};
     std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
                    [](const std::vector<TypedValue> &result) -> Result {
-                     auto node_gid = result[0].ValueVertex().Gid();
-                     auto permission_gid = result[1].ValueVertex().Gid();
-                     auto identity_gid = result[2].ValueVertex().Gid();
-                     return Result{
-                         .node_gid_ = node_gid, .permission_gid_ = permission_gid, .identity_gid_ = identity_gid};
+                     auto n_gid = result[0].ValueVertex().Gid();
+                     auto p_gid = result[1].ValueVertex().Gid();
+                     auto i_gid = result[2].ValueVertex().Gid();
+                     return Result{.n_gid_ = n_gid, .p_gid_ = p_gid, .i_gid_ = i_gid};
                    });
 
     ASSERT_EQ(transformed_results.size(), expected_final_results.size());
