@@ -35,12 +35,55 @@ read_permission_queries: &read_permission_queries
         ]
       validation_queries: []
 
+show_privileges_cluster: &show_privileges_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries: [
+        "Create User Josip;",
+        "Grant Read On Labels :Label1 to Josip;",
+        "Deny Read On Labels :Label2 to Josip;",
+        "Grant Update On Labels :Label3 to Josip;",
+        "Deny Update On Labels :Label4 to Josip;",
+        "Grant Create_Delete On Labels :Label5 to Josip;",
+        "Deny Create_Delete On Labels :Label6 to Josip;",
+        "Grant Create_Delete On Labels :Label7 to Josip;",
+        "Deny Read On Labels :Label7 to Josip;",
+
+        "Create User Boris;",
+        "Grant Auth to Boris;",
+        "Grant Read On Labels :Label1 to Boris;",
+        "Deny Read On Labels :Label2 to Boris;",
+        "Grant Update On Labels :Label3 to Boris;",
+        "Deny Update On Labels :Label4 to Boris;",
+        "Grant Create_Delete On Labels :Label5 to Boris;",
+        "Deny Create_Delete On Labels :Label6 to Boris;",
+        "Grant Create_Delete On Labels :Label7 to Boris;",
+        "Deny Read On Labels :Label7 to Boris;",
+
+        "Create User Niko;",
+        "Grant Auth to Niko;",
+        "Grant Create_Delete On Labels * to Niko",
+        "Deny Update On Labels * to Niko",
+
+        "Create User Bruno;",
+        "Grant Auth to Bruno;",
+        "Deny Create_Delete On Labels * to Bruno"
+      ]
+
 workloads:
   - name: "Label-based auth"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/lba_procedures.py"]
     <<: *template_cluster
+
+  - name: "show-privileges"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/show_privileges.py"]
+    <<: *show_privileges_cluster
 
   - name: "read-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
