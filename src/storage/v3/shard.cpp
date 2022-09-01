@@ -1065,8 +1065,9 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
 }
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  return false;
+  if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1075,9 +1076,9 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_com
 }
 
 bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  // if (!indices_.label_property_index.CreateIndex(label, property, labelspace.access())) return false;
-  return false;
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
