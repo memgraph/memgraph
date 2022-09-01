@@ -239,8 +239,9 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("CreateNode");
 
-  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
-                                                            query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     spdlog::info("Vertex will not be created due to not having enough permission!");
     return false;
   }
@@ -2172,7 +2173,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Vertex: {
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
-                                        auth::FineGrainedPermission::UPDATE)) {
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Vertex property will not be set due to not having enough permission.");
         break;
       }
@@ -2188,7 +2189,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     }
     case TypedValue::Type::Edge: {
       if (context.auth_checker &&
-          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Edge property will not be set due to not having enough permission.");
         break;
       }
@@ -2387,7 +2389,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Vertex:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
-                                        auth::FineGrainedPermission::UPDATE)) {
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Vertex properties will not be set due to not having enough permission.");
         break;
       }
@@ -2396,7 +2398,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       break;
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
-          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Edge properties will not be set due to not having enough permission!");
         break;
       }
@@ -2529,7 +2532,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Vertex:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
-                                        auth::FineGrainedPermission::UPDATE)) {
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Vertex property will not be removed due to not having enough permission.");
         break;
       }
@@ -2538,7 +2541,8 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       break;
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
-          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
         spdlog::info("Edge property will not be removed due to not having enough permission.");
         break;
       }
