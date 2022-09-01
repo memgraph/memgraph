@@ -145,7 +145,7 @@ class ShardRsm {
       ret.last_value = std::nullopt;
       ret.shard_rsm_success = true;
 
-      state_.emplace(request.key, std::move(request.value).value());
+      state_.emplace(request.key, request.value.value());
     }
 
     return ret;

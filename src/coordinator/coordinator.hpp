@@ -244,8 +244,8 @@ class Coordinator {
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
+    // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
     return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
-                      // NOLINTNEXTLINE(performance-move-const-arg)
                       std::move(requests));
   }
 
