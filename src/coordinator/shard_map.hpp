@@ -116,7 +116,7 @@ struct ShardMap {
     labels.emplace(label_name, label_id);
 
     LabelSpace label_space{
-        .schema = schema,
+        .schema = std::move(schema),
         .shards = Shards{},
     };
 
