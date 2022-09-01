@@ -107,9 +107,6 @@ struct ShardMap {
       return false;
     }
 
-    if (labels.contains(label_name)) {
-      return false;
-    }
 
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
