@@ -32,8 +32,6 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
 #include "io/rsm/raft.hpp"
-#include "io/simulator/simulator.hpp"
-#include "io/simulator/simulator_transport.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
@@ -41,10 +39,6 @@
 namespace memgraph::io::rsm {
 
 using memgraph::coordinator::Hlc;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
 

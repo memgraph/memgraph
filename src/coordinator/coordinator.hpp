@@ -110,6 +110,9 @@ struct InitializeLabelResponse {
   std::optional<ShardMap> fresher_shard_map;
 };
 
+struct HeartbeatRequest {};
+struct HeartbeatResponse {};
+
 using CoordinatorWriteRequests =
     std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
                  DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
@@ -117,8 +120,8 @@ using CoordinatorWriteResponses =
     std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
                  DeregisterStorageEngineResponse, InitializeLabelResponse, AllocatePropertyIdsResponse>;
 
-using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
-using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
+using CoordinatorReadRequests = std::variant<GetShardMapRequest, HeartbeatRequest>;
+using CoordinatorReadResponses = std::variant<GetShardMapResponse, HeartbeatResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
@@ -126,6 +129,8 @@ class Coordinator {
 
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
+
+  CoordinatorReadResponses HandleRead(HeartbeatRequest && /* heartbeat_request */) { return HeartbeatResponse{}; }
 
   CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;
@@ -186,7 +191,7 @@ class Coordinator {
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
-  CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest &&register_storage_engine_request) {
+  CoordinatorWriteResponses static ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */) {
     RegisterStorageEngineResponse res{};
     // TODO
 
@@ -195,7 +200,7 @@ class Coordinator {
 
   /// This begins the process of draining the provided storage engine from all raft
   /// clusters that it might be participating in.
-  CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest &&register_storage_engine_request) {
+  CoordinatorWriteResponses static ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */) {
     DeregisterStorageEngineResponse res{};
     // TODO
     // const Address &address = register_storage_engine_request.address;
@@ -241,7 +246,7 @@ class Coordinator {
   }
 
   CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
-    return std::visit([&](auto &&request) { return ApplyWrite(std::forward<decltype(request)>(request)); },
+    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
 };
