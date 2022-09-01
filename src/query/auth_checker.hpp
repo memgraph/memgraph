@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "auth/models.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 
@@ -36,41 +35,41 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
                                     const memgraph::storage::View &view,
-                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool HasGlobalPermissionOnVertices(
-      memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
   [[nodiscard]] virtual bool HasGlobalPermissionOnEdges(
-      memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 };
 
 class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
   bool Accept(const memgraph::query::DbAccessor & /*dba*/, const VertexAccessor & /*vertex*/,
               const memgraph::storage::View & /*view*/,
-              const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+              const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
   bool Accept(const memgraph::query::DbAccessor & /*dba*/, const memgraph::query::EdgeAccessor & /*edge*/,
-              const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+              const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
   bool HasGlobalPermissionOnVertices(
-      const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+      const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
   bool HasGlobalPermissionOnEdges(
-      const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+      const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
-};
+};  // namespace memgraph::query
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
  public:

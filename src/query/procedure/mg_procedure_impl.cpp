@@ -22,7 +22,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "auth/models.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -1589,7 +1588,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
         !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                             memgraph::auth::FineGrainedPermission::UPDATE)) {
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on vertex!"};
     }
 
@@ -1635,7 +1634,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
         !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for adding a label to vertex!"};
     }
 
@@ -1673,7 +1672,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
         !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
     }
 
@@ -1866,9 +1865,10 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
     const auto db_accessor = *it.source_vertex.graph->ctx->db_accessor;
     const auto view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (auth_checker->Accept(db_accessor, **impl_it, memgraph::auth::FineGrainedPermission::READ)) {
+      if (auth_checker->Accept(db_accessor, **impl_it, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         const auto &check_vertex = it.source_vertex.impl == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
-        if (auth_checker->Accept(db_accessor, check_vertex, view, memgraph::auth::FineGrainedPermission::READ)) {
+        if (auth_checker->Accept(db_accessor, check_vertex, view,
+                                 memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
           break;
         }
       }
@@ -2072,7 +2072,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
   return WrapExceptions([=] {
     if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
         !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl,
-                                                  memgraph::auth::FineGrainedPermission::UPDATE)) {
+                                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on edge!"};
     }
 
@@ -2166,7 +2166,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
       [=]() -> mgp_vertex * {
         if (graph->ctx && graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPermissionOnVertices(
-                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw AuthorizationException{"Insufficient permissions for creating vertices!"};
         }
 
@@ -2190,7 +2190,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
         !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view,
-                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
     }
 
@@ -2231,7 +2231,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
         !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl, graph->view,
-                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
     }
 
@@ -2284,7 +2284,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       [=]() -> mgp_edge * {
         if (graph->ctx && graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPermissionOnEdges(
-                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw AuthorizationException{"Insufficient permissions for creating edges!"};
         }
 
@@ -2322,7 +2322,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     if (graph->ctx && graph->ctx->auth_checker &&
         !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, edge->impl,
-                                          memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting an edge!"};
     }
     if (!MgpGraphIsMutable(*graph)) {
@@ -2363,7 +2363,7 @@ void NextPermitted(mgp_vertices_iterator &it) {
 
   while (it.current_it != it.vertices.end()) {
     if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view,
-                                            memgraph::auth::FineGrainedPermission::READ)) {
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
       break;
     }
 
