@@ -130,7 +130,9 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  CoordinatorReadResponses HandleRead(HeartbeatRequest && /* heartbeat_request */) { return HeartbeatResponse{}; }
+  CoordinatorReadResponses static HandleRead(HeartbeatRequest && /* heartbeat_request */) {
+    return HeartbeatResponse{};
+  }
 
   CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;
@@ -240,11 +242,14 @@ class Coordinator {
  public:
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
     return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
+                      // NOLINTNEXTLINE(performance-move-const-arg)
                       std::move(requests));
   }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
