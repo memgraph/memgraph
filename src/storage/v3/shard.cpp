@@ -1065,6 +1065,7 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
 }
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+  // Do label indexes make sense on primary labels?
   if (!indices_.label_index.CreateIndex(label, vertices_.access())) {
     return false;
   }
@@ -1076,6 +1077,11 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_com
 }
 
 bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+  if (label == primary_label_ && schemas_.GetSchema(primary_label_)->second.size() == 1 &&
+      schemas_.GetSchema(primary_label_)->second[0].property_id == property) {
+    // Index already exists on primary key
+    return false;
+  }
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
     return false;
   }

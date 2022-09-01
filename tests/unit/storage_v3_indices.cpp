@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -21,6 +22,7 @@
 // NOLINTNEXTLINE(google-build-using-namespace)
 
 using testing::IsEmpty;
+using testing::Pair;
 using testing::UnorderedElementsAre;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -841,6 +843,26 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Iteration without any bounds should return all items of the index.
   verify(std::nullopt, std::nullopt, values);
+}
+
+TEST_F(IndexTest, LabelPropertyIndexCreateWithExistingPrimaryKey) {
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
+  EXPECT_FALSE(storage.CreateIndex(primary_label, primary_property));
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+
+  EXPECT_TRUE(storage.CreateIndex(primary_label, prop_id));
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(acc.LabelPropertyIndexExists(primary_label, prop_id));
+  }
+  EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(Pair(primary_label, prop_id)));
+
+  EXPECT_TRUE(storage.CreateIndex(primary_label));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 1);
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
 }
 
 }  // namespace memgraph::storage::v3::tests
