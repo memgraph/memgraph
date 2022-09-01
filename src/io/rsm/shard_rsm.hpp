@@ -93,7 +93,7 @@ class ShardRsm {
       ret.latest_known_shard_map_version = shard_map_version_;
       ret.shard_rsm_success = false;
     } else if (state_.contains(request.key)) {
-      ret.value = state_[request.key];
+      ret.value = state_.at(request.key);
       ret.shard_rsm_success = true;
     } else {
       ret.shard_rsm_success = false;

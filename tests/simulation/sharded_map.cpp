@@ -74,9 +74,8 @@ namespace {
 
 const std::string label_name = std::string("test_label");
 
-ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
-                             memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
-                             memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
+ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Address b_io_1, Address b_io_2,
+                             Address b_io_3) {
   ShardMap sm;
 
   // register new properties
@@ -126,7 +125,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   return sm;
 }
 
-std::optional<ShardClient> DetermineShardLocation(const Shard& target_shard, const std::vector<Address> &a_addrs,
+std::optional<ShardClient> DetermineShardLocation(const Shard &target_shard, const std::vector<Address> &a_addrs,
                                                   ShardClient a_client, const std::vector<Address> &b_addrs,
                                                   ShardClient b_client) {
   for (const auto &addr : target_shard) {
