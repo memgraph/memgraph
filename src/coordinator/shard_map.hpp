@@ -141,9 +141,7 @@ struct ShardMap {
 
     Shards shards{};
 
-    for (; it != end_it; it++) {
-      shards.emplace(it->first, it->second);
-    }
+    std::copy(it, end_it, std::inserter(shards, shards.end()));
 
     return shards;
   }
