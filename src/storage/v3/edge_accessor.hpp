@@ -17,6 +17,7 @@
 #include "storage/v3/edge_ref.hpp"
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
@@ -34,13 +35,14 @@ class EdgeAccessor final {
   friend class Shard;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config,
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, LabelId primary_label,
+               Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
                const SchemaValidator &schema_validator, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
+        primary_label_{primary_label},
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
@@ -90,6 +92,7 @@ class EdgeAccessor final {
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
+  LabelId primary_label_;
   Transaction *transaction_;
   Indices *indices_;
   Constraints *constraints_;

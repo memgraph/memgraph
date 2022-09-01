@@ -74,6 +74,7 @@ namespace memgraph::storage::v3 {
 /// generic, public use.
 class AllVerticesIterable final {
   VerticesSkipList::Accessor vertices_accessor_;
+  LabelId primary_label_;
   Transaction *transaction_;
   View view_;
   Indices *indices_;
@@ -100,10 +101,11 @@ class AllVerticesIterable final {
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
 
-  AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config,
+  AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, LabelId primary_label, Transaction *transaction,
+                      View view, Indices *indices, Constraints *constraints, Config::Items config,
                       const SchemaValidator &schema_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
+        primary_label_(primary_label),
         transaction_(transaction),
         view_(view),
         indices_(indices),
@@ -244,8 +246,8 @@ class Shard final {
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), &transaction_, view, &shard_->indices_,
-                                                  &shard_->constraints_, shard_->config_.items,
+      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), shard_->primary_label_, &transaction_,
+                                                  view, &shard_->indices_, &shard_->constraints_, shard_->config_.items,
                                                   shard_->schema_validator_));
     }
 

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/transaction.hpp"
 
