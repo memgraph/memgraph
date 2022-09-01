@@ -261,12 +261,12 @@ class Coordinator {
   explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
 
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
-    return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
+    return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
 
   CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
-    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
+    return std::visit([&](auto &&request) { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
 };
