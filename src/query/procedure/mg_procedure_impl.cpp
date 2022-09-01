@@ -1589,7 +1589,6 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
     }
-
     const auto prop_key = v->graph->impl->NameToProperty(property_name);
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
@@ -1632,6 +1631,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
                                              memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
+
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot add a label to an immutable vertex!"};
     }
@@ -1704,15 +1704,7 @@ mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result
   return WrapExceptions([v, memory] { return NewRawMgpObject<mgp_vertex>(memory, *v); }, result);
 }
 
-void mgp_vertex_destroy(mgp_vertex *v) {
-  if (v->graph->ctx && v->graph->ctx->auth_checker &&
-      !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                           memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
-    return;
-  }
-
-  DeleteRawMgpObject(v);
-}
+void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
@@ -2011,15 +2003,7 @@ mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
   return WrapExceptions([e, memory] { return mgp_edge::Copy(*e, *memory); }, result);
 }
 
-void mgp_edge_destroy(mgp_edge *e) {
-  if (e->from.graph->ctx && e->from.graph->ctx->auth_checker &&
-      !e->from.graph->ctx->auth_checker->Accept(*e->from.graph->ctx->db_accessor, e->impl,
-                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
-    return;
-  }
-
-  DeleteRawMgpObject(e);
-}
+void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
@@ -2081,6 +2065,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
                                                   memgraph::auth::FineGrainedPermission::UPDATE)) {
       return;
     }
+
     if (!MgpEdgeIsMutable(*e)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable edge!"};
     }
@@ -2169,10 +2154,12 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [=] {
-        // if (graph->ctx && graph->ctx->auth_checker &&
-        //     !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, impl, graph->view /*, CREATE_DELETE*/)) {
-        //   return;
-        // } Global Create Delete
+        if (graph->ctx && graph->ctx->auth_checker &&
+            !graph->ctx->auth_checker->HasGlobalPermissionOnVertices(
+                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+          return;
+        }
+
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create a vertex in an immutable graph!"};
         }
@@ -2196,6 +2183,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
                                           memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
+
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
@@ -2236,6 +2224,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
                                           memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
       return;
     }
+
     if (!MgpGraphIsMutable(*graph)) {
       throw ImmutableObjectException{"Cannot remove a vertex from an immutable graph!"};
     }
@@ -2283,11 +2272,12 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
                                 mgp_memory *memory, mgp_edge **result) {
   return WrapExceptions(
       [=] {
-        // if (graph->ctx && graph->ctx->auth_checker &&
-        //     !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, vertex->impl,
-        //                                       graph->view /*, CREATE_DELETE*/)) {
-        //   return;
-        // } Global Create Delete
+        if (graph->ctx && graph->ctx->auth_checker &&
+            !graph->ctx->auth_checker->HasGlobalPermissionOnEdges(
+                memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
+          return;
+        }
+
         if (!MgpGraphIsMutable(*graph)) {
           throw ImmutableObjectException{"Cannot create an edge in an immutable graph!"};
         }
