@@ -12,7 +12,6 @@
 #pragma once
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "glue/auth.hpp"
 #include "query/auth_checker.hpp"
 #include "query/db_accessor.hpp"
@@ -44,10 +43,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
               const memgraph::storage::View &view,
-              const memgraph::auth::FineGrainedPermission fine_grained_permission) const override;
+              memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-              const memgraph::auth::FineGrainedPermission fine_grained_permission) const override;
+              memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
  private:
   auth::User user_;
