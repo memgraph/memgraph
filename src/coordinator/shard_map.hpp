@@ -75,29 +75,18 @@ struct ShardMap {
       return false;
     }
 
-    if (!label_spaces.contains(label_id)) {
-      return false;
-    }
-
     auto &label_space = label_spaces.at(label_id);
     auto &shards_in_map = label_space.shards;
+
     MG_ASSERT(!shards_in_map.contains(key));
+    MG_ASSERT(label_spaces.contains(label_id));
 
     // Finding the Shard that the new CompoundKey should map to.
-    Shard shard_to_map_to;
-    CompoundKey prev_key = ((*shards_in_map.begin()).first);
-
-    for (auto iter = std::next(shards_in_map.begin()); iter != shards_in_map.end(); ++iter) {
-      const auto &current_key = (*iter).first;
-      if (key > prev_key && key < current_key) {
-        shard_to_map_to = shards_in_map[prev_key];
-      }
-
-      prev_key = (*iter).first;
-    }
+    auto prev = std::prev(shards_in_map.upper_bound(key));
+    Shard duplicated_shard = prev->second;
 
     // Apply the split
-    shards_in_map[key] = shard_to_map_to;
+    shards_in_map[key] = duplicated_shard;
 
     return true;
   }
