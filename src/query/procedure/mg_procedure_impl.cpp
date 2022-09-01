@@ -1065,6 +1065,7 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
     // the given edge.
     auto *src_vertex = &path->vertices.back();
     mgp_vertex *dst_vertex{nullptr};
+
     if (edge->to == *src_vertex) {
       dst_vertex = &edge->from;
     } else if (edge->from == *src_vertex) {
@@ -1827,6 +1828,31 @@ mgp_error mgp_vertex_iter_properties(mgp_vertex *v, mgp_memory *memory, mgp_prop
 
 void mgp_edges_iterator_destroy(mgp_edges_iterator *it) { DeleteRawMgpObject(it); }
 
+namespace {
+void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
+  if (!it.source_vertex.graph->ctx || !it.source_vertex.graph->ctx->auth_checker) return;
+
+  auto &impl_it = for_in ? it.in_it : it.out_it;
+  const auto end = for_in ? it.in->end() : it.out->end();
+
+  if (impl_it) {
+    const auto *auth_checker = it.source_vertex.graph->ctx->auth_checker.get();
+    const auto db_accessor = *it.source_vertex.graph->ctx->db_accessor;
+    const auto view = it.source_vertex.graph->view;
+    while (*impl_it != end) {
+      if (auth_checker->Accept(db_accessor, **impl_it)) {
+        const auto &check_vertex = it.source_vertex.impl == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
+        if (auth_checker->Accept(db_accessor, check_vertex, view)) {
+          break;
+        }
+      }
+
+      ++*impl_it;
+    }
+  }
+};
+}  // namespace
+
 mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_iterator **result) {
   return WrapExceptions(
       [v, memory] {
@@ -1850,6 +1876,9 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
         }
         it->in.emplace(std::move(*maybe_edges));
         it->in_it.emplace(it->in->begin());
+
+        NextPermittedEdge(*it, true);
+
         if (*it->in_it != it->in->end()) {
           it->current_e.emplace(**it->in_it, v->graph, it->GetMemoryResource());
         }
@@ -1882,6 +1911,9 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
         }
         it->out.emplace(std::move(*maybe_edges));
         it->out_it.emplace(it->out->begin());
+
+        NextPermittedEdge(*it, false);
+
         if (*it->out_it != it->out->end()) {
           it->current_e.emplace(**it->out_it, v->graph, it->GetMemoryResource());
         }
@@ -1910,24 +1942,32 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
   return WrapExceptions(
       [it] {
         MG_ASSERT(it->in || it->out);
-        auto next = [&](auto *impl_it, const auto &end) -> mgp_edge * {
+        auto next = [it](const bool for_in) -> mgp_edge * {
+          auto &impl_it = for_in ? it->in_it : it->out_it;
+          const auto end = for_in ? it->in->end() : it->out->end();
           if (*impl_it == end) {
             MG_ASSERT(!it->current_e,
                       "Iteration is already done, so it->current_e "
                       "should have been set to std::nullopt");
             return nullptr;
           }
-          if (++(*impl_it) == end) {
+
+          ++*impl_it;
+
+          NextPermittedEdge(*it, for_in);
+
+          if (*impl_it == end) {
             it->current_e = std::nullopt;
             return nullptr;
           }
+
           it->current_e.emplace(**impl_it, it->source_vertex.graph, it->GetMemoryResource());
           return &*it->current_e;
         };
         if (it->in_it) {
-          return next(&*it->in_it, it->in->end());
+          return next(true);
         }
-        return next(&*it->out_it, it->out->end());
+        return next(false);
       },
       result);
 }
@@ -2056,7 +2096,8 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
               throw DeletedObjectException{"Cannot get the properties of a deleted edge!"};
             case memgraph::storage::Error::NONEXISTENT_OBJECT:
               LOG_FATAL(
-                  "Query modules shouldn't have access to nonexistent objects when getting the properties of an edge.");
+                  "Query modules shouldn't have access to nonexistent objects when getting the properties of an "
+                  "edge.");
             case memgraph::storage::Error::PROPERTIES_DISABLED:
             case memgraph::storage::Error::VERTEX_HAS_EDGES:
             case memgraph::storage::Error::SERIALIZATION_ERROR:
@@ -2252,7 +2293,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
 
 namespace {
 void NextPermitted(mgp_vertices_iterator &it) {
-  if (!it.graph->ctx->auth_checker) {
+  if (!it.graph->ctx || !it.graph->ctx->auth_checker) {
     return;
   }
 
