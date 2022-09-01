@@ -86,7 +86,7 @@ class ShardRsm {
   }
 
  public:
-  StorageReadResponse Read(StorageReadRequest request) {
+  StorageReadResponse Read(StorageReadRequest request) const {
     StorageReadResponse ret;
 
     if (!IsKeyInRange(request.key)) {
