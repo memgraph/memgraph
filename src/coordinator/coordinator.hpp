@@ -240,7 +240,7 @@ class Coordinator {
   }
 
  public:
-  explicit Coordinator(ShardMap sm) : shard_map_{(sm)} {}
+  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {}
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
