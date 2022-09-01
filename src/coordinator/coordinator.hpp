@@ -130,7 +130,7 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  CoordinatorReadResponses static HandleRead(HeartbeatRequest && /* heartbeat_request */) {
+  static CoordinatorReadResponses HandleRead(HeartbeatRequest && /* heartbeat_request */) {
     return HeartbeatResponse{};
   }
 
@@ -193,7 +193,7 @@ class Coordinator {
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
-  CoordinatorWriteResponses static ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */) {
+  static CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */) {
     RegisterStorageEngineResponse res{};
     // TODO
 
@@ -202,7 +202,7 @@ class Coordinator {
 
   /// This begins the process of draining the provided storage engine from all raft
   /// clusters that it might be participating in.
-  CoordinatorWriteResponses static ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */) {
+  static CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */) {
     DeregisterStorageEngineResponse res{};
     // TODO
     // const Address &address = register_storage_engine_request.address;
