@@ -84,7 +84,6 @@ class RsmClient {
 
       if (response_result.HasError()) {
         spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        // continue;
         return response_result.GetError();
       }
 
