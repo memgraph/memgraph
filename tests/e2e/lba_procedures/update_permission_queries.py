@@ -11,7 +11,7 @@
 
 import sys
 import pytest
-from common import connect, execute_and_fetch_all, reset_permissions, DatabaseError
+from common import connect, execute_and_fetch_all, reset_permissions
 
 update_property_query = "MATCH (n:update_label) SET n.prop = 2 RETURN n.prop;"
 update_properties_query = "MATCH (n:update_label) SET n = {prop: 2, prop2: 3} RETURN n.prop;"

@@ -3,21 +3,20 @@ template_cluster: &template_cluster
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
-      setup_queries: [
-        "Create (:Label1 {id: 1}) ;",
-        "Create (:Label1 {id: 2}) ;",
-        "Create (:Label1 {id: 3}) ;",
-        "Create (:Label1 {id: 4}) ;",
-        "Create (:Label1 {id: 5}) ;",
-        "Create (:Label1 {id: 6}) ;",
-        "Create (:Label2 {id: 1}) ;",
-        "Create (:Label2 {id: 2}) ;",
-        "Create (:Label2 {id: 3}) ;",
-        "Create (:Label2 {id: 4}) ;",
-        "Create User Josip ;",
-        "Create User Boris ;",
-        "Grant Read On Labels :Label1 to Boris;",
-      ]
+      setup_queries:
+        - "Create (:Label1 {id: 1}) ;"
+        - "Create (:Label1 {id: 2}) ;"
+        - "Create (:Label1 {id: 3}) ;"
+        - "Create (:Label1 {id: 4}) ;"
+        - "Create (:Label1 {id: 5}) ;"
+        - "Create (:Label1 {id: 6}) ;"
+        - "Create (:Label2 {id: 1}) ;"
+        - "Create (:Label2 {id: 2}) ;"
+        - "Create (:Label2 {id: 3}) ;"
+        - "Create (:Label2 {id: 4}) ;"
+        - "Create User Josip ;"
+        - "Create User Boris ;"
+        - "Grant Read On Labels :Label1 to Boris;"
       validation_queries: []
 
 show_privileges_cluster: &show_privileges_cluster
@@ -25,50 +24,49 @@ show_privileges_cluster: &show_privileges_cluster
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
-      setup_queries: [
-        "Create User Josip;",
-        "Grant Read On Labels :Label1 to Josip;",
-        "Deny Read On Labels :Label2 to Josip;",
-        "Grant Update On Labels :Label3 to Josip;",
-        "Deny Update On Labels :Label4 to Josip;",
-        "Grant Create_Delete On Labels :Label5 to Josip;",
-        "Deny Create_Delete On Labels :Label6 to Josip;",
-        "Grant Create_Delete On Labels :Label7 to Josip;",
-        "Deny Read On Labels :Label7 to Josip;",
+      setup_queries:
+        - "Create User Josip;"
+        - "Grant Read On Labels :Label1 to Josip;"
+        - "Deny Read On Labels :Label2 to Josip;"
+        - "Grant Update On Labels :Label3 to Josip;"
+        - "Deny Update On Labels :Label4 to Josip;"
+        - "Grant Create_Delete On Labels :Label5 to Josip;"
+        - "Deny Create_Delete On Labels :Label6 to Josip;"
+        - "Grant Create_Delete On Labels :Label7 to Josip;"
+        - "Deny Read On Labels :Label7 to Josip;"
 
-        "Create User Boris;",
-        "Grant Auth to Boris;",
-        "Grant Read On Labels :Label1 to Boris;",
-        "Deny Read On Labels :Label2 to Boris;",
-        "Grant Update On Labels :Label3 to Boris;",
-        "Deny Update On Labels :Label4 to Boris;",
-        "Grant Create_Delete On Labels :Label5 to Boris;",
-        "Deny Create_Delete On Labels :Label6 to Boris;",
-        "Grant Create_Delete On Labels :Label7 to Boris;",
-        "Deny Read On Labels :Label7 to Boris;",
+        - "Create User Boris;"
+        - "Grant Auth to Boris;"
+        - "Grant Read On Labels :Label1 to Boris;"
+        - "Deny Read On Labels :Label2 to Boris;"
+        - "Grant Update On Labels :Label3 to Boris;"
+        - "Deny Update On Labels :Label4 to Boris;"
+        - "Grant Create_Delete On Labels :Label5 to Boris;"
+        - "Deny Create_Delete On Labels :Label6 to Boris;"
+        - "Grant Create_Delete On Labels :Label7 to Boris;"
+        - "Deny Read On Labels :Label7 to Boris;"
 
-        "Create User Niko;",
-        "Grant Auth to Niko;",
-        "Grant Create_Delete On Labels * to Niko",
-        "Deny Update On Labels * to Niko",
+        - "Create User Niko;"
+        - "Grant Auth to Niko;"
+        - "Grant Create_Delete On Labels * to Niko"
+        - "Deny Update On Labels * to Niko"
 
-        "Create User Bruno;",
-        "Grant Auth to Bruno;",
-        "Deny Create_Delete On Labels * to Bruno"
-      ]
+        - "Create User Bruno;"
+        - "Grant Auth to Bruno;"
+        - "Deny Create_Delete On Labels * to Bruno"
+
 
 update_permission_queries_cluster: &update_permission_queries_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
-      setup_queries: [
-        "CREATE USER admin IDENTIFIED BY 'test';",
-        "GRANT ALL PRIVILEGES TO admin;",
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin;"
+        - "CREATE USER user IDENTIFIED BY 'test'"
+        - "GRANT ALL PRIVILEGES TO user;"
 
-        "CREATE USER user IDENTIFIED BY 'test'",
-        "GRANT ALL PRIVILEGES TO user;",
-      ]
       validation_queries: []
 
 workloads:

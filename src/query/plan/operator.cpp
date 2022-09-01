@@ -2134,7 +2134,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while setting property on a vertex due to not having enough permission!");
+        spdlog::info("Vertex property will not be set due to not having enough permission.");
         break;
       }
 
@@ -2150,7 +2150,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Edge: {
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while setting property on an edge due to not having enough permission!");
+        spdlog::info("Edge property will not be set due to not having enough permission.");
         break;
       }
 
@@ -2349,7 +2349,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while setting properties on a vertex due to not having enough permission!");
+        spdlog::info("Vertex properties will not be set due to not having enough permission.");
         break;
       }
 
@@ -2358,7 +2358,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while setting properties on an edge due to not having enough permission!");
+        spdlog::info("Edge properties will not be set due to not having enough permission!");
         break;
       }
 
@@ -2491,7 +2491,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while removing a property from a vertex due to not having enough permission!");
+        spdlog::info("Vertex property will not be removed due to not having enough permission.");
         break;
       }
 
@@ -2500,7 +2500,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(), auth::FineGrainedPermission::UPDATE)) {
-        spdlog::error("Error while removing a property from an edge due to not having enough permission!");
+        spdlog::info("Edge property will not be removed due to not having enough permission.");
         break;
       }
 

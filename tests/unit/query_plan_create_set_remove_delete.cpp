@@ -1092,12 +1092,12 @@ TEST(QueryPlan, SetPropertyWithAuthChecker) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  std::string label_name = "l1";
-  auto label = dba.NameToLabel(label_name);
+  const std::string label_name = "l1";
+  const auto label = dba.NameToLabel(label_name);
 
-  std::string property_name = "prop";
-  auto property = dba.NameToProperty(property_name);
-  auto property_value = memgraph::storage::PropertyValue{1};
+  const std::string property_name = "prop";
+  const auto property = dba.NameToProperty(property_name);
+  const auto property_value = memgraph::storage::PropertyValue{1};
 
   // Add a single vertex
   auto v = dba.InsertVertex();
@@ -1325,14 +1325,14 @@ TEST(QueryPlan, SetPropertyExpandWithAuthChecker) {
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
 
-  std::string label_name = "l1";
-  auto label = dba.NameToLabel(label_name);
-  std::string label_name_2 = "l1";
-  auto label_2 = dba.NameToLabel(label_name_2);
+  const std::string label_name = "l1";
+  const auto label = dba.NameToLabel(label_name);
+  const std::string label_name_2 = "l1";
+  const auto label_2 = dba.NameToLabel(label_name_2);
 
-  std::string property_name = "prop";
-  auto property = dba.NameToProperty(property_name);
-  auto property_value = memgraph::storage::PropertyValue{1};
+  const std::string property_name = "prop";
+  const auto property = dba.NameToProperty(property_name);
+  const auto property_value = memgraph::storage::PropertyValue{1};
 
   // Add a single vertex
   auto v1 = dba.InsertVertex();

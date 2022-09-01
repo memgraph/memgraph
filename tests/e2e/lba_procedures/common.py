@@ -12,8 +12,6 @@
 import mgclient
 import typing
 
-DatabaseError = mgclient.DatabaseError
-
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
