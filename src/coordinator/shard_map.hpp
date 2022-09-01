@@ -186,7 +186,7 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(std::string const &property_name) {
+  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
     if (properties.contains(property_name)) {
       return properties.at(property_name);
     }
