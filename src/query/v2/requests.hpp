@@ -11,21 +11,36 @@
 
 #pragma once
 
+#include <chrono>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <unordered_map>
 #include <variant>
 #include <vector>
 
-// TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
-using VertexId = size_t;
-using Gid = size_t;
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 
-using Hlc = memgraph::coordinator::Hlc;
+/// Hybrid-logical clock
+struct Hlc {
+  uint64_t logical_id;
+  using Duration = std::chrono::microseconds;
+  using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
+  Time coordinator_wall_clock;
+
+  bool operator==(const Hlc &other) const = default;
+};
 
 struct Label {
   size_t id;
 };
+
+// TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
+using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using VertexId = std::pair<Label, PrimaryKey>;
+using Gid = size_t;
+using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
   std::string name;
@@ -49,20 +64,36 @@ struct Edge {
 
 struct PathPart {
   Vertex dst;
-  Edge edge;
+  Gid edge;
 };
 
 struct Path {
   Vertex src;
   std::vector<PathPart> parts;
-}
-
-using Value = TypedValue<Vertex, Edge, Path>;
+};
 
 struct Null {};
 
+struct Value {
+  enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
+  union {
+    Null null_v;
+    bool bool_v;
+    uint64_t int_v;
+    double double_v;
+    std::string string_v;
+    std::vector<Value> list_v;
+    std::map<std::string, Value> map_v;
+    Vertex vertex_v;
+    Edge edge_v;
+    Path path_v;
+  };
+
+  Type type;
+};
+
 struct ValuesMap {
-  std::unordered_map<size_t, Value> values_map;
+  std::unordered_map<PropertyId, Value> values_map;
 };
 
 struct MappedValues {
@@ -83,7 +114,7 @@ struct Filter {
   std::string filter_expression;
 };
 
-enum OrderingDirection { ASCENDING = 1, DESCENDING = 2 };
+enum class OrderingDirection { ASCENDING = 1, DESCENDING = 2 };
 
 struct OrderBy {
   Expression expression;
@@ -99,12 +130,11 @@ struct ScanVerticesRequest {
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view;
-}
+};
 
 struct ScanVerticesResponse {
   bool success;
   Values values;
-  std::optional<std::unordered_map<size_t, std::string>> property_name_map;
   std::optional<VertexId> next_start_id;
 };
 
@@ -113,20 +143,20 @@ using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
 struct GetPropertiesRequest {
   Hlc transaction_id;
   VertexOrEdgeIds vertex_or_edge_ids;
-  std::vector<std::string> property_names;
+  std::vector<PropertyId> property_ids;
   std::vector<Expression> expressions;
   bool only_unique = false;
   std::optional<std::vector<OrderBy>> order_by;
   std::optional<size_t> limit;
-  std::optional<Filter> filter
+  std::optional<Filter> filter;
 };
 
 struct GetPropertiesResponse {
+  bool success;
   Values values;
-  std::optional<std::unordered_map<size_t, std::string>> property_name_map;
 };
 
-enum EdgeDirection { OUT = 1; IN = 2; BOTH = 3; };
+enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
 struct ExpandOneRequest {
   Hlc transaction_id;
@@ -140,19 +170,19 @@ struct ExpandOneRequest {
   //                            after schema is implemented
   //  Special values are accepted:
   //  * __mg__labels
-  std::optional<std::vector<std::string>> src_vertex_properties;
+  std::optional<std::vector<PropertyId>> src_vertex_properties;
   //  TODO(antaljanosbenjamin): All of the special values should be communicated through a single vertex object
   //                            after schema is implemented
   //  Special values are accepted:
   //  * __mg__dst_id (Vertex, but without labels)
   //  * __mg__type (binary)
-  std::optional<std::vector<std::string>> edge_properties;
+  std::optional<std::vector<PropertyId>> edge_properties;
   //  QUESTION(antaljanosbenjamin): Maybe also add possibility to expressions evaluated on the source vertex?
   //  List of expressions evaluated on edges
   std::vector<Expression> expressions;
   std::optional<std::vector<OrderBy>> order_by;
   std::optional<size_t> limit;
-  std::optional<Fitler> filter;
+  std::optional<Filter> filter;
 };
 
 struct ExpandOneResultRow {
@@ -169,24 +199,16 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
-  // This approach might not suit the expand with per shard parrallelization,
-  // because the property_name_map has to be accessed from multiple threads
-  // in order to avoid duplicated keys (two threads might map the same
-  // property with different numbers) and multiple passes (to unify the
-  // mapping amond result returned from different shards).
   std::vector<ExpandOneResultRow> result;
-  std::optional<std::unordered_map<size_t, std::string>> property_name_map;
 };
 
 struct NewVertex {
-  std::vector<size_t> label_ids;
-  std::map<size_t, Value> properties;
+  std::vector<Label> label_ids;
+  std::map<PropertyId, Value> properties;
 };
 
 struct CreateVerticesRequest {
   Hlc transaction_id;
-  std::unordered_map<size_t, std::string> labels_name_map;
-  std::unordered_map<size_t, std::string> property_name_map;
   std::vector<NewVertex> new_vertices;
 };
 
