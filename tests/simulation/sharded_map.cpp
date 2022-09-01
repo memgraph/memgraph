@@ -126,7 +126,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   return sm;
 }
 
-std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
+std::optional<ShardClient> DetermineShardLocation(const Shard& target_shard, const std::vector<Address> &a_addrs,
                                                   ShardClient a_client, const std::vector<Address> &b_addrs,
                                                   ShardClient b_client) {
   for (const auto &addr : target_shard) {
