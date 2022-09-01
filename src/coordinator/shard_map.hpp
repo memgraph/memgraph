@@ -172,9 +172,7 @@ struct ShardMap {
         mutated = true;
 
         const PropertyId property_id = PropertyId::FromUint(++max_property_id);
-
         ret.emplace(property_name, property_id);
-
         properties.emplace(property_name, property_id);
       }
     }
