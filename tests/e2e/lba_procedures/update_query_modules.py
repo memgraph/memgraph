@@ -9,8 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
 import pytest
+import sys
 from common import (
     connect,
     execute_and_fetch_all,
@@ -32,6 +32,7 @@ def test_can_not_update_vertex_when_given_read():
     execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
+
     result = execute_and_fetch_all(test_cursor, set_vertex_property_query)
 
     assert result[0][0] == 1

@@ -1969,7 +1969,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
       [it] {
         MG_ASSERT(it->in || it->out);
         auto next = [it](const bool for_in) -> mgp_edge * {
-          auto impl_it = for_in ? it->in_it : it->out_it;
+          auto &impl_it = for_in ? it->in_it : it->out_it;
           const auto end = for_in ? it->in->end() : it->out->end();
           if (*impl_it == end) {
             MG_ASSERT(!it->current_e,
@@ -1991,7 +1991,10 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           return &*it->current_e;
         };
         if (it->in_it) {
-          return next(true);
+          auto *result = next(true);
+          if (result != nullptr) {
+            return result;
+          }
         }
         return next(false);
       },

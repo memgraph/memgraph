@@ -13,10 +13,13 @@ import mgp
 
 
 @mgp.write_proc
-def create_vertex(ctx: mgp.ProcCtx) -> mgp.Record(created_node=mgp.Vertex):
-    vertex = ctx.graph.create_vertex()
-    vertex.add_label("create_delete_label")
+def create_vertex(ctx: mgp.ProcCtx, labelName: str = "") -> mgp.Record(created_node=mgp.Vertex):
+    try:
+        vertex = ctx.graph.create_vertex()
+    except mgp.PermissionDeniedError:
+        return mgp.Record(created_node=None)
 
+    vertex.add_label(labelName)
     return mgp.Record(created_node=vertex)
 
 
@@ -25,7 +28,10 @@ def remove_label(ctx: mgp.ProcCtx) -> mgp.Record(node=mgp.Vertex):
     vertex_to_return: mgp.Vertex = None
     for vertex in ctx.graph.vertices:
         if "create_delete_label" in vertex.labels:
-            vertex.remove_label("create_delete_label")
+            try:
+                vertex.remove_label("create_delete_label")
+            except mgp.PermissionDeniedError:
+                pass
             vertex_to_return = vertex
 
     return mgp.Record(node=vertex_to_return)
@@ -36,7 +42,10 @@ def set_label(ctx: mgp.ProcCtx, new_label: str) -> mgp.Record(node=mgp.Vertex):
     vertex_to_return: mgp.Vertex = None
     for vertex in ctx.graph.vertices:
         if "create_delete_label" in vertex.labels:
-            vertex.add_label(new_label)
+            try:
+                vertex.add_label(new_label)
+            except mgp.PermissionDeniedError:
+                pass
             vertex_to_return = vertex
 
     return mgp.Record(node=vertex_to_return)
@@ -59,7 +68,10 @@ def delete_edge(ctx: mgp.ProcCtx) -> mgp.Record():
     for vertex in ctx.graph.vertices:
         for edge in vertex.out_edges:
             if edge.labels in "create_delete_edge_type":
-                ctx.graph.delete_edge(vertex)
+                try:
+                    ctx.graph.delete_edge(vertex)
+                except mgp.PermissionDeniedError:
+                    pass
                 break
 
     return mgp.Record()
