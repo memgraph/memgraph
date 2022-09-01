@@ -70,7 +70,7 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, CompoundKey key) {
+  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey& key) {
     if (previous_shard_map_version != shard_map_version) {
       return false;
     }
