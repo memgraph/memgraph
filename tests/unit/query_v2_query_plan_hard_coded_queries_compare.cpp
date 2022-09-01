@@ -70,7 +70,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_multif
   auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
-  const auto number_of_vertices = 100;
+  const auto number_of_vertices = 200;
   const auto number_of_frames_per_batch = 20;
   {  // Inserting data
     auto storage_dba = db_v3.Access();
@@ -160,19 +160,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_multif
 
   // End of collect result
 
-  auto transformed_results = std::vector<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
-  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
-                 [](const std::vector<TypedValue> &result) {
-                   auto gid_n = result[0].ValueVertex().Gid();
-                   auto gid_p = result[1].ValueVertex().Gid();
-                   auto gid_q = result[1].ValueVertex().Gid();
-                   return std::make_tuple(gid_n, gid_p, gid_q);
-                 });
-
-  ASSERT_EQ(transformed_results.size(), tuples_gids_of_expected_vertices.size());
-  for (auto result : transformed_results) {
-    ASSERT_TRUE(tuples_gids_of_expected_vertices.end() != tuples_gids_of_expected_vertices.find(result));
-  }
+  ASSERT_EQ(results.size(), tuples_gids_of_expected_vertices.size());
 }
 
 TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_singleframe) {
@@ -193,7 +181,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_single
   auto tuples_gids_of_expected_vertices = std::set<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
   auto gid_of_expected_vertices = std::set<storage::v3::Gid>{};
 
-  const auto number_of_vertices = 100;
+  const auto number_of_vertices = 200;
   {  // Inserting data
     auto storage_dba = db_v3.Access();
     DbAccessor dba(&storage_dba);
@@ -270,20 +258,7 @@ TEST_F(QueryPlanHardCodedQueriesTest, ScallAllScanAllScanAllWhileBatching_single
   std::cout << "SINGLE FRAME: DURATION OF PULL: " << duration << " ms" << std::endl;
 
   // End of collect result
-
-  auto transformed_results = std::vector<std::tuple<storage::v3::Gid, storage::v3::Gid, storage::v3::Gid>>{};
-  std::transform(results.begin(), results.end(), std::back_inserter(transformed_results),
-                 [](const std::vector<TypedValue> &result) {
-                   auto gid_n = result[0].ValueVertex().Gid();
-                   auto gid_p = result[1].ValueVertex().Gid();
-                   auto gid_q = result[1].ValueVertex().Gid();
-                   return std::make_tuple(gid_n, gid_p, gid_q);
-                 });
-
-  ASSERT_EQ(transformed_results.size(), tuples_gids_of_expected_vertices.size());
-  for (auto result : transformed_results) {
-    ASSERT_TRUE(tuples_gids_of_expected_vertices.end() != tuples_gids_of_expected_vertices.find(result));
-  }
+  ASSERT_EQ(results.size(), tuples_gids_of_expected_vertices.size());
 }
 
 }  // namespace memgraph::query::v2::tests
