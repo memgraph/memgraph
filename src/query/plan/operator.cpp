@@ -26,7 +26,6 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
-#include "auth/models.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -39,6 +38,7 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -240,8 +240,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   SCOPED_PROFILE_OP("CreateNode");
 
   if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
-                                                            memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
-    spdlog::error("Error while creating a vertex due to not having enough permission!");
+                                                            query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    spdlog::info("Vertex will not be created due to not having enough permission!");
     return false;
   }
 
@@ -329,11 +329,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  if (context.auth_checker && !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
-                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE) &&
-                                context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
-                                                             memgraph::auth::FineGrainedPermission::CREATE_DELETE))) {
-    spdlog::error("Error while creating an edge due to not having enough permission!");
+  const auto fine_grained_permission = self_.existing_node_
+                                           ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
+                                           : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
+  if (context.auth_checker &&
+      !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
+                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels, fine_grained_permission))) {
+    spdlog::info("Edge will not be created due to not having enough permission!");
     return false;
   }
   // get the origin vertex
@@ -433,7 +436,7 @@ class ScanAllCursor : public Cursor {
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
       if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
-                                       memgraph::auth::FineGrainedPermission::READ)) {
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -716,9 +719,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
       if (context.auth_checker &&
-          !(context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) &&
+          !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
-                                         memgraph::auth::FineGrainedPermission::READ))) {
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         continue;
       }
 
@@ -735,9 +739,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
       if (context.auth_checker &&
-          !(context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ) &&
+          !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
-                                         memgraph::auth::FineGrainedPermission::READ))) {
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         continue;
       }
 
@@ -1073,9 +1078,9 @@ class ExpandVariableCursor : public Cursor {
 
       if (context.auth_checker &&
           !(context.auth_checker->Accept(*context.db_accessor, current_edge.first,
-                                         memgraph::auth::FineGrainedPermission::READ) &&
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD,
-                                         memgraph::auth::FineGrainedPermission::READ))) {
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         continue;
       }
       AppendEdge(current_edge.first, &edges_on_frame);
@@ -1241,9 +1246,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           for (const auto &edge : out_edges) {
             if (context.auth_checker &&
                 !(context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) &&
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
-                                               memgraph::auth::FineGrainedPermission::READ))) {
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 
@@ -1266,9 +1271,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           for (const auto &edge : in_edges) {
             if (context.auth_checker &&
                 !(context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) &&
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
-                                               memgraph::auth::FineGrainedPermission::READ))) {
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 
@@ -1305,9 +1310,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           for (const auto &edge : out_edges) {
             if (context.auth_checker &&
                 !(context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) &&
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
-                                               memgraph::auth::FineGrainedPermission::READ))) {
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
@@ -1329,9 +1334,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           for (const auto &edge : in_edges) {
             if (context.auth_checker &&
                 !(context.auth_checker->Accept(*context.db_accessor, edge,
-                                               memgraph::auth::FineGrainedPermission::READ) &&
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
                   context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
-                                               memgraph::auth::FineGrainedPermission::READ))) {
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
@@ -1386,8 +1391,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (context.auth_checker &&
           !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                         memgraph::auth::FineGrainedPermission::READ) &&
-            context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         return;
       }
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1549,8 +1555,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
       if (context.auth_checker &&
           !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
-                                         memgraph::auth::FineGrainedPermission::READ) &&
-            context.auth_checker->Accept(*context.db_accessor, edge, memgraph::auth::FineGrainedPermission::READ))) {
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         return;
       }
       if (self_.filter_lambda_.expression) {
@@ -2020,12 +2027,13 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (expression_result.type() == TypedValue::Type::Edge) {
       auto &ea = expression_result.ValueEdge();
       if (context.auth_checker &&
-          !(context.auth_checker->Accept(*context.db_accessor, ea, auth::FineGrainedPermission::CREATE_DELETE) &&
+          !(context.auth_checker->Accept(*context.db_accessor, ea,
+                                         query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
             context.auth_checker->Accept(*context.db_accessor, ea.To(), storage::View::NEW,
-                                         auth::FineGrainedPermission::CREATE_DELETE) &&
+                                         query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
             context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
-                                         auth::FineGrainedPermission::CREATE_DELETE))) {
-        spdlog::error("Error while deleting an edge due to not having enough permission!");
+                                         query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+        spdlog::info("Edge will not be deleted due to not having enough permission!");
         continue;
       }
       auto maybe_value = dba.RemoveEdge(&ea);
@@ -2053,9 +2061,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
-        if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
-                                                                  auth::FineGrainedPermission::CREATE_DELETE)) {
-          spdlog::error("Error while deleting a vertex due to not having enough permission!");
+        if (context.auth_checker &&
+            !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
+                                          query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          spdlog::info("Vertex will not be deleted due to not having enough permission!");
           break;
         }
         if (self_.detach_) {

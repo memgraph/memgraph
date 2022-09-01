@@ -378,6 +378,7 @@ TEST(QueryPlan, FineGrainedCreateExpand) {
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().label_permissions().Deny("Node2",
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("Node2", memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
@@ -631,8 +632,7 @@ TEST(QueryPlan, FineGrainedMatchCreateExpand) {
   // All labels denied, All edge types granted
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     test_create_path(false, 0, 0, user);
@@ -642,12 +642,9 @@ TEST(QueryPlan, FineGrainedMatchCreateExpand) {
   // First two label granted, All edge types granted
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("l1",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Grant("l3",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny("l2",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("l3", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny("l2", memgraph::auth::FineGrainedPermission::UPDATE);
 
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
@@ -837,8 +834,7 @@ TEST(QueryPlan, FineGrainedDelete) {
   // All labels granted,All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().edge_type_permissions().Deny(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
@@ -848,14 +844,10 @@ TEST(QueryPlan, FineGrainedDelete) {
   // Specific label granted, Specific edge types granted
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("l1",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Grant("l2",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny("l3",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny("l4",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny("l3", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny("l4", memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "type0", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
