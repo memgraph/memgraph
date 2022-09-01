@@ -159,7 +159,7 @@ struct ShardMap {
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
-  PropertyMap AllocatePropertyIds(std::vector<PropertyName> const &new_properties) {
+  PropertyMap AllocatePropertyIds(const std::vector<PropertyName>  &new_properties) {
     PropertyMap ret{};
 
     bool mutated = false;
