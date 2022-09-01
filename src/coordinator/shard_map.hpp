@@ -103,7 +103,7 @@ struct ShardMap {
   }
 
   bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, Hlc last_shard_map_version) {
-    if (shard_map_version != last_shard_map_version) {
+    if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
       return false;
     }
 
