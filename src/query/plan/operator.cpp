@@ -25,6 +25,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "spdlog/spdlog.h"
 
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -38,7 +39,6 @@
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
