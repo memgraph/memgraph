@@ -124,6 +124,23 @@ using CoordinatorReadRequests = std::variant<GetShardMapRequest, HeartbeatReques
 using CoordinatorReadResponses = std::variant<GetShardMapResponse, HeartbeatResponse>;
 
 class Coordinator {
+ public:
+  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {}
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
+  CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
+    // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+    return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
+                      std::move(requests));
+  }
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
+  CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
+    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
+                      std::move(requests));
+  }
+
+ private:
   ShardMap shard_map_;
   uint64_t highest_allocated_timestamp_;
 
@@ -237,22 +254,6 @@ class Coordinator {
     res.property_ids = property_ids;
 
     return res;
-  }
-
- public:
-  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {}
-
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
-  CoordinatorReadResponses Read(CoordinatorReadRequests requests) {
-    // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-    return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
-                      std::move(requests));
-  }
-
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
-  CoordinatorWriteResponses Apply(CoordinatorWriteRequests requests) {
-    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
-                      std::move(requests));
   }
 };
 
