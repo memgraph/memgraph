@@ -78,7 +78,7 @@ class ShardRsm {
   Hlc shard_map_version_;
 
   // The key is not located in this shard
-  bool IsKeyInRange(const ShardRsmKey &key) {
+  bool IsKeyInRange(const ShardRsmKey &key) const {
     if (maximum_key_) [[likely]] {
       return (key >= minimum_key_ && key <= maximum_key_);
     }
