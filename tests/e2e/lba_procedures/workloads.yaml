@@ -19,6 +19,18 @@ template_cluster: &template_cluster
         - "Grant Read On Labels :Label1 to Boris;"
       validation_queries: []
 
+read_permission_queries: &read_permission_queries
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin;"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user;"
+      validation_queries: []
+
 show_privileges_cluster: &show_privileges_cluster
   cluster:
     main:
@@ -81,6 +93,12 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
     <<: *show_privileges_cluster
+
+  - name: "read-permission-queries"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/read_permission_queries.py"]
+    <<: *read_permission_queries
 
   - name: "update-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
