@@ -150,7 +150,25 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name),
         perform_full_enumeration_(perform_full_enumeration) {}
 
-  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override {
+  bool Pull(MultiFrame &multiframe, ExecutionContext &context) override
+
+  {
+    if (perform_full_enumeration_) {
+      return PullFullEnumeration(multiframe, context);
+    }
+    return PullStandardEnumeration(multiframe, context);
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+  }
+
+ private:
+  bool PullStandardEnumeration(MultiFrame &multiframe, ExecutionContext &context) {
     SCOPED_PROFILE_OP(op_name_);
     if (MustAbort(context)) {
       throw HintedAbortError();
@@ -174,45 +192,57 @@ class ScanAllCursor : public Cursor {
     }
 
     auto last_filled_frame = 0;
-    for (auto idx = 0; idx < multiframe.Size(); ++idx) {
-      auto &frame = multiframe.GetFrame(idx);
-      if (!frame.IsValid()) {
-        continue;
-      }
+    for (auto frame : multiframe.GetValidFrames()) {
+      (*frame)[output_symbol_] = *vertices_it_.value();
+      ++vertices_it_.value();
 
-      frame[output_symbol_] = *vertices_it_.value();
-      if (!perform_full_enumeration_) {
-        ++vertices_it_.value();
-      }
-      last_filled_frame = idx;
-
-      if (vertices_it_.value() == vertices_.value().end() && idx < multiframe.Size() - 1) {
+      ++last_filled_frame;
+      if (vertices_it_.value() == vertices_.value().end() && last_filled_frame < multiframe.Size()) {
         /*
         'vertices_it_.value() == vertices_.value().end()' means we have exhausted all vertices
-        If 'idx < multiframe.size() - 1' means we do not have enough vertices to fill all frames and that we are at the
-        last batch. In that case, we can simply reduce the number of frames.
+        If 'last_filled_frame < multiframe.size() ' means we do not have enough vertices to fill all frames and that we
+        are at the last batch. In that case, we can simply reduce the number of frames.
         */
         break;
       }
     }
-    if (perform_full_enumeration_) {
-      ++vertices_it_.value();
-    }
-    const auto number_of_frames_to_keep = last_filled_frame + 1;
+    const auto number_of_frames_to_keep = last_filled_frame;
     multiframe.Resize(number_of_frames_to_keep);
 
     return true;
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
+  bool PullFullEnumeration(MultiFrame &multiframe, ExecutionContext &context) {
+    SCOPED_PROFILE_OP(op_name_);
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
 
-  void Reset() override {
-    input_cursor_->Reset();
-    vertices_ = std::nullopt;
-    vertices_it_ = std::nullopt;
+    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+      if (!input_cursor_->Pull(multiframe, context)) {
+        return false;
+      }
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      auto next_vertices = get_vertices_(multiframe, context);
+      if (!next_vertices) {
+        continue;
+      }
+      // Since vertices iterator isn't nothrow_move_assignable, we have to use
+      // the roundabout assignment + emplace, instead of simple:
+      // vertices _ = get_vertices_(frame, context);
+      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_it_.emplace(vertices_.value().begin());
+    }
+
+    for (auto &frame : multiframe.GetValidFrames()) {
+      (*frame)[output_symbol_] = *vertices_it_.value();
+    }
+    ++vertices_it_.value();
+
+    return true;
   }
 
- private:
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   TVerticesFun get_vertices_;

@@ -58,11 +58,15 @@ class MultiFrame {
 
   size_t GetOriginalBatchSize() const noexcept;
 
+  const memgraph::utils::pmr::vector<Frame *> &GetValidFrames() const;
+  void FrameHasBeenInvalidated() noexcept;
+
  private:
   memgraph::utils::pmr::vector<std::unique_ptr<Frame>> frames_memory_owner_ =
       memgraph::utils::pmr::vector<std::unique_ptr<Frame>>(0, memgraph::utils::NewDeleteResource());
   memgraph::utils::pmr::vector<Frame *> frames_ =
       memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
+  mutable std::optional<memgraph::utils::pmr::vector<Frame *>> valid_frames_;
 };
 
 }  // namespace memgraph::query::v2

@@ -64,3 +64,20 @@ bool MultiFrame::HasValidFrames() const {
 }
 
 size_t MultiFrame::GetOriginalBatchSize() const noexcept { return frames_memory_owner_.size(); }
+
+void MultiFrame::FrameHasBeenInvalidated() noexcept {
+  // #NoCommit ideally this will be activated by the frame itself so the user of MultiFrame do not need to know about
+  // it.
+  valid_frames_.reset();
+}
+
+const memgraph::utils::pmr::vector<Frame *> &MultiFrame::GetValidFrames() const {
+  if (!valid_frames_) {
+    valid_frames_ = memgraph::utils::pmr::vector<Frame *>(0, memgraph::utils::NewDeleteResource());
+    for (auto &frame_uptr : frames_memory_owner_) {
+      valid_frames_.value().emplace_back(frame_uptr.get());
+    }
+  }
+
+  return valid_frames_.value();
+}
