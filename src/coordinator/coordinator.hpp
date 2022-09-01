@@ -50,11 +50,6 @@ struct GetShardMapResponse {
   ShardMap shard_map;
 };
 
-struct AllocateHlcBatchRequest {
-  Hlc low;
-  Hlc high;
-};
-
 struct AllocateHlcBatchResponse {
   bool success;
   Hlc low;
@@ -116,38 +111,23 @@ struct InitializeLabelResponse {
 };
 
 using CoordinatorWriteRequests =
-    std::variant<HlcRequest, AllocateHlcBatchRequest, AllocateEdgeIdBatchRequest, SplitShardRequest,
-                 RegisterStorageEngineRequest, DeregisterStorageEngineRequest, InitializeLabelRequest,
-                 AllocatePropertyIdsRequest>;
+    std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
+                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
 using CoordinatorWriteResponses =
-    std::variant<HlcResponse, AllocateHlcBatchResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
-                 RegisterStorageEngineResponse, DeregisterStorageEngineResponse, InitializeLabelResponse,
-                 AllocatePropertyIdsResponse>;
+    std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
+                 DeregisterStorageEngineResponse, InitializeLabelResponse, AllocatePropertyIdsResponse>;
 
 using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
 using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
   ShardMap shard_map_;
-  /// The highest reserved timestamp / highest allocated timestamp
-  /// is a way for minimizing communication involved in query engines
-  /// reserving Hlc's for their transaction processing.
-  /// Periodically, the coordinator will allocate a batch of timestamps
-  /// and this will need to go over consensus. From that point forward,
-  /// each timestamp in that batch can be given out to "readers" who issue
-  /// HlcRequest without blocking on consensus first. But if
-  /// highest_allocated_timestamp_ approaches highest_reserved_timestamp_,
-  /// it is time to allocate another batch, so that we can keep guaranteeing
-  /// forward progress.
-  /// Any time a coordinator becomes a new leader, it will need to issue
-  /// a new AllocateHlcBatchRequest to create a pool of IDs to allocate.
   uint64_t highest_allocated_timestamp_;
-  uint64_t highest_reserved_timestamp_;
 
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  CoordinatorReadResponses HandleRead(GetShardMapRequest &&get_shard_map_request) {
+  CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;
     res.shard_map = shard_map_;
     return res;
@@ -160,16 +140,15 @@ class Coordinator {
 
     MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
 
-    res.new_hlc = shard_map_.IncrementShardMapVersion();
+    res.new_hlc = Hlc{
+        .logical_id = ++highest_allocated_timestamp_,
+        // TODO(tyler) probably pass some more context to the Coordinator here
+        // so that we can use our wall clock and enforce monotonicity.
+        // .coordinator_wall_clock = io_.Now(),
+    };
 
     // Allways return fresher shard_map for now.
     res.fresher_shard_map = std::make_optional(shard_map_);
-
-    return res;
-  }
-
-  CoordinatorWriteResponses ApplyWrite(AllocateHlcBatchRequest &&ahr) {
-    AllocateHlcBatchResponse res{};
 
     return res;
   }
