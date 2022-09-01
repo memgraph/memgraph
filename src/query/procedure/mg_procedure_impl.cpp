@@ -2153,11 +2153,11 @@ mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
 
 mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
-      [=] {
+      [=]() -> mgp_vertex * {
         if (graph->ctx && graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPermissionOnVertices(
                 memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
-          return;
+          return nullptr;
         }
 
         if (!MgpGraphIsMutable(*graph)) {
@@ -2271,11 +2271,11 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
 mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
                                 mgp_memory *memory, mgp_edge **result) {
   return WrapExceptions(
-      [=] {
+      [=]() -> mgp_edge * {
         if (graph->ctx && graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPermissionOnEdges(
                 memgraph::auth::FineGrainedPermission::CREATE_DELETE)) {
-          return;
+          return nullptr;
         }
 
         if (!MgpGraphIsMutable(*graph)) {
