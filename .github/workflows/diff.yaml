@@ -171,7 +171,7 @@ jobs:
 
           # Run leftover CTest tests (all except unit and benchmark tests).
           cd build
-          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
+          ctest -E "(memgraph__unit|memgraph__benchmark|memgraph__simulation)" --output-on-failure
 
       - name: Run drivers tests
         run: |
@@ -261,6 +261,15 @@ jobs:
           # Run unit tests.
           cd build
           ctest -R memgraph__unit --output-on-failure -j$THREADS
+
+      - name: Run simulation tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run unit tests.
+          cd build
+          ctest -R memgraph__simulation --output-on-failure -j$THREADS
 
       - name: Run e2e tests
         run: |
