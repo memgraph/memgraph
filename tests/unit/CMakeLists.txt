@@ -356,6 +356,9 @@ target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-
 add_unit_test(query_v2_query_plan_hard_coded_queries.cpp)
 target_link_libraries(${test_prefix}query_v2_query_plan_hard_coded_queries mg-query-v2)
 
+add_unit_test(query_v2_query_plan_hard_coded_queries_compare.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_hard_coded_queries_compare mg-query-v2)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
@@ -407,4 +410,3 @@ target_link_libraries(${test_prefix}future mg-io)
 # Test Local Transport
 add_unit_test(local_transport.cpp)
 target_link_libraries(${test_prefix}local_transport mg-io)
-
