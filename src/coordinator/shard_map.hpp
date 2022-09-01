@@ -70,7 +70,7 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey& key) {
+  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey &key) {
     if (previous_shard_map_version != shard_map_version) {
       return false;
     }
@@ -107,7 +107,6 @@ struct ShardMap {
       return false;
     }
 
-
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
     labels.emplace(label_name, label_id);
@@ -128,7 +127,7 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(LabelName label_name, CompoundKey start_key, CompoundKey end_key) const {
+  Shards GetShardsForRange(LabelName label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
@@ -149,7 +148,7 @@ struct ShardMap {
     return shards;
   }
 
-  Shard GetShardForKey(LabelName label_name, const CompoundKey& key) {
+  Shard GetShardForKey(LabelName label_name, const CompoundKey &key) {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
@@ -159,7 +158,7 @@ struct ShardMap {
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
-  PropertyMap AllocatePropertyIds(const std::vector<PropertyName>  &new_properties) {
+  PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties) {
     PropertyMap ret{};
 
     bool mutated = false;
