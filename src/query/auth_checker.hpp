@@ -36,21 +36,38 @@ class FineGrainedAuthChecker {
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
                                     const memgraph::storage::View &view,
-                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+                                    memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool HasGlobalPermissionOnVertices(
+      memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool HasGlobalPermissionOnEdges(
+      memgraph::auth::FineGrainedPermission fine_grained_permission) const = 0;
 };
 
 class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View &view,
-              const memgraph::auth::FineGrainedPermission) const override {
+  bool Accept(const memgraph::query::DbAccessor & /*dba*/, const VertexAccessor & /*vertex*/,
+              const memgraph::storage::View & /*view*/,
+              const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
-              const memgraph::auth::FineGrainedPermission) const override {
+  bool Accept(const memgraph::query::DbAccessor & /*dba*/, const memgraph::query::EdgeAccessor & /*edge*/,
+              const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+    return true;
+  }
+
+  bool HasGlobalPermissionOnVertices(
+      const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
+    return true;
+  }
+
+  bool HasGlobalPermissionOnEdges(
+      const memgraph::auth::FineGrainedPermission /*fine_grained_permission*/) const override {
     return true;
   }
 };
