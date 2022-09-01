@@ -40,9 +40,9 @@ std::pair<uint64_t, durability::WalDeltaData> ReadDelta(durability::BaseDecoder 
 };
 }  // namespace
 
-Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::Endpoint endpoint,
-                                              const replication::ReplicationServerConfig &config)
-    : storage_(storage) {
+Shard::ReplicationServer::ReplicationServer(Shard *shard, io::network::Endpoint endpoint,
+                                            const replication::ReplicationServerConfig &config)
+    : shard_(shard) {
   // Create RPC server.
   if (config.ssl) {
     rpc_server_context_.emplace(config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
@@ -84,21 +84,21 @@ Storage::ReplicationServer::ReplicationServer(Storage *storage, io::network::End
   rpc_server_->Start();
 }
 
-void Storage::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::HeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
-  replication::HeartbeatRes res{true, storage_->last_commit_timestamp_, storage_->epoch_id_};
+  replication::HeartbeatRes res{true, shard_->last_commit_timestamp_, shard_->epoch_id_};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::FrequentHeartbeatReq req;
   slk::Load(&req, req_reader);
   replication::FrequentHeartbeatRes res{true};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::AppendDeltasReq req;
   slk::Load(&req, req_reader);
 
@@ -107,25 +107,25 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
   auto maybe_epoch_id = decoder.ReadString();
   MG_ASSERT(maybe_epoch_id, "Invalid replication message");
 
-  if (*maybe_epoch_id != storage_->epoch_id_) {
-    storage_->epoch_history_.emplace_back(std::move(storage_->epoch_id_), storage_->last_commit_timestamp_);
-    storage_->epoch_id_ = std::move(*maybe_epoch_id);
+  if (*maybe_epoch_id != shard_->epoch_id_) {
+    shard_->epoch_history_.emplace_back(std::move(shard_->epoch_id_), shard_->last_commit_timestamp_);
+    shard_->epoch_id_ = std::move(*maybe_epoch_id);
   }
 
-  if (storage_->wal_file_) {
-    if (req.seq_num > storage_->wal_file_->SequenceNumber() || *maybe_epoch_id != storage_->epoch_id_) {
-      storage_->wal_file_->FinalizeWal();
-      storage_->wal_file_.reset();
-      storage_->wal_seq_num_ = req.seq_num;
+  if (shard_->wal_file_) {
+    if (req.seq_num > shard_->wal_file_->SequenceNumber() || *maybe_epoch_id != shard_->epoch_id_) {
+      shard_->wal_file_->FinalizeWal();
+      shard_->wal_file_.reset();
+      shard_->wal_seq_num_ = req.seq_num;
     } else {
-      MG_ASSERT(storage_->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
-      storage_->wal_seq_num_ = req.seq_num + 1;
+      MG_ASSERT(shard_->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
+      shard_->wal_seq_num_ = req.seq_num + 1;
     }
   } else {
-    storage_->wal_seq_num_ = req.seq_num;
+    shard_->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != storage_->last_commit_timestamp_) {
+  if (req.previous_commit_timestamp != shard_->last_commit_timestamp_) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -134,82 +134,82 @@ void Storage::ReplicationServer::AppendDeltasHandler(slk::Reader *req_reader, sl
       transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
     }
 
-    replication::AppendDeltasRes res{false, storage_->last_commit_timestamp_};
+    replication::AppendDeltasRes res{false, shard_->last_commit_timestamp_};
     slk::Save(res, res_builder);
     return;
   }
 
   ReadAndApplyDelta(&decoder);
 
-  replication::AppendDeltasRes res{true, storage_->last_commit_timestamp_};
+  replication::AppendDeltasRes res{true, shard_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::SnapshotReq req;
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
 
-  utils::EnsureDirOrDie(storage_->snapshot_directory_);
+  utils::EnsureDirOrDie(shard_->snapshot_directory_);
 
-  const auto maybe_snapshot_path = decoder.ReadFile(storage_->snapshot_directory_);
+  const auto maybe_snapshot_path = decoder.ReadFile(shard_->snapshot_directory_);
   MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
   // Clear the database
-  storage_->vertices_.clear();
-  storage_->edges_.clear();
+  shard_->vertices_.clear();
+  shard_->edges_.clear();
 
-  storage_->constraints_ = Constraints();
-  storage_->indices_.label_index =
-      LabelIndex(&storage_->indices_, &storage_->constraints_, storage_->config_.items, storage_->schema_validator_);
-  storage_->indices_.label_property_index = LabelPropertyIndex(&storage_->indices_, &storage_->constraints_,
-                                                               storage_->config_.items, storage_->schema_validator_);
+  shard_->constraints_ = Constraints();
+  shard_->indices_.label_index =
+      LabelIndex(&shard_->indices_, &shard_->constraints_, shard_->config_.items, shard_->schema_validator_);
+  shard_->indices_.label_property_index =
+      LabelPropertyIndex(&shard_->indices_, &shard_->constraints_, shard_->config_.items, shard_->schema_validator_);
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::RecoveredSnapshot{};
 
-    // durability::LoadSnapshot(*maybe_snapshot_path, &storage_->vertices_, &storage_->edges_,
-    // &storage_->epoch_history_,
-    //                          &storage_->name_id_mapper_, &storage_->edge_count_, storage_->config_.items);
+    // durability::LoadSnapshot(*maybe_snapshot_path, &shard_->vertices_, &shard_->edges_,
+    // &shard_->epoch_history_,
+    //                          &shard_->name_id_mapper_, &shard_->edge_count_, shard_->config_.items);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
-    storage_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
-    storage_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
+    shard_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
+    shard_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
     const auto &recovery_info = recovered_snapshot.recovery_info;
-    storage_->edge_id_ = recovery_info.next_edge_id;
-    storage_->timestamp_ = std::max(storage_->timestamp_, recovery_info.next_timestamp);
+    shard_->edge_id_ = recovery_info.next_edge_id;
+    shard_->timestamp_ = std::max(shard_->timestamp_, recovery_info.next_timestamp);
 
-    // durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &storage_->indices_,
-    //                                          &storage_->constraints_, &storage_->vertices_);
+    // durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &shard_->indices_,
+    //                                          &shard_->constraints_, &shard_->vertices_);
   } catch (const durability::RecoveryFailure &e) {
     LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
   }
 
-  replication::SnapshotRes res{true, storage_->last_commit_timestamp_};
+  replication::SnapshotRes res{true, shard_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 
   // Delete other durability files
-  auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
+  auto snapshot_files = durability::GetSnapshotFiles(shard_->snapshot_directory_, shard_->uuid_);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
-      storage_->file_retainer_.DeleteFile(path);
+      shard_->file_retainer_.DeleteFile(path);
     }
   }
 
-  auto wal_files = durability::GetWalFiles(storage_->wal_directory_, storage_->uuid_);
+  auto wal_files = durability::GetWalFiles(shard_->wal_directory_, shard_->uuid_);
   if (wal_files) {
     for (const auto &wal_file : *wal_files) {
-      storage_->file_retainer_.DeleteFile(wal_file.path);
+      shard_->file_retainer_.DeleteFile(wal_file.path);
     }
 
-    storage_->wal_file_.reset();
+    shard_->wal_file_.reset();
   }
 }
 
-void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::WalFilesReq req;
   slk::Load(&req, req_reader);
 
@@ -218,31 +218,31 @@ void Storage::ReplicationServer::WalFilesHandler(slk::Reader *req_reader, slk::B
 
   replication::Decoder decoder(req_reader);
 
-  utils::EnsureDirOrDie(storage_->wal_directory_);
+  utils::EnsureDirOrDie(shard_->wal_directory_);
 
   for (auto i = 0; i < wal_file_number; ++i) {
     LoadWal(&decoder);
   }
 
-  replication::WalFilesRes res{true, storage_->last_commit_timestamp_};
+  replication::WalFilesRes res{true, shard_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+void Shard::ReplicationServer::CurrentWalHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
 
   replication::Decoder decoder(req_reader);
 
-  utils::EnsureDirOrDie(storage_->wal_directory_);
+  utils::EnsureDirOrDie(shard_->wal_directory_);
 
   LoadWal(&decoder);
 
-  replication::CurrentWalRes res{true, storage_->last_commit_timestamp_};
+  replication::CurrentWalRes res{true, shard_->last_commit_timestamp_};
   slk::Save(res, res_builder);
 }
 
-void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
+void Shard::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   const auto temp_wal_directory = std::filesystem::temp_directory_path() / "memgraph" / durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
@@ -251,22 +251,22 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   try {
     auto wal_info = durability::ReadWalInfo(*maybe_wal_path);
     if (wal_info.seq_num == 0) {
-      storage_->uuid_ = wal_info.uuid;
+      shard_->uuid_ = wal_info.uuid;
     }
 
-    if (wal_info.epoch_id != storage_->epoch_id_) {
-      storage_->epoch_history_.emplace_back(wal_info.epoch_id, storage_->last_commit_timestamp_);
-      storage_->epoch_id_ = std::move(wal_info.epoch_id);
+    if (wal_info.epoch_id != shard_->epoch_id_) {
+      shard_->epoch_history_.emplace_back(wal_info.epoch_id, shard_->last_commit_timestamp_);
+      shard_->epoch_id_ = std::move(wal_info.epoch_id);
     }
 
-    if (storage_->wal_file_) {
-      if (storage_->wal_file_->SequenceNumber() != wal_info.seq_num) {
-        storage_->wal_file_->FinalizeWal();
-        storage_->wal_seq_num_ = wal_info.seq_num;
-        storage_->wal_file_.reset();
+    if (shard_->wal_file_) {
+      if (shard_->wal_file_->SequenceNumber() != wal_info.seq_num) {
+        shard_->wal_file_->FinalizeWal();
+        shard_->wal_seq_num_ = wal_info.seq_num;
+        shard_->wal_file_.reset();
       }
     } else {
-      storage_->wal_seq_num_ = wal_info.seq_num;
+      shard_->wal_seq_num_ = wal_info.seq_num;
     }
 
     durability::Decoder wal;
@@ -285,20 +285,20 @@ void Storage::ReplicationServer::LoadWal(replication::Decoder *decoder) {
   }
 }
 
-Storage::ReplicationServer::~ReplicationServer() {
+Shard::ReplicationServer::~ReplicationServer() {
   if (rpc_server_) {
     rpc_server_->Shutdown();
     rpc_server_->AwaitShutdown();
   }
 }
-uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
-  auto edge_acc = storage_->edges_.access();
-  // auto vertex_acc = storage_->vertices_.access();
+uint64_t Shard::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *decoder) {
+  auto edge_acc = shard_->edges_.access();
+  // auto vertex_acc = shard_->vertices_.access();
 
-  std::optional<std::pair<uint64_t, Storage::Accessor>> commit_timestamp_and_accessor;
+  std::optional<std::pair<uint64_t, Shard::Accessor>> commit_timestamp_and_accessor;
   // auto get_transaction = [this, &commit_timestamp_and_accessor](uint64_t commit_timestamp) {
   //   if (!commit_timestamp_and_accessor) {
-  //     commit_timestamp_and_accessor.emplace(commit_timestamp, storage_->Access());
+  //     commit_timestamp_and_accessor.emplace(commit_timestamp, shard_->Access());
   //   } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
   //     throw utils::BasicException("Received more than one transaction!");
   //   }
@@ -306,7 +306,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
   // };
 
   uint64_t applied_deltas = 0;
-  auto max_commit_timestamp = storage_->last_commit_timestamp_;
+  auto max_commit_timestamp = shard_->last_commit_timestamp_;
 
   for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
     const auto [timestamp, delta] = ReadDelta(decoder);
@@ -316,7 +316,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
     transaction_complete = durability::IsWalDeltaDataTypeTransactionEnd(delta.type);
 
-    if (timestamp < storage_->timestamp_) {
+    if (timestamp < shard_->timestamp_) {
       continue;
     }
 
@@ -406,12 +406,12 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
     //                     delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
 
-    //       if (!storage_->config_.items.properties_on_edges)
+    //       if (!shard_->config_.items.properties_on_edges)
     //         throw utils::BasicException(
     //             "Can't set properties on edges because properties on edges "
     //             "are disabled!");
 
-    //       auto *transaction = get_transaction(timestamp);
+    //   //       auto *transaction = get_transaction(timestamp);
 
     //       // The following block of code effectively implements `FindEdge` and
     //       // yields an accessor that is only valid for managing the edge's
@@ -456,10 +456,10 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //                              nullptr,
     //                              nullptr,
     //                              &transaction->transaction_,
-    //                              &storage_->indices_,
-    //                              &storage_->constraints_,
-    //                              storage_->config_.items,
-    //                              storage_->schema_validator_};
+    //                              &shard_->indices_,
+    //                              &shard_->constraints_,
+    //                              shard_->config_.items,
+    //                              shard_->schema_validator_};
 
     //       auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
     //                                 delta.vertex_edge_set_property.value);
@@ -481,14 +481,14 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Create label index on :{}", delta.operation_label.label);
     //       // Need to send the timestamp
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       if (!storage_->CreateIndex(storage_->NameToLabel(delta.operation_label.label), timestamp))
+    //       if (!shard_->CreateIndex(shard_->NameToLabel(delta.operation_label.label), timestamp))
     //         throw utils::BasicException("Invalid transaction!");
     //       break;
     //     }
     //     case durability::WalDeltaData::Type::LABEL_INDEX_DROP: {
     //       spdlog::trace("       Drop label index on :{}", delta.operation_label.label);
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       if (!storage_->DropIndex(storage_->NameToLabel(delta.operation_label.label), timestamp))
+    //       if (!shard_->DropIndex(shard_->NameToLabel(delta.operation_label.label), timestamp))
     //         throw utils::BasicException("Invalid transaction!");
     //       break;
     //     }
@@ -496,8 +496,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Create label+property index on :{} ({})", delta.operation_label_property.label,
     //                     delta.operation_label_property.property);
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       if (!storage_->CreateIndex(storage_->NameToLabel(delta.operation_label_property.label),
-    //                                  storage_->NameToProperty(delta.operation_label_property.property), timestamp))
+    //       if (!shard_->CreateIndex(shard_->NameToLabel(delta.operation_label_property.label),
+    //                                  shard_->NameToProperty(delta.operation_label_property.property), timestamp))
     //         throw utils::BasicException("Invalid transaction!");
     //       break;
     //     }
@@ -505,8 +505,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Drop label+property index on :{} ({})", delta.operation_label_property.label,
     //                     delta.operation_label_property.property);
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       if (!storage_->DropIndex(storage_->NameToLabel(delta.operation_label_property.label),
-    //                                storage_->NameToProperty(delta.operation_label_property.property), timestamp))
+    //       if (!shard_->DropIndex(shard_->NameToLabel(delta.operation_label_property.label),
+    //                                shard_->NameToProperty(delta.operation_label_property.property), timestamp))
     //         throw utils::BasicException("Invalid transaction!");
     //       break;
     //     }
@@ -514,9 +514,9 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Create existence constraint on :{} ({})", delta.operation_label_property.label,
     //                     delta.operation_label_property.property);
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       auto ret = storage_->CreateExistenceConstraint(
-    //           storage_->NameToLabel(delta.operation_label_property.label),
-    //           storage_->NameToProperty(delta.operation_label_property.property), timestamp);
+    //       auto ret = shard_->CreateExistenceConstraint(
+    //           shard_->NameToLabel(delta.operation_label_property.label),
+    //           shard_->NameToProperty(delta.operation_label_property.property), timestamp);
     //       if (!ret.HasValue() || !ret.GetValue()) throw utils::BasicException("Invalid transaction!");
     //       break;
     //     }
@@ -524,8 +524,8 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       spdlog::trace("       Drop existence constraint on :{} ({})", delta.operation_label_property.label,
     //                     delta.operation_label_property.property);
     //       if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
-    //       if (!storage_->DropExistenceConstraint(storage_->NameToLabel(delta.operation_label_property.label),
-    //                                              storage_->NameToProperty(delta.operation_label_property.property),
+    //       if (!shard_->DropExistenceConstraint(shard_->NameToLabel(delta.operation_label_property.label),
+    //                                              shard_->NameToProperty(delta.operation_label_property.property),
     //                                              timestamp))
     //         throw utils::BasicException("Invalid transaction!");
     //       break;
@@ -537,9 +537,9 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       ss.str()); if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
     //       std::set<PropertyId> properties;
     //       for (const auto &prop : delta.operation_label_properties.properties) {
-    //         properties.emplace(storage_->NameToProperty(prop));
+    //         properties.emplace(shard_->NameToProperty(prop));
     //       }
-    //       auto ret = storage_->CreateUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
+    //       auto ret = shard_->CreateUniqueConstraint(shard_->NameToLabel(delta.operation_label_properties.label),
     //                                                   properties, timestamp);
     //       if (!ret.HasValue() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
     //         throw utils::BasicException("Invalid transaction!");
@@ -552,9 +552,9 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
     //       ss.str()); if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid transaction!");
     //       std::set<PropertyId> properties;
     //       for (const auto &prop : delta.operation_label_properties.properties) {
-    //         properties.emplace(storage_->NameToProperty(prop));
+    //         properties.emplace(shard_->NameToProperty(prop));
     //       }
-    //       auto ret = storage_->DropUniqueConstraint(storage_->NameToLabel(delta.operation_label_properties.label),
+    //       auto ret = shard_->DropUniqueConstraint(shard_->NameToLabel(delta.operation_label_properties.label),
     //                                                 properties, timestamp);
     //       if (ret != UniqueConstraints::DeletionStatus::SUCCESS) throw utils::BasicException("Invalid transaction!");
     //       break;
@@ -564,7 +564,7 @@ uint64_t Storage::ReplicationServer::ReadAndApplyDelta(durability::BaseDecoder *
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Invalid data!");
 
-  storage_->last_commit_timestamp_ = max_commit_timestamp;
+  shard_->last_commit_timestamp_ = max_commit_timestamp;
 
   return applied_deltas;
 }

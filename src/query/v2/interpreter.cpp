@@ -43,6 +43,7 @@
 #include "query/v2/trigger.hpp"
 #include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -127,7 +128,7 @@ std::optional<std::string> GetOptionalStringValue(query::v2::Expression *express
 
 class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::v3::Storage *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::v3::Shard *db) : db_(db) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
   void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
@@ -255,7 +256,7 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
   }
 
  private:
-  storage::v3::Storage *db_;
+  storage::v3::Shard *db_;
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -913,7 +914,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.header = {"property_name", "property_type"};
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         const auto *schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
@@ -938,11 +939,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_,
                      schema_type_map = std::move(schema_type_map)]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         std::vector<storage::v3::SchemaProperty> schemas_types;
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
-          auto property_id = db->NameToProperty(schema_type.first.name);
+          auto property_id = interpreter_context->NameToPropertyId(schema_type.first.name);
           schemas_types.push_back({property_id, schema_type.second});
         }
         if (!db->CreateSchema(label, schemas_types)) {
@@ -957,7 +958,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
     case SchemaQuery::Action::DROP_SCHEMA: {
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
 
         if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
@@ -1138,7 +1139,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::v3::Storage *db, const InterpreterConfig config,
+InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
     : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
 
@@ -1157,8 +1158,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ =
+          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
@@ -1427,14 +1428,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   };
 
-  auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
+  auto label = interpreter_context->NameToLabelId(index_query->label_.name);
 
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -1842,7 +1843,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
         if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
-            case storage::v3::Storage::CreateSnapshotError::DisabledForReplica:
+            case storage::v3::Shard::CreateSnapshotError::DisabledForReplica:
               throw utils::BasicException(
                   "Failed to create a snapshot. Replica instances are not allowed to create them.");
           }
@@ -1897,8 +1898,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::v3::Storage *db, utils::MemoryResource *execution_memory) {
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::v3::Shard *db, utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -1994,13 +1995,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
+  auto label = interpreter_context->NameToLabelId(constraint_query->constraint_.label.name);
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
   properties_string.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -2259,8 +2260,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ =
+          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {

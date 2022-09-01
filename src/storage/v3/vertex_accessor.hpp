@@ -25,7 +25,7 @@
 namespace memgraph::storage::v3 {
 
 class EdgeAccessor;
-class Storage;
+class Shard;
 struct Indices;
 struct Constraints;
 
@@ -46,7 +46,7 @@ class VertexAccessor final {
    private:
     const Vertex *vertex_;
   };
-  friend class Storage;
+  friend class Shard;
 
  public:
   // Be careful when using VertexAccessor since it can be instantiated with

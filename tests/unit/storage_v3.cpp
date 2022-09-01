@@ -19,12 +19,14 @@
 #include "storage/v3/delta.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage_v3_test_utils.hpp"
+#include "utils/exceptions.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -37,7 +39,7 @@ class StorageV3 : public ::testing::Test {
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  VertexAccessor CreateVertexAndValidate(Storage::Accessor &acc, LabelId primary_label,
+  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,
                                          const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
     auto vtx = acc.CreateVertexAndValidate(primary_label, labels, properties);
@@ -45,10 +47,21 @@ class StorageV3 : public ::testing::Test {
     return *vtx;
   }
 
-  Storage store;
-  const LabelId primary_label{store.NameToLabel("label")};
-  const PropertyId primary_property{store.NameToProperty("property")};
+  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+
+  PropertyId NameToPropertyId(std::string_view property_name) {
+    return PropertyId::FromUint(id_mapper.NameToId(property_name));
+  }
+
+  EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
+    return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
+  }
+
+  NameIdMapper id_mapper;
   const std::vector<PropertyValue> pk{PropertyValue{0}};
+  const LabelId primary_label{NameToLabelId("label")};
+  Shard store{primary_label, pk, std::nullopt};
+  const PropertyId primary_property{NameToPropertyId("property")};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -236,7 +249,7 @@ TEST_F(StorageV3, AccessorMove) {
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
 
-    Storage::Accessor moved(std::move(acc));
+    Shard::Accessor moved(std::move(acc));
 
     ASSERT_FALSE(moved.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(moved, View::OLD), 0U);
@@ -600,7 +613,7 @@ TEST_F(StorageV3, VertexDeleteLabel) {
     auto vertex = acc.FindVertex(pk, View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto label5 = acc.NameToLabel("label5");
+    auto label5 = NameToLabelId("label5");
 
     // Check whether label 5 exists
     ASSERT_FALSE(vertex->HasLabel(label5, View::OLD).GetValue());
@@ -651,7 +664,7 @@ TEST_F(StorageV3, VertexDeleteLabel) {
     auto vertex = acc.FindVertex(pk, View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto label5 = acc.NameToLabel("label5");
+    auto label5 = NameToLabelId("label5");
 
     // Check whether label 5 exists
     ASSERT_FALSE(vertex->HasLabel(label5, View::OLD).GetValue());
@@ -744,7 +757,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
     auto vertex = acc.FindVertex(pk, View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto property5 = acc.NameToProperty("property5");
+    auto property5 = NameToPropertyId("property5");
 
     // Check whether property 5 exists
     ASSERT_TRUE(vertex->GetProperty(property5, View::OLD)->IsNull());
@@ -790,7 +803,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
     auto vertex = acc.FindVertex(pk, View::NEW);
     ASSERT_TRUE(vertex);
 
-    auto property5 = acc.NameToProperty("property5");
+    auto property5 = NameToPropertyId("property5");
 
     // Check whether property 5 exists
     ASSERT_TRUE(vertex->GetProperty(property5, View::OLD)->IsNull());
@@ -866,7 +879,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
     auto acc = store.Access();
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex.HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex.Labels(View::NEW)->size(), 0);
@@ -897,7 +910,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_TRUE(vertex->HasLabel(label, View::OLD).GetValue());
     {
@@ -913,7 +926,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
       ASSERT_EQ(labels[0], label);
     }
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -925,7 +938,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     {
       auto res = vertex->RemoveLabelAndValidate(label);
@@ -956,14 +969,14 @@ TEST_F(StorageV3, VertexLabelCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex->HasLabel(label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex->Labels(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Labels(View::NEW)->size(), 0);
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -987,7 +1000,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex->HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex->Labels(View::NEW)->size(), 0);
@@ -1020,14 +1033,14 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex->HasLabel(label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex->Labels(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Labels(View::NEW)->size(), 0);
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -1041,7 +1054,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex->HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex->Labels(View::NEW)->size(), 0);
@@ -1074,7 +1087,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_TRUE(vertex->HasLabel(label, View::OLD).GetValue());
     {
@@ -1090,7 +1103,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
       ASSERT_EQ(labels[0], label);
     }
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -1104,7 +1117,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     {
       auto res = vertex->RemoveLabelAndValidate(label);
@@ -1137,7 +1150,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_TRUE(vertex->HasLabel(label, View::OLD).GetValue());
     {
@@ -1153,7 +1166,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
       ASSERT_EQ(labels[0], label);
     }
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -1167,7 +1180,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     {
       auto res = vertex->RemoveLabelAndValidate(label);
@@ -1200,14 +1213,14 @@ TEST_F(StorageV3, VertexLabelAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label = acc.NameToLabel("label5");
+    auto label = NameToLabelId("label5");
 
     ASSERT_FALSE(vertex->HasLabel(label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label, View::NEW).GetValue());
     ASSERT_EQ(vertex->Labels(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Labels(View::NEW)->size(), 0);
 
-    auto other_label = acc.NameToLabel("other");
+    auto other_label = NameToLabelId("other");
 
     ASSERT_FALSE(vertex->HasLabel(other_label, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(other_label, View::NEW).GetValue());
@@ -1232,8 +1245,8 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
     auto vertex = acc1.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label1 = acc1.NameToLabel("label1");
-    auto label2 = acc1.NameToLabel("label2");
+    auto label1 = NameToLabelId("label1");
+    auto label2 = NameToLabelId("label2");
 
     ASSERT_FALSE(vertex->HasLabel(label1, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label1, View::NEW).GetValue());
@@ -1271,8 +1284,8 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
     auto vertex = acc2.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label1 = acc2.NameToLabel("label1");
-    auto label2 = acc2.NameToLabel("label2");
+    auto label1 = NameToLabelId("label1");
+    auto label2 = NameToLabelId("label2");
 
     ASSERT_FALSE(vertex->HasLabel(label1, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label1, View::NEW).GetValue());
@@ -1297,8 +1310,8 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto label1 = acc.NameToLabel("label1");
-    auto label2 = acc.NameToLabel("label2");
+    auto label1 = NameToLabelId("label1");
+    auto label2 = NameToLabelId("label2");
 
     ASSERT_TRUE(vertex->HasLabel(label1, View::OLD).GetValue());
     ASSERT_FALSE(vertex->HasLabel(label2, View::OLD).GetValue());
@@ -1326,7 +1339,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
     auto acc = store.Access();
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex.GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex.Properties(View::NEW)->size(), 0);
@@ -1364,7 +1377,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_EQ(vertex->GetProperty(property, View::OLD)->ValueString(), "nandare");
     {
@@ -1380,7 +1393,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1392,7 +1405,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     {
       auto old_value = vertex->SetPropertyAndValidate(property, PropertyValue());
@@ -1423,14 +1436,14 @@ TEST_F(StorageV3, VertexPropertyCommit) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex->GetProperty(property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Properties(View::NEW)->size(), 0);
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1454,7 +1467,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex->GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(View::NEW)->size(), 0);
@@ -1494,14 +1507,14 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex->GetProperty(property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Properties(View::NEW)->size(), 0);
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1515,7 +1528,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex->GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(View::NEW)->size(), 0);
@@ -1555,7 +1568,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_EQ(vertex->GetProperty(property, View::OLD)->ValueString(), "nandare");
     {
@@ -1571,7 +1584,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1585,7 +1598,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_EQ(vertex->GetProperty(property, View::OLD)->ValueString(), "nandare");
     {
@@ -1626,7 +1639,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_EQ(vertex->GetProperty(property, View::OLD)->ValueString(), "nandare");
     {
@@ -1642,7 +1655,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1656,7 +1669,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_EQ(vertex->GetProperty(property, View::OLD)->ValueString(), "nandare");
     {
@@ -1697,14 +1710,14 @@ TEST_F(StorageV3, VertexPropertyAbort) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property = acc.NameToProperty("property5");
+    auto property = NameToPropertyId("property5");
 
     ASSERT_TRUE(vertex->GetProperty(property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property, View::NEW)->IsNull());
     ASSERT_EQ(vertex->Properties(View::OLD)->size(), 0);
     ASSERT_EQ(vertex->Properties(View::NEW)->size(), 0);
 
-    auto other_property = acc.NameToProperty("other");
+    auto other_property = NameToPropertyId("other");
 
     ASSERT_TRUE(vertex->GetProperty(other_property, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(other_property, View::NEW)->IsNull());
@@ -1729,8 +1742,8 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
     auto vertex = acc1.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property1 = acc1.NameToProperty("property1");
-    auto property2 = acc1.NameToProperty("property2");
+    auto property1 = NameToPropertyId("property1");
+    auto property2 = NameToPropertyId("property2");
 
     ASSERT_TRUE(vertex->GetProperty(property1, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property1, View::NEW)->IsNull());
@@ -1762,8 +1775,8 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
     auto vertex = acc2.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property1 = acc2.NameToProperty("property1");
-    auto property2 = acc2.NameToProperty("property2");
+    auto property1 = NameToPropertyId("property1");
+    auto property2 = NameToPropertyId("property2");
 
     ASSERT_TRUE(vertex->GetProperty(property1, View::OLD)->IsNull());
     ASSERT_TRUE(vertex->GetProperty(property1, View::NEW)->IsNull());
@@ -1788,8 +1801,8 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
     auto vertex = acc.FindVertex(pk, View::OLD);
     ASSERT_TRUE(vertex);
 
-    auto property1 = acc.NameToProperty("property1");
-    auto property2 = acc.NameToProperty("property2");
+    auto property1 = NameToPropertyId("property1");
+    auto property2 = NameToPropertyId("property2");
 
     ASSERT_EQ(vertex->GetProperty(property1, View::OLD)->ValueInt(), 123);
     ASSERT_TRUE(vertex->GetProperty(property2, View::OLD)->IsNull());
@@ -1816,8 +1829,8 @@ TEST_F(StorageV3, VertexLabelPropertyMixed) {
   auto acc = store.Access();
   auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
-  auto label = acc.NameToLabel("label5");
-  auto property = acc.NameToProperty("property5");
+  auto label = NameToLabelId("label5");
+  auto property = NameToPropertyId("property5");
 
   // Check whether label 5 and property 5 exist
   ASSERT_FALSE(vertex.HasLabel(label, View::NEW).GetValue());
@@ -2051,8 +2064,8 @@ TEST_F(StorageV3, VertexLabelPropertyMixed) {
 }
 
 TEST_F(StorageV3, VertexPropertyClear) {
-  auto property1 = store.NameToProperty("property1");
-  auto property2 = store.NameToProperty("property2");
+  auto property1 = NameToPropertyId("property1");
+  auto property2 = NameToPropertyId("property2");
   {
     auto acc = store.Access();
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -2153,8 +2166,8 @@ TEST_F(StorageV3, VertexPropertyClear) {
 }
 
 TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
-  auto label1 = store.NameToLabel("label1");
-  auto property1 = store.NameToProperty("property1");
+  auto label1 = NameToLabelId("label1");
+  auto property1 = NameToPropertyId("property1");
 
   auto acc = store.Access();
   auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -2182,7 +2195,7 @@ TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   // Modify vertex.
   ASSERT_TRUE(vertex.AddLabelAndValidate(label1).HasValue());
   ASSERT_TRUE(vertex.SetPropertyAndValidate(property1, PropertyValue("value")).HasValue());
-  ASSERT_TRUE(acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge")).HasValue());
+  ASSERT_TRUE(acc.CreateEdge(&vertex, &vertex, NameToEdgeTypeId("edge")).HasValue());
 
   // Check state after (OLD view).
   ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
@@ -2218,14 +2231,14 @@ TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
   EXPECT_FALSE(acc2.FindVertex(pk, View::OLD));
   EXPECT_FALSE(acc2.FindVertex(pk, View::NEW));
 
-  ASSERT_TRUE(vertex.AddLabelAndValidate(acc1.NameToLabel("label1")).HasValue());
+  ASSERT_TRUE(vertex.AddLabelAndValidate(NameToLabelId("label1")).HasValue());
 
   EXPECT_FALSE(acc1.FindVertex(pk, View::OLD));
   EXPECT_TRUE(acc1.FindVertex(pk, View::NEW));
   EXPECT_FALSE(acc2.FindVertex(pk, View::OLD));
   EXPECT_FALSE(acc2.FindVertex(pk, View::NEW));
 
-  ASSERT_TRUE(vertex.SetPropertyAndValidate(acc1.NameToProperty("meaning"), PropertyValue(42)).HasValue());
+  ASSERT_TRUE(vertex.SetPropertyAndValidate(NameToPropertyId("meaning"), PropertyValue(42)).HasValue());
 
   auto acc3 = store.Access();
 
@@ -2302,7 +2315,7 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     EXPECT_TRUE(acc2.FindVertex(pk, View::OLD));
     EXPECT_TRUE(acc2.FindVertex(pk, View::NEW));
 
-    ASSERT_TRUE(vertex->AddLabelAndValidate(acc1.NameToLabel("label1")).HasValue());
+    ASSERT_TRUE(vertex->AddLabelAndValidate(NameToLabelId("label1")).HasValue());
 
     EXPECT_TRUE(acc1.FindVertex(pk, View::OLD));
     EXPECT_TRUE(acc1.FindVertex(pk, View::NEW));
@@ -2323,7 +2336,7 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
     EXPECT_TRUE(acc2.FindVertex(pk, View::OLD));
     EXPECT_TRUE(acc2.FindVertex(pk, View::NEW));
 
-    ASSERT_TRUE(vertex->SetPropertyAndValidate(acc1.NameToProperty("meaning"), PropertyValue(42)).HasValue());
+    ASSERT_TRUE(vertex->SetPropertyAndValidate(NameToPropertyId("meaning"), PropertyValue(42)).HasValue());
 
     auto acc3 = store.Access();
 
@@ -2497,7 +2510,7 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, DeletedVertexAccessor) {
-  const auto property1 = store.NameToProperty("property1");
+  const auto property1 = NameToPropertyId("property1");
   const PropertyValue property_value{"property_value"};
 
   // Create the vertex
@@ -2538,8 +2551,8 @@ TEST_F(StorageV3, DeletedVertexAccessor) {
 TEST_F(StorageV3, TestCreateVertexAndValidate) {
   {
     auto acc = store.Access();
-    const auto label1 = store.NameToLabel("label1");
-    const auto prop1 = store.NameToProperty("prop1");
+    const auto label1 = NameToLabelId("label1");
+    const auto prop1 = NameToPropertyId("prop1");
     auto vertex = acc.CreateVertexAndValidate(primary_label, {label1},
                                               {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
     ASSERT_TRUE(vertex.HasValue());
@@ -2552,25 +2565,20 @@ TEST_F(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    const auto label1 = store.NameToLabel("new_primary_label");
-    const auto prop1 = store.NameToProperty("key1");
-    const auto prop2 = store.NameToProperty("key2");
-    ASSERT_TRUE(store.CreateSchema(
-        label1, {SchemaProperty{prop1, common::SchemaType::INT}, SchemaProperty{prop2, common::SchemaType::STRING}}));
     auto acc = store.Access();
-    auto vertex = acc.CreateVertexAndValidate(label1, {}, {{prop1, PropertyValue(21)}, {prop2, PropertyValue("test")}});
-    ASSERT_TRUE(vertex.HasValue());
-    ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
-    EXPECT_EQ(vertex->PrimaryLabel(View::NEW).GetValue(), label1);
-    ASSERT_TRUE(vertex->PrimaryKey(View::NEW).HasValue());
-    EXPECT_EQ(vertex->PrimaryKey(View::NEW).GetValue(), (PrimaryKey{{PropertyValue(21), PropertyValue("test")}}));
-    ASSERT_TRUE(vertex->Properties(View::NEW).HasValue());
-    EXPECT_TRUE(vertex->Properties(View::NEW).GetValue().empty());
+    const auto label1 = NameToLabelId("label1");
+    const auto prop1 = NameToPropertyId("prop1");
+    EXPECT_THROW(
+        {
+          auto vertex = acc.CreateVertexAndValidate(
+              label1, {}, {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
+        },
+        utils::BasicException);
   }
   {
     ASSERT_DEATH(
         {
-          Storage store;
+          Shard store(primary_label, pk, std::nullopt);
           ASSERT_TRUE(store.CreateSchema(primary_label,
                                          {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
           auto acc = store.Access();

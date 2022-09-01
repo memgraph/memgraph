@@ -29,27 +29,29 @@
 #include "query_v2_query_common.hpp"
 #include "result_stream_faker.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/csv_parsing.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::query::v2::tests {
 
-// auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
-//   std::vector<memgraph::communication::bolt::Edge> list;
-//   for (auto x : v.ValueList()) {
-//     list.push_back(x.ValueEdge());
-//   }
-//   return list;
-// }
+auto ToEdgeList(const memgraph::communication::bolt::Value &v) {
+  std::vector<memgraph::communication::bolt::Edge> list;
+  for (auto x : v.ValueList()) {
+    list.push_back(x.ValueEdge());
+  }
+  return list;
+}
 
-// auto StringToUnorderedSet(const std::string &element) {
-//   const auto element_split = memgraph::utils::Split(element, ", ");
-//   return std::unordered_set<std::string>(element_split.begin(), element_split.end());
-// };
+auto StringToUnorderedSet(const std::string &element) {
+  const auto element_split = memgraph::utils::Split(element, ", ");
+  return std::unordered_set<std::string>(element_split.begin(), element_split.end());
+};
 
 struct InterpreterFaker {
-  InterpreterFaker(memgraph::storage::v3::Storage *db, const memgraph::query::v2::InterpreterConfig config,
+  InterpreterFaker(memgraph::storage::v3::Shard *db, const memgraph::query::v2::InterpreterConfig config,
                    const std::filesystem::path &data_directory)
       : interpreter_context(db, config, data_directory), interpreter(&interpreter_context) {
     interpreter_context.auth_checker = &auth_checker;
@@ -113,10 +115,20 @@ class InterpreterTest : public ::testing::Test {
     return default_interpreter.Interpret(query, params);
   }
 
-  memgraph::storage::v3::Storage db_;
+  storage::v3::LabelId NameToLabelId(std::string_view label_name) {
+    return storage::v3::LabelId::FromUint(id_mapper.NameToId(label_name));
+  }
+
+  storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
+    return storage::v3::PropertyId::FromUint(id_mapper.NameToId(property_name));
+  }
+
+  storage::v3::PrimaryKey pk{storage::v3::PropertyValue(0)};
+  memgraph::storage::v3::NameIdMapper id_mapper;
+  const storage::v3::LabelId label{NameToLabelId("label")};
+  storage::v3::Shard db_{label, pk, std::nullopt};
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_v2_interpreter"};
-  const storage::v3::LabelId label{db_.NameToLabel("label")};
-  const storage::v3::PropertyId property{db_.NameToProperty("property")};
+  const storage::v3::PropertyId property{NameToPropertyId("property")};
   InterpreterFaker default_interpreter{&db_, {}, data_directory};
 };
 
@@ -150,8 +162,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   }
 // }
 
-// // Run query with different ast twice to see if query executes correctly when
-// // ast is read from cache.
+// Run query with different ast twice to see if query executes correctly when
+// ast is read from cache.
 // TEST_F(InterpreterTest, AstCache) {
 //   {
 //     auto stream = Interpret("RETURN 2 + 3");
@@ -1447,8 +1459,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
-//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn't
-//     exist."); ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn'texist.");
+//     ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 // }
 

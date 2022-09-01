@@ -14,6 +14,7 @@ set(storage_v3_src_files
     vertex_accessor.cpp
     schemas.cpp
     schema_validator.cpp
+    shard.cpp
     storage.cpp)
 
 # #### Replication #####
