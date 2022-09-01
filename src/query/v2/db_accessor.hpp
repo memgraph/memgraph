@@ -205,9 +205,12 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnull-dereference"
+inline VertexAccessor EdgeAccessor::To() const { return *static_cast<VertexAccessor *>(nullptr); }
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+inline VertexAccessor EdgeAccessor::From() const { return *static_cast<VertexAccessor *>(nullptr); }
+#pragma clang diagnostic pop
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 

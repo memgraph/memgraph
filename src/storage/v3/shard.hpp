@@ -505,9 +505,12 @@ class Shard final {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
+
   // Main object storage
   NameIdMapper name_id_mapper_;
   LabelId primary_label_;
+  // The shard's range is [min, max)
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
   VerticesSkipList vertices_;

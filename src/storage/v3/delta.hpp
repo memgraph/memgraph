@@ -16,6 +16,7 @@
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage::v3 {
@@ -173,33 +174,33 @@ struct Delta {
         uint64_t command_id)
       : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, value}) {}
 
-  Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+  Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+  Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
         timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge,
+  Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
         std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
         timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
   Delta(const Delta &) = delete;
   Delta(Delta &&) = delete;
@@ -239,7 +240,7 @@ struct Delta {
     } property;
     struct {
       EdgeTypeId edge_type;
-      Vertex *vertex;
+      VertexId vertex_id;
       EdgeRef edge;
     } vertex_edge;
   };

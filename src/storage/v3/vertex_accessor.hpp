@@ -20,6 +20,7 @@
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::storage::v3 {
@@ -91,6 +92,8 @@ class VertexAccessor final {
 
   Result<PrimaryKey> PrimaryKey(View view) const;
 
+  Result<VertexId> Id(View view) const;
+
   /// Set a property value and return the old value or error.
   /// @throw std::bad_alloc
   ResultSchema<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
@@ -143,6 +146,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
+  Result<void> CheckVertexExistence(View view) const;
+
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;
@@ -159,6 +164,8 @@ class VertexAccessor final {
   // return an error if it's called for a deleted vertex.
   bool for_deleted_{false};
 };
+
+[[nodiscard]] VertexId Id(const Vertex &vertex);
 
 }  // namespace memgraph::storage::v3
 
