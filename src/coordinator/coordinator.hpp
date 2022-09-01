@@ -11,7 +11,11 @@
 
 #pragma once
 
+#include <optional>
+#include <string>
 #include <unordered_set>
+#include <variant>
+#include <vector>
 
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "coordinator/shard_map.hpp"
