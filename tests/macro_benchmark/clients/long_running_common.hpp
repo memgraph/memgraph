@@ -118,7 +118,7 @@ class TestClient {
 
  private:
   memgraph::communication::ClientContext context_{FLAGS_use_ssl};
-  Client client_{&context_};
+  Client client_{context_};
 };
 
 void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
