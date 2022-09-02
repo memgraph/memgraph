@@ -46,6 +46,7 @@ enum class Permission : uint64_t {
 
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
+  NO_PERMISSION = 0,
   READ          = 1,
   UPDATE          = 1U << 1U,
   CREATE_DELETE = 1U << 2U
@@ -78,6 +79,12 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
+
+// Function that converts a label permission level to its string representation.
+std::string FineGrainedPermissionToString(FineGrainedPermission level);
+
+// Constructs a label permission from a permission
+FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission);
 
 class Permissions final {
  public:
@@ -204,6 +211,8 @@ class Role final {
   Permissions &permissions();
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
+  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
 
   nlohmann::json Serialize() const;
 
