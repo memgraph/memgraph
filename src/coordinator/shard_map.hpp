@@ -52,6 +52,7 @@ struct LabelSpace {
   std::map<CompoundKey, Shard> shards;
 };
 
+// asdasdasd
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id;
