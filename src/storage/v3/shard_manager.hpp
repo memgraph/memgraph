@@ -17,6 +17,7 @@
 
 #include <io/address.hpp>
 #include <io/messages.hpp>
+#include <io/rsm/raft.hpp>
 #include <io/rsm/shard_rsm.hpp>
 #include <io/time.hpp>
 #include <io/transport.hpp>
@@ -31,6 +32,7 @@ using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
+using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
@@ -39,6 +41,10 @@ using memgraph::io::rsm::StorageWriteResponse;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
 using TimeUuidPair = std::pair<Time, uuid>;
+
+template <typename IoImpl>
+using ShardRaft =
+    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 
 /// The ShardManager is responsible for:
 /// * reconciling the storage engine's local configuration with the Coordinator's
@@ -52,10 +58,22 @@ class ShardManager {
  public:
   ShardManager(io::Io<IoImpl> io) : io_(io) {}
 
-  Duration Cron() {
-    using namespace std::chrono_literals;
+  /// Periodic protocol maintenance. Returns the time that Cron should be called again
+  /// in the future.
+  Time Cron() {
+    if (cron_schedule_.empty()) {
+      return Time::max();
+    }
 
-    return 50ms;
+    auto &[time, uuid] = cron_schedule_.top();
+
+    MG_ASSERT(time <= io_.Now());
+
+    auto &rsm = rsm_map_.at(uuid);
+    Time next_for_uuid = rsm.Cron();
+
+    cron_schedule_.pop();
+    cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
   }
 
   void Handle(Address from, Address to, RequestId request_id, ShardManagerOrRsmMessage message) {
@@ -69,9 +87,10 @@ class ShardManager {
 
  private:
   io::Io<IoImpl> io_;
-  std::map<uuid, ShardRsm> rsm_map_;
+  std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<std::pair<Time, uuid>>>
       cron_schedule_;
+  Time next_cron_;
 
   void Handle(Address from, Address to, RequestId request_id, ShardManagerMessages &&message) {}
 

@@ -48,6 +48,7 @@ class MachineManager {
   io::Io<IoImpl> io_;
   Coordinator coordinator_;
   ShardManager<IoImpl> shard_manager_;
+  Time next_cron_;
 
  public:
   MachineManager(io::Io<IoImpl> io, MachineConfig config) : io_(io) {
@@ -57,17 +58,14 @@ class MachineManager {
   }
 
   void Run() {
-    Time next_cron = io_.Now();
-
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
 
-      if (now >= next_cron) {
-        Duration next_duration = Cron();
-        next_cron = now + next_duration;
+      if (now >= next_cron_) {
+        next_cron_ = Cron();
       }
 
-      Duration receive_timeout = next_cron - now;
+      Duration receive_timeout = next_cron_ - now;
 
       auto request_result = io_.template ReceiveWithTimeout<UberMessage>(receive_timeout);
 
@@ -83,7 +81,7 @@ class MachineManager {
   }
 
  private:
-  Duration Cron() { return shard_manager_.Cron(); }
+  Time Cron() { return shard_manager_.Cron(); }
 };
 
 }  // namespace memgraph::machine_manager

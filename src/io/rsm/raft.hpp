@@ -230,6 +230,7 @@ class Raft {
   Io<IoImpl> io_;
   std::vector<Address> peers_;
   ReplicatedState replicated_state_;
+  Time next_cron_;
 
  public:
   Raft(Io<IoImpl> &&io, std::vector<Address> peers, ReplicatedState &&replicated_state)
@@ -238,14 +239,10 @@ class Raft {
         replicated_state_(std::forward<ReplicatedState>(replicated_state)) {}
 
   void Run() {
-    Time last_cron = io_.Now();
-
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
-      const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
-      if (now - last_cron > random_cron_interval) {
-        Cron();
-        last_cron = now;
+      if (now >= next_cron_) {
+        next_cron_ = Cron();
       }
 
       const Duration receive_timeout = RandomTimeout(kMinimumReceiveTimeout, kMaximumReceiveTimeout);
@@ -449,14 +446,18 @@ class Raft {
   /// been received.
   /////////////////////////////////////////////////////////////
 
-  /// Periodic protocol maintenance.
-  void Cron() {
+  /// Periodic protocol maintenance. Returns the time that Cron should be called again
+  /// in the future.
+  Time Cron() {
     // dispatch periodic logic based on our role to a specific Cron method.
     std::optional<Role> new_role = std::visit([&](auto &role) { return Cron(role); }, role_);
 
     if (new_role) {
       role_ = std::move(new_role).value();
     }
+    const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
+
+    return io_.Now() + random_cron_interval;
   }
 
   // Raft paper - 5.2
