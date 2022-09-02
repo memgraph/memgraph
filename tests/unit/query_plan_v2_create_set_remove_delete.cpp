@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gtest/gtest.h>
-
 #include "query_plan_common.hpp"
+
+#include <gtest/gtest.h>
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"

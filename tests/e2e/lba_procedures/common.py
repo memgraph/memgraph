@@ -22,3 +22,30 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     return connection
+
+
+def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+    execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label(prop);")
+    execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:read_label {prop: 5});")
+
+    if create_index:
+        execute_and_fetch_all(admin_cursor, "CREATE INDEX ON :read_label;")
+        execute_and_fetch_all(admin_cursor, "CREATE INDEX ON :read_label(prop);")
+
+
+def reset_update_permissions(admin_cursor: mgclient.Cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+
+    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {prop: 1});")
+    execute_and_fetch_all(
+        admin_cursor,
+        "CREATE (n:update_label_1)-[r:update_edge_type]->(m:update_label_2);",
+    )

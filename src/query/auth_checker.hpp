@@ -13,6 +13,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
 
@@ -34,22 +35,43 @@ class FineGrainedAuthChecker {
   virtual ~FineGrainedAuthChecker() = default;
 
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view) const = 0;
+                                    memgraph::storage::View view,
+                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge) const = 0;
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
+                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
+                                    const std::vector<memgraph::storage::LabelId> &labels,
+                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
+
+  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
+                                    const memgraph::storage::EdgeTypeId &edge_type,
+                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
 };
 
-class AllowEverythingUserBasedAuthChecker final : public query::FineGrainedAuthChecker {
+class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex,
-              const memgraph::storage::View &view) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const VertexAccessor &vertex, const memgraph::storage::View view,
+              const query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge) const override {
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
+              const query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
     return true;
   }
-};
+
+  bool Accept(const memgraph::query::DbAccessor &dba, const std::vector<memgraph::storage::LabelId> &labels,
+              const query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
+    return true;
+  }
+
+  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
+              const query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
+    return true;
+  }
+};  // namespace memgraph::query
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
  public:
@@ -59,7 +81,7 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
   }
 
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/) const override {
-    return std::make_unique<AllowEverythingUserBasedAuthChecker>();
+    return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
 };
 

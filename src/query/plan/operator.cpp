@@ -25,7 +25,9 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "spdlog/spdlog.h"
 
+#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -237,6 +239,13 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("CreateNode");
 
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    spdlog::info("Vertex will not be created due to not having enough permission!");
+    return false;
+  }
+
   if (input_cursor_->Pull(frame, context)) {
     auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
     if (context.trigger_context_collector) {
@@ -321,6 +330,16 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
+  const auto fine_grained_permission = self_.existing_node_
+                                           ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
+                                           : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
+  if (context.auth_checker &&
+      !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
+                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels, fine_grained_permission))) {
+    spdlog::info("Edge will not be created due to not having enough permission!");
+    return false;
+  }
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
@@ -406,11 +425,9 @@ class ScanAllCursor : public Cursor {
       vertices_it_.emplace(vertices_.value().begin());
     }
 
-#ifdef MG_ENTERPRISE
     if (context.auth_checker && !FindNextVertex(context)) {
       return false;
     }
-#endif
 
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
@@ -419,7 +436,8 @@ class ScanAllCursor : public Cursor {
 
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD)) {
+      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
         return true;
       }
       ++vertices_it_.value();
@@ -701,8 +719,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_))) {
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge.From(), self_.view_,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         continue;
       }
 
@@ -718,8 +739,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
-      if (context.auth_checker && (!context.auth_checker->Accept(*context.db_accessor, edge) ||
-                                   !context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_))) {
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge.To(), self_.view_,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
         continue;
       }
 
@@ -1044,16 +1068,23 @@ class ExpandVariableCursor : public Cursor {
       // if we are here, we have a valid stack,
       // get the edge, increase the relevant iterator
       auto current_edge = *edges_it_.back()++;
-
       // Check edge-uniqueness.
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
       if (found_existing) continue;
 
-      AppendEdge(current_edge.first, &edges_on_frame);
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
+
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, current_edge.first,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, current_vertex, storage::View::OLD,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        continue;
+      }
+      AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
@@ -1214,6 +1245,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
+            if (context.auth_checker &&
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
+
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1231,6 +1270,14 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
+            if (context.auth_checker &&
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
+
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1262,6 +1309,13 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : out_edges) {
+            if (context.auth_checker &&
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
@@ -1279,6 +1333,13 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
           for (const auto &edge : in_edges) {
+            if (context.auth_checker &&
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
@@ -1325,10 +1386,17 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame](EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return;
+      }
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
 
@@ -1481,9 +1549,18 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 const TypedValue &total_weight, int64_t depth) {
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &context](
+                           const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
+                           int64_t depth) {
       auto *memory = evaluator.GetMemoryResource();
+
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+            context.auth_checker->Accept(*context.db_accessor, edge,
+                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        return;
+      }
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
         frame[self_.filter_lambda_.inner_node_symbol] = vertex;
@@ -1949,7 +2026,18 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   for (TypedValue &expression_result : expression_results) {
     if (MustAbort(context)) throw HintedAbortError();
     if (expression_result.type() == TypedValue::Type::Edge) {
-      auto maybe_value = dba.RemoveEdge(&expression_result.ValueEdge());
+      auto &ea = expression_result.ValueEdge();
+      if (context.auth_checker &&
+          !(context.auth_checker->Accept(*context.db_accessor, ea,
+                                         query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+            context.auth_checker->Accept(*context.db_accessor, ea.To(), storage::View::NEW,
+                                         query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+            context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
+                                         query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
+        spdlog::info("Edge will not be deleted due to not having enough permission!");
+        continue;
+      }
+      auto maybe_value = dba.RemoveEdge(&ea);
       if (maybe_value.HasError()) {
         switch (maybe_value.GetError()) {
           case storage::Error::SERIALIZATION_ERROR:
@@ -1974,6 +2062,12 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     switch (expression_result.type()) {
       case TypedValue::Type::Vertex: {
         auto &va = expression_result.ValueVertex();
+        if (context.auth_checker &&
+            !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
+                                          query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          spdlog::info("Vertex will not be deleted due to not having enough permission!");
+          break;
+        }
         if (self_.detach_) {
           auto res = dba.DetachRemoveVertex(&va);
           if (res.HasError()) {
@@ -2077,6 +2171,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Vertex property will not be set due to not having enough permission.");
+        break;
+      }
+
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
@@ -2087,6 +2188,13 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       break;
     }
     case TypedValue::Type::Edge: {
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Edge property will not be set due to not having enough permission.");
+        break;
+      }
+
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
       context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
       if (context.trigger_context_collector) {
@@ -2279,9 +2387,23 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Vertex properties will not be set due to not having enough permission.");
+        break;
+      }
+
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Edge:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Edge properties will not be set due to not having enough permission!");
+        break;
+      }
+
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
       break;
     case TypedValue::Type::Null:
@@ -2408,9 +2530,23 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Vertex property will not be removed due to not having enough permission.");
+        break;
+      }
+
       remove_prop(&lhs.ValueVertex());
       break;
     case TypedValue::Type::Edge:
+      if (context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        spdlog::info("Edge property will not be removed due to not having enough permission.");
+        break;
+      }
+
       remove_prop(&lhs.ValueEdge());
       break;
     case TypedValue::Type::Null:
@@ -3203,9 +3339,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
       if (pull_input_) {
         // if we have just now pulled from the input
         // and failed to pull from merge_match, we should create
-        __attribute__((unused)) bool merge_create_pull_result = merge_create_cursor_->Pull(frame, context);
-        DMG_ASSERT(merge_create_pull_result, "MergeCreate must never fail");
-        return true;
+        return merge_create_cursor_->Pull(frame, context);
       }
       // We have exhausted merge_match_cursor_ after 1 or more successful
       // Pulls. Attempt next input_cursor_ pull
