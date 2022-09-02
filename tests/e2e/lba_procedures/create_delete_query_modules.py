@@ -14,11 +14,12 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    mgclient,
     reset_create_delete_permissions,
 )
 
 create_vertex_query = "CALL create_delete.create_vertex() YIELD created_node RETURN labels(created_node);"
-remove_label_vertex_query = "CALL create_delete.remove_label() YIELD node RETURN labels(node);"
+remove_label_vertex_query = "CALL create_delete.remove_label('create_delete_label') YIELD node RETURN labels(node);"
 set_label_vertex_query = 'CALL create_delete.set_label("new_create_delete_label") YIELD node RETURN labels(node);'
 
 # TODO: Create delete vertex, edge, delete edge tests
@@ -27,76 +28,85 @@ create_edge_query = "MATCH (n:create_delete_label_1), (m:create_delete_label_2) 
 delete_edge_query = "CALL create_delete.delete_edge() YIELD * RETURN *;"
 
 
-def test_can_create_vertex_when_given_create_delete():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
-
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :create_delete_label TO user;")
-
-    test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, create_vertex_query)
-
-    assert result[0][0][0] == "create_delete_label"
-
-
 def test_can_not_create_vertex_when_given_nothing():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, create_vertex_query)
 
-    assert len(result[0][0]) == 0
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, create_vertex_query)
 
 
-def test_can_not_create_vertex_when_given_read():
+def test_can_create_vertex_when_given_global_create_delete():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
+
     result = execute_and_fetch_all(test_cursor, create_vertex_query)
 
-    assert len(result[0][0]) == 0
+    len(result[0][0]) == 1
 
 
-def test_can_not_create_vertex_when_given_update():
+def test_can_not_create_vertex_when_given_global_read():
+    admin_cursor = connect(username="admin", password="test").cursor()
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+
+    test_cursor = connect(username="user", password="test").cursor()
+
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, create_vertex_query)
+
+
+def test_can_not_create_vertex_when_given_global_update():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, create_vertex_query)
 
-    assert len(result[0][0]) == 0
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, create_vertex_query)
 
 
-def test_can_create_vertex_when_given_create_delete_on_label_but_global_deny_create_delete():
+def test_can_add_vertex_label_when_given_create_delete():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :create_delete_label TO user;")
-    execute_and_fetch_all(admin_cursor, "DENY CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :new_create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, create_vertex_query)
+    result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
-    assert result[0][0][0] == "create_delete_label"
+    assert result[0][0].label == ":new_create_delete_label"
 
 
-def test_can_not_create_vertex_when_given_create_delete_globally_but_denied_create_delete_on_label():
+def test_can_not_add_vertex_label_when_given_update():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "DENY CREATE_DELETE ON LABELS :create_delete_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :new_create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, create_vertex_query)
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
-    assert len(result[0][0]) == 0
+
+def test_can_not_add_vertex_label_when_given_read():
+    admin_cursor = connect(username="admin", password="test").cursor()
+    reset_create_delete_permissions(admin_cursor)
+
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :new_create_delete_label TO user;")
+
+    test_cursor = connect(username="user", password="test").cursor()
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
 
 def test_can_remove_vertex_label_when_given_create_delete():
@@ -108,7 +118,7 @@ def test_can_remove_vertex_label_when_given_create_delete():
     test_cursor = connect(username="user", password="test").cursor()
     result = execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
-    assert not len(result[0][0])
+    assert result[0][0] != ":create_delete_label"
 
 
 def test_can_remove_vertex_label_when_given_global_create_delete():
@@ -120,7 +130,7 @@ def test_can_remove_vertex_label_when_given_global_create_delete():
     test_cursor = connect(username="user", password="test").cursor()
     result = execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
-    assert not len(result[0][0])
+    assert result[0][0] != ":create_delete_label"
 
 
 def test_can_not_remove_vertex_label_when_given_update():
@@ -130,9 +140,9 @@ def test_can_not_remove_vertex_label_when_given_update():
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
-    assert result[0][0][0] == "create_delete_label"
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
 def test_can_not_remove_vertex_label_when_given_global_update():
@@ -142,97 +152,74 @@ def test_can_not_remove_vertex_label_when_given_global_update():
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
-    assert result[0][0][0] == "create_delete_label"
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
-def test_can_set_vertex_label_when_given_create_delete():
+def test_can_not_remove_vertex_label_when_given_read():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :create_delete_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :create_delete_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
-    assert len(result[0][0]) == 2
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
-def test_can_set_vertex_label_when_given_global_create_delete():
+def test_can_not_remove_vertex_label_when_given_global_read():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
-
-    test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
-
-    assert len(result[0][0]) == 2
-
-
-def test_can_not_set_vertex_label_when_given_update():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
-
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :create_delete_label TO user;")
-
-    test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
-
-    assert len(result[0][0]) == 1
-
-
-def test_can_not_set_vertex_label_when_given_global_update():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
-
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
-
-    test_cursor = connect(username="user", password="test").cursor()
-    result = execute_and_fetch_all(test_cursor, set_label_vertex_query)
-
-    assert len(result[0][0]) == 1
-
-
-def test_can_not_create_edge_when_given_nothing():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
-
-    assert no_of_edges[0][0] == 1
-
-
-def test_can_not_create_edge_when_given_update():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
-
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGE_TYPES :create_delete_edge_type TO user")
-
-    test_cursor = connect(username="user", password="test").cursor()
-
-    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
-
-    assert no_of_edges[0][0] == 1
+    with pytest.raises(mgclient.DatabaseError, match="PermissionDeniedError"):
+        execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
-def test_can_create_edge_when_given_create_delete():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_create_delete_permissions(admin_cursor)
+# def test_can_not_create_edge_when_given_nothing():
+#     admin_cursor = connect(username="admin", password="test").cursor()
+#     reset_create_delete_permissions(admin_cursor)
 
-    execute_and_fetch_all(
-        admin_cursor,
-        "GRANT CREATE_DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
-    )
+#     test_cursor = connect(username="user", password="test").cursor()
 
-    test_cursor = connect(username="user", password="test").cursor()
+#     no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
 
-    no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+#     assert no_of_edges[0][0] == 1
 
-    assert no_of_edges[0][0] == 2
+
+# def test_can_not_create_edge_when_given_update():
+#     admin_cursor = connect(username="admin", password="test").cursor()
+#     reset_create_delete_permissions(admin_cursor)
+
+#     execute_and_fetch_all(
+#         admin_cursor, "GRANT UPDATE ON EDGE_TYPES :create_delete_edge_type TO user")
+
+#     test_cursor = connect(username="user", password="test").cursor()
+
+#     no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+
+#     assert no_of_edges[0][0] == 1
+
+
+# def test_can_create_edge_when_given_create_delete():
+#     admin_cursor = connect(username="admin", password="test").cursor()
+#     reset_create_delete_permissions(admin_cursor)
+
+#     execute_and_fetch_all(
+#         admin_cursor,
+#         "GRANT CREATE_DELETE ON EDGE_TYPES :create_delete_edge_type TO user",
+#     )
+
+#     test_cursor = connect(username="user", password="test").cursor()
+
+#     no_of_edges = execute_and_fetch_all(test_cursor, create_edge_query)
+
+#     assert no_of_edges[0][0] == 2
 
 
 if __name__ == "__main__":

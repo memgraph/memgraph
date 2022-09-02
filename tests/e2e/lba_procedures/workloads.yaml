@@ -79,17 +79,17 @@ create_delete_query_modules_cluster: &create_delete_query_modules_cluster
       validation_queries: []
 
 workloads:
-  - name: "read-query-modules"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/read_query_modules.py"]
-    <<: *read_query_modules_cluster
+  # - name: "read-query-modules"
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   proc: "tests/e2e/lba_procedures/procedures/"
+  #   args: ["lba_procedures/read_query_modules.py"]
+  #   <<: *read_query_modules_cluster
 
-  - name: "update-query-modules"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/update_query_modules.py"]
-    <<: *update_query_modules_cluster
+  # - name: "update-query-modules"
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   proc: "tests/e2e/lba_procedures/procedures/"
+  #   args: ["lba_procedures/update_query_modules.py"]
+  #   <<: *update_query_modules_cluster
 
   - name: "create-delete-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -97,8 +97,8 @@ workloads:
     args: ["lba_procedures/create_delete_query_modules.py"]
     <<: *create_delete_query_modules_cluster
 
-  - name: "show-privileges"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/show_privileges.py"]
-    <<: *show_privileges_cluster
+  # - name: "show-privileges"
+  #   binary: "tests/e2e/pytest_runner.sh"
+  #   proc: "tests/e2e/lba_procedures/procedures/"
+  #   args: ["lba_procedures/show_privileges.py"]
+  #   <<: *show_privileges_cluster
