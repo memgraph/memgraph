@@ -10,6 +10,9 @@ add_subdirectory(stress)
 # concurrent test binaries
 add_subdirectory(concurrent)
 
+# simulation test binaries
+add_subdirectory(simulation)
+
 # manual test binaries
 add_subdirectory(manual)
 
