@@ -24,6 +24,7 @@
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
@@ -2257,7 +2258,8 @@ void NextPermitted(mgp_vertices_iterator &it) {
   }
 
   while (it.current_it != it.vertices.end()) {
-    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view)) {
+    if (it.graph->ctx->auth_checker->Accept(*it.graph->ctx->db_accessor, *it.current_it, it.graph->view,
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
       break;
     }
 

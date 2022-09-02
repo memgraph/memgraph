@@ -19,19 +19,21 @@
 
 namespace {
 bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                            const std::vector<memgraph::storage::LabelId> &labels) {
-  return std::all_of(labels.begin(), labels.end(), [&dba, &user](const auto label) {
-    return user.GetFineGrainedAccessLabelPermissions().Has(dba.LabelToName(label),
-                                                           memgraph::auth::FineGrainedPermission::READ) ==
-           memgraph::auth::PermissionLevel::GRANT;
+                            const std::vector<memgraph::storage::LabelId> &labels,
+                            const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) {
+  return std::all_of(labels.begin(), labels.end(), [&dba, &user, fine_grained_permission](const auto &label) {
+    return user.GetFineGrainedAccessLabelPermissions().Has(
+               dba.LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                                           fine_grained_permission)) == memgraph::auth::PermissionLevel::GRANT;
   });
 }
 
 bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
-                              const memgraph::storage::EdgeTypeId &edgeType) {
-  return user.GetFineGrainedAccessEdgeTypePermissions().Has(dba.EdgeTypeToName(edgeType),
-                                                            memgraph::auth::FineGrainedPermission::READ) ==
-         memgraph::auth::PermissionLevel::GRANT;
+                              const memgraph::storage::EdgeTypeId &edgeType,
+                              const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) {
+  return user.GetFineGrainedAccessEdgeTypePermissions().Has(
+             dba.EdgeTypeToName(edgeType), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                                               fine_grained_permission)) == memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
 
@@ -84,9 +86,10 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
 
 FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user) : user_{std::move(user)} {};
 
-bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
-                                    const memgraph::query::VertexAccessor &vertex,
-                                    const memgraph::storage::View &view) const {
+bool FineGrainedAuthChecker::Accept(
+    const memgraph::query::DbAccessor &dba, const memgraph::query::VertexAccessor &vertex,
+    const memgraph::storage::View view,
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const {
   auto maybe_labels = vertex.Labels(view);
   if (maybe_labels.HasError()) {
     switch (maybe_labels.GetError()) {
@@ -101,12 +104,25 @@ bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
     }
   }
 
-  return IsUserAuthorizedLabels(user_, dba, *maybe_labels);
+  return IsUserAuthorizedLabels(user_, dba, *maybe_labels, fine_grained_permission);
 }
 
-bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba,
-                                    const memgraph::query::EdgeAccessor &edge) const {
-  return IsUserAuthorizedEdgeType(user_, dba, edge.EdgeType());
+bool FineGrainedAuthChecker::Accept(
+    const memgraph::query::DbAccessor &dba, const memgraph::query::EdgeAccessor &edge,
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const {
+  return IsUserAuthorizedEdgeType(user_, dba, edge.EdgeType(), fine_grained_permission);
+}
+
+bool FineGrainedAuthChecker::Accept(
+    const memgraph::query::DbAccessor &dba, const std::vector<memgraph::storage::LabelId> &labels,
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const {
+  return IsUserAuthorizedLabels(user_, dba, labels, fine_grained_permission);
+}
+
+bool FineGrainedAuthChecker::Accept(
+    const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const {
+  return IsUserAuthorizedEdgeType(user_, dba, edge_type, fine_grained_permission);
 }
 
 }  // namespace memgraph::glue
