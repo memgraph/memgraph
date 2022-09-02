@@ -48,7 +48,7 @@ using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
 
-using ShardRsmKey = std::vector<PropertyValue>;
+using ShardRsmKey = std::vector<memgraph::storage::v3::PropertyValue>;
 
 struct StorageWriteRequest {
   LabelId label_id;

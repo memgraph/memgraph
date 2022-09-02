@@ -27,7 +27,9 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
-#include "storage/v3/id_types.hpp"
+#include "query/v2/middleware.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/result.hpp"
 
 using memgraph::coordinator::AddressAndStatus;
@@ -51,9 +53,9 @@ using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::RsmClient;
-using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
+using memgraph::io::rsm::StorageRsm;
 using memgraph::io::rsm::StorageWriteRequest;
 using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::io::rsm::WriteRequest;
@@ -62,77 +64,60 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
-using memgraph::storage::v3::LabelId;
 using memgraph::utils::BasicResult;
 
-using ShardClient =
+using StorageClient =
     RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
-
-const std::string label_name = std::string("test_label");
 
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
                              memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
                              memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
-  ShardMap sm;
+  ShardMap sm1;
+  auto &shards = sm1.GetShards();
 
-  // register new label space
-  bool label_success = sm.InitializeNewLabel(label_name, sm.shard_map_version);
-  MG_ASSERT(label_success);
-
-  LabelId label_id = sm.labels.at(label_name);
-  Shards &shards_for_label = sm.shards.at(label_id);
-
-  // add first shard at [0, 0]
+  // 1
+  std::string label1 = std::string("label1");
+  auto key1 = memgraph::storage::v3::PropertyValue(3);
+  auto key2 = memgraph::storage::v3::PropertyValue(4);
+  CompoundKey cm1 = {key1, key2};
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard1 = {aas1_1, aas1_2, aas1_3};
+  Shards shards1;
+  shards1[cm1] = shard1;
 
-  auto key1 = memgraph::storage::v3::PropertyValue(0);
-  auto key2 = memgraph::storage::v3::PropertyValue(0);
-  CompoundKey compound_key_1 = {key1, key2};
-  shards_for_label[compound_key_1] = shard1;
-
-  // add second shard at [12, 13]
+  // 2
+  std::string label2 = std::string("label2");
+  auto key3 = memgraph::storage::v3::PropertyValue(12);
+  auto key4 = memgraph::storage::v3::PropertyValue(13);
+  CompoundKey cm2 = {key3, key4};
   AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard2 = {aas2_1, aas2_2, aas2_3};
+  Shards shards2;
+  shards2[cm2] = shard2;
 
-  auto key3 = memgraph::storage::v3::PropertyValue(12);
-  auto key4 = memgraph::storage::v3::PropertyValue(13);
-  CompoundKey compound_key_2 = {key3, key4};
-  shards_for_label[compound_key_2] = shard2;
+  shards[label1] = shards1;
+  shards[label2] = shards2;
 
-  return sm;
-}
-
-std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
-                                                  ShardClient a_client, const std::vector<Address> &b_addrs,
-                                                  ShardClient b_client) {
-  for (const auto &addr : target_shard) {
-    if (addr.address == b_addrs[0]) {
-      return b_client;
-    }
-    if (addr.address == a_addrs[0]) {
-      return a_client;
-    }
-  }
-  return {};
+  return sm1;
 }
 
 }  // namespace
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, StorageWriteRequest, StorageWriteResponse,
-                              StorageReadRequest, StorageReadResponse>;
+using ConcreteStorageRsm = Raft<SimulatorTransport, StorageRsm, StorageWriteRequest, StorageWriteResponse,
+                                StorageReadRequest, StorageReadResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse> server) {
+    Raft<IoImpl, StorageRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>
+        server) {
   server.Run();
 }
 
@@ -174,9 +159,9 @@ int main() {
   std::vector<Address> a_2_peers = {a_addrs[0], a_addrs[2]};
   std::vector<Address> a_3_peers = {a_addrs[0], a_addrs[1]};
 
-  ConcreteShardRsm a_1{std::move(a_io_1), a_1_peers, ShardRsm{}};
-  ConcreteShardRsm a_2{std::move(a_io_2), a_2_peers, ShardRsm{}};
-  ConcreteShardRsm a_3{std::move(a_io_3), a_3_peers, ShardRsm{}};
+  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, StorageRsm{}};
+  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, StorageRsm{}};
+  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, StorageRsm{}};
 
   auto a_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(a_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(a_addrs[0]);
@@ -194,9 +179,9 @@ int main() {
   std::vector<Address> b_2_peers = {b_addrs[0], b_addrs[2]};
   std::vector<Address> b_3_peers = {b_addrs[0], b_addrs[1]};
 
-  ConcreteShardRsm b_1{std::move(b_io_1), b_1_peers, ShardRsm{}};
-  ConcreteShardRsm b_2{std::move(b_io_2), b_2_peers, ShardRsm{}};
-  ConcreteShardRsm b_3{std::move(b_io_3), b_3_peers, ShardRsm{}};
+  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, StorageRsm{}};
+  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, StorageRsm{}};
+  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, StorageRsm{}};
 
   auto b_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[0]);
@@ -238,103 +223,16 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  ShardClient shard_a_client(cli_io, a_addrs[0], a_addrs);
-  ShardClient shard_b_client(cli_io, b_addrs[0], b_addrs);
+  QueryEngineMiddleware<SimulatorTransport> io(std::move(cli_io), std::move(coordinator_client));
 
-  memgraph::coordinator::HlcRequest req;
+  ExecutionState state;
+  state.key = std::make_optional<CompoundKey>(
+      std::vector{memgraph::storage::v3::PropertyValue(3), memgraph::storage::v3::PropertyValue(4)});
+  state.label = "label1";
 
-  // Last ShardMap Version The query engine knows about.
-  ShardMap client_shard_map;
-  req.last_shard_map_version = client_shard_map.GetHlc();
-
-  while (true) {
-    // Create CompoundKey
-    const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
-    const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
-
-    const CompoundKey compound_key = {cm_key_1, cm_key_2};
-
-    // Look for Shard
-    BasicResult<TimedOut, memgraph::coordinator::ReadResponses> read_res = coordinator_client.SendReadRequest(req);
-
-    if (read_res.HasError()) {
-      // timeout
-      continue;
-    }
-
-    auto coordinator_read_response = read_res.GetValue();
-    HlcResponse hlc_response = std::get<HlcResponse>(coordinator_read_response);
-
-    // Transaction ID to be used later...
-    auto transaction_id = hlc_response.new_hlc;
-
-    if (hlc_response.fresher_shard_map) {
-      client_shard_map = hlc_response.fresher_shard_map.value();
-    }
-
-    auto target_shard = client_shard_map.GetShardForKey(label_name, compound_key);
-
-    // Determine which shard to send the requests to. This should be a more proper client cache in the "real" version.
-    auto storage_client_opt = DetermineShardLocation(target_shard, a_addrs, shard_a_client, b_addrs, shard_b_client);
-    MG_ASSERT(storage_client_opt);
-
-    auto storage_client = storage_client_opt.value();
-
-    LabelId label_id = client_shard_map.labels.at(label_name);
-
-    // Have client use shard map to decide which shard to communicate
-    // with in order to write a new value
-    // client_shard_map.
-    StorageWriteRequest storage_req;
-    storage_req.label_id = label_id;
-    storage_req.key = compound_key;
-    storage_req.value = 1000;
-    storage_req.transaction_id = transaction_id;
-
-    auto write_response_result = storage_client.SendWriteRequest(storage_req);
-    if (write_response_result.HasError()) {
-      // timed out
-      continue;
-    }
-    auto write_response = write_response_result.GetValue();
-
-    bool cas_succeeded = write_response.shard_rsm_success;
-
-    if (!cas_succeeded) {
-      continue;
-    }
-    // Have client use shard map to decide which shard to communicate
-    // with to read that same value back
-
-    StorageReadRequest storage_get_req;
-    storage_get_req.label_id = label_id;
-    storage_get_req.key = compound_key;
-    storage_get_req.transaction_id = transaction_id;
-
-    auto get_response_result = storage_client.SendReadRequest(storage_get_req);
-    if (get_response_result.HasError()) {
-      // timed out
-      continue;
-    }
-    auto get_response = get_response_result.GetValue();
-    auto val = get_response.value.value();
-
-    MG_ASSERT(val == 1000);
-    break;
-  }
-
+  auto result = io.Request(state);
   simulator.ShutDown();
-
-  SimulatorStats stats = simulator.Stats();
-
-  std::cout << "total messages:     " << stats.total_messages << std::endl;
-  std::cout << "dropped messages:   " << stats.dropped_messages << std::endl;
-  std::cout << "timed out requests: " << stats.timed_out_requests << std::endl;
-  std::cout << "total requests:     " << stats.total_requests << std::endl;
-  std::cout << "total responses:    " << stats.total_responses << std::endl;
-  std::cout << "simulator ticks:    " << stats.simulator_ticks << std::endl;
-
-  std::cout << "========================== SUCCESS :) ==========================" << std::endl;
+  std::cout << "Result is: " << result;
 
   return 0;
 }

@@ -32,3 +32,5 @@ add_simulation_test(raft.cpp address)
 add_simulation_test(trial_query_storage/query_storage_test.cpp address)
 
 add_simulation_test(sharded_map.cpp address)
+
+add_simulation_test(middleware.cpp address)
