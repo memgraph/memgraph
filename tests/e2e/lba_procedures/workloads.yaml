@@ -83,7 +83,7 @@ update_permission_queries_cluster: &update_permission_queries_cluster
 workloads:
   - name: "Label-based auth"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/7/procedures/"
+    proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/lba_procedures.py"]
     <<: *template_cluster
 
