@@ -12,22 +12,23 @@
 #pragma once
 
 #include <boost/uuid/uuid.hpp>
-#include "io/rsm/coordinator_rsm.hpp"
-#include "io/rsm/rsm_client.hpp"
-#include "io/time.hpp"
+
+#include <coordinator/coordinator_rsm.hpp>
+#include <io/messages.hpp>
+#include <io/rsm/rsm_client.hpp>
+#include <io/time.hpp>
+#include <machine_manager/machine_config.hpp>
+#include <storage/v3/shard_manager.hpp>
 
 namespace memgraph::machine_manager {
 
 using boost::uuids::uuid;
-using memgraph::coordinator;
+
+using memgraph::coordinator::Coordinator;
 using memgraph::io::Duration;
-
-std::variant<std::monostate> CoordinatorMessages;
-std::variant<std::monostate> ShardMessages;
-std::variant<std::monostate> ShardManagerMessages;
-std::variant<std::monostate> MachineManagerMessages;
-
-std::variant<CoordinatorMessages, ShardMessages, ShardManagerMessages, MachineManagerMessages> UberMessage;
+using memgraph::io::Time;
+using memgraph::io::messages::UberMessage;
+using memgraph::storage::v3::ShardManager;
 
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level
@@ -44,13 +45,13 @@ std::variant<CoordinatorMessages, ShardMessages, ShardManagerMessages, MachineMa
 /// Every storage engine has exactly one RsmEngine.
 template <typename IoImpl>
 class MachineManager {
-  Io<IoImpl> io_;
+  io::Io<IoImpl> io_;
   Coordinator coordinator_;
-  ShardManager shard_manager_;
+  ShardManager<IoImpl> shard_manager_;
 
  public:
-  MachineManager(Io<IoImpl> io, MachineConfig config) : io_(io) {
-    for (const auto &initial_shard : config.initial_shards) {
+  MachineManager(io::Io<IoImpl> io, MachineConfig config) : io_(io) {
+    for (const auto &initial_label_space : config.initial_label_spaces) {
       // TODO(tyler) initialize shard
     }
   }

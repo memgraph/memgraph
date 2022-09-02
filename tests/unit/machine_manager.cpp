@@ -14,16 +14,18 @@
 
 #include <gtest/gtest.h>
 
-#include "io/local_transport/local_system.hpp"
-#include "io/local_transport/local_transport.hpp"
-#include "io/transport.hpp"
+#include <io/local_transport/local_system.hpp>
+#include <io/local_transport/local_transport.hpp>
+#include <io/transport.hpp>
+#include <machine_manager/machine_manager.hpp>
 
 namespace memgraph::io::tests {
 
+using memgraph::io::Io;
 using memgraph::io::local_transport::LocalSystem;
 using memgraph::io::local_transport::LocalTransport;
 
-TEST(LocalTransport, BasicRequest) {
+TEST(MachineManager, BasicFunctionality) {
   LocalSystem local_system;
 
   // rely on uuid to be unique on default Address
@@ -31,4 +33,6 @@ TEST(LocalTransport, BasicRequest) {
   auto srv_addr = Address::UniqueLocalAddress();
 
   Io<LocalTransport> io = local_system.Register(cli_addr);
-}
+};
+
+}  // namespace memgraph::io::tests

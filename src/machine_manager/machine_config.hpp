@@ -26,7 +26,7 @@ struct InitialLabelSpace {
 };
 
 struct MachineConfig {
-  std::vector<InitialLabelSpaces> initial_label_spaces;
+  std::vector<InitialLabelSpace> initial_label_spaces;
 };
 
 }  // namespace memgraph::machine_manager
