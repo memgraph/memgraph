@@ -70,44 +70,29 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, CompoundKey key) {
+  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey &key) {
     if (previous_shard_map_version != shard_map_version) {
-      return false;
-    }
-
-    if (!label_spaces.contains(label_id)) {
       return false;
     }
 
     auto &label_space = label_spaces.at(label_id);
     auto &shards_in_map = label_space.shards;
+
     MG_ASSERT(!shards_in_map.contains(key));
+    MG_ASSERT(label_spaces.contains(label_id));
 
     // Finding the Shard that the new CompoundKey should map to.
-    Shard shard_to_map_to;
-    CompoundKey prev_key = ((*shards_in_map.begin()).first);
-
-    for (auto iter = std::next(shards_in_map.begin()); iter != shards_in_map.end(); ++iter) {
-      const auto &current_key = (*iter).first;
-      if (key > prev_key && key < current_key) {
-        shard_to_map_to = shards_in_map[prev_key];
-      }
-
-      prev_key = (*iter).first;
-    }
+    auto prev = std::prev(shards_in_map.upper_bound(key));
+    Shard duplicated_shard = prev->second;
 
     // Apply the split
-    shards_in_map[key] = shard_to_map_to;
+    shards_in_map[key] = duplicated_shard;
 
     return true;
   }
 
   bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, Hlc last_shard_map_version) {
-    if (shard_map_version != last_shard_map_version) {
-      return false;
-    }
-
-    if (labels.contains(label_name)) {
+    if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
       return false;
     }
 
@@ -116,7 +101,7 @@ struct ShardMap {
     labels.emplace(label_name, label_id);
 
     LabelSpace label_space{
-        .schema = schema,
+        .schema = std::move(schema),
         .shards = Shards{},
     };
 
@@ -131,7 +116,7 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(LabelName label_name, CompoundKey start_key, CompoundKey end_key) {
+  Shards GetShardsForRange(LabelName label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
@@ -145,14 +130,12 @@ struct ShardMap {
 
     Shards shards{};
 
-    for (; it != end_it; it++) {
-      shards.emplace(it->first, it->second);
-    }
+    std::copy(it, end_it, std::inserter(shards, shards.end()));
 
     return shards;
   }
 
-  Shard GetShardForKey(LabelName label_name, CompoundKey key) {
+  Shard GetShardForKey(LabelName label_name, const CompoundKey &key) {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
@@ -162,7 +145,7 @@ struct ShardMap {
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
-  PropertyMap AllocatePropertyIds(std::vector<PropertyName> const &new_properties) {
+  PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties) {
     PropertyMap ret{};
 
     bool mutated = false;
@@ -175,9 +158,7 @@ struct ShardMap {
         mutated = true;
 
         const PropertyId property_id = PropertyId::FromUint(++max_property_id);
-
         ret.emplace(property_name, property_id);
-
         properties.emplace(property_name, property_id);
       }
     }
@@ -189,12 +170,12 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(std::string const &property_name) {
+  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
     if (properties.contains(property_name)) {
       return properties.at(property_name);
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 };
 

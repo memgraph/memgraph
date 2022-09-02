@@ -32,8 +32,6 @@
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
 #include "io/rsm/raft.hpp"
-#include "io/simulator/simulator.hpp"
-#include "io/simulator/simulator_transport.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/logging.hpp"
@@ -41,10 +39,6 @@
 namespace memgraph::io::rsm {
 
 using memgraph::coordinator::Hlc;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
 
@@ -84,7 +78,7 @@ class ShardRsm {
   Hlc shard_map_version_;
 
   // The key is not located in this shard
-  bool IsKeyInRange(const ShardRsmKey &key) {
+  bool IsKeyInRange(const ShardRsmKey &key) const {
     if (maximum_key_) [[likely]] {
       return (key >= minimum_key_ && key <= maximum_key_);
     }
@@ -92,14 +86,14 @@ class ShardRsm {
   }
 
  public:
-  StorageReadResponse Read(StorageReadRequest request) {
+  StorageReadResponse Read(StorageReadRequest request) const {
     StorageReadResponse ret;
 
     if (!IsKeyInRange(request.key)) {
       ret.latest_known_shard_map_version = shard_map_version_;
       ret.shard_rsm_success = false;
     } else if (state_.contains(request.key)) {
-      ret.value = state_[request.key];
+      ret.value = state_.at(request.key);
       ret.shard_rsm_success = true;
     } else {
       ret.shard_rsm_success = false;
@@ -151,7 +145,7 @@ class ShardRsm {
       ret.last_value = std::nullopt;
       ret.shard_rsm_success = true;
 
-      state_.emplace(request.key, std::move(request.value).value());
+      state_.emplace(request.key, request.value.value());
     }
 
     return ret;
