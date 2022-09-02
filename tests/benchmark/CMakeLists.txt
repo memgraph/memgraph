@@ -62,3 +62,6 @@ target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
 
 add_benchmark(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)
+
+add_benchmark(future.cpp)
+target_link_libraries(${test_prefix}future mg-io)
