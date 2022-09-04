@@ -369,7 +369,6 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
     //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
     //                         &wal_seq_num_);
     if (info) {
-      edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
         last_commit_timestamp_ = *info->last_commit_timestamp;
@@ -613,81 +612,40 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
                                         std::move(deleted_edges));
 }
 
-Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {
+Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
+                                                 const EdgeTypeId edge_type, const Gid gid) {
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
+  Vertex *from_vertex{nullptr};
+  Vertex *to_vertex{nullptr};
 
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
+  auto acc = shard_->vertices_.access();
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  if (shard_->IsVertexBelongToShard(from_vertex_id)) {
+    auto it = acc.find(from_vertex_id.primary_key);
+    if (it != acc.end()) {
+      from_vertex = &it->vertex;
+    }
+  }
 
-  if (to_vertex != from_vertex) {
+  if (shard_->IsVertexBelongToShard(to_vertex_id)) {
+    auto it = acc.find(to_vertex_id.primary_key);
+    if (it != acc.end()) {
+      to_vertex = &it->vertex;
+    }
+  }
+
+  const auto from_is_local = nullptr != from_vertex;
+  const auto to_is_local = nullptr != to_vertex;
+  MG_ASSERT(from_is_local || to_is_local, "Trying to create an edge without having a local vertex");
+
+  if (from_is_local) {
+    if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+    if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+  if (to_is_local && to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
-
-  auto gid = Gid::FromUint(shard_->edge_id_++);
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = shard_->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
-  }
-  auto from_vertex_id = Id(*from_vertex);
-  auto to_vertex_id = Id(*to_vertex);
-
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex_id, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex_id, edge);
-
-  // Increment edge count.
-  ++shard_->edge_count_;
-
-  return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), &transaction_,
-                      &shard_->indices_, &shard_->constraints_, config_, shard_->schema_validator_);
-}
-
-Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                 Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
-
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
-
-  // NOTE: When we update the next `edge_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  shard_->edge_id_ = std::max(shard_->edge_id_, gid.AsUint() + 1);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -699,15 +657,15 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAcc
     edge = EdgeRef(&*it);
     delta->prev.Set(&*it);
   }
-  auto from_vertex_id = Id(*from_vertex);
-  auto to_vertex_id = Id(*to_vertex);
 
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex_id, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex_id, edge);
-
+  if (from_is_local) {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex_id, edge);
+  }
+  if (to_is_local) {
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex_id, edge);
+  }
   // Increment edge count.
   ++shard_->edge_count_;
 
@@ -729,7 +687,6 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
 
     if (edge_ptr->deleted) return std::optional<EdgeAccessor>{};
   }
-  // TODO(antaljanosbenjamin): FIX ME before merge, handling edge deletion properly with "remove" vertices
   const auto &from_vertex_id = edge->from_vertex_;
   const auto &to_vertex_id = edge->to_vertex_;
 
@@ -754,7 +711,7 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
 
   const auto from_is_local = nullptr != from_vertex;
   const auto to_is_local = nullptr != to_vertex;
-  MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edges without having a local vertex");
+  MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edge without having a local vertex");
 
   if (from_is_local && !PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   MG_ASSERT(!from_vertex->deleted, "Invalid database state!");

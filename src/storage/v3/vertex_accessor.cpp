@@ -460,20 +460,19 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+                                                          const VertexId *destination_id) const {
   bool exists = true;
   bool deleted = false;
   std::vector<Vertex::EdgeLink> in_edges;
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
+    if (edge_types.empty() && nullptr == destination_id) {
       in_edges = vertex_->in_edges;
     } else {
       for (const auto &item : vertex_->in_edges) {
         const auto &[edge_type, from_vertex, edge] = item;
-        if (destination && from_vertex.primary_key != destination->vertex_->keys) {
+        if (nullptr != destination_id && from_vertex != *destination_id) {
           continue;
         };
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
@@ -484,10 +483,10 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &in_edges, &edge_types, destination_id](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_IN_EDGE: {
-            if (destination && delta.vertex_edge.vertex_id.primary_key != *destination->vertex_) break;
+            if (nullptr != destination_id && delta.vertex_edge.vertex_id != *destination_id) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -499,7 +498,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
             break;
           }
           case Delta::Action::REMOVE_IN_EDGE: {
-            if (destination && delta.vertex_edge.vertex_id.primary_key != *destination->vertex_) break;
+            if (nullptr != destination_id && delta.vertex_edge.vertex_id != *destination_id) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -544,20 +543,19 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
 }
 
 Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination) const {
-  MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
+                                                           const VertexId *destination_id) const {
   bool exists = true;
   bool deleted = false;
   std::vector<Vertex::EdgeLink> out_edges;
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    if (edge_types.empty() && !destination) {
+    if (edge_types.empty() && nullptr == destination_id) {
       out_edges = vertex_->out_edges;
     } else {
       for (const auto &item : vertex_->out_edges) {
         const auto &[edge_type, to_vertex, edge] = item;
-        if (destination && to_vertex.primary_key != *destination->vertex_) continue;
+        if (nullptr != destination_id && to_vertex != *destination_id) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
         out_edges.push_back(item);
@@ -566,10 +564,10 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(
-      transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, &destination](const Delta &delta) {
+      transaction_, delta, view, [&exists, &deleted, &out_edges, &edge_types, destination_id](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_OUT_EDGE: {
-            if (destination && delta.vertex_edge.vertex_id.primary_key != *destination->vertex_) break;
+            if (nullptr != destination_id && delta.vertex_edge.vertex_id != *destination_id) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;
@@ -581,7 +579,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
             break;
           }
           case Delta::Action::REMOVE_OUT_EDGE: {
-            if (destination && delta.vertex_edge.vertex_id.primary_key != *destination->vertex_) break;
+            if (nullptr != destination_id && delta.vertex_edge.vertex_id != *destination_id) break;
             if (!edge_types.empty() &&
                 std::find(edge_types.begin(), edge_types.end(), delta.vertex_edge.edge_type) == edge_types.end())
               break;

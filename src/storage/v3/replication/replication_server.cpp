@@ -179,7 +179,6 @@ void Shard::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bui
     shard_->uuid_ = std::move(recovered_snapshot.snapshot_info.uuid);
     shard_->epoch_id_ = std::move(recovered_snapshot.snapshot_info.epoch_id);
     const auto &recovery_info = recovered_snapshot.recovery_info;
-    shard_->edge_id_ = recovery_info.next_edge_id;
     shard_->timestamp_ = std::max(shard_->timestamp_, recovery_info.next_timestamp);
 
     // durability::RecoverIndicesAndConstraints(recovered_snapshot.indices_constraints, &shard_->indices_,
