@@ -19,18 +19,11 @@
 #include <variant>
 #include <vector>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-/// Hybrid-logical clock
-struct Hlc {
-  uint64_t logical_id;
-  using Duration = std::chrono::microseconds;
-  using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
-  Time coordinator_wall_clock;
-
-  bool operator==(const Hlc &other) const = default;
-};
+using memgraph::coordinator::Hlc;
 
 struct Label {
   size_t id;
@@ -81,12 +74,12 @@ struct Value {
     bool bool_v;
     uint64_t int_v;
     double double_v;
-    std::string string_v;
-    std::vector<Value> list_v;
-    std::map<std::string, Value> map_v;
-    Vertex vertex_v;
-    Edge edge_v;
-    Path path_v;
+    //    std::string string_v;
+    //    std::vector<Value> list_v;
+    //    std::map<std::string, Value> map_v;
+    //    Vertex vertex_v;
+    //    Edge edge_v;
+    //    Path path_v;
   };
 
   Type type;
@@ -125,7 +118,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
-  size_t start_id;
+  VertexId start_id;
   std::optional<std::vector<std::string>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;

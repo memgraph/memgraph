@@ -27,6 +27,7 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
 #include "utils/result.hpp"
 
@@ -128,11 +129,12 @@ std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std:
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
 using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, StorageWriteRequest, StorageWriteResponse,
-                              StorageReadRequest, StorageReadResponse>;
+                              ScanVerticesRequest, ScanVerticesResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse> server) {
+    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
+        server) {
   server.Run();
 }
 

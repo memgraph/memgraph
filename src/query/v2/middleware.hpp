@@ -16,7 +16,9 @@
 #include <iostream>
 #include <map>
 #include <optional>
+#include <random>
 #include <set>
+#include <stdexcept>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -32,6 +34,7 @@
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/id_types.hpp"
 #include "utils/result.hpp"
 
 template <typename TStorageClient>
@@ -56,7 +59,7 @@ class RsmStorageClientManager {
   std::unordered_map<std::string, std::map<CompoundKey, TStorageClient>> cli_cache_;
 };
 
-// In execution context an object exists
+template <typename TRequest>
 struct ExecutionState {
   using CompoundKey = memgraph::io::rsm::ShardRsmKey;
   using Shard = memgraph::coordinator::Shard;
@@ -64,39 +67,68 @@ struct ExecutionState {
   std::string label;
   //  using CompoundKey = memgraph::coordinator::CompoundKey;
   std::optional<CompoundKey> key;
+  memgraph::coordinator::Hlc transaction_id;
+  std::vector<TRequest> requests;
 };
 
 namespace rsm = memgraph::io::rsm;
 
 // TODO(kostasrim)rename this class template
-template <typename TTransport>
+template <typename TTransport, typename... Rest>
 class QueryEngineMiddleware {
  public:
   using StorageClient =
-      memgraph::coordinator::RsmClient<TTransport, rsm::StorageWriteRequest, rsm::StorageWriteResponse,
-                                       rsm::StorageReadRequest, rsm::StorageReadResponse>;
+      memgraph::coordinator::RsmClient<TTransport, rsm::StorageWriteRequest, rsm::StorageWriteResponse, Rest...>;
   using CoordinatorClient = memgraph::coordinator::CoordinatorClient<TTransport>;
   using Address = memgraph::io::Address;
   using Shard = memgraph::coordinator::Shard;
   using ShardMap = memgraph::coordinator::ShardMap;
   using CompoundKey = memgraph::coordinator::CompoundKey;
-  using memgraph::io::Io;
-  QueryEngineMiddleware(CoordinatorClient coord, Io<TTransport> &&io)
+  QueryEngineMiddleware(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
       : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
-  std::vector<ScanVerticesResponse> Request(ScanVerticesRequest rqst, ExecutionState &state) {
-    MaybeUpdateShardMap();
+  void StartTransaction() {
+    memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    auto read_res = coord_cli_.SendReadRequest(req);
+    if (read_res.HasError()) {
+      throw std::runtime_error("HLC request failed");
+    }
+    auto coordinator_read_response = read_res.GetValue();
+    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_read_response);
+
+    // Transaction ID to be used later...
+    transaction_id_ = hlc_response.new_hlc;
+
+    if (hlc_response.fresher_shard_map) {
+      shards_map_ = hlc_response.fresher_shard_map.value();
+    } else {
+      throw std::runtime_error("Should handle gracefully!");
+    }
+  }
+
+  std::vector<ScanVerticesResponse> Request(ExecutionState<ScanVerticesRequest> &state) {
     MaybeUpdateExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
-    for (const auto &shard : *state.state_) {
-      auto &storage_client = GetStorageClientForShard(state.label, *state.key);
-      auto read_response_result = storage_client.SendReadRequest(rqst);
+    auto &state_ref = *state.state_;
+    size_t id = 0;
+    for (auto shard_it = state_ref.begin(); shard_it != state_ref.end(); ++id) {
+      auto &storage_client = GetStorageClientForShard(state.label, state.requests[id].start_id.second);
+      auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
       if (read_response_result.HasError()) {
-        throw std::runtime_error("Handle gracefully!");
+        throw std::runtime_error("Read request error");
       }
-      responses.push_back(read_response_result.Value());
+      if (read_response_result.GetValue().success == false) {
+        throw std::runtime_error("ReadRequest failed");
+      }
+      responses.push_back(read_response_result.GetValue());
+      if (!read_response_result.GetValue().next_start_id) {
+        shard_it = state_ref.erase(shard_it);
+      } else {
+        state.requests[id].start_id.second = read_response_result.GetValue().next_start_id->second;
+        ++shard_it;
+      }
     }
     // TODO(kostasrim) Update state accordingly
     return responses;
@@ -118,61 +150,66 @@ class QueryEngineMiddleware {
     //     }
   }
 
-  CreateVerticesResponse Request(CreateVerticesRequest rqst, ExecutionState &state) {
-    //    MaybeUpdateShardMap();
-    //    MaybeUpdateExecutionState();
-  }
+  //  CreateVerticesResponse Request(CreateVerticesRequest rqst, ExecutionState &state) {
+  //    //    MaybeUpdateShardMap();
+  //    //    MaybeUpdateExecutionState();
+  //  }
 
-  size_t TestRequest(ExecutionState &state) {
-    MaybeUpdateShardMap();
-    MaybeUpdateExecutionState(state);
-    for (auto &st : *state.state_) {
-      auto &storage_client = GetStorageClientForShard(state.label, *state.key);
-
-      rsm::StorageWriteRequest storage_req;
-      storage_req.key = *state.key;
-      storage_req.value = 469;
-      auto write_response_result = storage_client.SendWriteRequest(storage_req);
-      if (write_response_result.HasError()) {
-        throw std::runtime_error("Handle gracefully!");
-      }
-      auto write_response = write_response_result.GetValue();
-
-      bool cas_succeeded = write_response.shard_rsm_success;
-
-      if (!cas_succeeded) {
-        throw std::runtime_error("Handler gracefully!");
-      }
-      rsm::StorageReadRequest storage_get_req;
-      storage_get_req.key = *state.key;
-
-      auto get_response_result = storage_client.SendReadRequest(storage_get_req);
-      if (get_response_result.HasError()) {
-        throw std::runtime_error("Handler gracefully!");
-      }
-      auto get_response = get_response_result.GetValue();
-      auto val = get_response.value.value();
-      return val;
-    }
-    return 0;
-  }
+  //  size_t TestRequest(ExecutionState &state) {
+  //    MaybeUpdateShardMap(state);
+  //    MaybeUpdateExecutionState(state);
+  //    for (auto &st : *state.state_) {
+  //      auto &storage_client = GetStorageClientForShard(state.label, *state.key);
+  //
+  //      memgraph::storage::v3::LabelId label_id = shards_map_.labels.at(state.label);
+  //
+  //      rsm::StorageWriteRequest storage_req;
+  //      storage_req.label_id = label_id;
+  //      storage_req.transaction_id = state.transaction_id;
+  //      storage_req.key = *state.key;
+  //      storage_req.value = 469;
+  //      auto write_response_result = storage_client.SendWriteRequest(storage_req);
+  //      if (write_response_result.HasError()) {
+  //        throw std::runtime_error("Handle gracefully!");
+  //      }
+  //      auto write_response = write_response_result.GetValue();
+  //
+  //      bool cas_succeeded = write_response.shard_rsm_success;
+  //
+  //      if (!cas_succeeded) {
+  //        throw std::runtime_error("Handler gracefully!");
+  //      }
+  //      rsm::StorageReadRequest storage_get_req;
+  //      storage_get_req.key = *state.key;
+  //
+  //      auto get_response_result = storage_client.SendReadRequest(storage_get_req);
+  //      if (get_response_result.HasError()) {
+  //        throw std::runtime_error("Handler gracefully!");
+  //      }
+  //      auto get_response = get_response_result.GetValue();
+  //      auto val = get_response.value.value();
+  //      return val;
+  //    }
+  //    return 0;
+  //  }
 
  private:
-  void MaybeUpdateShardMap() {
+  template <typename TRequest>
+  void MaybeUpdateShardMap(TRequest &state) {
     memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
     auto read_res = coord_cli_.SendReadRequest(req);
     if (read_res.HasError()) {
-      // handle error gracefully
-      // throw some error
+      throw std::runtime_error("HLC request failed");
     }
     auto coordinator_read_response = read_res.GetValue();
     auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_read_response);
     if (hlc_response.fresher_shard_map) {
-      // error here new shard map shouldn't exist
+      // throw std::runtime_error("Shouldn'");
+      //  error here new shard map shouldn't exist
     }
 
     // Transaction ID to be used later...
-    auto transaction_id = hlc_response.new_hlc;
+    state.transaction_id = hlc_response.new_hlc;
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
@@ -181,12 +218,14 @@ class QueryEngineMiddleware {
     }
   }
 
-  void MaybeUpdateExecutionState(ExecutionState &state) {
+  template <typename TRequest>
+  void MaybeUpdateExecutionState(TRequest &state) {
     if (state.state_) {
       return;
     }
+    state.transaction_id = transaction_id_;
     state.state_ = std::make_optional<std::vector<Shard>>();
-    const auto &shards = shards_map_.shards[state.label];
+    const auto &shards = shards_map_.shards[shards_map_.labels[state.label]];
     if (state.key) {
       if (auto it = shards.find(*state.key); it != shards.end()) {
         state.state_->push_back(it->second);
@@ -197,6 +236,22 @@ class QueryEngineMiddleware {
 
     for (const auto &[key, shard] : shards) {
       state.state_->push_back(shard);
+    }
+  }
+
+  void MaybeUpdateExecutionState(ExecutionState<ScanVerticesRequest> &state) {
+    if (state.state_) {
+      return;
+    }
+    state.transaction_id = transaction_id_;
+    state.state_ = std::make_optional<std::vector<Shard>>();
+    const auto &shards = shards_map_.shards[shards_map_.labels[state.label]];
+    for (const auto &[key, shard] : shards) {
+      state.state_->push_back(shard);
+      ScanVerticesRequest rqst;
+      rqst.transaction_id = transaction_id_;
+      rqst.start_id.second = key;
+      state.requests.push_back(std::move(rqst));
     }
   }
 
@@ -225,6 +280,7 @@ class QueryEngineMiddleware {
   ShardMap shards_map_;
   CoordinatorClient coord_cli_;
   RsmStorageClientManager<StorageClient> storage_cli_manager_;
-  Io<TTransport> io_;
+  memgraph::io::Io<TTransport> io_;
+  memgraph::coordinator::Hlc transaction_id_;
   // TODO(kostasrim) Add batch prefetching
 };

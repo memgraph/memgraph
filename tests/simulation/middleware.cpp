@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 
+#include "common.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
 #include "io/address.hpp"
@@ -28,6 +29,7 @@
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
 #include "query/v2/middleware.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/result.hpp"
@@ -53,9 +55,9 @@ using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::RsmClient;
+using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
-using memgraph::io::rsm::StorageRsm;
 using memgraph::io::rsm::StorageWriteRequest;
 using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::io::rsm::WriteRequest;
@@ -64,59 +66,63 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+using memgraph::storage::v3::LabelId;
 using memgraph::utils::BasicResult;
 
-using StorageClient =
-    RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
+using ShardClient =
+    RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>;
+
 namespace {
 
 ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
                              memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
                              memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
-  ShardMap sm1;
-  auto &shards = sm1.GetShards();
+  static const std::string label_name = std::string("test_label");
+  ShardMap sm;
 
-  // 1
-  std::string label1 = std::string("label1");
-  auto key1 = memgraph::storage::v3::PropertyValue(3);
-  auto key2 = memgraph::storage::v3::PropertyValue(4);
-  CompoundKey cm1 = {key1, key2};
+  // register new label space
+  bool label_success = sm.InitializeNewLabel(label_name, sm.shard_map_version);
+  MG_ASSERT(label_success);
+
+  LabelId label_id = sm.labels.at(label_name);
+  Shards &shards_for_label = sm.shards.at(label_id);
+
+  // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_2{.address = a_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas1_3{.address = a_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard1 = {aas1_1, aas1_2, aas1_3};
-  Shards shards1;
-  shards1[cm1] = shard1;
 
-  // 2
-  std::string label2 = std::string("label2");
-  auto key3 = memgraph::storage::v3::PropertyValue(12);
-  auto key4 = memgraph::storage::v3::PropertyValue(13);
-  CompoundKey cm2 = {key3, key4};
+  auto key1 = memgraph::storage::v3::PropertyValue(0);
+  auto key2 = memgraph::storage::v3::PropertyValue(0);
+  CompoundKey compound_key_1 = {key1, key2};
+  shards_for_label[compound_key_1] = shard1;
+
+  // add second shard at [12, 13]
   AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_2{.address = b_io_2, .status = Status::CONSENSUS_PARTICIPANT};
   AddressAndStatus aas2_3{.address = b_io_3, .status = Status::CONSENSUS_PARTICIPANT};
 
   Shard shard2 = {aas2_1, aas2_2, aas2_3};
-  Shards shards2;
-  shards2[cm2] = shard2;
 
-  shards[label1] = shards1;
-  shards[label2] = shards2;
+  auto key3 = memgraph::storage::v3::PropertyValue(12);
+  auto key4 = memgraph::storage::v3::PropertyValue(13);
+  CompoundKey compound_key_2 = {key3, key4};
+  shards_for_label[compound_key_2] = shard2;
 
-  return sm1;
+  return sm;
 }
 
 }  // namespace
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteStorageRsm = Raft<SimulatorTransport, StorageRsm, StorageWriteRequest, StorageWriteResponse,
-                                StorageReadRequest, StorageReadResponse>;
+using ConcreteStorageRsm = Raft<SimulatorTransport, ShardRsmV2, StorageWriteRequest, StorageWriteResponse,
+                                ScanVerticesRequest, ScanVerticesResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, StorageRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>
+    Raft<IoImpl, ShardRsmV2, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
         server) {
   server.Run();
 }
@@ -159,9 +165,9 @@ int main() {
   std::vector<Address> a_2_peers = {a_addrs[0], a_addrs[2]};
   std::vector<Address> a_3_peers = {a_addrs[0], a_addrs[1]};
 
-  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, StorageRsm{}};
-  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, StorageRsm{}};
-  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, StorageRsm{}};
+  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, ShardRsmV2{}};
+  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, ShardRsmV2{}};
+  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, ShardRsmV2{}};
 
   auto a_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(a_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(a_addrs[0]);
@@ -179,9 +185,9 @@ int main() {
   std::vector<Address> b_2_peers = {b_addrs[0], b_addrs[2]};
   std::vector<Address> b_3_peers = {b_addrs[0], b_addrs[1]};
 
-  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, StorageRsm{}};
-  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, StorageRsm{}};
-  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, StorageRsm{}};
+  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, ShardRsmV2{}};
+  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, ShardRsmV2{}};
+  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, ShardRsmV2{}};
 
   auto b_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[0]);
@@ -223,16 +229,32 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  QueryEngineMiddleware<SimulatorTransport> io(std::move(cli_io), std::move(coordinator_client));
+  QueryEngineMiddleware<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(std::move(coordinator_client),
+                                                                                          std::move(cli_io));
 
-  ExecutionState state;
+  ExecutionState<ScanVerticesRequest> state;
   state.key = std::make_optional<CompoundKey>(
-      std::vector{memgraph::storage::v3::PropertyValue(3), memgraph::storage::v3::PropertyValue(4)});
-  state.label = "label1";
+      std::vector{memgraph::storage::v3::PropertyValue(0), memgraph::storage::v3::PropertyValue(0)});
+  state.label = "test_label";
 
+  //  auto result = io.TestRequest(state);
+  io.StartTransaction();
   auto result = io.Request(state);
-  simulator.ShutDown();
-  std::cout << "Result is: " << result;
+  auto &list_of_values = std::get<ListedValues>(result[0].values);
+  std::cout << "Result is: " << list_of_values.properties[0][0].int_v << std::endl;
+  auto &list_of_values_v2 = std::get<ListedValues>(result[1].values);
+  std::cout << "Result is: " << list_of_values_v2.properties[0][0].int_v << std::endl;
 
+  result = io.Request(state);
+  std::cout << "Result is: " << result.size() << std::endl;
+
+  //  auto &list_of_values2 = std::get<ListedValues>(result[0].values);
+  //  std::cout << "Result is: " << list_of_values2.properties[0][0].int_v << std::endl;
+
+  // exhaust it
+  result = io.Request(state);
+  std::cout << "Result is: " << result.size() << std::endl;
+
+  simulator.ShutDown();
   return 0;
 }
