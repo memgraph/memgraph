@@ -44,6 +44,8 @@ class ShardRsm {
   Shard shard_;
 
   WriteResponses ApplyWrite(CreateVerticesRequest &&req);
+  WriteResponses ApplyWrite(DeleteVerticesRequest &&req);
+  WriteResponses ApplyWrite(UpdateVerticesRequest &&req);
 
  public:
 };

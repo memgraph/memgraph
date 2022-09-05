@@ -202,6 +202,9 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
+/*
+ * Vertices
+ */
 struct NewVertex {
   std::vector<Label> label_ids;
   std::map<PropertyId, Value> properties;
@@ -216,8 +219,20 @@ struct CreateVerticesResponse {
   bool success;
 };
 
+struct DeleteVerticesRequest {};
+
+struct DeleteVerticesResponse {
+  bool success;
+};
+
+struct UpdateVerticesRequest {};
+
+struct UpdateVerticesResponse {
+  bool success;
+};
+
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
-using WriteRequests = CreateVerticesRequest;
-using WriteResponses = CreateVerticesResponse;
+using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesResponse>;
+using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse>;
