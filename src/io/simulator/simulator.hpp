@@ -23,12 +23,18 @@ namespace memgraph::io::simulator {
 class Simulator {
   std::mt19937 rng_;
   std::shared_ptr<SimulatorHandle> simulator_handle_;
+  uint16_t auto_port_ = 0;
 
  public:
   explicit Simulator(SimulatorConfig config)
       : rng_(std::mt19937{config.rng_seed}), simulator_handle_{std::make_shared<SimulatorHandle>(config)} {}
 
   void ShutDown() { simulator_handle_->ShutDown(); }
+
+  Io<SimulatorTransport> RegisterNew() {
+    Address address = Address::TestAddress(auto_port_++);
+    return Register(address);
+  }
 
   Io<SimulatorTransport> Register(Address address) {
     std::uniform_int_distribution<uint64_t> seed_distrib;

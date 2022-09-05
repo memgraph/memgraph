@@ -20,6 +20,7 @@
 
 #include "io/address.hpp"
 #include "io/rsm/raft.hpp"
+#include "io/rsm/rsm_client.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
 
@@ -33,6 +34,7 @@ using memgraph::io::Time;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
+using memgraph::io::rsm::RsmClient;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::io::simulator::Simulator;
@@ -147,7 +149,6 @@ void RunSimulation() {
   std::vector<Address> srv_2_peers = {srv_addr_1, srv_addr_3};
   std::vector<Address> srv_3_peers = {srv_addr_1, srv_addr_2};
 
-  // TODO(tyler / gabor) supply default TestState to Raft constructor
   using RaftClass = Raft<SimulatorTransport, TestState, CasRequest, CasResponse, GetRequest, GetResponse>;
   RaftClass srv_1{std::move(srv_io_1), srv_1_peers, TestState{}};
   RaftClass srv_2{std::move(srv_io_2), srv_2_peers, TestState{}};
@@ -165,8 +166,10 @@ void RunSimulation() {
   spdlog::info("beginning test after servers have become quiescent");
 
   std::mt19937 cli_rng_{0};
-  Address server_addrs[]{srv_addr_1, srv_addr_2, srv_addr_3};
+  std::vector<Address> server_addrs{srv_addr_1, srv_addr_2, srv_addr_3};
   Address leader = server_addrs[0];
+
+  RsmClient<SimulatorTransport, CasRequest, CasResponse, GetRequest, GetResponse> client(cli_io, leader, server_addrs);
 
   const int key = 0;
   std::optional<int> last_known_value = 0;
@@ -174,7 +177,9 @@ void RunSimulation() {
   bool success = false;
 
   for (int i = 0; !success; i++) {
-    // send request
+    /*
+     * Write Request
+     */
     CasRequest cas_req;
     cas_req.key = key;
 
@@ -182,40 +187,12 @@ void RunSimulation() {
 
     cas_req.new_value = i;
 
-    WriteRequest<CasRequest> cli_req;
-    cli_req.operation = cas_req;
-
-    spdlog::info("client sending CasRequest to Leader {} ", leader.last_known_port);
-    ResponseFuture<WriteResponse<CasResponse>> cas_response_future =
-        cli_io.Request<WriteRequest<CasRequest>, WriteResponse<CasResponse>>(leader, cli_req);
-
-    // receive cas_response
-    ResponseResult<WriteResponse<CasResponse>> cas_response_result = std::move(cas_response_future).Wait();
-
-    if (cas_response_result.HasError()) {
-      spdlog::info("client timed out while trying to communicate with assumed Leader server {}",
-                   leader.last_known_port);
+    auto write_cas_response_result = client.SendWriteRequest(cas_req);
+    if (write_cas_response_result.HasError()) {
+      // timed out
       continue;
     }
-
-    ResponseEnvelope<WriteResponse<CasResponse>> cas_response_envelope = cas_response_result.GetValue();
-    WriteResponse<CasResponse> write_cas_response = cas_response_envelope.message;
-
-    if (write_cas_response.retry_leader) {
-      MG_ASSERT(!write_cas_response.success, "retry_leader should never be set for successful responses");
-      leader = write_cas_response.retry_leader.value();
-      spdlog::info("client redirected to leader server {}", leader.last_known_port);
-    } else if (!write_cas_response.success) {
-      std::uniform_int_distribution<size_t> addr_distrib(0, 2);
-      size_t addr_index = addr_distrib(cli_rng_);
-      leader = server_addrs[addr_index];
-
-      spdlog::info("client NOT redirected to leader server, trying a random one at index {} with port {}", addr_index,
-                   leader.last_known_port);
-      continue;
-    }
-
-    CasResponse cas_response = write_cas_response.write_return;
+    CasResponse cas_response = write_cas_response_result.GetValue();
 
     bool cas_succeeded = cas_response.cas_success;
 
@@ -228,47 +205,18 @@ void RunSimulation() {
       continue;
     }
 
+    /*
+     * Get Request
+     */
     GetRequest get_req;
     get_req.key = key;
 
-    ReadRequest<GetRequest> read_req;
-    read_req.operation = get_req;
-
-    spdlog::info("client sending GetRequest to Leader {}", leader.last_known_port);
-
-    ResponseFuture<ReadResponse<GetResponse>> get_response_future =
-        cli_io.Request<ReadRequest<GetRequest>, ReadResponse<GetResponse>>(leader, read_req);
-
-    // receive response
-    ResponseResult<ReadResponse<GetResponse>> get_response_result = std::move(get_response_future).Wait();
-
-    if (get_response_result.HasError()) {
-      spdlog::info("client timed out while trying to communicate with Leader server {}", leader.last_known_port);
+    auto read_get_response_result = client.SendReadRequest(get_req);
+    if (read_get_response_result.HasError()) {
+      // timed out
       continue;
     }
-
-    ResponseEnvelope<ReadResponse<GetResponse>> get_response_envelope = get_response_result.GetValue();
-    ReadResponse<GetResponse> read_get_response = get_response_envelope.message;
-
-    if (!read_get_response.success) {
-      // sent to a non-leader
-      continue;
-    }
-
-    if (read_get_response.retry_leader) {
-      MG_ASSERT(!read_get_response.success, "retry_leader should never be set for successful responses");
-      leader = read_get_response.retry_leader.value();
-      spdlog::info("client redirected to Leader server {}", leader.last_known_port);
-    } else if (!read_get_response.success) {
-      std::uniform_int_distribution<size_t> addr_distrib(0, 2);
-      size_t addr_index = addr_distrib(cli_rng_);
-      leader = server_addrs[addr_index];
-
-      spdlog::info("client NOT redirected to leader server, trying a random one at index {} with port {}", addr_index,
-                   leader.last_known_port);
-    }
-
-    GetResponse get_response = read_get_response.read_return;
+    GetResponse get_response = read_get_response_result.GetValue();
 
     MG_ASSERT(get_response.value == i);
 
