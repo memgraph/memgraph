@@ -139,7 +139,7 @@ struct ShardMap {
     return shards;
   }
 
-  Shard GetShardForKey(LabelName label_name, const CompoundKey &key) {
+  Shard GetShardForKey(const LabelName &label_name, const CompoundKey &key) const {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
