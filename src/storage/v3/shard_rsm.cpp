@@ -9,17 +9,95 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v3/shard_rsm.hpp"
+#include <utility>
+
 #include "query/v2/plan/operator.hpp"
+#include "storage/v3/shard_rsm.hpp"
 
 namespace {
-std::vector<memgraph::storage::v3::LabelId> ConvertLabelId(std::vector<Label> label_ids) {
-  return std::vector<memgraph::storage::v3::LabelId>{};
+
+memgraph::storage::v3::PropertyValue convert_primitive_type(const Value &value) {
+  using PV = memgraph::storage::v3::PropertyValue;
+  PV ret;
+  switch (value.type) {
+    case Value::Type::NILL:
+      return PV();
+    case Value::Type::BOOL:
+      return PV(value.bool_v);
+    case Value::Type::INT64:
+      return PV(static_cast<int>(value.int_v));
+    case Value::Type::DOUBLE:
+      return PV(value.double_v);
+    case Value::Type::STRING:
+      return PV(value.string_v);
+    default:
+      MG_ASSERT(false, "Missing or non-primitive type.");
+  }
+  return ret;
+}
+
+std::vector<memgraph::storage::v3::PropertyValue> convert_to_propertyvalue_list(const std::vector<Value> &list) {
+  std::vector<memgraph::storage::v3::PropertyValue> ret(list.size());
+
+  for (const auto &elem : list) {
+    ret.emplace_back(convert_primitive_type(elem));
+  }
+  return ret;
+}
+
+std::map<std::string, memgraph::storage::v3::PropertyValue> convert_to_propertyvalue_map(
+    const std::map<std::string, Value> &map) {
+  std::map<std::string, memgraph::storage::v3::PropertyValue> ret;
+
+  for (const auto &[key, value] : map) {
+    ret.emplace(std::make_pair(key, convert_primitive_type(value)));
+  }
+  return ret;
+}
+
+memgraph::storage::v3::PropertyValue get_exact_type(const Value &value) {
+  using PV = memgraph::storage::v3::PropertyValue;
+  PV ret;
+  switch (value.type) {
+    case Value::Type::NILL:
+      return PV();
+    case Value::Type::BOOL:
+      return PV(value.bool_v);
+    case Value::Type::INT64:
+      return PV(static_cast<int>(value.int_v));
+    case Value::Type::DOUBLE:
+      return PV(value.double_v);
+    case Value::Type::STRING:
+      return PV(value.string_v);
+    case Value::Type::LIST:
+      return PV(convert_to_propertyvalue_list(value.list_v));
+    case Value::Type::MAP:
+      return PV(convert_to_propertyvalue_map(value.map_v));
+    // These are not PropertyValues
+    // case Value::Type::VERTEX:
+    //   return PV(value.vertex_v);
+    // case Value::Type::EDGE:
+    //  return PV(value.edge_v);
+    // case Value::Type::PATH:
+    //   return PV(value.path_v);
+    default:
+      MG_ASSERT(false, "Missing or type from Value");
+  }
+  return ret;
 }
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
-    const std::map<PropertyId, Value> &properties) {
-  return std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>>{};
+    const std::vector<std::pair<PropertyId, Value>> &properties) {
+  std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret(
+      properties.size());
+
+  for (const auto &[key, value] : properties) {
+    memgraph::storage::v3::PropertyValue converted_value(get_exact_type(value));
+
+    ret.emplace_back(std::make_pair(key, converted_value));
+  }
+
+  return ret;
 }
 
 }  // namespace

@@ -16,6 +16,7 @@
 #include <map>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -207,7 +208,7 @@ struct ExpandOneResponse {
  */
 struct NewVertex {
   std::vector<memgraph::storage::v3::LabelId> label_ids;
-  std::map<PropertyId, Value> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 struct CreateVerticesRequest {
