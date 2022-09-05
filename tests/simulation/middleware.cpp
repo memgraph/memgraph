@@ -153,6 +153,15 @@ void TestScanAll(ShardRequestManager &io) {
   MG_ASSERT(result.size() == 0);
 }
 
+template <typename ShardRequestManager>
+void TestCreateVertices(ShardRequestManager &io) {}
+
+template <typename ShardRequestManager>
+void TestExpand(ShardRequestManager &io) {}
+
+template <typename ShardRequestManager>
+void TestAggregate(ShardRequestManager &io) {}
+
 int main() {
   SimulatorConfig config{
       .drop_percent = 0,

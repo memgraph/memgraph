@@ -24,9 +24,10 @@
 #include "storage/v3/property_value.hpp"
 
 using memgraph::coordinator::Hlc;
+using memgraph::storage::v3::LabelId;
 
 struct Label {
-  size_t id;
+  LabelId id;
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
@@ -196,11 +197,19 @@ struct ExpandOneResponse {
 };
 
 struct NewVertex {
-  std::vector<Label> label_ids;
+  Label label_ids;
+  PrimaryKey primary_key;
+  std::map<PropertyId, Value> properties;
+};
+
+struct NewVertexLabel {
+  std::string label;
+  PrimaryKey primary_key;
   std::map<PropertyId, Value> properties;
 };
 
 struct CreateVerticesRequest {
+  std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
 };

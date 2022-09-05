@@ -36,6 +36,8 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
+
+  friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
 };
 
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
@@ -52,6 +54,16 @@ struct ShardMap {
   uint64_t max_label_id;
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, Shards> shards;
+
+  auto FindShardToInsert(const LabelName &name, CompoundKey &key) {
+    MG_ASSERT(labels.contains(name));
+    const auto id = labels.find(name)->second;
+    auto &shards_ref = shards[id];
+    auto it =
+        std::find_if(shards_ref.rbegin(), shards_ref.rend(), [&key](const auto &shard) { return shard.first <= key; });
+    MG_ASSERT(it != shards_ref.rbegin());
+    return it;
+  }
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
@@ -116,6 +128,8 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
+  LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+
   Shards GetShardsForRange(LabelName label_name, CompoundKey start_key, CompoundKey end_key) {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
@@ -140,6 +154,14 @@ struct ShardMap {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
+
+    const auto &shard_for_label = shards.at(label_id);
+
+    return std::prev(shard_for_label.upper_bound(key))->second;
+  }
+
+  Shard GetShardForKey(LabelId label_id, CompoundKey key) {
+    MG_ASSERT(shards.contains(label_id));
 
     const auto &shard_for_label = shards.at(label_id);
 
