@@ -735,8 +735,8 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
     return true;
   };
 
-  auto success_on_to = to_is_local ? delete_edge_from_storage(to_vertex_id, to_vertex->out_edges) : false;
-  auto success_on_from = from_is_local ? delete_edge_from_storage(from_vertex_id, from_vertex->in_edges) : false;
+  auto success_on_to = to_is_local ? delete_edge_from_storage(from_vertex_id, to_vertex->in_edges) : false;
+  auto success_on_from = from_is_local ? delete_edge_from_storage(to_vertex_id, from_vertex->out_edges) : false;
 
   if (config_.properties_on_edges) {
     // Because of the check above, we are sure that the vertex exists.
