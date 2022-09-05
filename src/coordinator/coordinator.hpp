@@ -27,9 +27,9 @@
 
 namespace memgraph::coordinator {
 
+using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
-using Address = memgraph::io::Address;
 using SimT = memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::SchemaProperty;
 
@@ -102,6 +102,7 @@ struct DeregisterStorageEngineResponse {
 struct InitializeLabelRequest {
   std::string label_name;
   std::vector<SchemaProperty> schema;
+  size_t replication_factor;
   Hlc last_shard_map_version;
 };
 
@@ -232,6 +233,7 @@ class Coordinator {
     InitializeLabelResponse res{};
 
     bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name, initialize_label_request.schema,
+                                                 initialize_label_request.replication_factor,
                                                  initialize_label_request.last_shard_map_version);
 
     if (success) {

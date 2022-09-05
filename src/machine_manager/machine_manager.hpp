@@ -26,7 +26,13 @@ using boost::uuids::uuid;
 
 using memgraph::coordinator::Coordinator;
 using memgraph::io::Duration;
+using memgraph::io::RequestId;
 using memgraph::io::Time;
+using memgraph::io::messages::CoordinatorMessages;
+using memgraph::io::messages::MachineManagerMessages;
+using memgraph::io::messages::QueryEngineMessages;
+using memgraph::io::messages::ShardManagerMessages;
+using memgraph::io::messages::ShardMessages;
 using memgraph::io::messages::UberMessage;
 using memgraph::storage::v3::ShardManager;
 
@@ -46,12 +52,14 @@ using memgraph::storage::v3::ShardManager;
 template <typename IoImpl>
 class MachineManager {
   io::Io<IoImpl> io_;
+  MachineConfig config_;
   Coordinator coordinator_;
   ShardManager<IoImpl> shard_manager_;
   Time next_cron_;
 
  public:
-  MachineManager(io::Io<IoImpl> io, MachineConfig config) : io_(io) {
+  MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
+      : io_(io), config_(config), coordinator_(coordinator), shard_manager_(ShardManager{io}) {
     for (const auto &initial_label_space : config.initial_label_spaces) {
       // TODO(tyler) initialize shard
     }
@@ -76,12 +84,22 @@ class MachineManager {
 
       auto request = std::move(request_result.GetValue());
 
-      Dispatch(std::move(request.message), request.request_id, request.from_address);
+      std::visit(
+          [&](auto &&msg) {
+            Handle(std::forward<decltype(msg)>(msg), request.request_id, request.from_address, request.to_address);
+          },
+          std::move(request.message));
     }
   }
 
  private:
   Time Cron() { return shard_manager_.Cron(); }
+
+  void Handle(QueryEngineMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(MachineManagerMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(ShardManagerMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(ShardMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {}
 };
 
 }  // namespace memgraph::machine_manager

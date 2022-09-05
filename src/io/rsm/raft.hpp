@@ -238,6 +238,20 @@ class Raft {
         peers_(peers),
         replicated_state_(std::forward<ReplicatedState>(replicated_state)) {}
 
+  /// Periodic protocol maintenance. Returns the time that Cron should be called again
+  /// in the future.
+  Time Cron() {
+    // dispatch periodic logic based on our role to a specific Cron method.
+    std::optional<Role> new_role = std::visit([&](auto &role) { return Cron(role); }, role_);
+
+    if (new_role) {
+      role_ = std::move(new_role).value();
+    }
+    const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
+
+    return io_.Now() + random_cron_interval;
+  }
+
   void Run() {
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
@@ -445,20 +459,6 @@ class Raft {
   /// role, and as the second argument, the message that has
   /// been received.
   /////////////////////////////////////////////////////////////
-
-  /// Periodic protocol maintenance. Returns the time that Cron should be called again
-  /// in the future.
-  Time Cron() {
-    // dispatch periodic logic based on our role to a specific Cron method.
-    std::optional<Role> new_role = std::visit([&](auto &role) { return Cron(role); }, role_);
-
-    if (new_role) {
-      role_ = std::move(new_role).value();
-    }
-    const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
-
-    return io_.Now() + random_cron_interval;
-  }
 
   // Raft paper - 5.2
   // Candidates keep sending Vote to peers until:

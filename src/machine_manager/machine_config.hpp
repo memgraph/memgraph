@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <boost/asio/ip/tcp.hpp>
+#include "io/address.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 
 namespace memgraph::machine_manager {
 
+using memgraph::io::Address;
 using memgraph::storage::v3::SchemaProperty;
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 
@@ -27,6 +30,11 @@ struct InitialLabelSpace {
 
 struct MachineConfig {
   std::vector<InitialLabelSpace> initial_label_spaces;
+  std::vector<Address> coordinator_addresses;
+  bool is_storage;
+  bool is_coordinator;
+  boost::asio::ip::address listen_ip;
+  uint16_t listen_port;
 };
 
 }  // namespace memgraph::machine_manager

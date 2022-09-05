@@ -50,6 +50,7 @@ using PropertyMap = std::map<PropertyName, PropertyId>;
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
   std::map<CompoundKey, Shard> shards;
+  size_t replication_factor;
 };
 
 struct ShardMap {
@@ -91,7 +92,8 @@ struct ShardMap {
     return true;
   }
 
-  bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, Hlc last_shard_map_version) {
+  bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, size_t replication_factor,
+                          Hlc last_shard_map_version) {
     if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
       return false;
     }
@@ -103,6 +105,7 @@ struct ShardMap {
     LabelSpace label_space{
         .schema = std::move(schema),
         .shards = Shards{},
+        .replication_factor = replication_factor,
     };
 
     label_spaces.emplace(label_id, label_space);
@@ -116,7 +119,8 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
+  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key,
+                           const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 

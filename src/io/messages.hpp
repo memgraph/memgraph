@@ -17,11 +17,20 @@ namespace memgraph::io::messages {
 
 struct Heartbeat {};
 
-using CoordinatorMessages = std::variant<std::monostate>;
-using ShardMessages = std::variant<std::monostate>;
-using ShardManagerMessages = std::variant<Heartbeat>;
-using MachineManagerMessages = std::variant<std::monostate>;
+// TODO(tyler) make these real types instead of unique placeholders
+struct QEM {};
+struct CM {};
+struct SM {};
+struct SMM {};
+struct MMM {};
 
-std::variant<CoordinatorMessages, ShardMessages, ShardManagerMessages, MachineManagerMessages> UberMessage;
+using QueryEngineMessages = std::variant<QEM>;
+using CoordinatorMessages = std::variant<CM>;
+using ShardMessages = std::variant<SM>;
+using ShardManagerMessages = std::variant<SMM>;
+using MachineManagerMessages = std::variant<MMM>;
+
+using UberMessage =
+    std::variant<CoordinatorMessages, ShardMessages, ShardManagerMessages, MachineManagerMessages, QueryEngineMessages>;
 
 }  // namespace memgraph::io::messages
