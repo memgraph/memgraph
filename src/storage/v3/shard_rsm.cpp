@@ -15,8 +15,8 @@
 #include "storage/v3/shard_rsm.hpp"
 
 namespace {
-
-memgraph::storage::v3::PropertyValue convert_primitive_type(const Value &value) {
+// TODO(gvolfing use come algorithm instead of explicit for loops)
+memgraph::storage::v3::PropertyValue to_property_value(const Value &value) {
   using PV = memgraph::storage::v3::PropertyValue;
   PV ret;
   switch (value.type) {
@@ -30,56 +30,24 @@ memgraph::storage::v3::PropertyValue convert_primitive_type(const Value &value) 
       return PV(value.double_v);
     case Value::Type::STRING:
       return PV(value.string_v);
-    default:
-      MG_ASSERT(false, "Missing or non-primitive type.");
-  }
-  return ret;
-}
-
-std::vector<memgraph::storage::v3::PropertyValue> convert_to_propertyvalue_list(const std::vector<Value> &list) {
-  std::vector<memgraph::storage::v3::PropertyValue> ret(list.size());
-
-  for (const auto &elem : list) {
-    ret.emplace_back(convert_primitive_type(elem));
-  }
-  return ret;
-}
-
-std::map<std::string, memgraph::storage::v3::PropertyValue> convert_to_propertyvalue_map(
-    const std::map<std::string, Value> &map) {
-  std::map<std::string, memgraph::storage::v3::PropertyValue> ret;
-
-  for (const auto &[key, value] : map) {
-    ret.emplace(std::make_pair(key, convert_primitive_type(value)));
-  }
-  return ret;
-}
-
-memgraph::storage::v3::PropertyValue get_exact_type(const Value &value) {
-  using PV = memgraph::storage::v3::PropertyValue;
-  PV ret;
-  switch (value.type) {
-    case Value::Type::NILL:
-      return PV();
-    case Value::Type::BOOL:
-      return PV(value.bool_v);
-    case Value::Type::INT64:
-      return PV(static_cast<int>(value.int_v));
-    case Value::Type::DOUBLE:
-      return PV(value.double_v);
-    case Value::Type::STRING:
-      return PV(value.string_v);
-    case Value::Type::LIST:
-      return PV(convert_to_propertyvalue_list(value.list_v));
-    case Value::Type::MAP:
-      return PV(convert_to_propertyvalue_map(value.map_v));
-    // These are not PropertyValues
-    // case Value::Type::VERTEX:
-    //   return PV(value.vertex_v);
-    // case Value::Type::EDGE:
-    //  return PV(value.edge_v);
-    // case Value::Type::PATH:
-    //   return PV(value.path_v);
+    case Value::Type::LIST: {
+      std::vector<PV> list;
+      for (const auto &elem : value.list_v) {
+        list.push_back(to_property_value(elem));
+      }
+      return PV(list);
+    }
+    case Value::Type::MAP: {
+      std::map<std::string, PV> map;
+      for (const auto &[key, value] : value.map_v) {
+        map.emplace(std::make_pair(key, to_property_value(value)));
+      }
+      return PV(map);
+    }
+    /// These are not PropertyValues
+    case Value::Type::VERTEX:
+    case Value::Type::EDGE:
+    case Value::Type::PATH:
     default:
       MG_ASSERT(false, "Missing or type from Value");
   }
@@ -92,7 +60,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
       properties.size());
 
   for (const auto &[key, value] : properties) {
-    memgraph::storage::v3::PropertyValue converted_value(get_exact_type(value));
+    memgraph::storage::v3::PropertyValue converted_value(to_property_value(value));
 
     ret.emplace_back(std::make_pair(key, converted_value));
   }
@@ -157,6 +125,21 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
       spdlog::debug(&"Vertices commited succesfully with transaction id: "[req.transaction_id.logical_id]);
     }
   }
+  return resp;
+}
+
+WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
+  DeleteVerticesResponse resp{};
+
+  auto acc = shard_.Access();
+  // std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
+  // Find the vertex
+
+  // QUESTION what should be the view?
+  // acc.FindVertex(std::vector<PropertyValue> primary_key, View::OLD);
+
+  // Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+
   return resp;
 }
 

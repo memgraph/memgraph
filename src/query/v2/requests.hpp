@@ -220,7 +220,12 @@ struct CreateVerticesResponse {
   bool success;
 };
 
-struct DeleteVerticesRequest {};
+struct DeleteVerticesRequest {
+  enum class DeletionType { DELETE, DETACH_DELETE };
+  Hlc transaction_id;
+  std::vector<NewVertex> new_vertices;
+  DeletionType type;
+};
 
 struct DeleteVerticesResponse {
   bool success;
