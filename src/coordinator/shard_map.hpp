@@ -123,7 +123,11 @@ struct ShardMap {
     LabelId label_id = labels.at(label_name);
 
     const auto &label_space = label_spaces.at(label_id);
+
     const auto &shards_for_label = label_space.shards;
+
+    MG_ASSERT(shards_for_label.begin()->first <= start_key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
 
     auto it = std::prev(shards_for_label.upper_bound(start_key));
     const auto end_it = shards_for_label.upper_bound(end_key);
@@ -141,6 +145,9 @@ struct ShardMap {
     LabelId label_id = labels.at(label_name);
 
     const auto &label_space = label_spaces.at(label_id);
+
+    MG_ASSERT(label_space.shards.begin()->first <= key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
 
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
