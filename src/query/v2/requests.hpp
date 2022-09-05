@@ -223,8 +223,8 @@ struct CreateVerticesResponse {
 struct DeleteVerticesRequest {
   enum class DeletionType { DELETE, DETACH_DELETE };
   Hlc transaction_id;
-  std::vector<NewVertex> new_vertices;
-  DeletionType type;
+  std::vector<std::vector<Value>> primary_keys;
+  DeletionType deletion_type;
 };
 
 struct DeleteVerticesResponse {

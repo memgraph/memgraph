@@ -68,6 +68,16 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
+std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const std::vector<Value> &vec) {
+  std::vector<memgraph::storage::v3::PropertyValue> ret(vec.size());
+  for (const auto &elem : vec) {
+    memgraph::storage::v3::PropertyValue converted_value(to_property_value(elem));
+    ret.emplace_back(converted_value);
+  }
+
+  return ret;
+}
+
 }  // namespace
 
 namespace memgraph::storage::v3 {
@@ -120,27 +130,74 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     auto result = acc.Commit(req.transaction_id.logical_id);
     if (result.HasError()) {
       resp.success = false;
-      spdlog::debug(&"Commiting vertices was unsuccesfull with transaction id: "[req.transaction_id.logical_id]);
-    } else {
-      spdlog::debug(&"Vertices commited succesfully with transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
+                                                                                                          .logical_id]);
     }
   }
   return resp;
 }
 
 WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
-  DeleteVerticesResponse resp{};
-
+  bool action_successful = true;
   auto acc = shard_.Access();
-  // std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
-  // Find the vertex
 
-  // QUESTION what should be the view?
-  // acc.FindVertex(std::vector<PropertyValue> primary_key, View::OLD);
+  for (auto &propval : req.primary_keys) {
+    // QUESTION what should be the view and why?
+    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
 
-  // Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+    // QUESTION if the vertex we want to delete does not exist, should that be handled as success?
+    if (!vertex_acc) {
+      // Vertex does not exist.
+      // action_successful = false;?
+    } else {
+      switch (req.deletion_type) {
+        case DeleteVerticesRequest::DeletionType::DELETE: {
+          // Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
+          auto result = acc.DeleteVertex(&vertex_acc.value());
+          if (result.HasError() || !(result.GetValue().has_value())) {
+            action_successful = false;
+            spdlog::debug(&"Error while trying to delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+          }
+
+          break;
+        }
+        case DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
+          auto result = acc.DetachDeleteVertex(&vertex_acc.value());
+          if (result.HasError() || !(result.GetValue().has_value())) {
+            action_successful = false;
+            spdlog::debug(
+                &"Error while trying to detach and delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+          }
+
+          break;
+        }
+        default:
+          MG_ASSERT(false, "Non-existent deletion type.");
+      }
+    }
+  }
+
+  DeleteVerticesResponse resp{};
+  resp.success = action_successful;
+
+  if (action_successful) {
+    auto result = acc.Commit(req.transaction_id.logical_id);
+    if (result.HasError()) {
+      resp.success = false;
+      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
+                                                                                                          .logical_id]);
+    }
+  }
 
   return resp;
+  // BIG QUESTION - If we want to delete a set of vertices, is it possible they will have
+  // different deletion types? we might need to maintin some datastructure for that in the
+  // delete request.
+
+  // QUESTION - Currently we assume at the begining of the loops that a transaction will be
+  // successful and set a boolean false when we encounter an error. This means that the bool
+  // can be set to false multiple times on different iterations. Should we just break out of
+  // the loop the first time we encounter an error?
 }
 
 }  //    namespace memgraph::storage::v3
