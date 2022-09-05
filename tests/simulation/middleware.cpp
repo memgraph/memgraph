@@ -55,7 +55,6 @@ using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::RsmClient;
-using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageWriteRequest;
@@ -117,14 +116,41 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
 }  // namespace
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteStorageRsm = Raft<SimulatorTransport, ShardRsmV2, StorageWriteRequest, StorageWriteResponse,
+using ConcreteStorageRsm = Raft<SimulatorTransport, MockedShardRsm, StorageWriteRequest, StorageWriteResponse,
                                 ScanVerticesRequest, ScanVerticesResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, ShardRsmV2, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
+    Raft<IoImpl, MockedShardRsm, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
         server) {
   server.Run();
+}
+
+template <typename ShardRequestManager>
+void TestScanAll(ShardRequestManager &io) {
+  ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
+  state.key = std::make_optional<CompoundKey>(
+      std::vector{memgraph::storage::v3::PropertyValue(0), memgraph::storage::v3::PropertyValue(0)});
+
+  auto result = io.Request(state);
+  MG_ASSERT(result.size() == 2);
+  {
+    auto &list_of_values_1 = std::get<ListedValues>(result[0].values);
+    MG_ASSERT(list_of_values_1.properties[0][0].int_v == 0);
+    auto &list_of_values_2 = std::get<ListedValues>(result[1].values);
+    MG_ASSERT(list_of_values_2.properties[0][0].int_v == 444);
+  }
+
+  result = io.Request(state);
+  {
+    MG_ASSERT(result.size() == 1);
+    auto &list_of_values_1 = std::get<ListedValues>(result[0].values);
+    MG_ASSERT(list_of_values_1.properties[0][0].int_v == 1);
+  }
+
+  // Exhaust it, request should be empty
+  result = io.Request(state);
+  MG_ASSERT(result.size() == 0);
 }
 
 int main() {
@@ -165,9 +191,9 @@ int main() {
   std::vector<Address> a_2_peers = {a_addrs[0], a_addrs[2]};
   std::vector<Address> a_3_peers = {a_addrs[0], a_addrs[1]};
 
-  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, ShardRsmV2{}};
-  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, ShardRsmV2{}};
-  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, ShardRsmV2{}};
+  ConcreteStorageRsm a_1{std::move(a_io_1), a_1_peers, MockedShardRsm{}};
+  ConcreteStorageRsm a_2{std::move(a_io_2), a_2_peers, MockedShardRsm{}};
+  ConcreteStorageRsm a_3{std::move(a_io_3), a_3_peers, MockedShardRsm{}};
 
   auto a_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(a_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(a_addrs[0]);
@@ -185,9 +211,9 @@ int main() {
   std::vector<Address> b_2_peers = {b_addrs[0], b_addrs[2]};
   std::vector<Address> b_3_peers = {b_addrs[0], b_addrs[1]};
 
-  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, ShardRsmV2{}};
-  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, ShardRsmV2{}};
-  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, ShardRsmV2{}};
+  ConcreteStorageRsm b_1{std::move(b_io_1), b_1_peers, MockedShardRsm{}};
+  ConcreteStorageRsm b_2{std::move(b_io_2), b_2_peers, MockedShardRsm{}};
+  ConcreteStorageRsm b_3{std::move(b_io_3), b_3_peers, MockedShardRsm{}};
 
   auto b_thread_1 = std::jthread(RunStorageRaft<SimulatorTransport>, std::move(b_1));
   simulator.IncrementServerCountAndWaitForQuiescentState(b_addrs[0]);
@@ -229,31 +255,15 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  QueryEngineMiddleware<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(std::move(coordinator_client),
-                                                                                          std::move(cli_io));
+  ShardRequestManager<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(std::move(coordinator_client),
+                                                                                        std::move(cli_io));
 
-  ExecutionState<ScanVerticesRequest> state;
+  ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
   state.key = std::make_optional<CompoundKey>(
       std::vector{memgraph::storage::v3::PropertyValue(0), memgraph::storage::v3::PropertyValue(0)});
-  state.label = "test_label";
 
-  //  auto result = io.TestRequest(state);
   io.StartTransaction();
-  auto result = io.Request(state);
-  auto &list_of_values = std::get<ListedValues>(result[0].values);
-  std::cout << "Result is: " << list_of_values.properties[0][0].int_v << std::endl;
-  auto &list_of_values_v2 = std::get<ListedValues>(result[1].values);
-  std::cout << "Result is: " << list_of_values_v2.properties[0][0].int_v << std::endl;
-
-  result = io.Request(state);
-  std::cout << "Result is: " << result.size() << std::endl;
-
-  //  auto &list_of_values2 = std::get<ListedValues>(result[0].values);
-  //  std::cout << "Result is: " << list_of_values2.properties[0][0].int_v << std::endl;
-
-  // exhaust it
-  result = io.Request(state);
-  std::cout << "Result is: " << result.size() << std::endl;
+  TestScanAll(io);
 
   simulator.ShutDown();
   return 0;

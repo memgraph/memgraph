@@ -54,7 +54,7 @@ using memgraph::storage::v3::PropertyValue;
 
 using ShardRsmKey = std::vector<memgraph::storage::v3::PropertyValue>;
 
-class ShardRsmV2 {
+class MockedShardRsm {
   std::map<ShardRsmKey, int> state_;
   ShardRsmKey minimum_key_;
   std::optional<ShardRsmKey> maximum_key_{std::nullopt};
@@ -101,22 +101,6 @@ class ShardRsmV2 {
     return ret;
   }
 
-  //  StorageReadResponse Read(StorageReadRequest request) {
-  //    StorageReadResponse ret;
-  //
-  //    if (!IsKeyInRange(request.key)) {
-  //      ret.latest_known_shard_map_version = shard_map_version_;
-  //      ret.shard_rsm_success = false;
-  //    } else if (state_.contains(request.key)) {
-  //      ret.value = state_[request.key];
-  //      ret.shard_rsm_success = true;
-  //    } else {
-  //      ret.shard_rsm_success = false;
-  //      ret.value = std::nullopt;
-  //    }
-  //    return ret;
-  //  }
-  //
   StorageWriteResponse Apply(StorageWriteRequest request) {
     StorageWriteResponse ret;
 
