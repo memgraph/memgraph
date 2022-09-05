@@ -101,52 +101,5 @@ class MockedShardRsm {
     return ret;
   }
 
-  StorageWriteResponse Apply(StorageWriteRequest request) {
-    StorageWriteResponse ret;
-
-    // Key is outside the prohibited range
-    if (!IsKeyInRange(request.key)) {
-      ret.latest_known_shard_map_version = shard_map_version_;
-      ret.shard_rsm_success = false;
-    }
-    // Key exist
-    else if (state_.contains(request.key)) {
-      auto &val = state_[request.key];
-
-      /*
-       *   Delete
-       */
-      if (!request.value) {
-        ret.shard_rsm_success = true;
-        ret.last_value = val;
-        state_.erase(state_.find(request.key));
-      }
-
-      /*
-       *   Update
-       */
-      // Does old_value match?
-      if (request.value == val) {
-        ret.last_value = val;
-        ret.shard_rsm_success = true;
-
-        val = request.value.value();
-
-      } else {
-        ret.last_value = val;
-        ret.shard_rsm_success = false;
-      }
-    }
-    /*
-     *   Create
-     */
-    else {
-      ret.last_value = std::nullopt;
-      ret.shard_rsm_success = true;
-
-      state_.emplace(request.key, std::move(request.value).value());
-    }
-
-    return ret;
-  }
+  CreateVerticesResponse Apply(CreateVerticesRequest request) { return CreateVerticesResponse{.success = true}; }
 };

@@ -116,21 +116,19 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
 }  // namespace
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteStorageRsm = Raft<SimulatorTransport, MockedShardRsm, StorageWriteRequest, StorageWriteResponse,
+using ConcreteStorageRsm = Raft<SimulatorTransport, MockedShardRsm, CreateVerticesRequest, CreateVerticesResponse,
                                 ScanVerticesRequest, ScanVerticesResponse>;
 
 template <typename IoImpl>
-void RunStorageRaft(
-    Raft<IoImpl, MockedShardRsm, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
-        server) {
+void RunStorageRaft(Raft<IoImpl, MockedShardRsm, CreateVerticesRequest, CreateVerticesResponse, ScanVerticesRequest,
+                         ScanVerticesResponse>
+                        server) {
   server.Run();
 }
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &io) {
   ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
-  state.key = std::make_optional<CompoundKey>(
-      std::vector{memgraph::storage::v3::PropertyValue(0), memgraph::storage::v3::PropertyValue(0)});
 
   auto result = io.Request(state);
   MG_ASSERT(result.size() == 2);
@@ -154,7 +152,18 @@ void TestScanAll(ShardRequestManager &io) {
 }
 
 template <typename ShardRequestManager>
-void TestCreateVertices(ShardRequestManager &io) {}
+void TestCreateVertices(ShardRequestManager &io) {
+  using PropVal = memgraph::storage::v3::PropertyValue;
+  ExecutionState<CreateVerticesRequest> state;
+  std::vector<NewVertexLabel> new_vertices;
+  NewVertexLabel a1{.label = "test_label", .primary_key = {PropVal(1), PropVal(0)}};
+  NewVertexLabel a2{.label = "test_label", .primary_key = {PropVal(13), PropVal(13)}};
+  new_vertices.push_back(std::move(a1));
+  new_vertices.push_back(std::move(a2));
+
+  auto result = io.Request(state, std::move(new_vertices));
+  MG_ASSERT(result.size() == 2);
+}
 
 template <typename ShardRequestManager>
 void TestExpand(ShardRequestManager &io) {}
@@ -267,12 +276,9 @@ int main() {
   ShardRequestManager<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(std::move(coordinator_client),
                                                                                         std::move(cli_io));
 
-  ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
-  state.key = std::make_optional<CompoundKey>(
-      std::vector{memgraph::storage::v3::PropertyValue(0), memgraph::storage::v3::PropertyValue(0)});
-
   io.StartTransaction();
   TestScanAll(io);
+  TestCreateVertices(io);
 
   simulator.ShutDown();
   return 0;
