@@ -635,8 +635,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
 
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
-                    VerticesSkipList *vertices, LabelId primary_label, utils::SkipList<Edge> *edges,
-                    NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config::Items items,
+                    VerticesSkipList *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+                    Indices *indices, Constraints *constraints, Config::Items items,
                     const VertexValidator &vertex_validator, const std::string &uuid, const std::string_view epoch_id,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
