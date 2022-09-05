@@ -39,7 +39,9 @@ set(mg_query_sources
     stream/common.cpp
     trigger.cpp
     trigger_context.cpp
-    typed_value.cpp)
+    typed_value.cpp
+    graph.cpp
+    db_accessor.cpp)
 
 find_package(Boost REQUIRED)
 
