@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v3/shard_message_handler.hpp"
+#include "storage/v3/shard_rsm.hpp"
 #include "query/v2/plan/operator.hpp"
 
 namespace {

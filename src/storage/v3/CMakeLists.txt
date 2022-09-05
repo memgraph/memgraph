@@ -16,7 +16,7 @@ set(storage_v3_src_files
     schema_validator.cpp
     shard.cpp
     storage.cpp
-    shard_message_handler.cpp)
+    shard_rsm.cpp)
 
 # #### Replication #####
 define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
