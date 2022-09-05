@@ -208,7 +208,7 @@ for dataset, tests in benchmarks:
 
     # Run all benchmarks in all available groups.
 
-    for with_fine_grained_authorization in [False, True]:
+    for with_fine_grained_authorization in [True]:
         if with_fine_grained_authorization:
             memgraph.start_preparation()
             client.execute(
@@ -227,12 +227,12 @@ for dataset, tests in benchmarks:
 
         for group in sorted(tests.keys()):
             for test, funcname in tests[group]:
-                log.info("Running test:", "{}/{}/{}".format(group, test, test_type))
+                log.info("Running test:", "{}/{}".format(group, test))
                 func = getattr(dataset, funcname)
 
                 # Get number of queries to execute.
                 # TODO: implement minimum number of queries, `max(10, num_workers)`
-                config_key = [dataset.NAME, dataset.get_variant(), group, test, test_type]
+                config_key = [dataset.NAME, dataset.get_variant(), group, test]
                 cached_count = config.get_value(*config_key)
                 if cached_count is None:
                     print(
@@ -306,7 +306,7 @@ for dataset, tests in benchmarks:
                 log.success("Throughput: {:02f} QPS".format(ret["throughput"]))
 
                 # Save results.
-                results_key = [dataset.NAME, dataset.get_variant(), group, test, test_type]
+                results_key = [dataset.NAME, dataset.get_variant(), group, test]
                 results.set_value(*results_key, value=ret)
 
 # Save configuration.

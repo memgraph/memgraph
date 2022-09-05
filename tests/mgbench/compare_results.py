@@ -89,12 +89,12 @@ def compare_results(results_from, results_to, fields):
                         continue
 
                     summary_from = recursive_get(results_from, dataset, variant, group, scenario, value={})
-                    # if (
-                    #     len(summary_from) > 0
-                    #     and summary_to["count"] != summary_from["count"]
-                    #     or summary_to["num_workers"] != summary_from["num_workers"]
-                    # ):
-                    #     raise Exception("Incompatible results!")
+                    if (
+                        len(summary_from) > 0
+                        and summary_to["count"] != summary_from["count"]
+                        or summary_to["num_workers"] != summary_from["num_workers"]
+                    ):
+                        raise Exception("Incompatible results!")
                     testcode = "/".join([dataset, variant, group, scenario, "{:02d}".format(summary_to["num_workers"])])
                     row = {}
                     performance_changed = False
