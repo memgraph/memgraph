@@ -713,11 +713,16 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
   const auto to_is_local = nullptr != to_vertex;
   MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edge without having a local vertex");
 
-  if (from_is_local && !PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
-
+  if (from_is_local) {
+    if (!PrepareForWrite(&transaction_, from_vertex)) {
+      return Error::SERIALIZATION_ERROR;
+    }
+    MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+  }
   if (to_is_local && to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(&transaction_, to_vertex)) {
+      return Error::SERIALIZATION_ERROR;
+    }
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }
 
@@ -1204,9 +1209,6 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
 }
 
 Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
-  // We acquire the transaction engine lock here because we access (and
-  // modify) the transaction engine variables (`transaction_id` and
-  // `timestamp`) below.
   uint64_t transaction_id{0};
   uint64_t start_timestamp{0};
 

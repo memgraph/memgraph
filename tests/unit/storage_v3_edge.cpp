@@ -155,9 +155,9 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et}, &from_id)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 1);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -264,12 +264,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 1);
     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &to_id)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::OLD, {}, &from_id_with_different_label)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::OLD, {}, &non_existing_id)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
-    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
     ASSERT_FALSE(acc.Commit().HasError());
   }
@@ -876,7 +876,6 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
       });
 
   const auto et = NameToEdgeTypeId("et5");
-  const auto edge_id = Gid::FromUint(0U);
   const auto other_et = NameToEdgeTypeId("other");
   const VertexId from_id_with_different_label{NameToLabelId("different_label"), from_id.primary_key};
   const VertexId to_id_with_different_label{NameToLabelId("different_label"), to_id.primary_key};
@@ -891,6 +890,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc.FindVertex({to_id.primary_key}, View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
+
+    const auto edge_id = Gid::FromUint(0U);
 
     auto res = acc.CreateEdge(from_id, to_id, et, edge_id);
     ASSERT_TRUE(res.HasValue());
@@ -1002,6 +1003,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
 
+    const auto edge_id = Gid::FromUint(1U);
+
     auto res = acc.CreateEdge(from_id, to_id, et, edge_id);
     ASSERT_TRUE(res.HasValue());
     auto edge = res.GetValue();
@@ -1082,6 +1085,8 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_TRUE(vertex_to);
+
+    const auto edge_id = Gid::FromUint(1U);
 
     // Check edges without filters
     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
@@ -1394,15 +1399,13 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
-  // Create vertices
+  // Create vertex
   const PropertyValue from_key{0};
   const PropertyValue to_key{max_primary_key_value};
   const PropertyValue non_existing_key{2};
   auto acc = store.Access();
-  const auto from_id = std::invoke([this, &from_key, &acc]() mutable -> VertexId {
-    auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
-    return from_id;
-  });
+  const auto from_id = std::invoke(
+      [this, &from_key, &acc]() mutable -> VertexId { return CreateVertex(acc, from_key)->Id(View::NEW).GetValue(); });
   const VertexId to_id{primary_label, {to_key}};
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(1U);
@@ -1550,7 +1553,6 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
 
     // Check edges with filters
-
     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {other_et})->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et})->size(), 1);
     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &to_id)->size(), 1);
@@ -2500,428 +2502,314 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //   }
 // }
 
-// // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
-//   memgraph::storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-//   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-//   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
+  // Create vertex
+  const PropertyValue from_key{max_primary_key_value};
+  const PropertyValue to_key{0};
+  const PropertyValue non_existing_key{2};
+  auto acc = store.Access();
+  const auto to_id = std::invoke(
+      [this, &to_key, &acc]() mutable -> VertexId { return CreateVertex(acc, to_key)->Id(View::NEW).GetValue(); });
+  const VertexId from_id{primary_label, {from_key}};
+  const auto et = NameToEdgeTypeId("et5");
+  const auto edge_id = Gid::FromUint(1U);
+  const auto other_et = NameToEdgeTypeId("other");
+  const VertexId from_id_with_different_label{NameToLabelId("different_label"), from_id.primary_key};
+  const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-//   // Create vertices
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.CreateVertex();
-//     auto vertex_to = acc.CreateVertex();
-//     gid_from = vertex_from.Gid();
-//     gid_to = vertex_to.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
+  ASSERT_FALSE(acc.Commit().HasError());
+  // Create edge
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_to);
 
-//   // Create edge
-//   {
-//     auto acc = store.Access();
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
+    auto res = acc.CreateEdge(from_id, to_id, et, edge_id);
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
+    ASSERT_EQ(edge.EdgeType(), et);
+    ASSERT_EQ(edge.Gid(), edge_id);
+    ASSERT_EQ(edge.FromVertex(), from_id);
+    ASSERT_EQ(edge.ToVertex(), to_id);
 
-//     auto et = acc.NameToEdgeType("et5");
+    // Check edges without filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
+    {
+      auto ret = vertex_to->InEdges(View::NEW);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     auto res = acc.CreateEdge(&from_id, &to_id, et);
-//     ASSERT_TRUE(res.HasValue());
-//     auto edge = res.GetValue();
-//     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), *vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), *vertex_to);
+    // Check edges with filters
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 0);
-//     {
-//       auto ret = vertex_from->OutEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
-//     {
-//       auto ret = vertex_to->InEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     auto other_et = acc.NameToEdgeType("other");
+  // Check whether the edge exists
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
 
-//     // Check edges with filters
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    // Check edges without filters
+    {
+      auto ret = vertex_to->InEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    {
+      auto ret = vertex_to->InEdges(View::NEW);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
+    // Check edges with filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-//   // Check whether the edge exists
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     auto et = acc.NameToEdgeType("et5");
+  // Delete the edge, but abort the transaction
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_to);
 
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_from->OutEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_from->OutEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_to->InEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_to->InEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
+    auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-//     auto other_et = acc.NameToEdgeType("other");
+    auto res = acc.DeleteEdge(&edge);
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
-//     // Check edges with filters
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    // Check edges without filters
 
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
+    {
+      auto ret = vertex_to->InEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//   // Delete the edge, but abort the transaction
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
+    // Check edges with filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     auto et = acc.NameToEdgeType("et5");
+    acc.Abort();
+  }
 
-//     auto edge = vertex_from->OutEdges(View::NEW).GetValue()[0];
+  // Check whether the edge exists
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_to);
 
-//     auto res = acc.DeleteEdge(&edge);
-//     ASSERT_TRUE(res.HasValue());
-//     ASSERT_TRUE(res.GetValue());
+    // Check edges without filters
+    {
+      auto ret = vertex_to->InEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    {
+      auto ret = vertex_to->InEdges(View::NEW);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_from->OutEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_to->InEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
+    // Check edges with filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-//     auto other_et = acc.NameToEdgeType("other");
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     // Check edges with filters
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
+  // Delete the edge
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_to);
 
-//     acc.Abort();
-//   }
+    auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-//   // Check whether the edge exists
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
+    const auto res = acc.DeleteEdge(&edge);
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_TRUE(res.GetValue());
 
-//     auto et = acc.NameToEdgeType("et5");
+    // Check edges without filters
+    {
+      auto ret = vertex_to->InEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_from->OutEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_from->OutEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_to->InEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     {
-//       auto ret = vertex_to->InEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
+    // Check edges with filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id)->size(), 1);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &to_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-//     auto other_et = acc.NameToEdgeType("other");
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     // Check edges with filters
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
+  // Check whether the edge exists
+  {
+    auto acc = store.Access();
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_to);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
+    // Check edges without filters
+    ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//   // Delete the edge
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
-
-//     auto et = acc.NameToEdgeType("et5");
-
-//     auto edge = vertex_from->OutEdges(View::NEW).GetValue()[0];
-
-//     auto res = acc.DeleteEdge(&edge);
-//     ASSERT_TRUE(res.HasValue());
-//     ASSERT_TRUE(res.GetValue());
-
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_from->OutEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_to->InEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
-
-//     auto other_et = acc.NameToEdgeType("other");
-
-//     // Check edges with filters
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &to_id)->size(), 1);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &from_id)->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {other_et})->size(), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et})->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
-
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
-
-//   // Check whether the edge exists
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
-
-//     // Check edges without filters
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
-
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
-// }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
+}
 
 // // NOLINTNEXTLINE(hicpp-special-member-functions)
 // TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
@@ -3282,143 +3170,150 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //   }
 // }
 
-// // NOLINTNEXTLINE(hicpp-special-member-functions)
-// TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
-//   memgraph::storage::Storage store({.items = {.properties_on_edges = GetParam()}});
-//   memgraph::storage::Gid gid_from = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-//   memgraph::storage::Gid gid_to = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
+  // Create vertices
+  const PropertyValue from_key{0};
+  const PropertyValue to_key{1};
+  const PropertyValue non_existing_key{2};
+  const auto et = NameToEdgeTypeId("et5");
+  const auto edge_id = Gid::FromUint(0U);
+  auto acc = store.Access();
+  VertexId from_id{};
+  VertexId to_id{};
+  const auto other_et = NameToEdgeTypeId("other");
+  const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-//   // Create dataset
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.CreateVertex();
-//     auto vertex_to = acc.CreateVertex();
+  // Create dataset
+  {
+    auto acc = store.Access();
+    auto vertex_from = CreateVertex(acc, from_key).GetValue();
+    auto vertex_to = CreateVertex(acc, to_key).GetValue();
+    from_id = vertex_from.Id(View::NEW).GetValue();
+    to_id = vertex_to.Id(View::NEW).GetValue();
 
-//     auto et = acc.NameToEdgeType("et5");
+    auto res = acc.CreateEdge(from_id, to_id, et, edge_id);
+    ASSERT_TRUE(res.HasValue());
+    auto edge = res.GetValue();
+    ASSERT_EQ(edge.EdgeType(), et);
+    ASSERT_EQ(edge.Gid(), edge_id);
+    ASSERT_EQ(edge.FromVertex(), from_id);
+    ASSERT_EQ(edge.ToVertex(), to_id);
 
-//     auto res = acc.CreateEdge(&vertex_from, &vertex_to, et);
-//     ASSERT_TRUE(res.HasValue());
-//     auto edge = res.GetValue();
-//     ASSERT_EQ(edge.EdgeType(), et);
-//     ASSERT_EQ(edge.FromVertex(), vertex_from);
-//     ASSERT_EQ(edge.ToVertex(), vertex_to);
+    // Check edges
+    ASSERT_EQ(vertex_from.InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_from.InDegree(View::NEW), 0);
+    {
+      auto ret = vertex_from.OutEdges(View::NEW);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_from.OutDegree(View::NEW), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    {
+      auto ret = vertex_to.InEdges(View::NEW);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to.InDegree(View::NEW), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
 
-//     gid_from = vertex_from.Gid();
-//     gid_to = vertex_to.Gid();
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     // Check edges
-//     ASSERT_EQ(vertex_from.InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_from.InDegree(View::NEW), 0);
-//     {
-//       auto ret = vertex_from.OutEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from.OutDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), vertex_from);
-//       ASSERT_EQ(e.ToVertex(), vertex_to);
-//     }
-//     {
-//       auto ret = vertex_to.InEdges(View::NEW);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to.InDegree(View::NEW), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), vertex_from);
-//       ASSERT_EQ(e.ToVertex(), vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
+  // Detach delete vertex
+  {
+    auto acc = store.Access();
+    auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_TRUE(vertex_from);
+    ASSERT_TRUE(vertex_to);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
+    // Delete must fail
+    {
+      auto ret = acc.DeleteVertex(&vertex_from.value());
+      ASSERT_TRUE(ret.HasError());
+      ASSERT_EQ(ret.GetError(), Error::VERTEX_HAS_EDGES);
+    }
 
-//   // Detach delete vertex
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_TRUE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
+    // Detach delete vertex
+    {
+      auto ret = acc.DetachDeleteVertex(&vertex_from.value());
+      ASSERT_TRUE(ret.HasValue());
+      ASSERT_TRUE(*ret);
+    }
 
-//     auto et = acc.NameToEdgeType("et5");
+    // Check edges
+    ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_from->InEdges(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->InDegree(View::NEW).GetError(), Error::DELETED_OBJECT);
+    {
+      auto ret = vertex_from->OutEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), Error::DELETED_OBJECT);
+    ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), Error::DELETED_OBJECT);
+    {
+      auto ret = vertex_to->InEdges(View::OLD);
+      ASSERT_TRUE(ret.HasValue());
+      auto edges = ret.GetValue();
+      ASSERT_EQ(edges.size(), 1);
+      ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
+      auto e = edges[0];
+      ASSERT_EQ(e.EdgeType(), et);
+      ASSERT_EQ(e.Gid(), edge_id);
+      ASSERT_EQ(e.FromVertex(), from_id);
+      ASSERT_EQ(e.ToVertex(), to_id);
+    }
+    ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     // Delete must fail
-//     {
-//       auto ret = acc.DeleteVertex(&from_id);
-//       ASSERT_TRUE(ret.HasError());
-//       ASSERT_EQ(ret.GetError(), memgraph::storage::Error::VERTEX_HAS_EDGES);
-//     }
+    ASSERT_FALSE(acc.Commit().HasError());
+  }
 
-//     // Detach delete vertex
-//     {
-//       auto ret = acc.DetachDeleteVertex(&from_id);
-//       ASSERT_TRUE(ret.HasValue());
-//       ASSERT_TRUE(*ret);
-//     }
+  // Check dataset
+  {
+    auto acc = store.Access();
+    auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
+    auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
+    ASSERT_FALSE(vertex_from);
+    ASSERT_TRUE(vertex_to);
 
-//     // Check edges
-//     ASSERT_EQ(vertex_from->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_from->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_from->InEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
-//     ASSERT_EQ(vertex_from->InDegree(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
-//     {
-//       auto ret = vertex_from->OutEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_from->OutDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_from->OutEdges(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
-//     ASSERT_EQ(vertex_from->OutDegree(View::NEW).GetError(), memgraph::storage::Error::DELETED_OBJECT);
-//     {
-//       auto ret = vertex_to->InEdges(View::OLD);
-//       ASSERT_TRUE(ret.HasValue());
-//       auto edges = ret.GetValue();
-//       ASSERT_EQ(edges.size(), 1);
-//       ASSERT_EQ(*vertex_to->InDegree(View::OLD), 1);
-//       auto e = edges[0];
-//       ASSERT_EQ(e.EdgeType(), et);
-//       ASSERT_EQ(e.FromVertex(), *vertex_from);
-//       ASSERT_EQ(e.ToVertex(), *vertex_to);
-//     }
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
-
-//     ASSERT_FALSE(acc.Commit().HasError());
-//   }
-
-//   // Check dataset
-//   {
-//     auto acc = store.Access();
-//     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
-//     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
-//     ASSERT_FALSE(vertex_from);
-//     ASSERT_TRUE(vertex_to);
-
-//     // Check edges
-//     ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
-//     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
-//     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
-//   }
-// }
+    // Check edges
+    ASSERT_EQ(vertex_to->InEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->InEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->InDegree(View::NEW), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::OLD)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::OLD), 0);
+    ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
+    ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
+  }
+}
 
 // // NOLINTNEXTLINE(hicpp-special-member-functions)
 // TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
