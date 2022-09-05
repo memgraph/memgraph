@@ -26,7 +26,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
 
 namespace memgraph::storage::v3 {
 
-WriteResponses ShardMessageHandler::ApplyWrite(CreateVerticesRequest &&req) {
+WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   auto acc = shard_.Access();
 
   bool action_successful = true;

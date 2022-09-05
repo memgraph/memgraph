@@ -40,7 +40,7 @@ namespace memgraph::storage::v3 {
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
-class ShardMessageHandler {
+class ShardRsm {
   Shard shard_;
 
   WriteResponses ApplyWrite(CreateVerticesRequest &&req);
