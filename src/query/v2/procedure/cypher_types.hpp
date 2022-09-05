@@ -18,9 +18,9 @@
 #include <memory>
 #include <string_view>
 
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/procedure/cypher_type_ptr.hpp"
 #include "query/v2/procedure/mg_procedure_impl.hpp"
-#include "query/v2/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
 

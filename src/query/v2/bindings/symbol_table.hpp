@@ -11,13 +11,10 @@
 
 #pragma once
 
-#include <iostream>
+#include "query/v2/bindings/bindings.hpp"
 
-#include "query/v2/frontend/ast/ast.hpp"
+#include "expr/semantic/symbol_table.hpp"
 
 namespace memgraph::query::v2 {
-
-void PrintExpression(Expression *expr, std::ostream *out);
-void PrintExpression(NamedExpression *expr, std::ostream *out);
-
-}  // namespace memgraph::query::v2
+using SymbolTable = memgraph::expr::SymbolTable;
+} // namespace memgraph::query::v2

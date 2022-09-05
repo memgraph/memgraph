@@ -347,8 +347,8 @@ target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-
 # # add_unit_test(query_v2_query_plan_create_set_remove_delete.cpp)
 # # target_link_libraries(${test_prefix}query_v2_query_plan_create_set_remove_delete mg-query-v2)
 
-# add_unit_test(query_v2_query_plan_bag_semantics.cpp)
-# target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query-v2)
+add_unit_test(query_v2_query_plan_bag_semantics.cpp)
+target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query-v2)
 
 # add_unit_test(query_v2_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
 # target_link_libraries(${test_prefix}query_v2_query_plan_edge_cases mg-communication mg-query-v2)

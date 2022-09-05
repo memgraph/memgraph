@@ -24,16 +24,20 @@
 #include <cppitertools/range.hpp>
 #include <cppitertools/repeat.hpp>
 
+#include "expr/typed_value.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query_v2_query_common.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 
 #include "query_v2_query_plan_common.hpp"
 
 using namespace memgraph::query::v2;
 using namespace memgraph::query::v2::plan;
+using memgraph::storage::v3::PropertyToTypedValue;
+using memgraph::storage::v3::TypedToPropertyValue;
 
 namespace std {
 template <>
@@ -1726,8 +1730,8 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
     auto results = run_scan_all(lower, lower_type, upper, upper_type);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
-      TypedValue equal =
-          TypedValue(*results[i][0].ValueVertex().GetProperty(storage::v3::View::OLD, prop)) == expected[i];
+      TypedValue equal = PropertyToTypedValue<TypedValue>(
+                             *results[i][0].ValueVertex().GetProperty(storage::v3::View::OLD, prop)) == expected[i];
       ASSERT_EQ(equal.type(), TypedValue::Type::Bool);
       EXPECT_TRUE(equal.ValueBool());
     }
@@ -1759,11 +1763,12 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelProperty) {
                          static_cast<storage::v3::PropertyValue>(value_b).type()))
         continue;
       if (is_orderable(value_a) && is_orderable(value_b)) {
-        check(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE, {});
+        check(PropertyToTypedValue<TypedValue>(value_a), Bound::Type::INCLUSIVE,
+              PropertyToTypedValue<TypedValue>(value_b), Bound::Type::INCLUSIVE, {});
       } else {
-        EXPECT_THROW(
-            run_scan_all(TypedValue(value_a), Bound::Type::INCLUSIVE, TypedValue(value_b), Bound::Type::INCLUSIVE),
-            QueryRuntimeException);
+        EXPECT_THROW(run_scan_all(PropertyToTypedValue<TypedValue>(value_a), Bound::Type::INCLUSIVE,
+                                  PropertyToTypedValue<TypedValue>(value_b), Bound::Type::INCLUSIVE),
+                     QueryRuntimeException);
       }
     }
   }
@@ -1812,7 +1817,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyEqualityNoError) {
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
   auto vertex = row[0].ValueVertex();
-  TypedValue value(*vertex.GetProperty(storage::v3::View::OLD, prop));
+  TypedValue value = PropertyToTypedValue<TypedValue>(*vertex.GetProperty(storage::v3::View::OLD, prop));
   TypedValue::BoolEqual eq;
   EXPECT_TRUE(eq(value, TypedValue(42)));
 }
@@ -1844,7 +1849,7 @@ TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyValueError) {
   auto scan_index =
       MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label1, prop, "prop", ident_m, scan_all.op_);
   auto context = MakeContext(storage, symbol_table, &dba);
-  EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
+  EXPECT_THROW(PullAll(*scan_index.op_, &context), memgraph::expr::TypedValueException);
 }
 
 TEST_F(QueryPlanMatchFilterTest, ScanAllByLabelPropertyRangeError) {

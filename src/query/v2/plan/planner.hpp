@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/plan/cost_estimator.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/preprocess.hpp"
@@ -29,7 +30,6 @@
 namespace memgraph::query::v2 {
 
 class AstStorage;
-class SymbolTable;
 
 namespace plan {
 

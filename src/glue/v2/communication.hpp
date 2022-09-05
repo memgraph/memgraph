@@ -13,7 +13,7 @@
 #pragma once
 
 #include "communication/bolt/v1/value.hpp"
-#include "query/v2/typed_value.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/view.hpp"

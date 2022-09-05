@@ -1,6 +1,6 @@
 /*
  * When changing this grammar make sure to update constants in
- * src/query/frontend/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
+ * src/parser/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
  * and bitsets) if needed.
  */
 

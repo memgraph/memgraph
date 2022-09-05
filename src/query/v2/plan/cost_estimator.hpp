@@ -11,10 +11,11 @@
 
 #pragma once
 
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/parameters.hpp"
 #include "query/v2/plan/operator.hpp"
-#include "query/v2/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 
 namespace memgraph::query::v2::plan {
 
@@ -248,7 +249,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // return nullopt.
   std::optional<storage::v3::PropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
-      return literal->value_;
+      return storage::v3::TypedToPropertyValue(literal->value_);
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
       return parameters.AtTokenPosition(param_lookup->token_position_);
     }

@@ -21,10 +21,10 @@
 
 #include <fmt/format.h>
 
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/stream.hpp"
-#include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
