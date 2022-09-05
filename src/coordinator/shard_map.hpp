@@ -116,7 +116,7 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(LabelName label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
+  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
