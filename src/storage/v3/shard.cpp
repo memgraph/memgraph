@@ -513,7 +513,7 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   }
   // Set secondary labels
   for (auto label : labels) {
-    if (const auto err = vertex_acc.AddLabel(label); err.HasError()) [[unlikely]] {
+    if (const auto err = vertex_acc.AddLabel(label); err.HasError()) {
       return {err.GetError()};
     }
   }
