@@ -45,6 +45,15 @@ struct Address {
     };
   }
 
+  /// Returns a new ID with the same IP and port but a unique UUID.
+  Address ForkUniqueAddress() {
+    return Address{
+        .unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+        .last_known_ip = last_known_ip,
+        .last_known_port = last_known_port,
+    };
+  }
+
   friend bool operator==(const Address &lhs, const Address &rhs) = default;
 
   /// unique_id is most dominant for ordering, then last_known_ip, then last_known_port
