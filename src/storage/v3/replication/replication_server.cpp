@@ -162,10 +162,10 @@ void Shard::ReplicationServer::SnapshotHandler(slk::Reader *req_reader, slk::Bui
   shard_->edges_.clear();
 
   shard_->constraints_ = Constraints();
-  shard_->indices_.label_index = LabelIndex(shard_->primary_label_, &shard_->indices_, &shard_->constraints_,
-                                            shard_->config_.items, shard_->schema_validator_);
+  shard_->indices_.label_index =
+      LabelIndex(&shard_->indices_, &shard_->constraints_, shard_->config_.items, shard_->vertex_validator_);
   shard_->indices_.label_property_index =
-      LabelPropertyIndex(&shard_->indices_, &shard_->constraints_, shard_->config_.items, shard_->schema_validator_);
+      LabelPropertyIndex(&shard_->indices_, &shard_->constraints_, shard_->config_.items, shard_->vertex_validator_);
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = durability::RecoveredSnapshot{};

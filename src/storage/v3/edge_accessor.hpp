@@ -35,19 +35,18 @@ class EdgeAccessor final {
   friend class Shard;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, LabelId primary_label,
-               Transaction *transaction, Indices *indices, Constraints *constraints, Config::Items config,
-               const SchemaValidator &schema_validator, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
+               Indices *indices, Constraints *constraints, Config::Items config,
+               const VertexValidator &vertex_validator, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
-        primary_label_{primary_label},
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_{&schema_validator},
+        vertex_validator_{&vertex_validator},
         for_deleted_(for_deleted) {}
 
   /// @return true if the object is visible from the current transaction
@@ -92,12 +91,11 @@ class EdgeAccessor final {
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
-  LabelId primary_label_;
   Transaction *transaction_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  const SchemaValidator *schema_validator_;
+  const VertexValidator *vertex_validator_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this
