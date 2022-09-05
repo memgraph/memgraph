@@ -12,6 +12,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <cstdint>
 
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -48,6 +49,7 @@ class IndexTest : public testing::Test {
   const LabelId label1{NameToLabelId("label1")};
   const LabelId label2{NameToLabelId("label2")};
   int primary_key_id{0};
+  int vertex_id{0};
 
   LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
 
@@ -71,8 +73,17 @@ class IndexTest : public testing::Test {
     return ret;
   }
 
- private:
-  int vertex_id{0};
+  template <class TIterable>
+  std::vector<int64_t> GetPrimaryKeyIds(TIterable iterable, View view = View::OLD) {
+    std::vector<int64_t> ret;
+    for (auto vertex : iterable) {
+      EXPECT_TRUE(vertex.PrimaryKey(view).HasValue());
+      const auto pk = vertex.PrimaryKey(view).GetValue();
+      EXPECT_EQ(pk.size(), 1);
+      ret.push_back(pk[0].ValueInt());
+    }
+    return ret;
+  }
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -846,11 +857,13 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
 }
 
 TEST_F(IndexTest, LabelPropertyIndexCreateWithExistingPrimaryKey) {
+  // Create index on primary label and on primary key
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   EXPECT_FALSE(storage.CreateIndex(primary_label, primary_property));
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
+  // Create index on primary label and on secondary property
   EXPECT_TRUE(storage.CreateIndex(primary_label, prop_id));
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
@@ -860,9 +873,117 @@ TEST_F(IndexTest, LabelPropertyIndexCreateWithExistingPrimaryKey) {
   }
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(Pair(primary_label, prop_id)));
 
-  EXPECT_TRUE(storage.CreateIndex(primary_label));
+  // Create index on primary label
+  EXPECT_FALSE(storage.CreateIndex(primary_label));
+  EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+  EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
+
+  // Create index on secondary label
+  EXPECT_TRUE(storage.CreateIndex(label1));
   EXPECT_EQ(storage.ListAllIndices().label.size(), 1);
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
 }
 
+TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
+  {
+    auto acc = storage.Access();
+    EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+    EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
+  }
+  {
+    auto acc = storage.Access();
+
+    // Create vertices with CreateVertexAndValidate
+    for (int i = 0; i < 5; ++i) {
+      auto vertex =
+          acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
+      ASSERT_TRUE(vertex.HasValue());
+    }
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+  {
+    EXPECT_TRUE(storage.CreateIndex(label1));
+    {
+      auto acc = storage.Access();
+      EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+    }
+  }
+  {
+    EXPECT_TRUE(storage.DropIndex(label1));
+    {
+      auto acc = storage.Access();
+      EXPECT_FALSE(acc.LabelIndexExists(label1));
+    }
+    EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+  }
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(storage.CreateIndex(label1));
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+
+    for (int i = 0; i < 5; ++i) {
+      auto vertex =
+          acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
+      ASSERT_TRUE(vertex.HasValue());
+    }
+
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+}
+
+TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
+  {
+    auto acc = storage.Access();
+    EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+    EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
+  }
+  {
+    auto acc = storage.Access();
+
+    // Create vertices with CreateVertexAndValidate
+    for (int i = 0; i < 5; ++i) {
+      auto vertex = acc.CreateVertexAndValidate(
+          primary_label, {label1},
+          {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
+      ASSERT_TRUE(vertex.HasValue());
+    }
+    ASSERT_NO_ERROR(acc.Commit());
+  }
+  {
+    EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
+    {
+      auto acc = storage.Access();
+      EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::OLD), View::OLD),
+                  UnorderedElementsAre(0, 1, 2, 3, 4));
+    }
+  }
+  {
+    EXPECT_TRUE(storage.DropIndex(label1, prop_id));
+    {
+      auto acc = storage.Access();
+      EXPECT_FALSE(acc.LabelIndexExists(label1));
+    }
+    EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+  }
+  {
+    auto acc = storage.Access();
+    EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+
+    for (int i = 0; i < 5; ++i) {
+      auto vertex = acc.CreateVertexAndValidate(
+          primary_label, {label1},
+          {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
+      ASSERT_TRUE(vertex.HasValue());
+    }
+
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::NEW), View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+    EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::OLD), View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
+  }
+}
 }  // namespace memgraph::storage::v3::tests
