@@ -200,4 +200,33 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   // the loop the first time we encounter an error?
 }
 
+WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
+  UpdateVerticesResponse resp{};
+  // QUESTION what does it mean to update Vertices?
+  // Update properties?
+  return resp;
+}
+
+// QUESTION should the messages related to edges also be vectors? or just singular edges? CreateEdges vs CreateEdge?
+// QUESTION EdgeId -> what is that and why was that needed?
+WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
+  CreateEdgesResponse resp{};
+
+  return resp;
+}
+
+WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
+  DeleteEdgesResponse resp{};
+
+  return resp;
+}
+
+WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
+  UpdateEdgesResponse resp{};
+
+  return resp;
+}
+
+// QUESTION difference between FinalizeTransaction() and Commit()?
+
 }  //    namespace memgraph::storage::v3

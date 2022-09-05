@@ -47,6 +47,10 @@ class ShardRsm {
   WriteResponses ApplyWrite(DeleteVerticesRequest &&req);
   WriteResponses ApplyWrite(UpdateVerticesRequest &&req);
 
+  WriteResponses ApplyWrite(CreateEdgesRequest &&req);
+  WriteResponses ApplyWrite(DeleteEdgesRequest &&req);
+  WriteResponses ApplyWrite(UpdateEdgesRequest &&req);
+
  public:
 };
 

@@ -231,14 +231,47 @@ struct DeleteVerticesResponse {
   bool success;
 };
 
-struct UpdateVerticesRequest {};
+struct UpdateVerticesRequest {
+  Hlc transaction_id;
+};
 
 struct UpdateVerticesResponse {
+  bool success;
+};
+
+/*
+ * Edges
+ */
+struct CreateEdgesRequest {
+  Hlc transaction_id;
+  std::vector<Edge> edges;
+};
+
+struct CreateEdgesResponse {
+  bool success;
+};
+
+struct DeleteEdgesRequest {
+  // enum class DeletionType { DELETE, DETACH_DELETE };
+  // Hlc transaction_id;
+  // std::vector<std::vector<Value>> primary_keys;
+  // DeletionType deletion_type;
+};
+
+struct DeleteEdgesResponse {
+  bool success;
+};
+
+struct UpdateEdgesRequest {};
+
+struct UpdateEdgesResponse {
   bool success;
 };
 
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
-using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesResponse>;
-using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse>;
+using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
+                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest>;
+using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
+                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
