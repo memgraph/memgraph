@@ -206,7 +206,7 @@ struct ExpandOneResponse {
  * Vertices
  */
 struct NewVertex {
-  std::vector<Label> label_ids;
+  std::vector<memgraph::storage::v3::LabelId> label_ids;
   std::map<PropertyId, Value> properties;
 };
 

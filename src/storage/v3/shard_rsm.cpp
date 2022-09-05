@@ -32,33 +32,31 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
-    // Primary label missing?
+    /// TODO(gvolfing) Remove this. In the new implementation each shard
+    /// will have a predetermined primary label, so there is no point in
+    /// specifying it in the accessor functions. Their signature will
+    /// change.
     LabelId primary_label;
 
-    // We need to convert these into a different type. why?
-    auto converted_label_ids = ConvertLabelId(new_vertex.label_ids);
-
+    /// TODO(gvolfing) Consider other methods than converting. Change either
+    /// the way that the property map is stored in the messages, or the
+    /// signature of CreateVertexAndValidate.
     auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
 
-    auto result_schema = acc.CreateVertexAndValidate(primary_label, converted_label_ids, converted_property_map);
+    auto result_schema = acc.CreateVertexAndValidate(primary_label, new_vertex.label_ids, converted_property_map);
 
-    /*
-     *   Verify creation
-     */
-    // Do we have to call Commit() on success/failure ?
-    if (!result_schema.HasError()) {
-      // Do we have to do something with the vertex accessor in case of succes?
-    } else {
+    if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
 
       std::visit(
-          [&action_successful]<typename T>(T &&arg) {
-            // Do we want to log?
+          [&action_successful]<typename T>(T &&) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
               action_successful = false;
+              spdlog::debug("Creating vertex failed with error: SchemaViolation");
             } else if constexpr (std::is_same_v<ErrorType, Error>) {
               action_successful = false;
+              spdlog::debug("Creating vertex failed with error: Error");
             } else {
               static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
             }
@@ -72,14 +70,13 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   CreateVerticesResponse resp{};
   resp.success = action_successful;
 
-  // Do we want to call Commit()?
-  // only if every single insertion succeeds?
-  // or even on partial success?
   if (action_successful) {
-    // Do we want to log something?
     auto result = acc.Commit(req.transaction_id.logical_id);
     if (result.HasError()) {
       resp.success = false;
+      spdlog::debug(&"Commiting vertices was unsuccesfull with transaction id: "[req.transaction_id.logical_id]);
+    } else {
+      spdlog::debug(&"Vertices commited succesfully with transaction id: "[req.transaction_id.logical_id]);
     }
   }
   return resp;
