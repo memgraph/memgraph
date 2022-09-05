@@ -98,7 +98,7 @@ struct ShardMap {
 
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
-    labels.emplace(label_name, label_id);
+    labels.emplace(std::move(label_name), label_id);
 
     LabelSpace label_space{
         .schema = std::move(schema),
@@ -116,14 +116,18 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(LabelName label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
+  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
 
     const auto &label_space = label_spaces.at(label_id);
+
     const auto &shards_for_label = label_space.shards;
+
+    MG_ASSERT(shards_for_label.begin()->first <= start_key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
 
     auto it = std::prev(shards_for_label.upper_bound(start_key));
     const auto end_it = shards_for_label.upper_bound(end_key);
@@ -135,12 +139,15 @@ struct ShardMap {
     return shards;
   }
 
-  Shard GetShardForKey(LabelName label_name, const CompoundKey &key) {
+  Shard GetShardForKey(const LabelName &label_name, const CompoundKey &key) const {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
 
     const auto &label_space = label_spaces.at(label_id);
+
+    MG_ASSERT(label_space.shards.begin()->first <= key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
 
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
