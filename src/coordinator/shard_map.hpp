@@ -98,7 +98,7 @@ struct ShardMap {
 
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
-    labels.emplace(label_name, label_id);
+    labels.emplace(std::move(label_name), label_id);
 
     LabelSpace label_space{
         .schema = std::move(schema),
