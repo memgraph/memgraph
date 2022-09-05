@@ -134,14 +134,13 @@ class FineGrainedAccessPermissions final {
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
+  PermissionLevel Has(const std::string &permission, FineGrainedPermission fine_grained_permission) const;
 
-  PermissionLevel Has(const std::string &permission, FineGrainedPermission label_permission) const;
-
-  void Grant(const std::string &permission, FineGrainedPermission label_permission);
+  void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
 
   void Revoke(const std::string &permission);
 
-  void Deny(const std::string &permission, FineGrainedPermission label_permission);
+  void Deny(const std::string &permission, FineGrainedPermission fine_grained_permission);
 
   nlohmann::json Serialize() const;
 
@@ -155,8 +154,8 @@ class FineGrainedAccessPermissions final {
   std::unordered_map<std::string, uint64_t> permissions_{};
   std::optional<uint64_t> global_permission_;
 
-  static uint64_t CalculateGrant(FineGrainedPermission label_permission);
-  static uint64_t CalculateDeny(FineGrainedPermission label_permission);
+  static uint64_t CalculateGrant(FineGrainedPermission fine_grained_permission);
+  static uint64_t CalculateDeny(FineGrainedPermission fine_grained_permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);

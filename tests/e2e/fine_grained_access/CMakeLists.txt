@@ -3,4 +3,6 @@ function(copy_fine_grained_access_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_fine_grained_access_e2e_python_files(common.py)
+copy_fine_grained_access_e2e_python_files(create_delete_filtering_tests.py)
 copy_fine_grained_access_e2e_python_files(edge_type_filtering_tests.py)
+copy_fine_grained_access_e2e_python_files(path_filtering_tests.py)

@@ -12,44 +12,6 @@ read_query_modules_cluster: &read_query_modules_cluster
         ]
       validation_queries: []
 
-show_privileges_cluster: &show_privileges_cluster
-  cluster:
-    main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "lba-e2e.log"
-      setup_queries:
-        [
-          "Create User Josip;",
-          "Grant Read On Labels :Label1 to Josip;",
-          "Deny Read On Labels :Label2 to Josip;",
-          "Grant Update On Labels :Label3 to Josip;",
-          "Deny Update On Labels :Label4 to Josip;",
-          "Grant Create_Delete On Labels :Label5 to Josip;",
-          "Deny Create_Delete On Labels :Label6 to Josip;",
-          "Grant Create_Delete On Labels :Label7 to Josip;",
-          "Deny Read On Labels :Label7 to Josip;",
-
-          "Create User Boris;",
-          "Grant Auth to Boris;",
-          "Grant Read On Labels :Label1 to Boris;",
-          "Deny Read On Labels :Label2 to Boris;",
-          "Grant Update On Labels :Label3 to Boris;",
-          "Deny Update On Labels :Label4 to Boris;",
-          "Grant Create_Delete On Labels :Label5 to Boris;",
-          "Deny Create_Delete On Labels :Label6 to Boris;",
-          "Grant Create_Delete On Labels :Label7 to Boris;",
-          "Deny Read On Labels :Label7 to Boris;",
-
-          "Create User Niko;",
-          "Grant Auth to Niko;",
-          "Grant Create_Delete On Labels * to Niko",
-          "Deny Update On Labels * to Niko",
-
-          "Create User Bruno;",
-          "Grant Auth to Bruno;",
-          "Deny Create_Delete On Labels * to Bruno",
-        ]
-
 update_query_modules_cluster: &update_query_modules_cluster
   cluster:
     main:
@@ -62,6 +24,67 @@ update_query_modules_cluster: &update_query_modules_cluster
           "CREATE USER user IDENTIFIED BY 'test';",
           "GRANT ALL PRIVILEGES TO user",
         ]
+      validation_queries: []
+
+show_privileges_cluster: &show_privileges_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "Create User Josip;"
+        - "Grant Read On Labels :Label1 to Josip;"
+        - "Deny Read On Labels :Label2 to Josip;"
+        - "Grant Update On Labels :Label3 to Josip;"
+        - "Deny Update On Labels :Label4 to Josip;"
+        - "Grant Create_Delete On Labels :Label5 to Josip;"
+        - "Deny Create_Delete On Labels :Label6 to Josip;"
+        - "Grant Create_Delete On Labels :Label7 to Josip;"
+        - "Deny Read On Labels :Label7 to Josip;"
+
+        - "Create User Boris;"
+        - "Grant Auth to Boris;"
+        - "Grant Read On Labels :Label1 to Boris;"
+        - "Deny Read On Labels :Label2 to Boris;"
+        - "Grant Update On Labels :Label3 to Boris;"
+        - "Deny Update On Labels :Label4 to Boris;"
+        - "Grant Create_Delete On Labels :Label5 to Boris;"
+        - "Deny Create_Delete On Labels :Label6 to Boris;"
+        - "Grant Create_Delete On Labels :Label7 to Boris;"
+        - "Deny Read On Labels :Label7 to Boris;"
+
+        - "Create User Niko;"
+        - "Grant Auth to Niko;"
+        - "Grant Create_Delete On Labels * to Niko"
+        - "Deny Update On Labels * to Niko"
+
+        - "Create User Bruno;"
+        - "Grant Auth to Bruno;"
+        - "Deny Create_Delete On Labels * to Bruno"
+
+read_permission_queries: &read_permission_queries
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin;"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user;"
+      validation_queries: []
+
+update_permission_queries_cluster: &update_permission_queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin;"
+        - "CREATE USER user IDENTIFIED BY 'test'"
+        - "GRANT ALL PRIVILEGES TO user;"
+
       validation_queries: []
 
 workloads:
@@ -82,3 +105,15 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
     <<: *show_privileges_cluster
+
+  - name: "read-permission-queries"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/read_permission_queries.py"]
+    <<: *read_permission_queries
+
+  - name: "update-permission-queries"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/update_permission_queries.py"]
+    <<: *update_permission_queries_cluster

@@ -24,6 +24,7 @@
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
