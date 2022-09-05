@@ -113,9 +113,9 @@ class LocalTransportHandle {
     cv_.notify_all();
   }
 
-  template <Message Request, Message Response>
-  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, Request &&request,
-                     Duration timeout, ResponsePromise<Response> promise) {
+  template <Message RequestT, Message ResponseT>
+  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, RequestT &&request,
+                     Duration timeout, ResponsePromise<ResponseT> promise) {
     const bool port_matches = to_address.last_known_port == from_address.last_known_port;
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
 
@@ -132,7 +132,7 @@ class LocalTransportHandle {
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
-    Send(to_address, from_address, request_id, std::forward<Request>(request));
+    Send(to_address, from_address, request_id, std::forward<RequestT>(request));
   }
 };
 

@@ -31,9 +31,9 @@ class LocalTransport {
   LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle, Address address)
       : local_transport_handle_(std::move(local_transport_handle)), address_(address) {}
 
-  template <Message Request, Message Response>
-  ResponseFuture<Response> Request(Address to_address, RequestId request_id, Request request, Duration timeout) {
-    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<Response>>();
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> Request(Address to_address, RequestId request_id, RequestT request, Duration timeout) {
+    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
 
     Address from_address = address_;
 
