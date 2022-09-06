@@ -115,12 +115,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   void StartTransaction() override {
     memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
-    auto read_res = coord_cli_.SendReadRequest(req);
-    if (read_res.HasError()) {
+    auto write_res = coord_cli_.SendWriteRequest(req);
+    if (write_res.HasError()) {
       throw std::runtime_error("HLC request failed");
     }
-    auto coordinator_read_response = read_res.GetValue();
-    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_read_response);
+    auto coordinator_write_response = write_res.GetValue();
+    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_write_response);
 
     // Transaction ID to be used later...
     transaction_id_ = hlc_response.new_hlc;
@@ -137,7 +137,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<ScanVerticesResponse> responses;
     auto &shard_cacheref = state.shard_cache;
     size_t id = 0;
+    std::cout << "ScanVerticesRequest" << std::endl;
     for (auto shard_it = shard_cacheref.begin(); shard_it != shard_cacheref.end(); ++id) {
+      std::cout << "ScanVerticesResponse" << std::endl;
       auto &storage_client = GetStorageClientForShard(*state.label, state.requests[id].start_id.second);
       // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture instead.
       auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
@@ -215,27 +217,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return state.state != ExecutionState::INITIALIZING;
   }
 
-  template <typename TRequest>
-  void MaybeUpdateExecutionState(TRequest &state) {
-    if (state.shard_cache) {
-      return;
-    }
-    state.transaction_id = transaction_id_;
-    state.shard_cache = std::make_optional<std::vector<Shard>>();
-    const auto &shards = shards_map_.shards[shards_map_.labels[state.label]];
-    if (state.key) {
-      if (auto it = shards.find(*state.key); it != shards.end()) {
-        state.shard_cache->push_back(it->second);
-        return;
-      }
-      // throw here
-    }
-
-    for (const auto &[key, shard] : shards) {
-      state.shard_cache->push_back(shard);
-    }
-  }
-
   void MaybeInitializeExecutionState(ExecutionState<CreateVerticesRequest> &state,
                                      std::vector<NewVertexLabel> new_vertices) {
     ThrowIfStateCompleted(state);
@@ -271,12 +252,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       return;
     }
     state.transaction_id = transaction_id_;
-    const auto &shards = shards_map_.shards[shards_map_.labels[*state.label]];
+    const auto shards = shards_map_.GetShards(*state.label);
     for (const auto &[key, shard] : shards) {
-      state.shard_cache.push_back(shard);
+      state.shard_cache.push_back(std::move(shard));
       ScanVerticesRequest rqst;
       rqst.transaction_id = transaction_id_;
-      rqst.start_id.second = key;
+      rqst.start_id.second = std::move(key);
       state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;

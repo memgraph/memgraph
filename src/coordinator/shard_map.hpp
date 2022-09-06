@@ -18,12 +18,14 @@
 #include "io/address.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 
 namespace memgraph::coordinator {
 
 using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
+using memgraph::storage::v3::SchemaProperty;
 
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,
@@ -36,7 +38,6 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
-
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
 };
 
@@ -47,18 +48,30 @@ using LabelName = std::string;
 using PropertyName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
 
+struct LabelSpace {
+  std::vector<SchemaProperty> schema;
+  std::map<CompoundKey, Shard> shards;
+};
+
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id;
   std::map<PropertyName, PropertyId> properties;
   uint64_t max_label_id;
   std::map<LabelName, LabelId> labels;
-  std::map<LabelId, Shards> shards;
+  std::map<LabelId, LabelSpace> label_spaces;
+  std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  Shards GetShards(const LabelName &label) {
+    const auto id = labels[label];
+    auto &shards = label_spaces[id].shards;
+    return shards;
+  }
 
   auto FindShardToInsert(const LabelName &name, CompoundKey &key) {
     MG_ASSERT(labels.contains(name));
     const auto id = labels.find(name)->second;
-    auto &shards_ref = shards[id];
+    auto &shards_ref = label_spaces[id].shards;
     auto it =
         std::find_if(shards_ref.rbegin(), shards_ref.rend(), [&key](const auto &shard) { return shard.first <= key; });
     MG_ASSERT(it != shards_ref.rbegin());
@@ -74,50 +87,42 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, CompoundKey key) {
+  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey &key) {
     if (previous_shard_map_version != shard_map_version) {
       return false;
     }
 
-    if (!shards.contains(label_id)) {
-      return false;
-    }
+    auto &label_space = label_spaces.at(label_id);
+    auto &shards_in_map = label_space.shards;
 
-    auto &shards_in_map = shards.at(label_id);
     MG_ASSERT(!shards_in_map.contains(key));
+    MG_ASSERT(label_spaces.contains(label_id));
 
     // Finding the Shard that the new CompoundKey should map to.
-    Shard shard_to_map_to;
-    CompoundKey prev_key = ((*shards_in_map.begin()).first);
-
-    for (auto iter = std::next(shards_in_map.begin()); iter != shards_in_map.end(); ++iter) {
-      const auto &current_key = (*iter).first;
-      if (key > prev_key && key < current_key) {
-        shard_to_map_to = shards_in_map[prev_key];
-      }
-
-      prev_key = (*iter).first;
-    }
+    auto prev = std::prev(shards_in_map.upper_bound(key));
+    Shard duplicated_shard = prev->second;
 
     // Apply the split
-    shards_in_map[key] = shard_to_map_to;
+    shards_in_map[key] = duplicated_shard;
 
     return true;
   }
 
-  bool InitializeNewLabel(std::string label_name, Hlc last_shard_map_version) {
-    if (shard_map_version != last_shard_map_version) {
-      return false;
-    }
-
-    if (labels.contains(label_name)) {
+  bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, Hlc last_shard_map_version) {
+    if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
       return false;
     }
 
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
-    labels.emplace(label_name, label_id);
-    shards.emplace(label_id, Shards{});
+    labels.emplace(std::move(label_name), label_id);
+
+    LabelSpace label_space{
+        .schema = std::move(schema),
+        .shards = Shards{},
+    };
+
+    label_spaces.emplace(label_id, label_space);
 
     IncrementShardMapVersion();
 
@@ -129,46 +134,44 @@ struct ShardMap {
   }
 
   LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
-
-  Shards GetShardsForRange(LabelName label_name, CompoundKey start_key, CompoundKey end_key) {
+  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key,
+                           const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
 
-    const auto &shard_for_label = shards.at(label_id);
+    const auto &label_space = label_spaces.at(label_id);
 
-    auto it = std::prev(shard_for_label.upper_bound(start_key));
-    const auto end_it = shard_for_label.upper_bound(end_key);
+    const auto &shards_for_label = label_space.shards;
+
+    MG_ASSERT(shards_for_label.begin()->first <= start_key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
+
+    auto it = std::prev(shards_for_label.upper_bound(start_key));
+    const auto end_it = shards_for_label.upper_bound(end_key);
 
     Shards shards{};
 
-    for (; it != end_it; it++) {
-      shards.emplace(it->first, it->second);
-    }
+    std::copy(it, end_it, std::inserter(shards, shards.end()));
 
     return shards;
   }
 
-  Shard GetShardForKey(LabelName label_name, CompoundKey key) {
+  Shard GetShardForKey(const LabelName &label_name, const CompoundKey &key) const {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
 
-    const auto &shard_for_label = shards.at(label_id);
+    const auto &label_space = label_spaces.at(label_id);
 
-    return std::prev(shard_for_label.upper_bound(key))->second;
+    MG_ASSERT(label_space.shards.begin()->first <= key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
+
+    return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
-  Shard GetShardForKey(LabelId label_id, CompoundKey key) {
-    MG_ASSERT(shards.contains(label_id));
-
-    const auto &shard_for_label = shards.at(label_id);
-
-    return std::prev(shard_for_label.upper_bound(key))->second;
-  }
-
-  PropertyMap AllocatePropertyIds(std::vector<PropertyName> &new_properties) {
+  PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties) {
     PropertyMap ret{};
 
     bool mutated = false;
@@ -181,9 +184,7 @@ struct ShardMap {
         mutated = true;
 
         const PropertyId property_id = PropertyId::FromUint(++max_property_id);
-
         ret.emplace(property_name, property_id);
-
         properties.emplace(property_name, property_id);
       }
     }
@@ -195,12 +196,12 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(std::string &property_name) {
+  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
     if (properties.contains(property_name)) {
       return properties.at(property_name);
-    } else {
-      return std::nullopt;
     }
+
+    return std::nullopt;
   }
 };
 

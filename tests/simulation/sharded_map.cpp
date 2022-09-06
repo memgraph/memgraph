@@ -18,6 +18,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/types.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
 #include "io/address.hpp"
@@ -27,8 +28,8 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
-#include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/schemas.hpp"
 #include "utils/result.hpp"
 
 using memgraph::coordinator::AddressAndStatus;
@@ -64,6 +65,7 @@ using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
+using memgraph::storage::v3::SchemaProperty;
 using memgraph::utils::BasicResult;
 
 using ShardClient =
@@ -72,17 +74,29 @@ namespace {
 
 const std::string label_name = std::string("test_label");
 
-ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::coordinator::Address a_io_2,
-                             memgraph::coordinator::Address a_io_3, memgraph::coordinator::Address b_io_1,
-                             memgraph::coordinator::Address b_io_2, memgraph::coordinator::Address b_io_3) {
+ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Address b_io_1, Address b_io_2,
+                             Address b_io_3) {
   ShardMap sm;
 
+  // register new properties
+  const std::vector<std::string> property_names = {"property_1", "property_2"};
+  const auto properties = sm.AllocatePropertyIds(property_names);
+  const auto property_id_1 = properties.at("property_1");
+  const auto property_id_2 = properties.at("property_2");
+  const auto type_1 = memgraph::common::SchemaType::INT;
+  const auto type_2 = memgraph::common::SchemaType::INT;
+
   // register new label space
-  bool label_success = sm.InitializeNewLabel(label_name, sm.shard_map_version);
+  std::vector<SchemaProperty> schema = {
+      SchemaProperty{.property_id = property_id_1, .type = type_1},
+      SchemaProperty{.property_id = property_id_2, .type = type_2},
+  };
+  bool label_success = sm.InitializeNewLabel(label_name, schema, sm.shard_map_version);
   MG_ASSERT(label_success);
 
-  LabelId label_id = sm.labels.at(label_name);
-  Shards &shards_for_label = sm.shards.at(label_id);
+  const LabelId label_id = sm.labels.at(label_name);
+  auto &label_space = sm.label_spaces.at(label_id);
+  Shards &shards_for_label = label_space.shards;
 
   // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
@@ -91,10 +105,10 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
 
   Shard shard1 = {aas1_1, aas1_2, aas1_3};
 
-  auto key1 = memgraph::storage::v3::PropertyValue(0);
-  auto key2 = memgraph::storage::v3::PropertyValue(0);
-  CompoundKey compound_key_1 = {key1, key2};
-  shards_for_label[compound_key_1] = shard1;
+  const auto key1 = memgraph::storage::v3::PropertyValue(0);
+  const auto key2 = memgraph::storage::v3::PropertyValue(0);
+  const CompoundKey compound_key_1 = {key1, key2};
+  shards_for_label.emplace(compound_key_1, shard1);
 
   // add second shard at [12, 13]
   AddressAndStatus aas2_1{.address = b_io_1, .status = Status::CONSENSUS_PARTICIPANT};
@@ -111,7 +125,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   return sm;
 }
 
-std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std::vector<Address> &a_addrs,
+std::optional<ShardClient> DetermineShardLocation(const Shard &target_shard, const std::vector<Address> &a_addrs,
                                                   ShardClient a_client, const std::vector<Address> &b_addrs,
                                                   ShardClient b_client) {
   for (const auto &addr : target_shard) {
@@ -129,20 +143,19 @@ std::optional<ShardClient> DetermineShardLocation(Shard target_shard, const std:
 
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
 using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, StorageWriteRequest, StorageWriteResponse,
-                              ScanVerticesRequest, ScanVerticesResponse>;
+                              StorageReadRequest, StorageReadResponse>;
 
 template <typename IoImpl>
 void RunStorageRaft(
-    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>
-        server) {
+    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse> server) {
   server.Run();
 }
 
 int main() {
   SimulatorConfig config{
-      .drop_percent = 0,
-      .perform_timeouts = false,
-      .scramble_messages = false,
+      .drop_percent = 5,
+      .perform_timeouts = true,
+      .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
       .abort_time = Time::min() + std::chrono::microseconds{2 * 8 * 1024 * 1024},
@@ -257,7 +270,8 @@ int main() {
     const CompoundKey compound_key = {cm_key_1, cm_key_2};
 
     // Look for Shard
-    BasicResult<TimedOut, memgraph::coordinator::ReadResponses> read_res = coordinator_client.SendReadRequest(req);
+    BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res =
+        coordinator_client.SendWriteRequest(req);
 
     if (read_res.HasError()) {
       // timeout

@@ -41,8 +41,6 @@ class RsmClient {
 
   Io<IoImpl> io_;
   Address leader_;
-
-  std::mt19937 cli_rng_{0};
   ServerPool server_addrs_;
 
   template <typename ResponseT>
@@ -53,7 +51,7 @@ class RsmClient {
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
     } else if (!response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
-      size_t addr_index = addr_distrib(cli_rng_);
+      size_t addr_index = io_.Rand(addr_distrib);
       leader_ = server_addrs_[addr_index];
 
       spdlog::debug(
@@ -84,7 +82,6 @@ class RsmClient {
 
       if (response_result.HasError()) {
         spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        // continue;
         return response_result.GetError();
       }
 
