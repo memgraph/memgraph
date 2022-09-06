@@ -177,7 +177,7 @@ void Execute(
     threads.push_back(std::thread([&, worker]() {
       memgraph::io::network::Endpoint endpoint(FLAGS_address, FLAGS_port);
       memgraph::communication::ClientContext context(FLAGS_use_ssl);
-      memgraph::communication::bolt::Client client(&context);
+      memgraph::communication::bolt::Client client(context);
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);

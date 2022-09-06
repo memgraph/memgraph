@@ -1292,6 +1292,12 @@ struct mgp_proc;
 /// Describes a Memgraph magic function.
 struct mgp_func;
 
+/// All available log levels that can be used in mgp_log function
+MGP_ENUM_CLASS mgp_log_level{
+    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
+    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
+};
+
 /// Entry-point for a query module read procedure, invoked through openCypher.
 ///
 /// Passed in arguments will not live longer than the callback's execution.
@@ -1386,6 +1392,9 @@ enum mgp_error mgp_proc_add_result(struct mgp_proc *proc, const char *name, stru
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid result name.
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a result field with the same name was already added.
 enum mgp_error mgp_proc_add_deprecated_result(struct mgp_proc *proc, const char *name, struct mgp_type *type);
+
+/// Log a message on a certain level.
+enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 ///@}
 
 /// @name Execution
@@ -1511,6 +1520,10 @@ enum mgp_error mgp_module_add_transformation(struct mgp_module *module, const ch
 /// the values provided as arguments to the method.
 ///
 ///@{
+
+/// State of the database that is exposed to magic functions. Currently it is unused, but it enables extending the
+/// functionalities of magic functions in future without breaking the API.
+struct mgp_func_context;
 
 /// Add a required argument to a function.
 ///
