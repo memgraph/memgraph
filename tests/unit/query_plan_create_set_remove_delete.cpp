@@ -114,7 +114,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Deny("label1",
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    EXPECT_EQ(test_create(user), 0);
+    ASSERT_THROW(test_create(user), QueryRuntimeException);
   }
 }
 
@@ -212,8 +212,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
-    auto results = CollectProduce(*produce, &context);
-    EXPECT_EQ(0, results.size());
+    ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
 
@@ -752,8 +751,15 @@ TEST(QueryPlan, Delete) {
   }
 }
 
-TEST(QueryPlan, FineGrainedDelete) {
-  auto init_graph = [](memgraph::query::DbAccessor &dba) {
+class DeleteOperatorWithAuthFixture : public testing::Test {
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  void initGraph() {
     std::vector<memgraph::query::VertexAccessor> vertices;
     for (int i = 0; i < 4; ++i) {
       memgraph::query::VertexAccessor v{dba.InsertVertex()};
@@ -768,20 +774,23 @@ TEST(QueryPlan, FineGrainedDelete) {
     }
 
     dba.AdvanceCommand();
-  };
 
-  auto test_delete_node = [&](memgraph::auth::User &user, int expected_nodes) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
+    assertInitGraphValid();
+  }
 
-    // make a fully-connected (one-direction, no cycles) with 4 nodes
-    init_graph(dba);
+ private:
+  void assertInitGraphValid() {
     EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
     EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
+  }
+};
 
-    AstStorage storage;
-    SymbolTable symbol_table;
+TEST_F(DeleteOperatorWithAuthFixture, FineGrainedDeleteOperatorOnNodes) {
+  auto test_delete_nodes_hypothesis = [&](int expected_result_size) {
+    EXPECT_EQ(expected_result_size, CountIterable(dba.Vertices(memgraph::storage::View::NEW)));
+  };
+
+  auto delete_all_nodes = [&](memgraph::auth::User &user) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     Frame frame(symbol_table.max_position());
@@ -790,21 +799,20 @@ TEST(QueryPlan, FineGrainedDelete) {
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(expected_nodes, CountIterable(dba.Vertices(memgraph::storage::View::NEW)));
   };
 
-  auto test_delete_edges = [&](memgraph::auth::User &user, int expected_edges) {
-    memgraph::storage::Storage db;
-    auto storage_dba = db.Access();
-    memgraph::query::DbAccessor dba(&storage_dba);
-
+  auto execute_delete_nodes_test_suite = [&](memgraph::auth::User &user, int expected_nodes) {
     // make a fully-connected (one-direction, no cycles) with 4 nodes
-    init_graph(dba);
-    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
+    initGraph();
+    delete_all_nodes(user);
+    test_delete_nodes_hypothesis(expected_nodes);
+  };
 
-    AstStorage storage;
-    SymbolTable symbol_table;
+  auto test_delete_edges_hypothesis = [&](int expected_result_size) {
+    EXPECT_EQ(expected_result_size, CountEdges(&dba, memgraph::storage::View::NEW));
+  };
+
+  auto delete_all_edges = [&](memgraph::auth::User &user) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                           memgraph::storage::View::NEW);
@@ -814,7 +822,13 @@ TEST(QueryPlan, FineGrainedDelete) {
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
-    EXPECT_EQ(expected_edges, CountEdges(&dba, memgraph::storage::View::NEW));
+  };
+
+  auto execute_delete_edges_test_suite = [&](memgraph::auth::User &user, int expected_edges) {
+    // make a fully-connected (one-direction, no cycles) with 4 nodes
+    initGraph();
+    delete_all_edges(user);
+    test_delete_edges_hypothesis(expected_edges);
   };
 
   // All labels denied
@@ -823,7 +837,7 @@ TEST(QueryPlan, FineGrainedDelete) {
     user.fine_grained_access_handler().label_permissions().Deny("*",
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    test_delete_node(user, 4);
+    ASSERT_THROW(execute_delete_nodes_test_suite(user, 0), QueryRuntimeException);
   }
 
   // One Label granted
@@ -831,7 +845,16 @@ TEST(QueryPlan, FineGrainedDelete) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("l1",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    test_delete_node(user, 3);
+    ASSERT_THROW(execute_delete_nodes_test_suite(user, 0), QueryRuntimeException);
+    // test_delete_node(user, 3);
+  }
+
+  // All labels granted
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    execute_delete_nodes_test_suite(user, 0);
   }
 
   // All labels granted,All edge types denied
@@ -841,7 +864,7 @@ TEST(QueryPlan, FineGrainedDelete) {
     user.fine_grained_access_handler().edge_type_permissions().Deny(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    test_delete_edges(user, 6);
+    ASSERT_THROW(execute_delete_edges_test_suite(user, 0), QueryRuntimeException);
   }
 
   // Specific label granted, Specific edge types granted
@@ -860,7 +883,7 @@ TEST(QueryPlan, FineGrainedDelete) {
     user.fine_grained_access_handler().edge_type_permissions().Deny(
         "type3", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    test_delete_edges(user, 5);
+    ASSERT_THROW(execute_delete_edges_test_suite(user, 0), QueryRuntimeException);
   }
 
   // All labels granted, All edge_types granted
@@ -871,8 +894,8 @@ TEST(QueryPlan, FineGrainedDelete) {
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    test_delete_node(user, 0);
-    test_delete_edges(user, 0);
+    execute_delete_edges_test_suite(user, 0);
+    execute_delete_nodes_test_suite(user, 0);
   }
 }
 
@@ -1884,6 +1907,43 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   }
 
   {
+    auto user = memgraph::auth::User{"granted_read_label"};
+
+    user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
+                                                                 memgraph::auth::FineGrainedPermission::READ);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
+    test_remove_hypothesis(1);
+  }
+
+  {
+    auto user = memgraph::auth::User{"granted_read_global"};
+
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteSetPropertyOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteSetPropertiesOnVertex(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetVertexProperty(v);
+    ASSERT_THROW(ExecuteRemovePropertyOnVertex(user), QueryRuntimeException);
+    test_remove_hypothesis(1);
+  }
+
+  {
     auto user = memgraph::auth::User{"granted_update_label_denied_read_global"};
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
@@ -2113,6 +2173,45 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     SetEdgeProperty(edge.GetValue());
     ExecuteRemovePropertyOnEdge(user);
     test_remove_hypothesis(0);
+  }
+
+  {
+    auto user = memgraph::auth::User{"granted_read_edge_type"};
+
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
+    test_remove_hypothesis(1);
+  }
+
+  {
+    auto user = memgraph::auth::User{"granted_read_global"};
+
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteSetPropertyOnEdge(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteSetPropertiesOnEdge(user, 2), QueryRuntimeException);
+    test_hypothesis(1);
+
+    SetEdgeProperty(edge.GetValue());
+    ASSERT_THROW(ExecuteRemovePropertyOnEdge(user), QueryRuntimeException);
+    test_remove_hypothesis(1);
   }
 
   {
