@@ -205,9 +205,65 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
 }
 
 WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
+  auto acc = shard_.Access();
+
+  bool action_successful = true;
+
+  for (const auto &vertex : req.new_properties) {
+    if (!action_successful) {
+      break;
+    }
+
+    auto vertex_to_update = acc.FindVertex(vertex.vertex.second, View::OLD);
+    if (!vertex_to_update) {
+      action_successful = false;
+      spdlog::debug(
+          &"Vertex could not be found while trying to update its properties. Transaction id: "[req.transaction_id
+                                                                                                   .logical_id]);
+      continue;
+    }
+
+    for (const auto &update_prop : vertex.property_updates) {
+      // TODO(gvolfing) Maybe check if the setting is valid if SetPropertyAndValidate()
+      // does not do that alreaedy.
+      auto result_schema =
+          vertex_to_update->SetPropertyAndValidate(update_prop.first, to_property_value(update_prop.second));
+      if (result_schema.HasError()) {
+        auto &error = result_schema.GetError();
+
+        std::visit(
+            [&action_successful]<typename T>(T &&) {
+              using ErrorType = std::remove_cvref_t<T>;
+              if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
+                action_successful = false;
+                spdlog::debug("Updating vertex failed with error: SchemaViolation");
+              } else if constexpr (std::is_same_v<ErrorType, Error>) {
+                action_successful = false;
+                spdlog::debug("Updating vertex failed with error: Error");
+              } else {
+                static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+              }
+            },
+            error);
+
+        break;
+      }
+    }
+  }
+
   UpdateVerticesResponse resp{};
-  // QUESTION what does it mean to update Vertices? -> UPDATE/DELETE PROPERTIES SetProperties()
-  // Update properties?
+
+  resp.success = action_successful;
+
+  if (action_successful) {
+    auto result = acc.Commit(req.transaction_id.logical_id);
+    if (result.HasError()) {
+      resp.success = false;
+      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
+                                                                                                          .logical_id]);
+    }
+  }
+
   return resp;
 }
 
@@ -281,7 +337,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   //   {
   //     spdlog::debug(&"Error while trying to delete edge. Transaction id: "[req.transaction_id.logical_id]);
   //     action_successful = false;
-  //     break;
+  //     continue;
   //   }
   // }
 
