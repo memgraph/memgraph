@@ -88,6 +88,10 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
+    if (!action_successful) {
+      break;
+    }
+
     /// TODO(gvolfing) Remove this. In the new implementation each shard
     /// will have a predetermined primary label, so there is no point in
     /// specifying it in the accessor functions. Their signature will
@@ -142,14 +146,19 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   auto acc = shard_.Access();
 
   for (auto &propval : req.primary_keys) {
+    if (!action_successful) {
+      break;
+    }
     // QUESTION what is the EdgeId and VertexID exactly? I might search based on the wrong vector.
     // QUESTION what should be the view and why?
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
 
-    // QUESTION if the vertex we want to delete does not exist, should that be handled as success? -> FAILURE
     if (!vertex_acc) {
       // Vertex does not exist.
-      // action_successful = false;?
+      spdlog::debug(
+          &"Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: "[req.transaction_id
+                                                                                                        .logical_id]);
+      action_successful = false;
     } else {
       switch (req.deletion_type) {
         case DeleteVerticesRequest::DeletionType::DELETE: {
@@ -215,6 +224,10 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   bool action_successful = true;
 
   for (const auto &edge : req.edges) {
+    if (!action_successful) {
+      break;
+    }
+
     auto vertex_acc_from_primary_key = edge.src.second;
     auto vertex_from_acc = acc.FindVertex(vertex_acc_from_primary_key, View::OLD);
 
@@ -225,6 +238,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       action_successful = false;
       spdlog::debug(
           &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
+      continue;
     }
 
     auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
@@ -234,6 +248,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
     if (edge_acc.HasError()) {
       action_successful = false;
       spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+      continue;
     }
 
   }  // for
