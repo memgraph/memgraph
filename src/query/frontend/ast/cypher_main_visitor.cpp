@@ -1622,7 +1622,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     if (relationshipDetail->total_weight && edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH &&
         edge->type_ != EdgeAtom::Type::ALL_SHORTEST_PATHS)
       throw SemanticException(
-          "Variable for total weight is allowed only with weighted shortest "
+          "Variable for total weight is allowed only with weighted and all shortest "
           "path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
@@ -1658,8 +1658,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       case 1:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-          // For wShortest, the first (and required) lambda is used for weight
-          // calculation.
+          // For wShortest and allShortest, the first (and required) lambda is
+          // used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           visit_total_weight();
           // Add mandatory inner variables for filter lambda.
@@ -1758,7 +1758,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     upper = std::any_cast<Expression *>(ctx->expression()[1]->accept(this));
   }
   if (lower && (edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge_type == EdgeAtom::Type::ALL_SHORTEST_PATHS))
-    throw SemanticException("Lower bound is not allowed in weighted shortest path expansion.");
+    throw SemanticException("Lower bound is not allowed in weighted or all shortest path expansion.");
 
   return std::make_tuple(edge_type, lower, upper);
 }
