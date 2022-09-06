@@ -168,7 +168,8 @@ class VertexAccessor final {
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.InEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -185,7 +186,8 @@ class VertexAccessor final {
   auto OutEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -294,7 +296,9 @@ class DbAccessor final {
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
+    static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
+    auto maybe_edge = accessor_->CreateEdge(from->impl_.Id(storage::v3::View::NEW).GetValue(),
+                                            to->impl_.Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
     if (maybe_edge.HasError()) return storage::v3::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);
   }
