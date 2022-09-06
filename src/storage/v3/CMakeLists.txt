@@ -15,6 +15,7 @@ set(storage_v3_src_files
     schemas.cpp
     schema_validator.cpp
     shard.cpp
+    bindings/typed_value.cpp
     storage.cpp)
 
 # #### Replication #####
@@ -38,6 +39,7 @@ find_package(Threads REQUIRED)
 
 add_library(mg-storage-v3 STATIC ${storage_v3_src_files})
 target_link_libraries(mg-storage-v3 Threads::Threads mg-utils gflags)
+target_include_directories(mg-storage-v3 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bindings)
 
 add_dependencies(mg-storage-v3 generate_lcp_storage)
 target_link_libraries(mg-storage-v3 mg-rpc mg-slk mg-expr)
