@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::storage::v3 {
@@ -50,13 +52,38 @@ class Path {
 
   auto size() const;
 
-  std::pmr::vector<VertexAccessor> &vertices();
-  std::pmr::vector<EdgeAccessor> &edges();
-  const std::pmr::vector<VertexAccessor> &vertices() const;
-  const std::pmr::vector<EdgeAccessor> &edges() const;
+  std::pmr::vector<VertexAccessor> &vertices() {
+    MG_ASSERT(false, "Using vertices on Path from storage!");
+    return vertices_;
+  }
 
-  utils::MemoryResource *GetMemoryResource() const;
+  std::pmr::vector<EdgeAccessor> &edges() {
+    MG_ASSERT(false, "Using edges on Path from storage!");
+    return edges_;
+  }
 
-  bool operator==(const Path &other) const;
+  const std::pmr::vector<VertexAccessor> &vertices() const {
+    MG_ASSERT(false, "Using vertices on Path from storage!");
+    return vertices_;
+  }
+
+  const std::pmr::vector<EdgeAccessor> &edges() const {
+    MG_ASSERT(false, "Using edges on Path from storage!");
+    return edges_;
+  }
+
+  utils::MemoryResource *GetMemoryResource() const {
+    MG_ASSERT(false, "Using GetMemoryResource on Path from storage!");
+    return nullptr;
+  }
+
+  bool operator==(const Path & /*other*/) const {
+    MG_ASSERT(false, "Using operator= on Path from storage!");
+    return false;
+  };
+
+ private:
+  std::pmr::vector<VertexAccessor> vertices_;
+  std::pmr::vector<EdgeAccessor> edges_;
 };
 }  // namespace memgraph::storage::v3

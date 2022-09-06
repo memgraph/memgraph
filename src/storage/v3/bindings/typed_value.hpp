@@ -11,9 +11,9 @@
 
 #pragma once
 
-#include "storage/v3/bindings/bindings.hpp"
-
 #include "expr/typed_value.hpp"
+
+#include "storage/v3/bindings/bindings.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/path.hpp"
 #include "storage/v3/vertex_accessor.hpp"

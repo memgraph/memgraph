@@ -11,5 +11,5 @@
 
 #pragma once
 
-#define MG_AST_INCLUDE_PATH "storage/v3/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
+#define MG_AST_INCLUDE_PATH "storage/v3/bindings/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
 #define MG_INJECTED_NAMESPACE_NAME memgraph::storage::v3       // NOLINT(cppcoreguidelines-macro-usage)

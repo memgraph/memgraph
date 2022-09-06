@@ -1,0 +1,2673 @@
+;; Copyright 2022 Memgraph Ltd.
+;;
+;; Use of this software is governed by the Business Source License
+;; included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+;; License, and you may not use this file except in compliance with the Business Source License.
+;;
+;; As of the Change Date specified in that file, in accordance with
+;; the Business Source License, use of this software will be governed
+;; by the Apache License, Version 2.0, included in the file
+;; licenses/APL.txt.
+
+#>cpp
+#pragma once
+
+#include <memory>
+#include <unordered_map>
+#include <variant>
+#include <vector>
+
+#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/typed_value.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/typeinfo.hpp"
+
+cpp<#
+
+(lcp:namespace memgraph)
+(lcp:namespace storage)
+(lcp:namespace v3)
+
+(defun slk-save-ast-pointer (member)
+  #>cpp
+  storage::SaveAstPointer(self.${member}, builder);
+  cpp<#)
+
+(defun slk-load-ast-pointer (type)
+  (lambda (member)
+    #>cpp
+    self->${member} = storage::LoadAstPointer<storage::${type}>(storage, reader);
+    cpp<#))
+
+(defun slk-save-ast-vector (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto *val : self.${member}) {
+    storage::SaveAstPointer(val, builder);
+  }
+  cpp<#)
+
+(defun slk-load-ast-vector (type)
+  (lambda (member)
+    #>cpp
+    size_t size = 0;
+    slk::Load(&size, reader);
+    self->${member}.resize(size);
+    for (size_t i = 0; i < size; ++i) {
+      self->${member}[i] = storage::LoadAstPointer<storage::${type}>(storage, reader);
+    }
+    cpp<#))
+
+(defun slk-save-property-map (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto &entry : self.${member}) {
+    slk::Save(entry.first, builder);
+    storage::SaveAstPointer(entry.second, builder);
+  }
+  cpp<#)
+
+(defun slk-load-property-map (member)
+  #>cpp
+  size_t size = 0;
+  slk::Load(&size, reader);
+  for (size_t i = 0; i < size; ++i) {
+    storage::PropertyIx key;
+    slk::Load(&key, reader, storage);
+    auto *value = storage::LoadAstPointer<storage::Expression>(storage, reader);
+    self->${member}.emplace(key, value);
+  }
+  cpp<#)
+
+(defun clone-property-map (source dest)
+  #>cpp
+  for (const auto &entry : ${source}) {
+    PropertyIx key = storage->GetPropertyIx(entry.first.name);
+    ${dest}[key] = entry.second->Clone(storage);
+  }
+  cpp<#)
+
+(defun slk-save-expression-map (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto &entry : self.${member}) {
+    storage::SaveAstPointer(entry.first, builder);
+    storage::SaveAstPointer(entry.second, builder);
+  }
+  cpp<#)
+
+(defun slk-load-expression-map (member)
+  #>cpp
+  size_t size = 0;
+  slk::Load(&size, reader);
+  for (size_t i = 0; i < size; ++i) {
+    auto *key = storage::LoadAstPointer<storage::Expression>(storage, reader);
+    auto *value = storage::LoadAstPointer<storage::Expression>(storage, reader);
+    self->${member}.emplace(key, value);
+  }
+  cpp<#)
+
+(defun clone-expression-map (source dest)
+  #>cpp
+  for (const auto &[key, value] : ${source}) {
+    ${dest}[key->Clone(storage)] = value->Clone(storage);
+  }
+  cpp<#)
+
+(defun slk-load-name-ix (name-type)
+  (lambda (member)
+    #>cpp
+    self->${member} = storage->Get${name-type}Ix(self->name).ix;
+    cpp<#))
+
+(defun clone-name-ix-vector (name-type)
+  (lambda (source dest)
+    #>cpp
+    ${dest}.resize(${source}.size());
+    for (auto i = 0; i < ${dest}.size(); ++i) {
+      ${dest}[i] = storage->Get${name-type}Ix(${source}[i].name);
+    }
+    cpp<#))
+
+;; The following index structs serve as a decoupling point of AST from
+;; concrete database types. All the names are collected in AstStorage, and can
+;; be indexed through these instances. This means that we can create a vector
+;; of concrete database types in the same order as all of the names and use the
+;; same index to get the correct behaviour. Additionally, each index is
+;; accompanied with the duplicated name found at the same index. The primary
+;; reason for this duplication is simplifying the Clone and serialization API.
+;; When an old index is being cloned or deserialized into a new AstStorage, we
+;; request the new `ix` from the new AstStorage for the same `name`. If we
+;; didn't do this, we would have to duplicate the old storage, which would
+;; require having access to that storage. This in turn would complicate the
+;; client code.
+(lcp:define-struct label-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "Label")))
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+
+(lcp:define-struct property-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "Property")))
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+
+(lcp:define-struct edge-type-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "EdgeType")))
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+
+#>cpp
+inline bool operator==(const LabelIx &a, const LabelIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
+
+inline bool operator==(const PropertyIx &a, const PropertyIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const PropertyIx &a, const PropertyIx &b) {
+  return !(a == b);
+}
+
+inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) {
+  return !(a == b);
+}
+cpp<#
+
+(lcp:pop-namespace) ;; namespace v3
+(lcp:pop-namespace) ;; namespace storage
+(lcp:pop-namespace) ;; namespace memgraph
+
+#>cpp
+namespace std {
+
+template <>
+struct hash<memgraph::storage::LabelIx> {
+  size_t operator()(const memgraph::storage::LabelIx &label) const { return label.ix; }
+};
+
+template <>
+struct hash<memgraph::storage::PropertyIx> {
+  size_t operator()(const memgraph::storage::PropertyIx &prop) const { return prop.ix; }
+};
+
+template <>
+struct hash<memgraph::storage::EdgeTypeIx> {
+  size_t operator()(const memgraph::storage::EdgeTypeIx &edge_type) const {
+    return edge_type.ix;
+  }
+};
+
+}  // namespace std
+cpp<#
+
+(lcp:namespace memgraph)
+(lcp:namespace storage)
+(lcp:namespace v3)
+
+#>cpp
+
+class Tree;
+
+// It would be better to call this AstTree, but we already have a class Tree,
+// which could be renamed to Node or AstTreeNode, but we also have a class
+// called NodeAtom...
+class AstStorage {
+ public:
+  AstStorage() = default;
+  AstStorage(const AstStorage &) = delete;
+  AstStorage &operator=(const AstStorage &) = delete;
+  AstStorage(AstStorage &&) = default;
+  AstStorage &operator=(AstStorage &&) = default;
+
+  template <typename T, typename... Args>
+  T *Create(Args &&... args) {
+    T *ptr = new T(std::forward<Args>(args)...);
+    std::unique_ptr<T> tmp(ptr);
+    storage_.emplace_back(std::move(tmp));
+    return ptr;
+  }
+
+  LabelIx GetLabelIx(const std::string &name) {
+    return LabelIx{name, FindOrAddName(name, &labels_)};
+  }
+
+  PropertyIx GetPropertyIx(const std::string &name) {
+    return PropertyIx{name, FindOrAddName(name, &properties_)};
+  }
+
+  EdgeTypeIx GetEdgeTypeIx(const std::string &name) {
+    return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)};
+  }
+
+  std::vector<std::string> labels_;
+  std::vector<std::string> edge_types_;
+  std::vector<std::string> properties_;
+
+  // Public only for serialization access
+  std::vector<std::unique_ptr<Tree>> storage_;
+
+ private:
+  int64_t FindOrAddName(const std::string &name,
+                        std::vector<std::string> *names) {
+    for (int64_t i = 0; i < names->size(); ++i) {
+      if ((*names)[i] == name) {
+        return i;
+      }
+    }
+    names->push_back(name);
+    return names->size() - 1;
+  }
+};
+cpp<#
+
+(lcp:define-class tree ()
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    Tree() = default;
+    virtual ~Tree() {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:clone :return-type (lambda (typename)
+                         (format nil "~A*" typename))
+          :args '((storage "AstStorage *"))
+          :init-object (lambda (var typename)
+                         (format nil "~A* ~A = storage->Create<~A>();"
+                                 typename var typename))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Expressions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(lcp:define-class expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                   "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                   "::utils::Visitable<ExpressionVisitor<void>>")
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using utils::Visitable<ExpressionVisitor<void>>::Accept;
+
+    Expression() = default;
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ((expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    Where() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Where(Expression *expression) : expression_(expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class binary-operator (expression)
+  ((expression1 "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression"))
+   (expression2 "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")))
+  (:abstractp t)
+  (:public
+    #>cpp
+    BinaryOperator() = default;
+    cpp<#)
+  (:protected
+    #>cpp
+    BinaryOperator(Expression *expression1, Expression *expression2)
+        : expression1_(expression1), expression2_(expression2) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class unary-operator (expression)
+  ((expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:abstractp t)
+  (:public
+    #>cpp
+    UnaryOperator() = default;
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit UnaryOperator(Expression *expression) : expression_(expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(macrolet ((define-binary-operators ()
+             `(lcp:cpp-list
+               ,@(loop for op in
+                       '(or-operator xor-operator and-operator addition-operator
+                         subtraction-operator multiplication-operator division-operator
+                         mod-operator not-equal-operator equal-operator less-operator
+                         greater-operator less-equal-operator greater-equal-operator
+                         in-list-operator subscript-operator)
+                       collecting
+                       `(lcp:define-class ,op (binary-operator)
+                          ()
+                          (:public
+                            #>cpp
+                            DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                            DEFVISITABLE(ExpressionVisitor<void>);
+                            bool Accept(HierarchicalTreeVisitor &visitor) override {
+                              if (visitor.PreVisit(*this)) {
+                                expression1_->Accept(visitor) && expression2_->Accept(visitor);
+                              }
+                              return visitor.PostVisit(*this);
+                            }
+                            cpp<#)
+                          (:protected
+                            #>cpp
+                            using BinaryOperator::BinaryOperator;
+                            cpp<#)
+                          (:private
+                            #>cpp
+                            friend class AstStorage;
+                            cpp<#)
+                          (:serialize (:slk))
+                          (:clone))))))
+  (define-binary-operators))
+
+(macrolet ((define-unary-operators ()
+             `(lcp:cpp-list
+               ,@(loop for op in
+                       '(not-operator unary-plus-operator
+                         unary-minus-operator is-null-operator)
+                       collecting
+                       `(lcp:define-class ,op (unary-operator)
+                          ()
+                          (:public
+                            #>cpp
+                            DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                            DEFVISITABLE(ExpressionVisitor<void>);
+                            bool Accept(HierarchicalTreeVisitor &visitor) override {
+                              if (visitor.PreVisit(*this)) {
+                                expression_->Accept(visitor);
+                              }
+                              return visitor.PostVisit(*this);
+                            }
+                            cpp<#)
+                          (:protected
+                            #>cpp
+                            using UnaryOperator::UnaryOperator;
+                            cpp<#)
+                          (:private
+                            #>cpp
+                            friend class AstStorage;
+                            cpp<#)
+                          (:serialize (:slk))
+                          (:clone))))))
+  (define-unary-operators))
+
+(lcp:define-class aggregation (binary-operator)
+  ((op "Op" :scope :public)
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
+  (:public
+    (lcp:define-enum op
+      (count min max sum avg collect-list collect-map)
+      (:serialize))
+    #>cpp
+    Aggregation() = default;
+
+    static const constexpr char *const kCount = "COUNT";
+    static const constexpr char *const kMin = "MIN";
+    static const constexpr char *const kMax = "MAX";
+    static const constexpr char *const kSum = "SUM";
+    static const constexpr char *const kAvg = "AVG";
+    static const constexpr char *const kCollect = "COLLECT";
+
+    static std::string OpToString(Op op) {
+      const char *op_strings[] = {kCount, kMin,     kMax,    kSum,
+                                  kAvg,   kCollect, kCollect};
+      return op_strings[static_cast<int>(op)];
+    }
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        if (expression1_) expression1_->Accept(visitor);
+        if (expression2_) expression2_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+
+    Aggregation *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    // Use only for serialization.
+    explicit Aggregation(Op op) : op_(op) {}
+
+    /// Aggregation's first expression is the value being aggregated. The second
+    /// expression is the key used only in COLLECT_MAP.
+    Aggregation(Expression *expression1, Expression *expression2, Op op)
+        : BinaryOperator(expression1, expression2), op_(op) {
+      // COUNT without expression denotes COUNT(*) in cypher.
+      DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT,
+                 "All aggregations, except COUNT require expression");
+      DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::COLLECT_MAP),
+                 "The second expression is obligatory in COLLECT_MAP and "
+                 "invalid otherwise");
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class list-slicing-operator (expression)
+  ((list "Expression *" :initval "nullptr" :scope :public
+         :slk-save #'slk-save-ast-pointer
+         :slk-load (slk-load-ast-pointer "Expression"))
+   (lower-bound "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression"))
+   (upper-bound "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    ListSlicingOperator() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = list_->Accept(visitor);
+        if (cont && lower_bound_) {
+          cont = lower_bound_->Accept(visitor);
+        }
+        if (cont && upper_bound_) {
+          upper_bound_->Accept(visitor);
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+   cpp<#)
+  (:protected
+    #>cpp
+    ListSlicingOperator(Expression *list, Expression *lower_bound,
+                        Expression *upper_bound)
+        : list_(list), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class if-operator (expression)
+  ((condition "Expression *" :scope :public
+              :slk-save #'slk-save-ast-pointer
+              :slk-load (slk-load-ast-pointer "Expression")
+              :documentation "None of the expressions should be nullptr. If there is no else_expression, you should make it null PrimitiveLiteral.")
+   (then-expression "Expression *" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (else-expression "Expression *" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    IfOperator() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        condition_->Accept(visitor) && then_expression_->Accept(visitor) &&
+            else_expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    IfOperator(Expression *condition, Expression *then_expression,
+               Expression *else_expression)
+        : condition_(condition),
+          then_expression_(then_expression),
+          else_expression_(else_expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class base-literal (expression)
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    BaseLiteral() = default;
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class primitive-literal (base-literal)
+  ((value "::storage::PropertyValue" :scope :public)
+   (token-position :int32_t :scope :public :initval -1
+                   :documentation "This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object is not created from query, leave its value at -1."))
+  (:public
+    #>cpp
+    PrimitiveLiteral() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    DEFVISITABLE(HierarchicalTreeVisitor);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:protected
+    #>cpp
+    template <typename T>
+    explicit PrimitiveLiteral(T value) : value_(value) {}
+    template <typename T>
+    PrimitiveLiteral(T value, int token_position)
+        : value_(value), token_position_(token_position) {}
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class list-literal (base-literal)
+  ((elements "std::vector<Expression *>"
+             :scope :public
+             :slk-save #'slk-save-ast-vector
+             :slk-load (slk-load-ast-vector "Expression")))
+  (:public
+    #>cpp
+    ListLiteral() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto expr_ptr : elements_)
+          if (!expr_ptr->Accept(visitor)) break;
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit ListLiteral(const std::vector<Expression *> &elements)
+        : elements_(elements) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class map-literal (base-literal)
+  ((elements "std::unordered_map<PropertyIx, Expression *>"
+             :slk-save #'slk-save-property-map
+             :slk-load #'slk-load-property-map
+             :clone #'clone-property-map
+             :scope :public))
+  (:public
+    #>cpp
+    MapLiteral() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto pair : elements_)
+          if (!pair.second->Accept(visitor)) break;
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit MapLiteral(
+        const std::unordered_map<PropertyIx, Expression *> &elements)
+        : elements_(elements) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class identifier (expression)
+  ((name "std::string" :scope :public)
+   (user-declared :bool :initval "true" :scope :public)
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Identifier is mapped to."))
+  (:public
+    #>cpp
+    Identifier() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    DEFVISITABLE(HierarchicalTreeVisitor);
+
+    Identifier *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
+
+    explicit Identifier(const std::string &name) : name_(name) {}
+    Identifier(const std::string &name, bool user_declared)
+        : name_(name), user_declared_(user_declared) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class property-lookup (expression)
+  ((expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression"))
+   (property "PropertyIx" :scope :public
+             :slk-load (lambda (member)
+                        #>cpp
+                        slk::Load(&self->${member}, reader, storage);
+                        cpp<#)
+             :clone (lambda (source dest)
+                      #>cpp
+                      ${dest} = storage->GetPropertyIx(${source}.name);
+                      cpp<#)))
+  (:public
+    #>cpp
+    PropertyLookup() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    PropertyLookup(Expression *expression, PropertyIx property)
+        : expression_(expression), property_(property) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class labels-test (expression)
+  ((expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression"))
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
+           :clone (clone-name-ix-vector "Label")))
+  (:public
+    #>cpp
+    LabelsTest() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    LabelsTest(Expression *expression, const std::vector<LabelIx> &labels)
+        : expression_(expression), labels_(labels) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class function (expression)
+  ((arguments "std::vector<Expression *>"
+              :scope :public
+              :slk-save #'slk-save-ast-vector
+              :slk-load (slk-load-ast-vector "Expression"))
+   (function-name "std::string" :scope :public)
+   (function "std::function<TypedValue(const TypedValue *, int64_t,
+                                       const FunctionContext &)>"
+             :scope :public
+             :dont-save t
+             :clone :copy
+             :slk-load (lambda (member)
+                        #>cpp
+                        self->${member} = storage::NameToFunction(self->function_name_);
+                        cpp<#)))
+  (:public
+    #>cpp
+    Function() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto *argument : arguments_) {
+          if (!argument->Accept(visitor)) break;
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Function(const std::string &function_name,
+             const std::vector<Expression *> &arguments)
+        : arguments_(arguments),
+          function_name_(function_name),
+          function_(NameToFunction(function_name_)) {
+      if (!function_) {
+        throw SemanticException("Function '{}' doesn't exist.", function_name);
+      }
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class reduce (expression)
+  ((accumulator "Identifier *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Identifier")
+                :documentation "Identifier for the accumulating variable")
+   (initializer "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
+                :documentation "Expression which produces the initial accumulator value.")
+   (identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier")
+               :documentation "Identifier for the list element.")
+   (list "Expression *" :initval "nullptr" :scope :public
+         :slk-save #'slk-save-ast-pointer
+         :slk-load (slk-load-ast-pointer "Expression")
+         :documentation "Expression which produces a list to be reduced.")
+   (expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")
+               :documentation "Expression which does the reduction, i.e. produces the new accumulator value."))
+  (:public
+    #>cpp
+    Reduce() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        accumulator_->Accept(visitor) && initializer_->Accept(visitor) &&
+            identifier_->Accept(visitor) && list_->Accept(visitor) &&
+            expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Reduce(Identifier *accumulator, Expression *initializer, Identifier *identifier,
+           Expression *list, Expression *expression)
+        : accumulator_(accumulator),
+          initializer_(initializer),
+          identifier_(identifier),
+          list_(list),
+          expression_(expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class coalesce (expression)
+  ((expressions "std::vector<Expression *>"
+                :scope :public
+                :slk-save #'slk-save-ast-vector
+                :slk-load (slk-load-ast-vector "Expression")
+                :documentation "A list of expressions to evaluate. None of the expressions should be nullptr."))
+  (:public
+   #>cpp
+   Coalesce() = default;
+
+   DEFVISITABLE(ExpressionVisitor<TypedValue>);
+   DEFVISITABLE(ExpressionVisitor<void>);
+   bool Accept(HierarchicalTreeVisitor &visitor) override {
+     if (visitor.PreVisit(*this)) {
+       for (auto *expr : expressions_) {
+         if (!expr->Accept(visitor)) break;
+       }
+     }
+     return visitor.PostVisit(*this);
+   }
+   cpp<#
+   )
+  (:private
+   #>cpp
+   explicit Coalesce(const std::vector<Expression *> &expressions)
+       : expressions_(expressions) {}
+
+   friend class AstStorage;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class extract (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier")
+               :documentation "Identifier for the list element.")
+   (list "Expression *" :initval "nullptr" :scope :public
+         :slk-save #'slk-save-ast-pointer
+         :slk-load (slk-load-ast-pointer "Expression")
+         :documentation "Expression which produces a list which will be extracted.")
+   (expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")
+               :documentation "Expression which produces the new value for list element."))
+  (:public
+    #>cpp
+    Extract() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_->Accept(visitor) &&
+            expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Extract(Identifier *identifier, Expression *list, Expression *expression)
+        : identifier_(identifier), list_(list), expression_(expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class all (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (list-expression "Expression *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    All() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+            where_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    All(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
+          list_expression_(list_expression),
+          where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
+(lcp:define-class single (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (list-expression "Expression *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    Single() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+            where_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Single(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
+          list_expression_(list_expression),
+          where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
+(lcp:define-class any (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (list-expression "Expression *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    Any() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+            where_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Any(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
+          list_expression_(list_expression),
+          where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
+;; All, Any, None and Single into something like a higher-order function call
+;; which takes a list argument and a function which is applied on list elements.
+(lcp:define-class none (expression)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (list-expression "Expression *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "Expression"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    None() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+            where_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    None(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
+          list_expression_(list_expression),
+          where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class parameter-lookup (expression)
+  ((token-position :int32_t :initval -1 :scope :public
+                   :documentation "This field contains token position of *literal* used to create ParameterLookup object. If ParameterLookup object is not created from a literal leave this value at -1."))
+  (:public
+    #>cpp
+    ParameterLookup() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    DEFVISITABLE(HierarchicalTreeVisitor);
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit ParameterLookup(int token_position)
+        : token_position_(token_position) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class regex-match (expression)
+  ((string-expr "Expression *" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression"))
+   (regex "Expression *" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    RegexMatch() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        string_expr_->Accept(visitor) && regex_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    RegexMatch(Expression *string_expr, Expression *regex)
+        : string_expr_(string_expr), regex_(regex) {}
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                         "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                         "::utils::Visitable<ExpressionVisitor<void>>")
+  ((name "std::string" :scope :public)
+   (expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression"))
+   (token-position :int32_t :initval -1 :scope :public
+                   :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1.")
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this NamedExpression is mapped to."))
+  (:public
+    #>cpp
+    using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using utils::Visitable<ExpressionVisitor<void>>::Accept;
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    NamedExpression() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+
+    NamedExpression *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit NamedExpression(const std::string &name) : name_(name) {}
+    NamedExpression(const std::string &name, Expression *expression)
+        : name_(name), expression_(expression) {}
+    NamedExpression(const std::string &name, Expression *expression,
+                    int token_position)
+        : name_(name), expression_(expression), token_position_(token_position) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; END Expressions
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(lcp:define-class pattern-atom (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier")))
+  (:abstractp t)
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    PatternAtom() = default;
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(defun clone-variant-properties (source destination)
+  #>cpp
+    if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&${source})) {
+      auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(${destination});
+      for (const auto &[property, value_expression] : *properties) {
+        PropertyIx key = storage->GetPropertyIx(property.name);
+        new_obj_properties[key] = value_expression->Clone(storage);
+      }
+    } else {
+      ${destination} = std::get<ParameterLookup *>(${source})->Clone(storage);
+    }
+  cpp<#)
+
+(lcp:define-class node-atom (pattern-atom)
+  ((labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
+           :clone (clone-name-ix-vector "Label"))
+   (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, ParameterLookup*>"
+              :clone #'clone-variant-properties
+              :scope :public))
+  (:public
+    #>cpp
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        if (auto* properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
+          bool cont = identifier_->Accept(visitor);
+          for (auto &property : *properties) {
+            if (cont) {
+              cont = property.second->Accept(visitor);
+            }
+          }
+        } else {
+          std::get<ParameterLookup*>(properties_)->Accept(visitor);
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    using PatternAtom::PatternAtom;
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class edge-atom (pattern-atom)
+  ((type "Type" :initval "Type::SINGLE" :scope :public)
+   (direction "Direction" :initval "Direction::BOTH" :scope :public)
+   (edge-types "std::vector<EdgeTypeIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
+               :clone (clone-name-ix-vector "EdgeType"))
+   (properties "std::variant<std::unordered_map<PropertyIx, Expression *>, ParameterLookup*>"
+               :scope :public
+               :slk-save #'slk-save-property-map
+               :slk-load #'slk-load-property-map
+               :clone #'clone-variant-properties)
+   (lower-bound "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
+                :documentation "Evaluates to lower bound in variable length expands.")
+   (upper-bound "Expression *" :initval "nullptr" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
+                :documentation "Evaluated to upper bound in variable length expands.")
+   (filter-lambda "Lambda" :scope :public
+                  :documentation "Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an optimization pass may inline other expressions into this lambda."
+                  :slk-load (lambda (member)
+                              #>cpp
+                              slk::Load(&self->${member}, reader, storage);
+                              cpp<#))
+   (weight-lambda "Lambda" :scope :public
+                  :documentation "Used in weighted shortest path. It must have valid expressions and identifiers. In all other expand types, it is empty."
+                  :slk-load (lambda (member)
+                              #>cpp
+                              slk::Load(&self->${member}, reader, storage);
+                              cpp<#))
+   (total-weight "Identifier *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Identifier")
+                 :documentation "Variable where the total weight for weighted shortest path will be stored."))
+  (:public
+    (lcp:define-enum type
+                     (single depth-first breadth-first weighted-shortest-path)
+                     (:serialize))
+    (lcp:define-enum direction
+                     (in out both)
+                     (:serialize))
+    (lcp:define-struct lambda ()
+      ((inner-edge "Identifier *" :initval "nullptr"
+                   :slk-save #'slk-save-ast-pointer
+                   :slk-load (slk-load-ast-pointer "Identifier")
+                   :documentation "Argument identifier for the edge currently being traversed.")
+       (inner-node "Identifier *" :initval "nullptr"
+                   :slk-save #'slk-save-ast-pointer
+                   :slk-load (slk-load-ast-pointer "Identifier")
+                   :documentation "Argument identifier for the destination node of the edge.")
+       (expression "Expression *" :initval "nullptr"
+                   :slk-save #'slk-save-ast-pointer
+                   :slk-load (slk-load-ast-pointer "Expression")
+                   :documentation "Evaluates the result of the lambda."))
+      (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
+      (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+      (:clone :args '((storage "AstStorage *"))))
+    #>cpp
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = identifier_->Accept(visitor);
+        if (auto *properties = std::get_if<std::unordered_map<storage::PropertyIx, storage::Expression *>>(&properties_)) {
+          for (auto &property : *properties) {
+            if (cont) {
+              cont = property.second->Accept(visitor);
+            }
+          }
+        } else {
+          std::get<ParameterLookup *>(properties_)->Accept(visitor);
+        }
+        if (cont && lower_bound_) {
+          cont = lower_bound_->Accept(visitor);
+        }
+        if (cont && upper_bound_) {
+          cont = upper_bound_->Accept(visitor);
+        }
+        if (cont && total_weight_) {
+          total_weight_->Accept(visitor);
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+
+    bool IsVariable() const {
+      switch (type_) {
+        case Type::DEPTH_FIRST:
+        case Type::BREADTH_FIRST:
+        case Type::WEIGHTED_SHORTEST_PATH:
+          return true;
+        case Type::SINGLE:
+          return false;
+      }
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    using PatternAtom::PatternAtom;
+    EdgeAtom(Identifier *identifier, Type type, Direction direction)
+        : PatternAtom(identifier), type_(type), direction_(direction) {}
+
+    // Creates an edge atom for a SINGLE expansion with the given .
+    EdgeAtom(Identifier *identifier, Type type, Direction direction,
+             const std::vector<EdgeTypeIx> &edge_types)
+        : PatternAtom(identifier),
+          type_(type),
+          direction_(direction),
+          edge_types_(edge_types) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (atoms "std::vector<PatternAtom *>"
+          :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "PatternAtom")))
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    Pattern() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = identifier_->Accept(visitor);
+        for (auto &part : atoms_) {
+          if (cont) {
+            cont = part->Accept(visitor);
+          }
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    Clause() = default;
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ((clauses "std::vector<Clause *>"
+            :scope :public
+            :slk-save #'slk-save-ast-vector
+            :slk-load (slk-load-ast-vector "Clause")))
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    SingleQuery() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto &clause : clauses_) {
+          if (!clause->Accept(visitor)) break;
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
+  ((single-query "SingleQuery *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "SingleQuery"))
+   (distinct :bool :initval "false" :scope :public)
+   (union-symbols "std::vector<Symbol>" :scope :public
+                  :documentation "Holds symbols that are created during symbol generation phase. These symbols are used when UNION/UNION ALL combines single query results."))
+  (:public
+    #>cpp
+    using utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
+    CypherUnion() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        single_query_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit CypherUnion(bool distinct) : distinct_(distinct) {}
+    CypherUnion(bool distinct, SingleQuery *single_query,
+                std::vector<Symbol> union_symbols)
+        : single_query_(single_query),
+          distinct_(distinct),
+          union_symbols_(union_symbols) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    using utils::Visitable<QueryVisitor<void>>::Accept;
+
+    Query() = default;
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
+
+(lcp:define-class cypher-query (query)
+  ((single-query "SingleQuery *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "SingleQuery")
+                 :documentation "First and potentially only query.")
+   (cypher-unions "std::vector<CypherUnion *>"
+                  :scope :public
+                  :slk-save #'slk-save-ast-vector
+                  :slk-load (slk-load-ast-vector "CypherUnion")
+                  :documentation "Contains remaining queries that should form and union with `single_query_`.")
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public))
+  (:public
+    #>cpp
+    CypherQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class explain-query (query)
+  ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "CypherQuery")
+                 :documentation "The CypherQuery to explain."))
+  (:public
+    #>cpp
+    ExplainQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class profile-query (query)
+  ((cypher-query "CypherQuery *"
+                 :initval "nullptr"
+                 :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "CypherQuery")
+                 :documentation "The CypherQuery to profile."))
+  (:public
+   #>cpp
+   ProfileQuery() = default;
+
+   DEFVISITABLE(QueryVisitor<void>);
+   cpp<#)
+  (:private
+   #>cpp
+   friend class AstStorage;
+   cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class index-query (query)
+  ((action "Action" :scope :public)
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
+   (properties "std::vector<PropertyIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
+               :clone (clone-name-ix-vector "Property")))
+  (:public
+   (lcp:define-enum action
+       (create drop)
+     (:serialize))
+
+    #>cpp
+    IndexQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+  cpp<#)
+  (:protected
+    #>cpp
+    IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+        : action_(action), label_(label), properties_(properties) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class create (clause)
+  ((patterns "std::vector<Pattern *>"
+             :scope :public
+             :slk-save #'slk-save-ast-vector
+             :slk-load (slk-load-ast-vector "Pattern")))
+  (:public
+    #>cpp
+    Create() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto &pattern : patterns_) {
+          if (!pattern->Accept(visitor)) break;
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Create(std::vector<Pattern *> patterns) : patterns_(patterns) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class call-procedure (clause)
+  ((procedure-name "std::string" :scope :public)
+   (arguments "std::vector<Expression *>"
+              :scope :public
+              :slk-save #'slk-save-ast-vector
+              :slk-load (slk-load-ast-vector "Expression"))
+   (result-fields "std::vector<std::string>" :scope :public)
+   (result-identifiers "std::vector<Identifier *>"
+                       :scope :public
+                       :slk-save #'slk-save-ast-vector
+                       :slk-load (slk-load-ast-vector "Identifier"))
+   (memory-limit "Expression *" :initval "nullptr" :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "Expression"))
+   (memory-scale "size_t" :initval "1024U" :scope :public)
+   (is_write :bool  :scope :public))
+  (:public
+    #>cpp
+    CallProcedure() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        for (auto &arg : arguments_) {
+          if (!arg->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
+        if (cont) {
+          for (auto &ident : result_identifiers_) {
+            if (!ident->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class match (clause)
+  ((patterns "std::vector<Pattern *>"
+             :scope :public
+             :slk-save #'slk-save-ast-vector
+             :slk-load (slk-load-ast-vector "Pattern"))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where"))
+   (optional :bool :initval "false" :scope :public))
+  (:public
+    #>cpp
+    Match() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        for (auto &pattern : patterns_) {
+          if (!pattern->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
+        if (cont && where_) {
+          where_->Accept(visitor);
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Match(bool optional) : optional_(optional) {}
+    Match(bool optional, Where *where, std::vector<Pattern *> patterns)
+        : patterns_(patterns), where_(where), optional_(optional) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-enum ordering
+    (asc desc)
+  (:documentation "Defines the order for sorting values (ascending or descending).")
+  (:serialize))
+
+(lcp:define-struct sort-item ()
+  ((ordering "Ordering" :scope :public)
+   (expression "Expression *"
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:clone :args '((storage "AstStorage *"))))
+
+(lcp:define-struct return-body ()
+  ((distinct :bool :initval "false"
+             :documentation "True if distinct results should be produced.")
+   (all-identifiers :bool :initval "false"
+                    :documentation "True if asterisk was found in the return body.")
+   (named-expressions "std::vector<NamedExpression *>"
+                      :slk-save #'slk-save-ast-vector
+                      :slk-load (slk-load-ast-vector "NamedExpression")
+                      :documentation "Expressions which are used to produce results.")
+   (order-by "std::vector<SortItem>"
+             :slk-load (lambda (member)
+                         #>cpp
+                         size_t size = 0;
+                         slk::Load(&size, reader);
+                         self->${member}.resize(size);
+                         for (size_t i = 0; i < size; ++i) {
+                           slk::Load(&self->${member}[i], reader, storage);
+                         }
+                         cpp<#)
+             :documentation "Expressions used for ordering the results.")
+   (skip "Expression *" :initval "nullptr"
+         :slk-save #'slk-save-ast-pointer
+         :slk-load (slk-load-ast-pointer "Expression")
+         :documentation "Optional expression on how many results to skip.")
+   (limit "Expression *" :initval "nullptr"
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Expression")
+          :documentation "Optional expression on how many results to produce."))
+  (:documentation "Contents common to @c Return and @c With clauses.")
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:clone :args '((storage "AstStorage *"))))
+
+(lcp:define-class return (clause)
+  ((body "ReturnBody" :scope :public
+         :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)))
+  (:public
+    #>cpp
+    Return() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        for (auto &expr : body_.named_expressions) {
+          if (!expr->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
+        if (cont) {
+          for (auto &order_by : body_.order_by) {
+            if (!order_by.expression->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+        if (cont && body_.skip) cont = body_.skip->Accept(visitor);
+        if (cont && body_.limit) cont = body_.limit->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Return(ReturnBody &body) : body_(body) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class with (clause)
+  ((body "ReturnBody" :scope :public
+         :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#))
+   (where "Where *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Where")))
+  (:public
+    #>cpp
+    With() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        for (auto &expr : body_.named_expressions) {
+          if (!expr->Accept(visitor)) {
+            cont = false;
+            break;
+          }
+        }
+        if (cont) {
+          for (auto &order_by : body_.order_by) {
+            if (!order_by.expression->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+        if (cont && where_) cont = where_->Accept(visitor);
+        if (cont && body_.skip) cont = body_.skip->Accept(visitor);
+        if (cont && body_.limit) cont = body_.limit->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    With(ReturnBody &body, Where *where) : body_(body), where_(where) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class delete (clause)
+  ((expressions "std::vector<Expression *>"
+                :slk-save #'slk-save-ast-vector
+                :slk-load (slk-load-ast-vector "Expression")
+                :scope :public)
+   (detach :bool :initval "false" :scope :public))
+  (:public
+    #>cpp
+    Delete() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        for (auto &expr : expressions_) {
+          if (!expr->Accept(visitor)) break;
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Delete(bool detach, std::vector<Expression *> expressions)
+        : expressions_(expressions), detach_(detach) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class set-property (clause)
+  ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "PropertyLookup"))
+   (expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression")))
+  (:public
+    #>cpp
+    SetProperty() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        property_lookup_->Accept(visitor) && expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    SetProperty(PropertyLookup *property_lookup, Expression *expression)
+        : property_lookup_(property_lookup), expression_(expression) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class set-properties (clause)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (expression "Expression *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Expression"))
+   (update :bool :initval "false" :scope :public))
+  (:public
+    #>cpp
+    SetProperties() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor) && expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    SetProperties(Identifier *identifier, Expression *expression,
+                  bool update = false)
+        : identifier_(identifier), expression_(expression), update_(update) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class set-labels (clause)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
+           :clone (clone-name-ix-vector "Label")))
+  (:public
+    #>cpp
+    SetLabels() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    SetLabels(Identifier *identifier, const std::vector<LabelIx> &labels)
+        : identifier_(identifier), labels_(labels) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class remove-property (clause)
+  ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
+                    :slk-save #'slk-save-ast-pointer
+                    :slk-load (slk-load-ast-pointer "PropertyLookup")))
+  (:public
+    #>cpp
+    RemoveProperty() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        property_lookup_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit RemoveProperty(PropertyLookup *property_lookup)
+        : property_lookup_(property_lookup) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class remove-labels (clause)
+  ((identifier "Identifier *" :initval "nullptr" :scope :public
+               :slk-save #'slk-save-ast-pointer
+               :slk-load (slk-load-ast-pointer "Identifier"))
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
+           :clone (clone-name-ix-vector "Label")))
+  (:public
+    #>cpp
+    RemoveLabels() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        identifier_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    RemoveLabels(Identifier *identifier, const std::vector<LabelIx> &labels)
+        : identifier_(identifier), labels_(labels) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class merge (clause)
+  ((pattern "Pattern *" :initval "nullptr" :scope :public
+            :slk-save #'slk-save-ast-pointer
+            :slk-load (slk-load-ast-pointer "Pattern"))
+   (on-match "std::vector<Clause *>"
+             :scope :public
+             :slk-save #'slk-save-ast-vector
+             :slk-load (slk-load-ast-vector "Clause"))
+   (on-create "std::vector<Clause *>"
+              :scope :public
+              :slk-save #'slk-save-ast-vector
+              :slk-load (slk-load-ast-vector "Clause")))
+  (:public
+    #>cpp
+    Merge() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = pattern_->Accept(visitor);
+        if (cont) {
+          for (auto &set : on_match_) {
+            if (!set->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+        if (cont) {
+          for (auto &set : on_create_) {
+            if (!set->Accept(visitor)) {
+              cont = false;
+              break;
+            }
+          }
+        }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Merge(Pattern *pattern, std::vector<Clause *> on_match,
+          std::vector<Clause *> on_create)
+        : pattern_(pattern), on_match_(on_match), on_create_(on_create) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class unwind (clause)
+  ((named-expression "NamedExpression *" :initval "nullptr" :scope :public
+                     :slk-save #'slk-save-ast-pointer
+                     :slk-load (slk-load-ast-pointer "NamedExpression")))
+  (:public
+    #>cpp
+    Unwind() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        named_expression_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Unwind(NamedExpression *named_expression)
+        : named_expression_(named_expression) {
+      DMG_ASSERT(named_expression, "Unwind cannot take nullptr for named_expression");
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class auth-query (query)
+  ((action "Action" :scope :public)
+   (user "std::string" :scope :public)
+   (role "std::string" :scope :public)
+   (user-or-role "std::string" :scope :public)
+   (password "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (privileges "std::vector<Privilege>" :scope :public))
+  (:public
+    (lcp:define-enum action
+        (create-role drop-role show-roles create-user set-password drop-user
+         show-users set-role clear-role grant-privilege deny-privilege
+         revoke-privilege show-privileges show-role-for-user
+         show-users-for-role)
+      (:serialize))
+    (lcp:define-enum privilege
+        (create delete match merge set remove index stats auth constraint
+         dump replication durability read_file free_memory trigger config stream module_read module_write
+         websocket)
+      (:serialize))
+    #>cpp
+    AuthQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:protected
+    #>cpp
+    AuthQuery(Action action, std::string user, std::string role,
+              std::string user_or_role, Expression *password,
+              std::vector<Privilege> privileges)
+        : action_(action),
+          user_(user),
+          role_(role),
+          user_or_role_(user_or_role),
+          password_(password),
+          privileges_(privileges) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+;; TODO: Generate this via LCP
+#>cpp
+/// Constant that holds all available privileges.
+const std::vector<Authstorage::Privilege> kPrivilegesAll = {
+    Authstorage::Privilege::CREATE,     Authstorage::Privilege::DELETE,
+    Authstorage::Privilege::MATCH,      Authstorage::Privilege::MERGE,
+    Authstorage::Privilege::SET,        Authstorage::Privilege::REMOVE,
+    Authstorage::Privilege::INDEX,      Authstorage::Privilege::STATS,
+    Authstorage::Privilege::AUTH,
+    Authstorage::Privilege::CONSTRAINT, Authstorage::Privilege::DUMP,
+    Authstorage::Privilege::REPLICATION,
+    Authstorage::Privilege::READ_FILE,
+    Authstorage::Privilege::DURABILITY,
+    Authstorage::Privilege::FREE_MEMORY, Authstorage::Privilege::TRIGGER,
+    Authstorage::Privilege::CONFIG,      Authstorage::Privilege::STREAM,
+    Authstorage::Privilege::MODULE_READ, Authstorage::Privilege::MODULE_WRITE,
+    Authstorage::Privilege::WEBSOCKET};
+cpp<#
+
+(lcp:define-class info-query (query)
+  ((info-type "InfoType" :scope :public))
+  (:public
+    (lcp:define-enum info-type
+        (storage index constraint)
+      (:serialize))
+
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-struct constraint ()
+  ((type "Type")
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
+   (properties "std::vector<PropertyIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
+               :clone (clone-name-ix-vector "Property")))
+  (:public
+    (lcp:define-enum type (exists unique node-key)
+      (:serialize (:lcp))))
+  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:clone :args '((storage "AstStorage *"))))
+
+(lcp:define-class constraint-query (query)
+  ((action-type "ActionType" :scope :public)
+   (constraint "Constraint" :scope :public
+               :slk-load (lambda (member)
+                           #>cpp
+                           slk::Load(&self->${member}, reader, storage);
+                           cpp<#)))
+  (:public
+    (lcp:define-enum action-type
+        (create drop)
+      (:serialize))
+
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class dump-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class replication-query (query)
+  ((action "Action" :scope :public)
+   (role "ReplicationRole" :scope :public)
+   (replica_name "std::string" :scope :public)
+   (socket_address "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (port "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (sync_mode "SyncMode" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (set-replication-role show-replication-role register-replica
+         drop-replica show-replicas)
+      (:serialize))
+    (lcp:define-enum replication-role
+        (main replica)
+      (:serialize))
+    (lcp:define-enum sync-mode
+        (sync async)
+      (:serialize))
+    (lcp:define-enum replica-state
+        (ready replicating recovery invalid)
+      (:serialize))
+    #>cpp
+    ReplicationQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class lock-path-query (query)
+  ((action "Action" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+      (lock-path unlock-path)
+      (:serialize))
+    #>cpp
+    LockPathQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class load-csv (clause)
+  ((file "Expression *" :scope :public)
+   (with_header "bool" :scope :public)
+   (ignore_bad "bool" :scope :public)
+   (delimiter "Expression *" :initval "nullptr" :scope :public)
+   (quote "Expression *" :initval "nullptr" :scope :public)
+   (row_var "Identifier *" :initval "nullptr" :scope :public
+                     :slk-save #'slk-save-ast-pointer
+                     :slk-load (slk-load-ast-pointer "Identifier")))
+
+  (:public
+    #>cpp
+    LoadCsv() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        row_var_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit LoadCsv(Expression *file, bool with_header, bool ignore_bad, Expression *delimiter,
+                     Expression* quote, Identifier* row_var)
+        : file_(file),
+          with_header_(with_header),
+          ignore_bad_(ignore_bad),
+          delimiter_(delimiter),
+          quote_(quote),
+          row_var_(row_var) {
+      DMG_ASSERT(row_var, "LoadCsv cannot take nullptr for identifier");
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class free-memory-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class trigger-query (query)
+  ((action "Action" :scope :public)
+   (event_type "EventType" :scope :public)
+   (trigger_name "std::string" :scope :public)
+   (before_commit "bool" :scope :public)
+   (statement "std::string" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (create-trigger drop-trigger show-triggers)
+      (:serialize))
+    (lcp:define-enum event-type
+        (any vertex_create edge_create create vertex_delete edge_delete delete vertex_update edge_update update)
+      (:serialize))
+    #>cpp
+    TriggerQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class isolation-level-query (query)
+  ((isolation_level "IsolationLevel" :scope :public)
+   (isolation_level_scope "IsolationLevelScope" :scope :public))
+
+  (:public
+    (lcp:define-enum isolation-level
+        (snapshot-isolation read-committed read-uncommitted)
+      (:serialize))
+    (lcp:define-enum isolation-level-scope
+        (next session global)
+      (:serialize))
+    #>cpp
+    IsolationLevelQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class create-snapshot-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(defun clone-variant-topic-names (source destination)
+  #>cpp
+    if (auto *topic_expression = std::get_if<Expression*>(&${source})) {
+      if (*topic_expression == nullptr) {
+        ${destination} = nullptr;
+      } else {
+        ${destination} = (*topic_expression)->Clone(storage);
+      }
+    } else {
+      ${destination} = std::get<std::vector<std::string>>(${source});
+    }
+  cpp<#)
+
+(lcp:define-class stream-query (query)
+  ((action "Action" :scope :public)
+   (type "Type" :scope :public)
+   (stream_name "std::string" :scope :public)
+
+   (batch_limit "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (timeout "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (transform_name "std::string" :scope :public)
+   (batch_interval "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+   (batch_size "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (topic_names "std::variant<Expression*, std::vector<std::string>>" :initval "nullptr"
+             :clone #'clone-variant-topic-names
+             :scope :public)
+   (consumer_group "std::string" :scope :public)
+   (bootstrap_servers "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (service_url "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression"))
+
+   (configs "std::unordered_map<Expression *, Expression *>" :scope :public
+             :slk-save #'slk-save-expression-map
+             :slk-load #'slk-load-expression-map
+             :clone #'clone-expression-map)
+
+   (credentials "std::unordered_map<Expression *, Expression *>" :scope :public
+             :slk-save #'slk-save-expression-map
+             :slk-load #'slk-load-expression-map
+             :clone #'clone-expression-map))
+
+  (:public
+    (lcp:define-enum action
+        (create-stream drop-stream start-stream stop-stream start-all-streams stop-all-streams show-streams check-stream)
+      (:serialize))
+    (lcp:define-enum type
+        (kafka pulsar)
+      (:serialize))
+    #>cpp
+    StreamQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class setting-query (query)
+  ((action "Action" :scope :public)
+   (setting_name "Expression *" :initval "nullptr" :scope :public)
+   (setting_value "Expression *" :initval "nullptr" :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (show-setting show-all-settings set-setting)
+      (:serialize))
+    #>cpp
+    SettingQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class version-query (query) ()
+  (:public
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:define-class foreach (clause)
+  ((named_expression "NamedExpression *" :initval "nullptr" :scope :public
+          :slk-save #'slk-save-ast-pointer
+          :slk-load (slk-load-ast-pointer "Expression"))
+   (clauses "std::vector<Clause *>"
+          :scope :public
+          :slk-save #'slk-save-ast-vector
+          :slk-load (slk-load-ast-vector "Clause")))
+  (:public
+    #>cpp
+    Foreach() = default;
+
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+          named_expression_->Accept(visitor);
+          for (auto &clause : clauses_) {
+            clause->Accept(visitor);
+          }
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    Foreach(NamedExpression *expression, std::vector<Clause *> clauses)
+        : named_expression_(expression), clauses_(clauses) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:pop-namespace) ;; namespace v3
+(lcp:pop-namespace) ;; namespace storage
+(lcp:pop-namespace) ;; namespace memgraph
