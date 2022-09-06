@@ -125,6 +125,7 @@ query : cypherQuery
       | streamQuery
       | settingQuery
       | versionQuery
+      | showConfigQuery
       ;
 
 authQuery : createRole
@@ -394,5 +395,7 @@ setSetting : SET DATABASE SETTING settingName TO settingValue ;
 showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
+
+showConfigQuery : SHOW CONFIG ;
 
 versionQuery : SHOW VERSION ;

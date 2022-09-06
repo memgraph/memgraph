@@ -120,29 +120,6 @@ class Encoder : private BaseEncoder<Buffer> {
   /**
    * Sends an Ignored message.
    *
-   * From the bolt v1 documentation:
-   *   IgnoredMessage (signature=0x7E) {
-   *     Map<String,Value> metadata
-   *   }
-   *
-   * @param metadata the metadata map object that should be sent
-   * @returns true if the data was successfully sent to the client,
-   *          false otherwise
-   */
-  bool MessageIgnored(const std::map<std::string, Value> &metadata) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Ignored));
-    WriteMap(metadata);
-    // Try to flush all remaining data in the buffer, but tell it that we will
-    // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
-    // Flush an empty chunk to indicate that the message is done.
-    return buffer_.Flush();
-  }
-
-  /**
-   * Sends an Ignored message.
-   *
    * This function sends an ignored message without additional metadata.
    *
    * @returns true if the data was successfully sent to the client,

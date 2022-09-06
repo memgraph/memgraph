@@ -210,8 +210,8 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   const auto *property = "property";
   const auto *property_extra = "property_extra";
   {
-    ASSERT_TRUE(main_store.CreateIndex(main_store.NameToLabel(label)));
-    ASSERT_TRUE(main_store.CreateIndex(main_store.NameToLabel(label), main_store.NameToProperty(property)));
+    ASSERT_FALSE(main_store.CreateIndex(main_store.NameToLabel(label)).HasError());
+    ASSERT_FALSE(main_store.CreateIndex(main_store.NameToLabel(label), main_store.NameToProperty(property)).HasError());
     ASSERT_FALSE(
         main_store.CreateExistenceConstraint(main_store.NameToLabel(label), main_store.NameToProperty(property))
             .HasError());
@@ -241,13 +241,15 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   // existence constraint drop
   // unique constriant drop
   {
-    ASSERT_TRUE(main_store.DropIndex(main_store.NameToLabel(label)));
-    ASSERT_TRUE(main_store.DropIndex(main_store.NameToLabel(label), main_store.NameToProperty(property)));
-    ASSERT_TRUE(main_store.DropExistenceConstraint(main_store.NameToLabel(label), main_store.NameToProperty(property)));
-    ASSERT_EQ(
-        main_store.DropUniqueConstraint(main_store.NameToLabel(label), {main_store.NameToProperty(property),
-                                                                        main_store.NameToProperty(property_extra)}),
-        memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
+    ASSERT_FALSE(main_store.DropIndex(main_store.NameToLabel(label)).HasError());
+    ASSERT_FALSE(main_store.DropIndex(main_store.NameToLabel(label), main_store.NameToProperty(property)).HasError());
+    ASSERT_FALSE(main_store.DropExistenceConstraint(main_store.NameToLabel(label), main_store.NameToProperty(property))
+                     .HasError());
+    ASSERT_EQ(main_store
+                  .DropUniqueConstraint(main_store.NameToLabel(label), {main_store.NameToProperty(property),
+                                                                        main_store.NameToProperty(property_extra)})
+                  .GetValue(),
+              memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
   }
 
   {

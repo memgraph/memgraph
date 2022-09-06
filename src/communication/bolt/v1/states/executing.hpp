@@ -74,7 +74,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     }
     case Signature::Route: {
       if constexpr (bolt_minor >= 3) {
-        if (signature == Signature::Route) return HandleRoute<TSession>(session);
+        if (signature == Signature::Route) return HandleRoute<TSession>(session, marker);
       } else {
         spdlog::trace("Supported only in bolt v4.3");
         return State::Close;
