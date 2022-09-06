@@ -17,11 +17,11 @@
 #include <variant>
 #include <vector>
 
-#include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/semantic/symbol.hpp"
-#include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/typed_value.hpp"
-#include "storage/v2/property_value.hpp"
+#include "storage/v3/bindings/ast_visitor.hpp"
+#include "storage/v3/bindings/symbol.hpp"
+#include "storage/v3/bindings/db_accessor.hpp"
+#include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/property_value.hpp"
 #include "utils/typeinfo.hpp"
 
 cpp<#
@@ -32,13 +32,13 @@ cpp<#
 
 (defun slk-save-ast-pointer (member)
   #>cpp
-  storage::SaveAstPointer(self.${member}, builder);
+  storage::v3::SaveAstPointer(self.${member}, builder);
   cpp<#)
 
 (defun slk-load-ast-pointer (type)
   (lambda (member)
     #>cpp
-    self->${member} = storage::LoadAstPointer<storage::${type}>(storage, reader);
+    self->${member} = storage::v3::LoadAstPointer<storage::v3::${type}>(storage, reader);
     cpp<#))
 
 (defun slk-save-ast-vector (member)
@@ -46,7 +46,7 @@ cpp<#
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto *val : self.${member}) {
-    storage::SaveAstPointer(val, builder);
+    storage::v3::SaveAstPointer(val, builder);
   }
   cpp<#)
 
@@ -57,7 +57,7 @@ cpp<#
     slk::Load(&size, reader);
     self->${member}.resize(size);
     for (size_t i = 0; i < size; ++i) {
-      self->${member}[i] = storage::LoadAstPointer<storage::${type}>(storage, reader);
+      self->${member}[i] = storage::v3::LoadAstPointer<storage::v3::${type}>(storage, reader);
     }
     cpp<#))
 
@@ -67,7 +67,7 @@ cpp<#
   slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
     slk::Save(entry.first, builder);
-    storage::SaveAstPointer(entry.second, builder);
+    storage::v3::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
 
@@ -76,9 +76,9 @@ cpp<#
   size_t size = 0;
   slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
-    storage::PropertyIx key;
+    storage::v3::PropertyIx key;
     slk::Load(&key, reader, storage);
-    auto *value = storage::LoadAstPointer<storage::Expression>(storage, reader);
+    auto *value = storage::v3::LoadAstPointer<storage::v3::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
   cpp<#)
@@ -96,8 +96,8 @@ cpp<#
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
-    storage::SaveAstPointer(entry.first, builder);
-    storage::SaveAstPointer(entry.second, builder);
+    storage::v3::SaveAstPointer(entry.first, builder);
+    storage::v3::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
 
@@ -106,8 +106,8 @@ cpp<#
   size_t size = 0;
   slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
-    auto *key = storage::LoadAstPointer<storage::Expression>(storage, reader);
-    auto *value = storage::LoadAstPointer<storage::Expression>(storage, reader);
+    auto *key = storage::v3::LoadAstPointer<storage::v3::Expression>(storage, reader);
+    auto *value = storage::v3::LoadAstPointer<storage::v3::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
   cpp<#)
@@ -151,23 +151,31 @@ cpp<#
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "Label")))
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *")))))
 
 (lcp:define-struct property-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "Property")))
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *")))))
 
 (lcp:define-struct edge-type-ix ()
   ((name "std::string")
    (ix :int64_t
        :dont-save t
        :slk-load (slk-load-name-ix "EdgeType")))
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *")))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *")))))
 
 #>cpp
+struct FunctionContext {
+  DbAccessor *db_accessor;
+  utils::MemoryResource *memory;
+  int64_t timestamp;
+  std::unordered_map<std::string, int64_t> *counters;
+  View view;
+};
+
 inline bool operator==(const LabelIx &a, const LabelIx &b) {
   return a.ix == b.ix && a.name == b.name;
 }
@@ -199,18 +207,18 @@ cpp<#
 namespace std {
 
 template <>
-struct hash<memgraph::storage::LabelIx> {
-  size_t operator()(const memgraph::storage::LabelIx &label) const { return label.ix; }
+struct hash<memgraph::storage::v3::LabelIx> {
+  size_t operator()(const memgraph::storage::v3::LabelIx &label) const { return label.ix; }
 };
 
 template <>
-struct hash<memgraph::storage::PropertyIx> {
-  size_t operator()(const memgraph::storage::PropertyIx &prop) const { return prop.ix; }
+struct hash<memgraph::storage::v3::PropertyIx> {
+  size_t operator()(const memgraph::storage::v3::PropertyIx &prop) const { return prop.ix; }
 };
 
 template <>
-struct hash<memgraph::storage::EdgeTypeIx> {
-  size_t operator()(const memgraph::storage::EdgeTypeIx &edge_type) const {
+struct hash<memgraph::storage::v3::EdgeTypeIx> {
+  size_t operator()(const memgraph::storage::v3::EdgeTypeIx &edge_type) const {
     return edge_type.ix;
   }
 };
@@ -290,7 +298,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *"))))
   (:clone :return-type (lambda (typename)
                          (format nil "~A*" typename))
           :args '((storage "AstStorage *"))
@@ -621,7 +629,7 @@ cpp<#
   (:clone))
 
 (lcp:define-class primitive-literal (base-literal)
-  ((value "::storage::PropertyValue" :scope :public)
+  ((value "::storage::v3::PropertyValue" :scope :public)
    (token-position :int32_t :scope :public :initval -1
                    :documentation "This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object is not created from query, leave its value at -1."))
   (:public
@@ -831,7 +839,6 @@ cpp<#
              :clone :copy
              :slk-load (lambda (member)
                         #>cpp
-                        self->${member} = storage::NameToFunction(self->function_name_);
                         cpp<#)))
   (:public
     #>cpp
@@ -853,11 +860,7 @@ cpp<#
     Function(const std::string &function_name,
              const std::vector<Expression *> &arguments)
         : arguments_(arguments),
-          function_name_(function_name),
-          function_(NameToFunction(function_name_)) {
-      if (!function_) {
-        throw SemanticException("Function '{}' doesn't exist.", function_name);
-      }
+          function_name_(function_name) {
     }
     cpp<#)
   (:private
@@ -1402,13 +1405,13 @@ cpp<#
                    :slk-load (slk-load-ast-pointer "Expression")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+      (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *"))))
       (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = identifier_->Accept(visitor);
-        if (auto *properties = std::get_if<std::unordered_map<storage::PropertyIx, storage::Expression *>>(&properties_)) {
+        if (auto *properties = std::get_if<std::unordered_map<storage::v3::PropertyIx, storage::v3::Expression *>>(&properties_)) {
           for (auto &property : *properties) {
             if (cont) {
               cont = property.second->Accept(visitor);
@@ -1833,7 +1836,7 @@ cpp<#
    (expression "Expression *"
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")))
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-struct return-body ()
@@ -1865,7 +1868,7 @@ cpp<#
           :slk-load (slk-load-ast-pointer "Expression")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class return (clause)
@@ -2256,7 +2259,7 @@ cpp<#
     (lcp:define-enum privilege
         (create delete match merge set remove index stats auth constraint
          dump replication durability read_file free_memory trigger config stream module_read module_write
-         websocket)
+         websocket schema)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2285,20 +2288,20 @@ cpp<#
 ;; TODO: Generate this via LCP
 #>cpp
 /// Constant that holds all available privileges.
-const std::vector<Authstorage::Privilege> kPrivilegesAll = {
-    Authstorage::Privilege::CREATE,     Authstorage::Privilege::DELETE,
-    Authstorage::Privilege::MATCH,      Authstorage::Privilege::MERGE,
-    Authstorage::Privilege::SET,        Authstorage::Privilege::REMOVE,
-    Authstorage::Privilege::INDEX,      Authstorage::Privilege::STATS,
-    Authstorage::Privilege::AUTH,
-    Authstorage::Privilege::CONSTRAINT, Authstorage::Privilege::DUMP,
-    Authstorage::Privilege::REPLICATION,
-    Authstorage::Privilege::READ_FILE,
-    Authstorage::Privilege::DURABILITY,
-    Authstorage::Privilege::FREE_MEMORY, Authstorage::Privilege::TRIGGER,
-    Authstorage::Privilege::CONFIG,      Authstorage::Privilege::STREAM,
-    Authstorage::Privilege::MODULE_READ, Authstorage::Privilege::MODULE_WRITE,
-    Authstorage::Privilege::WEBSOCKET};
+const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
+    AuthQuery::Privilege::CREATE,     AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,      AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,        AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,      AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,
+    AuthQuery::Privilege::CONSTRAINT, AuthQuery::Privilege::DUMP,
+    AuthQuery::Privilege::REPLICATION,
+    AuthQuery::Privilege::READ_FILE,
+    AuthQuery::Privilege::DURABILITY,
+    AuthQuery::Privilege::FREE_MEMORY, AuthQuery::Privilege::TRIGGER,
+    AuthQuery::Privilege::CONFIG,      AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::MODULE_READ, AuthQuery::Privilege::MODULE_WRITE,
+    AuthQuery::Privilege::WEBSOCKET,   AuthQuery::Privilege::SCHEMA};
 cpp<#
 
 (lcp:define-class info-query (query)
@@ -2339,7 +2342,7 @@ cpp<#
   (:public
     (lcp:define-enum type (exists unique node-key)
       (:serialize (:lcp))))
-  (:serialize (:slk :load-args '((storage "storage::AstStorage *"))))
+  (:serialize (:slk :load-args '((storage "storage::v3::AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class constraint-query (query)
