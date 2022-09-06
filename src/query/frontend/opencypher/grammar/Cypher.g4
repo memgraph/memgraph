@@ -172,7 +172,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
 
 relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable '|' expression ')';
 
-variableExpansion : '*' (BFS | WSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
+variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
 
 properties : mapLiteral
            | parameter
@@ -381,6 +381,7 @@ cypherKeyword : ALL
               | WHERE
               | WITH
               | WSHORTEST
+              | ALLSHORTEST
               | XOR
               | YIELD
               ;
