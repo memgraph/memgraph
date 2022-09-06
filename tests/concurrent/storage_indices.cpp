@@ -16,6 +16,7 @@
 #include <gtest/gtest.h>
 
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/thread.hpp"
 
 const uint64_t kNumVerifiers = 5;
@@ -29,7 +30,7 @@ TEST(Storage, LabelIndex) {
   auto store = memgraph::storage::Storage();
 
   auto label = store.NameToLabel("label");
-  ASSERT_TRUE(store.CreateIndex(label));
+  ASSERT_FALSE(store.CreateIndex(label).HasError());
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);
@@ -111,7 +112,7 @@ TEST(Storage, LabelPropertyIndex) {
 
   auto label = store.NameToLabel("label");
   auto prop = store.NameToProperty("prop");
-  ASSERT_TRUE(store.CreateIndex(label, prop));
+  ASSERT_FALSE(store.CreateIndex(label, prop).HasError());
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);

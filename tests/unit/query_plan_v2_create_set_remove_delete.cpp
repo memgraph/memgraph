@@ -105,7 +105,7 @@ TEST(QueryPlan, ScanAll) {
 TEST(QueryPlan, ScanAllByLabel) {
   memgraph::storage::Storage db;
   auto label = db.NameToLabel("label");
-  ASSERT_TRUE(db.CreateIndex(label));
+  ASSERT_FALSE(db.CreateIndex(label).HasError());
   {
     auto dba = db.Access();
     // Add some unlabeled vertices

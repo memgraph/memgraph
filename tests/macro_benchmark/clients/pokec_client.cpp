@@ -261,7 +261,7 @@ int main(int argc, char **argv) {
   auto independent_nodes_ids = [&] {
     Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
     ClientContext context(FLAGS_use_ssl);
-    Client client(&context);
+    Client client(context);
     client.Connect(endpoint, FLAGS_username, FLAGS_password);
     return IndependentSet(client, INDEPENDENT_LABEL);
   }();

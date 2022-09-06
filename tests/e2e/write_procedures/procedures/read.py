@@ -20,3 +20,18 @@ def underlying_graph_is_mutable(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record
 @mgp.read_proc
 def graph_is_mutable(ctx: mgp.ProcCtx) -> mgp.Record(mutable=bool):
     return mgp.Record(mutable=ctx.graph.is_mutable())
+
+
+@mgp.read_proc
+def log_message(ctx: mgp.ProcCtx, message: str) -> mgp.Record(success=bool):
+    logger = mgp.Logger()
+    try:
+        logger.info(message)
+        logger.critical(message)
+        logger.trace(message)
+        logger.debug(message)
+        logger.warning(message)
+        logger.error(message)
+    except RuntimeError:
+        return mgp.Record(success=False)
+    return mgp.Record(success=True)
