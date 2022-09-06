@@ -142,10 +142,11 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   auto acc = shard_.Access();
 
   for (auto &propval : req.primary_keys) {
+    // QUESTION what is the EdgeId and VertexID exactly? I might search based on the wrong vector.
     // QUESTION what should be the view and why?
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
 
-    // QUESTION if the vertex we want to delete does not exist, should that be handled as success?
+    // QUESTION if the vertex we want to delete does not exist, should that be handled as success? -> FAILURE
     if (!vertex_acc) {
       // Vertex does not exist.
       // action_successful = false;?
@@ -192,17 +193,17 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   return resp;
   // BIG QUESTION - If we want to delete a set of vertices, is it possible they will have
   // different deletion types? we might need to maintin some datastructure for that in the
-  // delete request.
+  // delete request. -> ONE DELETION TYPE PER REQUEST
 
   // QUESTION - Currently we assume at the begining of the loops that a transaction will be
   // successful and set a boolean false when we encounter an error. This means that the bool
   // can be set to false multiple times on different iterations. Should we just break out of
-  // the loop the first time we encounter an error?
+  // the loop the first time we encounter an error? -> JUMP OUT OF LOOP
 }
 
 WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
   UpdateVerticesResponse resp{};
-  // QUESTION what does it mean to update Vertices?
+  // QUESTION what does it mean to update Vertices? -> UPDATE/DELETE PROPERTIES SetProperties()
   // Update properties?
   return resp;
 }
@@ -210,11 +211,51 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
 // QUESTION should the messages related to edges also be vectors? or just singular edges? CreateEdges vs CreateEdge?
 // QUESTION EdgeId -> what is that and why was that needed?
 WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
+  auto acc = shard_.Access();
+  bool action_successful = true;
+
+  for (const auto &edge : req.edges) {
+    auto vertex_acc_from_primary_key = edge.src.second;
+    auto vertex_from_acc = acc.FindVertex(vertex_acc_from_primary_key, View::OLD);
+
+    auto vertex_acc_to_primary_key = edge.src.second;
+    auto vertex_to_acc = acc.FindVertex(vertex_acc_to_primary_key, View::OLD);
+
+    if (!vertex_from_acc || !vertex_to_acc) {
+      action_successful = false;
+      spdlog::debug(
+          &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
+    }
+
+    auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
+
+    auto edge_acc = acc.CreateEdge(&vertex_from_acc.value(), &vertex_to_acc.value(), edge_type_id);
+
+    if (edge_acc.HasError()) {
+      action_successful = false;
+      spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+    }
+
+  }  // for
+
   CreateEdgesResponse resp{};
+
+  resp.success = action_successful;
+
+  if (action_successful) {
+    auto result = acc.Commit(req.transaction_id.logical_id);
+    if (result.HasError()) {
+      resp.success = false;
+      spdlog::debug(
+          &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
+                                                                                                     .logical_id]);
+    }
+  }
 
   return resp;
 }
 
+// QUESTION how to get the edgeaccessor needed to delete an edge?
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   DeleteEdgesResponse resp{};
 

@@ -44,7 +44,7 @@ using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
-  std::string name;
+  uint64_t id;
 };
 
 struct EdgeId {
@@ -52,15 +52,30 @@ struct EdgeId {
   Gid gid;
 };
 
+struct EdgeId2 {
+  VertexId src;
+  VertexId dst;
+  Gid gid;
+};
+
+struct Edge2 {
+  EdgeId2 id;
+  EdgeType type;
+};
+
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
 };
 
+// QUESTION EdgeId not needed in Edge?
+
 struct Edge {
   VertexId src;
   VertexId dst;
   EdgeType type;
+
+  Gid gid;  //??
 };
 
 struct PathPart {
