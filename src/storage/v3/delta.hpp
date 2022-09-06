@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
@@ -213,11 +214,12 @@ struct Delta {
       case Action::RECREATE_OBJECT:
       case Action::ADD_LABEL:
       case Action::REMOVE_LABEL:
+        break;
       case Action::ADD_IN_EDGE:
       case Action::ADD_OUT_EDGE:
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
-        break;
+        std::destroy_at(&vertex_edge.vertex_id);
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
         break;
