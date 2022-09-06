@@ -2,6 +2,7 @@
   "Large write test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
+            [clojure.string :as string]
             [jepsen [client :as client]
                     [checker :as checker]
                     [generator :as gen]]
@@ -40,13 +41,27 @@
                                :node node}))
       :add    (if (= replication-role :main)
                 (c/with-session conn session
-                  (create-nodes session)
-                  (assoc op :type :ok))
+                  (try
+                    ((create-nodes session)
+                    (assoc op :type :ok))
+                    (catch Exception e
+                        (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                          (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
+                          (assoc op :type :fail :info (str e)))
+                      )
+                  )
+                )
                 (assoc op :type :fail))))
   (teardown! [this test]
     (when (= replication-role :main)
       (c/with-session conn session
-        (c/detach-delete-all session))))
+        (try
+          (c/detach-delete-all session)
+          (catch Exception e
+                        (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                          (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
+                      )
+          ))))
   (close! [_ est]
     (dbclient/disconnect conn)))
 

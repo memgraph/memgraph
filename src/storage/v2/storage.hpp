@@ -48,6 +48,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
 
 namespace memgraph::storage {
 
@@ -309,11 +310,14 @@ class Storage final {
 
     void AdvanceCommand();
 
-    /// Commit returns `ConstraintViolation` if the changes made by this
-    /// transaction violate an existence or unique constraint. In that case the
-    /// transaction is automatically aborted. Otherwise, void is returned.
+    /// Returns void if the transaction has been committed.
+    /// Returns `StorageDataManipulationError` if an error occures. Error can be:
+    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
+    /// case the transaction is automatically aborted.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<StorageDataManipulationError, void> Commit(
+        std::optional<uint64_t> desired_commit_timestamp = {});
 
     /// @throw std::bad_alloc
     void Abort();
@@ -352,54 +356,83 @@ class Storage final {
   /// @throw std::bad_alloc if unable to insert a new mapping
   EdgeTypeId NameToEdgeType(std::string_view name);
 
+  /// Create an index.
+  /// Returns void if the index has been created.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `IndexDefinitionError`: the index already exists.
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
+  /// Create an index.
+  /// Returns void if the index has been created.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index already exists.
   /// @throw std::bad_alloc
-  bool CreateIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+  utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
+  /// Drop an existing index.
+  /// Returns void if the index has been dropped.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index does not exist.
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  bool DropIndex(LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
+  /// Drop an existing index.
+  /// Returns void if the index has been dropped.
+  /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `IndexDefinitionError`: the index does not exist.
+  utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
   IndicesInfo ListAllIndices() const;
 
-  /// Creates an existence constraint. Returns true if the constraint was
-  /// successfuly added, false if it already exists and a `ConstraintViolation`
-  /// if there is an existing vertex violating the constraint.
-  ///
+  /// Returns void if the existence constraint has been created.
+  /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintViolation`: there is already a vertex existing that would break this new constraint.
+  /// * `ConstraintDefinitionError`: the constraint already exists.
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
+  utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  /// Removes an existence constraint. Returns true if the constraint was
-  /// removed, and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property,
-                               std::optional<uint64_t> desired_commit_timestamp = {});
+  /// Drop an existing existence constraint.
+  /// Returns void if the existence constraint has been dropped.
+  /// Returns `StorageExistenceConstraintDroppingError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintDefinitionError`: the constraint did not exists.
+  utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
+      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  /// Creates a unique constraint. In the case of two vertices violating the
-  /// constraint, it returns `ConstraintViolation`. Otherwise returns a
-  /// `UniqueConstraints::CreationStatus` enum with the following possibilities:
-  ///     * `SUCCESS` if the constraint was successfully created,
-  ///     * `ALREADY_EXISTS` if the constraint already existed,
-  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
-  //      * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
-  //        limit of maximum number of properties.
-  ///
+  /// Create an unique constraint.
+  /// Returns `StorageUniqueConstraintDefinitionError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// * `ConstraintViolation`: there are already vertices violating the constraint.
+  /// Returns `UniqueConstraints::CreationStatus` otherwise. Value can be:
+  /// * `SUCCESS` if the constraint was successfully created,
+  /// * `ALREADY_EXISTS` if the constraint already existed,
+  /// * `EMPTY_PROPERTIES` if the property set is empty, or
+  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
+  utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
       LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
 
-  /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
-  /// enum with the following possibilities:
-  ///     * `SUCCESS` if constraint was successfully removed,
-  ///     * `NOT_FOUND` if the specified constraint was not found,
-  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
-  ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
-  //        limit of maximum number of properties.
-  UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                                         std::optional<uint64_t> desired_commit_timestamp = {});
+  /// Removes an existing unique constraint.
+  /// Returns `StorageUniqueConstraintDroppingError` if an error occures. Error can be:
+  /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
+  /// Returns `UniqueConstraints::DeletionStatus` otherwise. Value can be:
+  /// * `SUCCESS` if constraint was successfully removed,
+  /// * `NOT_FOUND` if the specified constraint was not found,
+  /// * `EMPTY_PROPERTIES` if the property set is empty, or
+  /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
+  utils::BasicResult<StorageUniqueConstraintDroppingError, UniqueConstraints::DeletionStatus> DropUniqueConstraint(
+      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
 
   ConstraintsInfo ListAllConstraints() const;
 
@@ -474,9 +507,11 @@ class Storage final {
   bool InitializeWalFile();
   void FinalizeWalFile();
 
-  void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
-  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                   uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataManipulation(const Transaction &transaction, uint64_t final_commit_timestamp);
+  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  [[nodiscard]] bool AppendToWalDataDefinition(durability::StorageGlobalOperation operation, LabelId label,
+                                               const std::set<PropertyId> &properties, uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

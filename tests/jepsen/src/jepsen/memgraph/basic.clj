@@ -1,6 +1,7 @@
 (ns jepsen.memgraph.basic
   "Basic Memgraph test"
-  (:require [neo4j-clj.core :as dbclient] 
+  (:require [neo4j-clj.core :as dbclient]
+            [clojure.string :as string]
             [jepsen [client :as client]
                     [checker :as checker]
                     [generator :as gen]]
@@ -53,7 +54,13 @@
               (assoc op :type :fail, :error :not-found)))))
   (teardown! [this test]
     (c/with-session conn session
-      (detach-delete-all session)))
+      (try
+        (c/detach-delete-all session)
+        (catch Exception e
+                        (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                          (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
+                      )
+        )))
   (close! [_ est]
     (dbclient/disconnect conn)))
 
@@ -73,4 +80,3 @@
                :timeline (timeline/html)})
    :generator (gen/mix [r w cas])
    :final-generator (gen/once r)})
-

@@ -18,6 +18,7 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
+#include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
@@ -136,7 +137,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -157,7 +158,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct1", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -216,7 +217,8 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
                   session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  Value query, params;
+  Value query;
+  Value params;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
     return State::Close;
@@ -234,10 +236,12 @@ template <typename TSession>
 State HandleRunV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
-    spdlog::trace("Expected {} marker, but received 0x{:02X}!", "TinyStruct3", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
-  Value query, params, extra;
+  Value query;
+  Value params;
+  Value extra;
   if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     spdlog::trace("Couldn't read query string!");
     return State::Close;
@@ -291,9 +295,6 @@ State HandleReset(TSession &session, const Marker marker) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
   }
-
-  // Clear all pending data and send a success message.
-  session.encoder_buffer_.Clear();
 
   if (!session.encoder_.MessageSuccess()) {
     spdlog::trace("Couldn't send success message!");
@@ -403,12 +404,33 @@ State HandleGoodbye() {
 }
 
 template <typename TSession>
-State HandleRoute(TSession &session) {
-  // Route message is not implemented since it is neo4j specific, therefore we
-  // will receive it an inform user that there is no implementation.
+State HandleRoute(TSession &session, const Marker marker) {
+  // Route message is not implemented since it is Neo4j specific, therefore we will receive it and inform user that
+  // there is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean
+  // state.
+  if (marker != Marker::TinyStruct3) {
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    return State::Close;
+  }
+  Value routing;
+  if (!session.decoder_.ReadValue(&routing, Value::Type::Map)) {
+    spdlog::trace("Couldn't read routing field!");
+    return State::Close;
+  }
+
+  Value bookmarks;
+  if (!session.decoder_.ReadValue(&bookmarks, Value::Type::List)) {
+    spdlog::trace("Couldn't read bookmarks field!");
+    return State::Close;
+  }
+  Value db;
+  if (!session.decoder_.ReadValue(&db)) {
+    spdlog::trace("Couldn't read db field!");
+    return State::Close;
+  }
   session.encoder_buffer_.Clear();
   bool fail_sent =
-      session.encoder_.MessageFailure({{"code", 66}, {"message", "Route message not supported in Memgraph!"}});
+      session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
   if (!fail_sent) {
     spdlog::trace("Couldn't send failure message!");
     return State::Close;
