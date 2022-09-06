@@ -318,10 +318,9 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   return resp;
 }
 
+// TODO(gvolfing)
+// Uncomment this once the new overload for DeleteEdges is in place.
 // DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
-// Delete this:
-// Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge){return Result<std::optional<EdgeAccessor>>{};}
-
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   // bool action_successful = true;
   // auto acc = shard_.Access();
