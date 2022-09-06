@@ -48,34 +48,19 @@ struct EdgeType {
 };
 
 struct EdgeId {
-  VertexId id;
-  Gid gid;
-};
-
-struct EdgeId2 {
   VertexId src;
   VertexId dst;
   Gid gid;
 };
 
-struct Edge2 {
-  EdgeId2 id;
+struct Edge {
+  EdgeId id;
   EdgeType type;
 };
 
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
-};
-
-// QUESTION EdgeId not needed in Edge?
-
-struct Edge {
-  VertexId src;
-  VertexId dst;
-  EdgeType type;
-
-  Gid gid;  //??
 };
 
 struct PathPart {
@@ -218,6 +203,11 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
+struct UpdateProp {
+  VertexId vertex;
+  std::vector<std::pair<PropertyId, Value>> property_updates;
+};
+
 /*
  * Vertices
  */
@@ -248,6 +238,7 @@ struct DeleteVerticesResponse {
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
+  std::vector<UpdateProp> new_properties;
 };
 
 struct UpdateVerticesResponse {
@@ -267,17 +258,18 @@ struct CreateEdgesResponse {
 };
 
 struct DeleteEdgesRequest {
-  // enum class DeletionType { DELETE, DETACH_DELETE };
-  // Hlc transaction_id;
-  // std::vector<std::vector<Value>> primary_keys;
-  // DeletionType deletion_type;
+  Hlc transaction_id;
+  std::vector<Edge> edges;
 };
 
 struct DeleteEdgesResponse {
   bool success;
 };
 
-struct UpdateEdgesRequest {};
+struct UpdateEdgesRequest {
+  Hlc transaction_id;
+  std::vector<UpdateProp> new_properties;
+};
 
 struct UpdateEdgesResponse {
   bool success;

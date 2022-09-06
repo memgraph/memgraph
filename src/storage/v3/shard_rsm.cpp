@@ -159,6 +159,9 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
                                                                                                         .logical_id]);
       action_successful = false;
     } else {
+      // TODO(gvolfing)
+      // Since we will not have different kinds of deletion types in one transaction,
+      // we dont have to enter the switch statement on every iteration. Optimize this.
       switch (req.deletion_type) {
         case DeleteVerticesRequest::DeletionType::DELETE: {
           // Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
@@ -199,9 +202,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   }
 
   return resp;
-  // BIG QUESTION - If we want to delete a set of vertices, is it possible they will have
-  // different deletion types? we might need to maintin some datastructure for that in the
-  // delete request. -> ONE DELETION TYPE PER REQUEST
 }
 
 WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
@@ -211,8 +211,6 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
   return resp;
 }
 
-// QUESTION should the messages related to edges also be vectors? or just singular edges? CreateEdges vs CreateEdge?
-// QUESTION EdgeId -> what is that and why was that needed?
 WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   auto acc = shard_.Access();
   bool action_successful = true;
@@ -222,10 +220,11 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       break;
     }
 
-    auto vertex_acc_from_primary_key = edge.src.second;
+    // auto vertex_acc_from_primary_key = edge.src.second;
+    auto vertex_acc_from_primary_key = edge.id.src.second;
     auto vertex_from_acc = acc.FindVertex(vertex_acc_from_primary_key, View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.src.second;
+    auto vertex_acc_to_primary_key = edge.id.dst.second;
     auto vertex_to_acc = acc.FindVertex(vertex_acc_to_primary_key, View::OLD);
 
     if (!vertex_from_acc || !vertex_to_acc) {
@@ -244,8 +243,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
       continue;
     }
-
-  }  // for
+  }
 
   CreateEdgesResponse resp{};
 
@@ -265,6 +263,9 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
 }
 
 // DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
+// Delete this:
+// Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge){return Result<std::optional<EdgeAccessor>>{};}
+
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   DeleteEdgesResponse resp{};
 
