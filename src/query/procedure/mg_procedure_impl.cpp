@@ -24,6 +24,7 @@
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
@@ -1595,6 +1596,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     if (!MgpVertexIsMutable(*v)) {
       throw ImmutableObjectException{"Cannot set a property on an immutable vertex!"};
     }
+
     const auto prop_key = v->graph->impl->NameToProperty(property_name);
     const auto result = v->impl.SetProperty(prop_key, ToPropertyValue(*property_value));
     if (result.HasError()) {
