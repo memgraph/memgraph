@@ -149,8 +149,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
     if (!action_successful) {
       break;
     }
-    // QUESTION what is the EdgeId and VertexID exactly? I might search based on the wrong vector.
-    // QUESTION what should be the view and why?
+
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
 
     if (!vertex_acc) {
@@ -203,11 +202,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   // BIG QUESTION - If we want to delete a set of vertices, is it possible they will have
   // different deletion types? we might need to maintin some datastructure for that in the
   // delete request. -> ONE DELETION TYPE PER REQUEST
-
-  // QUESTION - Currently we assume at the begining of the loops that a transaction will be
-  // successful and set a boolean false when we encounter an error. This means that the bool
-  // can be set to false multiple times on different iterations. Should we just break out of
-  // the loop the first time we encounter an error? -> JUMP OUT OF LOOP
 }
 
 WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
@@ -270,7 +264,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   return resp;
 }
 
-// QUESTION how to get the edgeaccessor needed to delete an edge?
+// DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   DeleteEdgesResponse resp{};
 
@@ -282,7 +276,4 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
 
   return resp;
 }
-
-// QUESTION difference between FinalizeTransaction() and Commit()?
-
 }  //    namespace memgraph::storage::v3
