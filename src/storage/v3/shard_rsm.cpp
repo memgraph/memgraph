@@ -267,7 +267,36 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
 // Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge){return Result<std::optional<EdgeAccessor>>{};}
 
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
+  // bool action_successful = true;
+  // auto acc = shard_.Access();
+
+  // for(const auto& edge : req.edges)
+  // {
+  //   if (!action_successful) {
+  //     break;
+  //   }
+
+  //   auto edge_acc = acc.DeleteEdge(edge.id.src, edge.id.dst, edge.id.gid);
+  //   if(!edge_acc.HasError() || !edge_acc.HasValue())
+  //   {
+  //     spdlog::debug(&"Error while trying to delete edge. Transaction id: "[req.transaction_id.logical_id]);
+  //     action_successful = false;
+  //     break;
+  //   }
+  // }
+
   DeleteEdgesResponse resp{};
+
+  // resp.success = action_successful;
+
+  // if (action_successful) {
+  //   auto result = acc.Commit(req.transaction_id.logical_id);
+  //   if (result.HasError()) {
+  //     resp.success = false;
+  //     spdlog::debug(
+  //         &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
+  //                                                                                                    .logical_id]);
+  //   }
 
   return resp;
 }
