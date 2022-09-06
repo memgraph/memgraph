@@ -43,6 +43,8 @@ constexpr auto kAlwaysFalse = false;
 class ShardRsm {
   Shard shard_;
 
+  ReadResponses HandleRead(ScanVerticesRequest &&req);
+
   WriteResponses ApplyWrite(CreateVerticesRequest &&req);
   WriteResponses ApplyWrite(DeleteVerticesRequest &&req);
   WriteResponses ApplyWrite(UpdateVerticesRequest &&req);

@@ -421,4 +421,11 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
 
   return resp;
 }
+
+ReadResponses HandleRead(ScanVerticesRequest &&req) {
+  ScanVerticesResponse resp{};
+
+  return resp;
+}
+
 }  //    namespace memgraph::storage::v3
