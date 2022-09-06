@@ -357,8 +357,68 @@ WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   return resp;
 }
 
+// TODO(gvolfing) refactor this abomination
 WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
+  auto acc = shard_.Access();
+
+  bool action_successful = true;
+
+  for (const auto &edge : req.new_properties) {
+    if (!action_successful) {
+      break;
+    }
+
+    auto vertex_acc = acc.FindVertex(edge.edge.id.src.second, View::OLD);
+    if (!vertex_acc) {
+      action_successful = false;
+      // TODO(gvolfing) add debug error msg
+      continue;
+    }
+
+    // Since we are using the source vertex of the edge we are only intrested
+    // in the vertex's outgoind edges
+    auto edges_res = vertex_acc->OutEdges(View::OLD);
+    if (edges_res.HasError()) {
+      action_successful = false;
+      // TODO(gvolfing) add debug error msg
+      continue;
+    }
+
+    auto &edge_accessors = edges_res.GetValue();
+
+    // Look for the appropriate edge accessor
+    bool edge_accesspr_did_match = false;
+    for (auto &edge_accessor : edge_accessors) {
+      if (edge_accessor.Gid().AsUint() == edge.edge.id.gid) {  // Found the appropriate accessor
+        edge_accesspr_did_match = true;
+        for (const auto &[key, value] : edge.property_updates) {
+          // TODO(gvolfing)
+          // Check if the property was set if SetProperty does not do that itself.
+          edge_accessor.SetProperty(key, to_property_value(value));
+        }
+      }
+    }
+
+    if (!edge_accesspr_did_match) {
+      action_successful = false;
+      // TODO(gvolfing) add debug error msg
+      continue;
+    }
+  }
+
   UpdateEdgesResponse resp{};
+
+  resp.success = action_successful;
+
+  if (action_successful) {
+    auto result = acc.Commit(req.transaction_id.logical_id);
+    if (result.HasError()) {
+      resp.success = false;
+      spdlog::debug(
+          &"ConstraintViolation, commiting edge update was unsuccesfull with transaction id: "[req.transaction_id
+                                                                                                   .logical_id]);
+    }
+  }
 
   return resp;
 }

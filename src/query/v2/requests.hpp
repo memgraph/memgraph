@@ -203,8 +203,14 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
-struct UpdateProp {
+// Update related messages
+struct UpdateVertexProp {
   VertexId vertex;
+  std::vector<std::pair<PropertyId, Value>> property_updates;
+};
+
+struct UpdateEdgeProp {
+  Edge edge;
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
@@ -238,7 +244,7 @@ struct DeleteVerticesResponse {
 
 struct UpdateVerticesRequest {
   Hlc transaction_id;
-  std::vector<UpdateProp> new_properties;
+  std::vector<UpdateVertexProp> new_properties;
 };
 
 struct UpdateVerticesResponse {
@@ -268,7 +274,7 @@ struct DeleteEdgesResponse {
 
 struct UpdateEdgesRequest {
   Hlc transaction_id;
-  std::vector<UpdateProp> new_properties;
+  std::vector<UpdateEdgeProp> new_properties;
 };
 
 struct UpdateEdgesResponse {
