@@ -3181,7 +3181,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
   auto acc = store.Access();
   VertexId from_id{};
   VertexId to_id{};
-  const auto other_et = NameToEdgeTypeId("other");
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
   // Create dataset
