@@ -209,8 +209,10 @@ class VertexAccessor final {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnull-dereference"
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
 inline VertexAccessor EdgeAccessor::To() const { return *static_cast<VertexAccessor *>(nullptr); }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
 inline VertexAccessor EdgeAccessor::From() const { return *static_cast<VertexAccessor *>(nullptr); }
 #pragma clang diagnostic pop
 
@@ -304,7 +306,7 @@ class DbAccessor final {
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(&edge->impl_);
+    auto res = accessor_->DeleteEdge(edge->impl_.FromVertex(), edge->impl_.ToVertex(), edge->impl_.Gid());
     if (res.HasError()) {
       return res.GetError();
     }

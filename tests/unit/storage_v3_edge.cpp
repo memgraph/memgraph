@@ -1526,9 +1526,9 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
 
-    auto edge = vertex_from->OutEdges(View::NEW).GetValue()[0];
+    const auto edge = vertex_from->OutEdges(View::NEW).GetValue()[0];
 
-    const auto res = acc.DeleteEdge(&edge);
+    const auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 
@@ -2634,9 +2634,9 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
+    const auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-    auto res = acc.DeleteEdge(&edge);
+    auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 
@@ -2741,9 +2741,9 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
-    auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
+    const auto edge = vertex_to->InEdges(View::NEW).GetValue()[0];
 
-    const auto res = acc.DeleteEdge(&edge);
+    auto res = acc.DeleteEdge(edge.FromVertex(), edge.ToVertex(), edge.Gid());
     ASSERT_TRUE(res.HasValue());
     ASSERT_TRUE(res.GetValue());
 

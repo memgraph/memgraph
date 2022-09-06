@@ -51,9 +51,9 @@ class EdgeAccessor final {
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
-  VertexId FromVertex() const;
+  const VertexId &FromVertex() const;
 
-  VertexId ToVertex() const;
+  const VertexId &ToVertex() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 

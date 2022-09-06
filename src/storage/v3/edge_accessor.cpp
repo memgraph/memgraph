@@ -50,9 +50,9 @@ bool EdgeAccessor::IsVisible(const View view) const {
   return exists && (for_deleted_ || !deleted);
 }
 
-VertexId EdgeAccessor::FromVertex() const { return from_vertex_; }
+const VertexId &EdgeAccessor::FromVertex() const { return from_vertex_; }
 
-VertexId EdgeAccessor::ToVertex() const { return to_vertex_; }
+const VertexId &EdgeAccessor::ToVertex() const { return to_vertex_; }
 
 Result<PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
