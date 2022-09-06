@@ -963,9 +963,9 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
     EXPECT_TRUE(storage.DropIndex(label1, prop_id));
     {
       auto acc = storage.Access();
-      EXPECT_FALSE(acc.LabelIndexExists(label1));
+      EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
     }
-    EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
+    EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   }
   {
     auto acc = storage.Access();
