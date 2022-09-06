@@ -25,6 +25,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "auth/models.hpp"
 #include "spdlog/spdlog.h"
 
 #include "query/auth_checker.hpp"
@@ -2449,6 +2450,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
+    if (context.auth_checker &&
+        !context.auth_checker->Accept(*context.db_accessor, label,
+                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      continue;
+    }
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -2592,6 +2598,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
+    if (context.auth_checker &&
+        !context.auth_checker->Accept(*context.db_accessor, label,
+                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      continue;
+    }
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
