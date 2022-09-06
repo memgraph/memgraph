@@ -2445,7 +2445,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (context.auth_checker &&
         !context.auth_checker->Accept(*context.db_accessor, label,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      continue;
+      throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
     }
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
@@ -2591,7 +2591,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !context.auth_checker->Accept(*context.db_accessor, label,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      continue;
+      throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
     }
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
