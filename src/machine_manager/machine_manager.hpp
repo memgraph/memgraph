@@ -26,6 +26,7 @@ using boost::uuids::uuid;
 
 using memgraph::coordinator::Coordinator;
 using memgraph::io::Duration;
+using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
@@ -82,13 +83,14 @@ class MachineManager {
         continue;
       }
 
-      auto request = std::move(request_result.GetValue());
+      RequestEnvelope<UberMessage> request = std::move(request_result.GetValue());
+      UberMessage um = std::get<UberMessage>(request.message);
 
       std::visit(
           [&](auto &&msg) {
             Handle(std::forward<decltype(msg)>(msg), request.request_id, request.from_address, request.to_address);
           },
-          std::move(request.message));
+          std::move(um));
     }
   }
 

@@ -74,6 +74,10 @@ class ShardManager {
 
     cron_schedule_.pop();
     cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
+
+    auto &[next_time, _uuid] = cron_schedule_.top();
+
+    return next_time;
   }
 
   void Handle(Address from, Address to, RequestId request_id, ShardManagerOrRsmMessage message) {
