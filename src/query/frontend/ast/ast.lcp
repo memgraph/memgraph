@@ -1381,7 +1381,7 @@ cpp<#
                  :documentation "Variable where the total weight for weighted shortest path will be stored."))
   (:public
     (lcp:define-enum type
-                     (single depth-first breadth-first weighted-shortest-path)
+                     (single depth-first breadth-first weighted-shortest-path all-shortest-paths)
                      (:serialize))
     (lcp:define-enum direction
                      (in out both)
@@ -1433,6 +1433,7 @@ cpp<#
         case Type::DEPTH_FIRST:
         case Type::BREADTH_FIRST:
         case Type::WEIGHTED_SHORTEST_PATH:
+        case Type::ALL_SHORTEST_PATHS:
           return true;
         case Type::SINGLE:
           return false;

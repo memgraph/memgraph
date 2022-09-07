@@ -79,3 +79,18 @@ def subgraph_get_path_vertices_in_subgraph(ctx: mgp.ProcCtx, path: mgp.Path) -> 
         if path_vertex in graph_vertices:
             records.append(mgp.Record(node=path_vertex))
     return records
+
+
+@mgp.read_proc
+def log_message(ctx: mgp.ProcCtx, message: str) -> mgp.Record(success=bool):
+    logger = mgp.Logger()
+    try:
+        logger.info(message)
+        logger.critical(message)
+        logger.trace(message)
+        logger.debug(message)
+        logger.warning(message)
+        logger.error(message)
+    except RuntimeError:
+        return mgp.Record(success=False)
+    return mgp.Record(success=True)

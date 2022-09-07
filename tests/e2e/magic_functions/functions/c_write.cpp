@@ -15,25 +15,25 @@ static void TryToWrite(struct mgp_list *args, mgp_func_context *ctx, mgp_func_re
                        struct mgp_memory *memory) {
   mgp_value *value{nullptr};
   mgp_vertex *vertex{nullptr};
-  mgp_list_at(args, 0, &value);
-  mgp_value_get_vertex(value, &vertex);
+  static_cast<void>(mgp_list_at(args, 0, &value));
+  static_cast<void>(mgp_value_get_vertex(value, &vertex));
 
   const char *name;
-  mgp_list_at(args, 1, &value);
-  mgp_value_get_string(value, &name);
+  static_cast<void>(mgp_list_at(args, 1, &value));
+  static_cast<void>(mgp_value_get_string(value, &name));
 
-  mgp_list_at(args, 2, &value);
+  static_cast<void>(mgp_list_at(args, 2, &value));
 
   // Setting a property should set an error
   auto err_code = mgp_vertex_set_property(vertex, name, value);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Cannot set property in the function!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Cannot set property in the function!", memory));
     return;
   }
 
   err_code = mgp_func_result_set_value(result, value, memory);
   if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
-    mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory);
+    static_cast<void>(mgp_func_result_set_error_msg(result, "Failed to construct return value!", memory));
     return;
   }
 }
@@ -49,23 +49,23 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     }
 
     mgp_type *type_vertex{nullptr};
-    mgp_type_node(&type_vertex);
+    static_cast<void>(mgp_type_node(&type_vertex));
     err_code = mgp_func_add_arg(func, "argument", type_vertex);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
     }
 
     mgp_type *type_string{nullptr};
-    mgp_type_string(&type_string);
+    static_cast<void>(mgp_type_string(&type_string));
     err_code = mgp_func_add_arg(func, "name", type_string);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;
     }
 
     mgp_type *any_type{nullptr};
-    mgp_type_any(&any_type);
+    static_cast<void>(mgp_type_any(&any_type));
     mgp_type *nullable_type{nullptr};
-    mgp_type_nullable(any_type, &nullable_type);
+    static_cast<void>(mgp_type_nullable(any_type, &nullable_type));
     err_code = mgp_func_add_arg(func, "value", nullable_type);
     if (err_code != mgp_error::MGP_ERROR_NO_ERROR) {
       return 1;

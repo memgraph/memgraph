@@ -2957,3 +2957,29 @@ mgp_error mgp_module_add_function(mgp_module *module, const char *name, mgp_func
       },
       result);
 }
+
+mgp_error mgp_log(const mgp_log_level log_level, const char *output) {
+  return WrapExceptions([=] {
+    switch (log_level) {
+      case mgp_log_level::MGP_LOG_LEVEL_TRACE:
+        spdlog::trace(output);
+        return;
+      case mgp_log_level::MGP_LOG_LEVEL_DEBUG:
+        spdlog::debug(output);
+        return;
+      case mgp_log_level::MGP_LOG_LEVEL_INFO:
+        spdlog::info(output);
+        return;
+      case mgp_log_level::MGP_LOG_LEVEL_WARN:
+        spdlog::warn(output);
+        return;
+      case mgp_log_level::MGP_LOG_LEVEL_ERROR:
+        spdlog::error(output);
+        return;
+      case mgp_log_level::MGP_LOG_LEVEL_CRITICAL:
+        spdlog::critical(output);
+        return;
+    }
+    throw std::invalid_argument{fmt::format("Invalid log level: {}", log_level)};
+  });
+}
