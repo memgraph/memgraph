@@ -433,10 +433,13 @@ class ScanAllCursor : public Cursor {
       vertices_.emplace(std::move(next_vertices.value()));
       vertices_it_.emplace(vertices_.value().begin());
     }
-
-    if (context.auth_checker && !FindNextVertex(context)) {
-      return false;
+#ifdef MG_ENTERPRISE
+    if (utils::license::global_license_checker.IsValidLicenseFast()) {
+      if (context.auth_checker && !FindNextVertex(context)) {
+        return false;
+      }
     }
+#endif
 
     frame[output_symbol_] = *vertices_it_.value();
     ++vertices_it_.value();
@@ -445,35 +448,34 @@ class ScanAllCursor : public Cursor {
 
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
-#ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast()) {
-        if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
-                                         memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-          return true;
-        }
-        ++vertices_it_.value();
+      if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        return true;
       }
+      ++vertices_it_.value();
     }
-#endif
-
-    return false;
   }
 
-  void Shutdown() override { input_cursor_->Shutdown(); }
+  return false;
+}
 
-  void Reset() override {
-    input_cursor_->Reset();
-    vertices_ = std::nullopt;
-    vertices_it_ = std::nullopt;
-  }
+  void Shutdown() override {
+  input_cursor_->Shutdown();
+}
 
- private:
-  const Symbol output_symbol_;
-  const UniqueCursorPtr input_cursor_;
-  TVerticesFun get_vertices_;
-  std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
-  std::optional<decltype(vertices_.value().begin())> vertices_it_;
-  const char *op_name_;
+void Reset() override {
+  input_cursor_->Reset();
+  vertices_ = std::nullopt;
+  vertices_it_ = std::nullopt;
+}
+
+private:
+const Symbol output_symbol_;
+const UniqueCursorPtr input_cursor_;
+TVerticesFun get_vertices_;
+std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+std::optional<decltype(vertices_.value().begin())> vertices_it_;
+const char *op_name_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)

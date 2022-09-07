@@ -32,6 +32,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
+#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
@@ -2271,7 +2272,11 @@ void NextPermitted(mgp_vertices_iterator &it) {
 /// @throw anything VerticesIterable may throw
 mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
     : memory(memory), graph(graph), vertices(graph->impl->Vertices(graph->view)), current_it(vertices.begin()) {
-  NextPermitted(*this);
+#ifdef MG_ENTERPRISE
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    NextPermitted(*this);
+  }
+#endif
 
   if (current_it != vertices.end()) {
     current_v.emplace(*current_it, graph, memory);

@@ -107,6 +107,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
   std::string labelName = "l1";
   const auto label = dba.NameToLabel(labelName);
@@ -192,6 +193,7 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
   }
 }
+#endif
 
 TEST(QueryPlan, MatchReturnCartesian) {
   memgraph::storage::Storage db;
@@ -506,6 +508,7 @@ TEST_F(ExpandFixture, Expand) {
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   auto test_expand = [&](memgraph::auth::User user, EdgeAtom::Direction direction, memgraph::storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -560,6 +563,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
+#endif
 
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -788,6 +792,7 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
@@ -989,6 +994,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     }
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
@@ -1049,6 +1055,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true), (map_int{{2, 5 * 8}}));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool add_uniqueness_check, memgraph::auth::User &user) {
@@ -1139,6 +1146,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
     EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, 2, true, user), (map_int{{0, 4}}));
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
@@ -1172,6 +1180,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
   auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 0, 2, e, "m",
@@ -1310,6 +1319,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
@@ -1501,6 +1511,7 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
@@ -1699,6 +1710,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     }
   }
 }
+#endif
 
 namespace std {
 template <>
@@ -2030,6 +2042,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {
@@ -2129,6 +2142,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     ASSERT_EQ(filtered_results.size(), 4);
   }
 }
+#endif
 
 /** A test fixture for all shortest paths expansion */
 class QueryPlanExpandAllShortestPaths : public testing::Test {
@@ -2492,6 +2506,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
   EXPECT_EQ(results[5].total_weight, 9);
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
@@ -2571,6 +2586,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     ASSERT_EQ(filtered_results.size(), 4);
   }
 }
+#endif
 
 TEST(QueryPlan, ExpandOptional) {
   memgraph::storage::Storage db;

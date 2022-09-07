@@ -77,6 +77,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   EXPECT_EQ(vertex_count, 1);
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
@@ -117,6 +118,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
     ASSERT_THROW(test_create(user), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
@@ -158,6 +160,7 @@ TEST(QueryPlan, CreateReturn) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   memgraph::storage::Storage db;
@@ -215,6 +218,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateExpand) {
   memgraph::storage::Storage db;
@@ -293,6 +297,7 @@ TEST(QueryPlan, CreateExpand) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class CreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -536,6 +541,7 @@ TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
 
   ASSERT_THROW(ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
+#endif
 
 TEST(QueryPlan, MatchCreateExpand) {
   memgraph::storage::Storage db;
@@ -585,6 +591,7 @@ TEST(QueryPlan, MatchCreateExpand) {
   test_create_path(true, 0, 6);
 }
 
+#ifdef MG_ENTERPRISE
 class MatchCreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -730,6 +737,7 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
 
   ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
 }
+#endif
 
 TEST(QueryPlan, Delete) {
   memgraph::storage::Storage db;
@@ -802,6 +810,7 @@ TEST(QueryPlan, Delete) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class DeleteOperatorWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -949,6 +958,7 @@ TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted)
   TestDeleteNodesHypothesis(0);
   TestDeleteEdgesHypothesis(0);
 }
+#endif
 
 TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // test deleting the same vertex and edge multiple times
@@ -1242,6 +1252,7 @@ TEST(QueryPlan, SetLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, SetLabelsWithFineGrained) {
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
@@ -1311,6 +1322,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, RemoveProperty) {
   memgraph::storage::Storage db;
@@ -1409,6 +1421,7 @@ TEST(QueryPlan, RemoveLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
@@ -1484,6 +1497,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, NodeFilterSet) {
   memgraph::storage::Storage db;
@@ -1850,6 +1864,7 @@ TEST(QueryPlan, DeleteRemoveProperty) {
 //////////////////////////////////////////////
 ////     FINE GRAINED AUTHORIZATION      /////
 //////////////////////////////////////////////
+#ifdef MG_ENTERPRISE
 class UpdatePropertiesWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -2476,3 +2491,4 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     test_remove_hypothesis(1);
   }
 }
+#endif
