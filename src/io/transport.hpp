@@ -76,20 +76,23 @@ class Io {
   /// without an explicit timeout set.
   void SetDefaultTimeout(Duration timeout) { default_timeout_ = timeout; }
 
+  /// Returns the current default timeout for this Io instance.
+  Duration GetDefaultTimeout() { return default_timeout_; }
+
   /// Issue a request with an explicit timeout in microseconds provided. This tends to be used by clients.
-  template <Message Request, Message Response>
-  ResponseFuture<Response> RequestWithTimeout(Address address, Request request, Duration timeout) {
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
     const RequestId request_id = ++request_id_counter_;
-    return implementation_.template Request<Request, Response>(address, request_id, request, timeout);
+    return implementation_.template Request<RequestT, ResponseT>(address, request_id, request, timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
-  template <Message Request, Message Response>
-  ResponseFuture<Response> Request(Address address, Request request) {
+  template <Message RequestT, Message ResponseT>
+  ResponseFuture<ResponseT> Request(Address address, RequestT request) {
     const RequestId request_id = ++request_id_counter_;
     const Duration timeout = default_timeout_;
-    return implementation_.template Request<Request, Response>(address, request_id, std::move(request), timeout);
+    return implementation_.template Request<RequestT, ResponseT>(address, request_id, std::move(request), timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the

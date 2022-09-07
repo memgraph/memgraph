@@ -20,6 +20,7 @@ add_subdirectory(rpc)
 add_subdirectory(auth)
 add_subdirectory(parser)
 add_subdirectory(expr)
+add_subdirectory(coordinator)
 
 if (MG_ENTERPRISE)
   add_subdirectory(audit)
