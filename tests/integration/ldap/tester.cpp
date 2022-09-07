@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   memgraph::io::network::Endpoint endpoint(memgraph::io::network::ResolveHostname(FLAGS_address), FLAGS_port);
 
   memgraph::communication::ClientContext context(FLAGS_use_ssl);
-  memgraph::communication::bolt::Client client(&context);
+  memgraph::communication::bolt::Client client(context);
 
   {
     std::string what;

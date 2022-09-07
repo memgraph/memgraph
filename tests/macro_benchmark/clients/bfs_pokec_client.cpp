@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
 
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);
-  Client client(&context);
+  Client client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   std::vector<std::unique_ptr<TestClient>> clients;

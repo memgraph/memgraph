@@ -188,6 +188,12 @@ class FreeMemoryModificationInMulticommandTxException : public QueryException {
       : QueryException("Free memory query not allowed in multicommand transactions.") {}
 };
 
+class ShowConfigModificationInMulticommandTxException : public QueryException {
+ public:
+  ShowConfigModificationInMulticommandTxException()
+      : QueryException("Show config query not allowed in multicommand transactions.") {}
+};
+
 class TriggerModificationInMulticommandTxException : public QueryException {
  public:
   TriggerModificationInMulticommandTxException()
@@ -224,4 +230,11 @@ class VersionInfoInMulticommandTxException : public QueryException {
       : QueryException("Version info query not allowed in multicommand transactions.") {}
 };
 
+class ReplicationException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  explicit ReplicationException(const std::string &message)
+      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICA' query.",
+                              message) {}
+};
 }  // namespace memgraph::query
