@@ -559,15 +559,18 @@ class TypedValueT {
   }
 
   // copy assignment operators
-#define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, member) \
-  TypedValueT &operator=(type_param other) {                                     \
-    if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
-      this->member = other;                                                      \
-    } else {                                                                     \
-      *this = TypedValueT(other, memory_);                                       \
-    }                                                                            \
-                                                                                 \
-    return *this;                                                                \
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member)                          \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                        \
+#define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, member) TypedValueT &operator= \
+      (type_param other) {                                                                                \
+    if (this->type_ == TypedValueT::Type::typed_value_type) {                                             \
+      this->member = other;                                                                               \
+    } else {                                                                                              \
+      *this = TypedValueT(other, memory_);                                                                \
+    }                                                                                                     \
+                                                                                                          \
+    return *this;                                                                                         \
   }
 
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const char *, String, string_v)
@@ -611,7 +614,7 @@ class TypedValueT {
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member) \
   /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                               \
   TypedValueT &operator=(type_param &&other) {                                   \
@@ -778,7 +781,7 @@ class TypedValueT {
 
   // TODO consider adding getters for primitives by value (and not by ref)
 
-  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
   /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                               \
   type_param &Value##type_enum() {                                                               \
