@@ -171,6 +171,17 @@ struct ShardMap {
     return std::prev(label_space.shards.upper_bound(key))->second;
   }
 
+  Shard GetShardForKey(const LabelId &label_id, const CompoundKey &key) const {
+    MG_ASSERT(label_spaces.contains(label_id));
+
+    const auto &label_space = label_spaces.at(label_id);
+
+    MG_ASSERT(label_space.shards.begin()->first <= key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
+
+    return std::prev(label_space.shards.upper_bound(key))->second;
+  }
+
   PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties) {
     PropertyMap ret{};
 

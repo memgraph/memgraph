@@ -73,17 +73,19 @@ struct Value {
   union {
     Null null_v;
     bool bool_v;
-    uint64_t int_v;
+    int int_v;
     double double_v;
-    //    std::string string_v;
-    //    std::vector<Value> list_v;
-    //    std::map<std::string, Value> map_v;
-    //    Vertex vertex_v;
-    //    Edge edge_v;
-    //    Path path_v;
+    std::string string_v;
+    std::vector<Value> list_v;
+    std::map<std::string, Value> map_v;
+    Vertex vertex_v;
+    Edge edge_v;
+    Path path_v;
   };
 
   Type type;
+
+  Value() : type(NILL), null_v{} {}
 };
 
 struct ValuesMap {
@@ -151,6 +153,11 @@ struct GetPropertiesResponse {
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
+
+struct VertexEdgeId {
+  VertexId vertex_id;
+  std::optional<EdgeId> next_id;
+};
 
 struct ExpandOneRequest {
   Hlc transaction_id;
