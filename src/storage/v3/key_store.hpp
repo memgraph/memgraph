@@ -15,6 +15,7 @@
 #include <compare>
 #include <functional>
 
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
 
@@ -35,6 +36,8 @@ class KeyStore {
   ~KeyStore() = default;
 
   PropertyValue GetKey(size_t index) const;
+
+  PropertyValue GetKey(PropertyId property) const;
 
   PrimaryKey Keys() const;
 

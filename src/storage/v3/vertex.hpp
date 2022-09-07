@@ -33,29 +33,10 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties,
-         const std::vector<LabelId> &secondary_labels,
-         const std::vector<std::pair<PropertyId, PropertyValue>> &secondary_properties)
-      : keys{primary_properties}, labels{secondary_labels}, delta{delta} {
+  Vertex(LabelId primary_label, const std::vector<PropertyValue> &primary_properties)
+      : primary_label{primary_label}, keys(primary_properties) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
-    for (const auto &[property_id, property_value] : secondary_properties) {
-      properties.SetProperty(property_id, property_value);
-    }
-  }
-
-  explicit Vertex(const std::vector<PropertyValue> &primary_properties) : keys(primary_properties) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-  Vertex(const std::vector<PropertyValue> &primary_properties, const std::vector<LabelId> &secondary_labels,
-         const std::vector<std::pair<PropertyId, PropertyValue>> &secondary_properties)
-      : keys{primary_properties}, labels{secondary_labels} {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-    for (const auto &[property_id, property_value] : secondary_properties) {
-      properties.SetProperty(property_id, property_value);
-    }
   }
 
   KeyStore keys;

@@ -13,6 +13,7 @@
 #include <iterator>
 #include <ranges>
 
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 
@@ -26,6 +27,8 @@ KeyStore::KeyStore(const PrimaryKey &key_values) {
 }
 
 PropertyValue KeyStore::GetKey(const size_t index) const { return store_.GetProperty(PropertyId::FromUint(index)); }
+
+PropertyValue KeyStore::GetKey(const PropertyId property_id) const { return store_.GetProperty(property_id); }
 
 PrimaryKey KeyStore::Keys() const {
   auto keys_map = store_.Properties();

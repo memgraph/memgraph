@@ -495,23 +495,31 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
           return property_pair.first == property_id;
         })->second);
   }
-
-  // Get secondary properties
-  std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties;
-  for (const auto &[property_id, property_value] : properties) {
-    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
-      secondary_properties.emplace_back(property_id, property_value);
-    }
-  }
-
   auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_properties, labels, secondary_properties}});
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
+
+  VertexAccessor vertex_acc{&it->vertex,           &transaction_, &shard_->indices_,
+                            &shard_->constraints_, config_,       shard_->vertex_validator_};
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+
+  // TODO(jbajic) Improve, maybe delay index update
+  for (const auto &[property_id, property_value] : properties) {
+    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      if (const auto err = vertex_acc.SetProperty(property_id, property_value); err.HasError()) {
+        return {err.GetError()};
+      }
+    }
+  }
+  // Set secondary labels
+  for (auto label : labels) {
+    if (const auto err = vertex_acc.AddLabel(label); err.HasError()) {
+      return {err.GetError()};
+    }
+  }
   delta->prev.Set(&it->vertex);
-  return VertexAccessor{&it->vertex,           &transaction_, &shard_->indices_,
-                        &shard_->constraints_, config_,       shard_->vertex_validator_};
+  return vertex_acc;
 }
 
 std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
@@ -1066,8 +1074,10 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
 }
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  return false;
+  // TODO(jbajic) response should be different when label == primary_label
+  if (label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1076,9 +1086,15 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_com
 }
 
 bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  // if (!indices_.label_property_index.CreateIndex(label, property, labelspace.access())) return false;
-  return false;
+  // TODO(jbajic) response should be different when index conflicts with schema
+  if (label == primary_label_ && schemas_.GetSchema(primary_label_)->second.size() == 1 &&
+      schemas_.GetSchema(primary_label_)->second[0].property_id == property) {
+    // Index already exists on primary key
+    return false;
+  }
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
