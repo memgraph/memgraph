@@ -464,7 +464,7 @@ cpp<#
                :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
   (:public
     (lcp:define-enum op
-      (count min max sum avg collect-list collect-map)
+      (count min max sum avg collect-list collect-map project)
       (:serialize))
     #>cpp
     Aggregation() = default;
@@ -475,10 +475,11 @@ cpp<#
     static const constexpr char *const kSum = "SUM";
     static const constexpr char *const kAvg = "AVG";
     static const constexpr char *const kCollect = "COLLECT";
+    static const constexpr char *const kProject = "PROJECT";
 
     static std::string OpToString(Op op) {
       const char *op_strings[] = {kCount, kMin,     kMax,    kSum,
-                                  kAvg,   kCollect, kCollect};
+                                  kAvg,   kCollect, kCollect, kProject};
       return op_strings[static_cast<int>(op)];
     }
 
