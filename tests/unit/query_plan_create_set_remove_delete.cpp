@@ -772,7 +772,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
-  void initGraph() {
+  void InitGraph() {
     std::vector<memgraph::query::VertexAccessor> vertices;
     for (int i = 0; i < 4; ++i) {
       memgraph::query::VertexAccessor v{dba.InsertVertex()};
@@ -791,19 +791,11 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
     assertInitGraphValid();
   }
 
- private:
-  void assertInitGraphValid() {
-    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
-    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
-  }
-};
-
-TEST_F(DeleteOperatorWithAuthFixture, FineGrainedDeleteOperatorOnNodes) {
-  auto test_delete_nodes_hypothesis = [&](int expected_result_size) {
+  void TestDeleteNodesHypothesis(int expected_result_size) {
     EXPECT_EQ(expected_result_size, CountIterable(dba.Vertices(memgraph::storage::View::NEW)));
   };
 
-  auto delete_all_nodes = [&](memgraph::auth::User &user) {
+  void DeleteAllNodes(memgraph::auth::User &user) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     Frame frame(symbol_table.max_position());
@@ -814,18 +806,18 @@ TEST_F(DeleteOperatorWithAuthFixture, FineGrainedDeleteOperatorOnNodes) {
     dba.AdvanceCommand();
   };
 
-  auto execute_delete_nodes_test_suite = [&](memgraph::auth::User &user, int expected_nodes) {
+  void ExecuteDeleteNodesTestSuite(memgraph::auth::User &user, int expected_nodes) {
     // make a fully-connected (one-direction, no cycles) with 4 nodes
-    initGraph();
-    delete_all_nodes(user);
-    test_delete_nodes_hypothesis(expected_nodes);
+    InitGraph();
+    DeleteAllNodes(user);
+    TestDeleteNodesHypothesis(expected_nodes);
   };
 
-  auto test_delete_edges_hypothesis = [&](int expected_result_size) {
+  void TestDeleteEdgesHypothesis(int expected_result_size) {
     EXPECT_EQ(expected_result_size, CountEdges(&dba, memgraph::storage::View::NEW));
   };
 
-  auto delete_all_edges = [&](memgraph::auth::User &user) {
+  void DeleteAllEdges(memgraph::auth::User &user) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r", EdgeAtom::Direction::OUT, {}, "m", false,
                           memgraph::storage::View::NEW);
@@ -837,79 +829,87 @@ TEST_F(DeleteOperatorWithAuthFixture, FineGrainedDeleteOperatorOnNodes) {
     dba.AdvanceCommand();
   };
 
-  auto execute_delete_edges_test_suite = [&](memgraph::auth::User &user, int expected_edges) {
+  void ExecuteDeleteEdgesTestSuite(memgraph::auth::User &user, int expected_edges) {
     // make a fully-connected (one-direction, no cycles) with 4 nodes
-    initGraph();
-    delete_all_edges(user);
-    test_delete_edges_hypothesis(expected_edges);
+    InitGraph();
+    DeleteAllEdges(user);
+    TestDeleteEdgesHypothesis(expected_edges);
   };
 
+ private:
+  void assertInitGraphValid() {
+    EXPECT_EQ(4, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
+    EXPECT_EQ(6, CountEdges(&dba, memgraph::storage::View::OLD));
+  }
+};
+
+TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenAllLabelsDenied) {
   // All labels denied
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                              memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_THROW(execute_delete_nodes_test_suite(user, 0), QueryRuntimeException);
-  }
+  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+}
 
+TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenPartialLabelsGranted) {
   // One Label granted
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("l1",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    ASSERT_THROW(execute_delete_nodes_test_suite(user, 0), QueryRuntimeException);
-    // test_delete_node(user, 3);
-  }
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant("l1",
+                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+}
 
+TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeExecutesWhenGrantedAllLabels) {
   // All labels granted
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    execute_delete_nodes_test_suite(user, 0);
-  }
-
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  ExecuteDeleteNodesTestSuite(user, 0);
+}
+TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenEdgeTypesNotGranted) {
   // All labels granted,All edge types denied
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().edge_type_permissions().Deny(
-        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+  user.fine_grained_access_handler().edge_type_permissions().Deny("*",
+                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_THROW(execute_delete_edges_test_suite(user, 0), QueryRuntimeException);
-  }
-
+  ASSERT_THROW(ExecuteDeleteNodesTestSuite(user, 0), QueryRuntimeException);
+}
+TEST_F(DeleteOperatorWithAuthFixture, DeleteEdgesThrowsErrorWhenPartialGrant) {
   // Specific label granted, Specific edge types granted
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().label_permissions().Deny("l3", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().label_permissions().Deny("l4", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "type0", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "type1", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().edge_type_permissions().Deny(
-        "type2", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().edge_type_permissions().Deny(
-        "type3", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    ASSERT_THROW(execute_delete_edges_test_suite(user, 0), QueryRuntimeException);
-  }
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::UPDATE);
+  user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::UPDATE);
+  user.fine_grained_access_handler().label_permissions().Deny("l3", memgraph::auth::FineGrainedPermission::UPDATE);
+  user.fine_grained_access_handler().label_permissions().Deny("l4", memgraph::auth::FineGrainedPermission::UPDATE);
+  user.fine_grained_access_handler().edge_type_permissions().Grant(
+      "type0", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Grant(
+      "type1", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Deny("type2",
+                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Deny("type3",
+                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
+  ASSERT_THROW(ExecuteDeleteEdgesTestSuite(user, 0), QueryRuntimeException);
+}
+
+TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted) {
   // All labels granted, All edge_types granted
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
-    execute_delete_edges_test_suite(user, 0);
-    execute_delete_nodes_test_suite(user, 0);
-  }
+  memgraph::auth::User user{"test"};
+  user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  user.fine_grained_access_handler().edge_type_permissions().Grant(
+      "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+
+  InitGraph();
+  DeleteAllNodes(user);
+  TestDeleteNodesHypothesis(0);
+  TestDeleteEdgesHypothesis(0);
 }
 
 TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
