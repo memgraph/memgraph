@@ -134,7 +134,7 @@ class SerializationError(_mgp.SerializationError):
     pass
 
 
-class PermissionDeniedError(_mgp.PermissionDeniedError):
+class AuthorizationError(_mgp.AuthorizationError):
     """
     Signals that the user doesn't have sufficient permissions to perform
     procedure call.
@@ -1978,8 +1978,8 @@ def _wrap_exceptions():
                 raise ValueConversionError(e)
             except _mgp.SerializationError as e:
                 raise SerializationError(e)
-            except _mgp.PermissionDeniedError as e:
-                raise PermissionDeniedError(e)
+            except _mgp.AuthorizationError as e:
+                raise AuthorizationError(e)
 
         return wrapped_func
 

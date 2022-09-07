@@ -173,7 +173,7 @@ class SerializationError(Exception):
     pass
 
 
-class PermissionDeniedError(Exception):
+class AuthorizationError(Exception):
     pass
 
 

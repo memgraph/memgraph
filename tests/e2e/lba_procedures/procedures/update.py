@@ -16,6 +16,6 @@ import mgp
 def set_property(ctx: mgp.ProcCtx, object: mgp.Any) -> mgp.Record():
     try:
         object.properties.set("prop", 2)
-    except mgp.PermissionDeniedError:
+    except mgp.AuthorizationError:
         pass
     return mgp.Record()
