@@ -48,9 +48,6 @@ class FineGrainedAuthChecker {
   [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba,
                                     const memgraph::storage::EdgeTypeId &edge_type,
                                     query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
-
-  [[nodiscard]] virtual bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::LabelId &label_id,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const = 0;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
@@ -72,11 +69,6 @@ class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAut
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
               const query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
-    return true;
-  }
-
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::LabelId &label_id,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override {
     return true;
   }
 };  // namespace memgraph::query

@@ -68,6 +68,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
     <<: *edge_type_filtering_cluster
+
   - name: "Path filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/path_filtering_tests.py"]

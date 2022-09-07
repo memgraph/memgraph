@@ -125,11 +125,4 @@ bool FineGrainedAuthChecker::Accept(
   return IsUserAuthorizedEdgeType(user_, dba, edge_type, fine_grained_permission);
 }
 
-bool FineGrainedAuthChecker::Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::LabelId &label_id,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const {
-  return user_.GetFineGrainedAccessLabelPermissions().Has(
-             dba.LabelToName(label_id), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                            fine_grained_permission)) == memgraph::auth::PermissionLevel::GRANT;
-};
-
 }  // namespace memgraph::glue

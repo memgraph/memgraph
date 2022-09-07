@@ -1880,17 +1880,31 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // Populates the priority queue structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_vertex](const VertexAccessor &vertex, const TypedValue &weight,
-                                                     int64_t depth) {
+    auto expand_from_vertex = [this, &expand_vertex, &context](const VertexAccessor &vertex, const TypedValue &weight,
+                                                               int64_t depth) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : out_edges) {
+          if (context.auth_checker &&
+              !(context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Accept(*context.db_accessor, edge,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
           expand_vertex(edge, EdgeAtom::Direction::OUT, weight, depth);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
         for (const auto &edge : in_edges) {
+          if (context.auth_checker &&
+              !(context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Accept(*context.db_accessor, edge,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
           expand_vertex(edge, EdgeAtom::Direction::IN, weight, depth);
         }
       }
@@ -2741,6 +2755,11 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
 
+  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
+  }
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2749,11 +2768,6 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    if (context.auth_checker &&
-        !context.auth_checker->Accept(*context.db_accessor, label,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
-    }
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -2886,6 +2900,10 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
+  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
+  }
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -2895,11 +2913,6 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
   for (auto label : self_.labels_) {
-    if (context.auth_checker &&
-        !context.auth_checker->Accept(*context.db_accessor, label,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
-    }
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {

@@ -17,7 +17,6 @@
 #include "query/auth_checker.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "storage/v2/id_types.hpp"
 
 namespace memgraph::glue {
 
@@ -53,9 +52,6 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
               query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
-
-  bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::LabelId &label_id,
               query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
 
  private:
