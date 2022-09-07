@@ -20,21 +20,25 @@
 #include <variant>
 #include <vector>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-/// Hybrid-logical clock
-struct Hlc {
-  uint64_t logical_id;
-  using Duration = std::chrono::microseconds;
-  using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
-  Time coordinator_wall_clock;
+using memgraph::coordinator::Hlc;
+using memgraph::storage::v3::LabelId;
 
-  bool operator==(const Hlc &other) const = default;
-};
+// /// Hybrid-logical clock
+// struct Hlc {
+//   uint64_t logical_id;
+//   using Duration = std::chrono::microseconds;
+//   using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
+//   Time coordinator_wall_clock;
+
+//   bool operator==(const Hlc &other) const = default;
+// };
 
 struct Label {
-  size_t id;
+  LabelId id;
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
@@ -76,6 +80,8 @@ struct Path {
 struct Null {};
 
 struct Value {
+  Value() : type(NILL), null_v{} {};
+  ~Value(){};
   enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
   union {
     Null null_v;
@@ -126,7 +132,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
-  size_t start_id;
+  VertexId start_id;
   std::optional<std::vector<std::string>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
@@ -218,7 +224,8 @@ struct UpdateEdgeProp {
  * Vertices
  */
 struct NewVertex {
-  std::vector<memgraph::storage::v3::LabelId> label_ids;
+  std::vector<Label> label_ids;
+  PrimaryKey primary_key;
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 

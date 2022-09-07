@@ -44,7 +44,7 @@ memgraph::storage::v3::PropertyValue to_property_value(const Value &value) {
       }
       return PV(map);
     }
-    /// These are not PropertyValues
+    // These are not PropertyValues
     case Value::Type::VERTEX:
     case Value::Type::EDGE:
     case Value::Type::PATH:
@@ -103,7 +103,13 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     /// signature of CreateVertexAndValidate.
     auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
 
-    auto result_schema = acc.CreateVertexAndValidate(primary_label, new_vertex.label_ids, converted_property_map);
+    // TODO(gvolfing) make sure if this conversion is actually needed.
+    std::vector<memgraph::storage::v3::LabelId> converted_label_ids(new_vertex.label_ids.size());
+    for (const auto &label_id : new_vertex.label_ids) {
+      converted_label_ids.emplace_back(label_id.id);
+    }
+
+    auto result_schema = acc.CreateVertexAndValidate(primary_label, converted_label_ids, converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -422,8 +428,31 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   return resp;
 }
 
-ReadResponses HandleRead(ScanVerticesRequest &&req) {
+ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   ScanVerticesResponse resp{};
+
+  // auto acc = shard_.Access();
+
+  // bool action_successful = true;
+  // // std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
+  // const auto batch_size = req.batch_limit;
+
+  // // // If there is a batch Limit start looping based on that.
+  // // // How do I get every vertex in the shard? Only FindVertex(std::vector<PropertyValue> primary_key, View view) ?
+  // // // VerticesIterable Vertices(LabelId label, View view) ?
+
+  // // Get the vertices.
+  // auto vertex_iterable = acc.Vertices(View(req.storage_view));
+
+  // uint64_t sample_counter = 0;
+  // for(const auto& vertex : vertex_iterable){
+  //   vertex.GetProperty();
+
+  //     // How to create Value from VertexAccessor?
+  //     // PropertyValue -> Value?
+  //     if(sample_counter == batch_size)
+  //     {break;}
+  // }
 
   return resp;
 }
