@@ -611,8 +611,9 @@ class TypedValueT {
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member) \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                               \
   TypedValueT &operator=(type_param &&other) {                                   \
     if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
       this->member = std::move(other);                                           \
@@ -777,8 +778,9 @@ class TypedValueT {
 
   // TODO consider adding getters for primitives by value (and not by ref)
 
-  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                               \
   type_param &Value##type_enum() {                                                               \
     if (type_ != Type::type_enum)                                                                \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \

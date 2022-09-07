@@ -50,7 +50,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
   }
 
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                                         \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                                  \
   TypedValue Visit(OP_NODE &op) override {                                                                          \
     auto val1 = op.expression1_->Accept(*this);                                                                     \
     auto val2 = op.expression2_->Accept(*this);                                                                     \
@@ -61,7 +63,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }                                                                                                               \
   }
 
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */
 #define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                   \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                           \
   TypedValue Visit(OP_NODE &op) override {                                                   \
     auto val = op.expression_->Accept(*this);                                                \
     try {                                                                                    \
