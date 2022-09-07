@@ -66,7 +66,7 @@ class GraphSession {
     }
 
     EndpointT endpoint(FLAGS_address, FLAGS_port);
-    client_ = std::make_unique<ClientT>(&context_);
+    client_ = std::make_unique<ClientT>(context_);
     client_->Connect(endpoint, FLAGS_username, FLAGS_password);
   }
 
@@ -387,7 +387,7 @@ int main(int argc, char **argv) {
   // create client
   EndpointT endpoint(FLAGS_address, FLAGS_port);
   ClientContextT context(FLAGS_use_ssl);
-  ClientT client(&context);
+  ClientT client(context);
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   // cleanup and create indexes

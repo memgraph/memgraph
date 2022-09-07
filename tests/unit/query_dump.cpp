@@ -531,8 +531,8 @@ TEST(DumpTest, IndicesKeys) {
     CreateVertex(&dba, {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(1)}}, false);
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")));
-  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Label 2"), db.NameToProperty("prop `")));
+  ASSERT_FALSE(db.CreateIndex(db.NameToLabel("Label1"), db.NameToProperty("prop")).HasError());
+  ASSERT_FALSE(db.CreateIndex(db.NameToLabel("Label 2"), db.NameToProperty("prop `")).HasError());
 
   {
     ResultStreamFaker stream(&db);
@@ -558,8 +558,7 @@ TEST(DumpTest, ExistenceConstraints) {
   }
   {
     auto res = db.CreateExistenceConstraint(db.NameToLabel("L`abel 1"), db.NameToProperty("prop"));
-    ASSERT_TRUE(res.HasValue());
-    ASSERT_TRUE(res.GetValue());
+    ASSERT_FALSE(res.HasError());
   }
 
   {
@@ -694,16 +693,15 @@ TEST(DumpTest, CheckStateSimpleGraph) {
   }
   {
     auto ret = db.CreateExistenceConstraint(db.NameToLabel("Person"), db.NameToProperty("name"));
-    ASSERT_TRUE(ret.HasValue());
-    ASSERT_TRUE(ret.GetValue());
+    ASSERT_FALSE(ret.HasError());
   }
   {
     auto ret = db.CreateUniqueConstraint(db.NameToLabel("Person"), {db.NameToProperty("name")});
     ASSERT_TRUE(ret.HasValue());
     ASSERT_EQ(ret.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
   }
-  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")));
-  ASSERT_TRUE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("unexisting_property")));
+  ASSERT_FALSE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("id")).HasError());
+  ASSERT_FALSE(db.CreateIndex(db.NameToLabel("Person"), db.NameToProperty("unexisting_property")).HasError());
 
   const auto &db_initial_state = GetState(&db);
   memgraph::storage::Storage db_dump;
@@ -852,19 +850,17 @@ TEST(DumpTest, MultiplePartialPulls) {
   memgraph::storage::Storage db;
   {
     // Create indices
-    db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("name"));
-    db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("surname"));
+    ASSERT_FALSE(db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("name")).HasError());
+    ASSERT_FALSE(db.CreateIndex(db.NameToLabel("PERSON"), db.NameToProperty("surname")).HasError());
 
     // Create existence constraints
     {
       auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"), db.NameToProperty("name"));
-      ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.HasError());
     }
     {
       auto res = db.CreateExistenceConstraint(db.NameToLabel("PERSON"), db.NameToProperty("surname"));
-      ASSERT_TRUE(res.HasValue());
-      ASSERT_TRUE(res.GetValue());
+      ASSERT_FALSE(res.HasError());
     }
 
     // Create unique constraints
