@@ -83,14 +83,14 @@ class MachineManager {
         continue;
       }
 
-      RequestEnvelope<UberMessage> request = std::move(request_result.GetValue());
-      UberMessage um = std::get<UberMessage>(request.message);
+      RequestEnvelope<UberMessage> &&request = std::move(request_result.GetValue());
+      UberMessage &&um = std::move(std::get<UberMessage>(request.message));
 
       std::visit(
           [&](auto &&msg) {
             Handle(std::forward<decltype(msg)>(msg), request.request_id, request.from_address, request.to_address);
           },
-          std::move(um));
+          std::forward<UberMessage>(um));
     }
   }
 

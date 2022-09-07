@@ -46,6 +46,12 @@ template <typename IoImpl>
 using ShardRaft =
     Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 
+using namespace std::chrono_literals;
+static constexpr Duration kMinimumCronInterval = 1000ms;
+static constexpr Duration kMaximumCronInterval = 5000ms;
+static_assert(kMinimumCronInterval < kMaximumCronInterval,
+              "The minimum cron interval has to be smaller than the maximum cron interval!");
+
 /// The ShardManager is responsible for:
 /// * reconciling the storage engine's local configuration with the Coordinator's
 ///   intentions for how it should participate in multiple raft clusters
@@ -61,23 +67,34 @@ class ShardManager {
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
   Time Cron() {
-    if (cron_schedule_.empty()) {
-      return Time::max();
+    spdlog::info("running ShardManager::Cron");
+    Time now = io_.Now();
+
+    if (now >= next_cron_) {
+      std::uniform_int_distribution time_distrib(kMinimumCronInterval.count(), kMaximumCronInterval.count());
+
+      const auto rand = io_.Rand(time_distrib);
+
+      next_cron_ = now + Duration{rand};
     }
 
-    auto &[time, uuid] = cron_schedule_.top();
+    if (!cron_schedule_.empty()) {
+      auto &[time, uuid] = cron_schedule_.top();
 
-    MG_ASSERT(time <= io_.Now());
+      MG_ASSERT(time <= now);
 
-    auto &rsm = rsm_map_.at(uuid);
-    Time next_for_uuid = rsm.Cron();
+      auto &rsm = rsm_map_.at(uuid);
+      Time next_for_uuid = rsm.Cron();
 
-    cron_schedule_.pop();
-    cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
+      cron_schedule_.pop();
+      cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
 
-    auto &[next_time, _uuid] = cron_schedule_.top();
+      auto &[next_time, _uuid] = cron_schedule_.top();
 
-    return next_time;
+      return std::min(next_cron_, next_time);
+    }
+
+    return next_cron_;
   }
 
   void Handle(Address from, Address to, RequestId request_id, ShardManagerOrRsmMessage message) {

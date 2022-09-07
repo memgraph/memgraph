@@ -25,6 +25,7 @@ using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 struct InitialLabelSpace {
   std::string label_name;
   std::vector<SchemaProperty> schema;
+  size_t replication_factor;
   std::vector<CompoundKey> split_points;
 };
 

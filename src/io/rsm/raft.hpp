@@ -53,7 +53,6 @@ static constexpr size_t kMaximumAppendBatchSize = 1024;
 using Term = uint64_t;
 using LogIndex = uint64_t;
 using LogSize = uint64_t;
-using RequestId = uint64_t;
 
 template <typename WriteOperation>
 struct WriteRequest {
@@ -250,6 +249,26 @@ class Raft {
     const Duration random_cron_interval = RandomTimeout(kMinimumCronInterval, kMaximumCronInterval);
 
     return io_.Now() + random_cron_interval;
+  }
+
+  using ReceiveVariant = std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
+                                      WriteRequest<WriteOperation>, VoteRequest, VoteResponse>;
+
+  void Handle(ReceiveVariant &&message_variant, RequestId request_id, Address from_address) {
+    // dispatch the message to a handler based on our role,
+    // which can be specified in the Handle first argument,
+    // or it can be `auto` if it's a handler for several roles
+    // or messages.
+    std::optional<Role> new_role = std::visit(
+        [&](auto &&msg, auto &role) mutable {
+          return Handle(role, std::forward<decltype(msg)>(msg), request_id, from_address);
+        },
+        std::forward<ReceiveVariant>(message_variant), role_);
+
+    // TODO(tyler) (M3) maybe replace std::visit with get_if for explicit prioritized matching, [[likely]] etc...
+    if (new_role) {
+      role_ = std::move(new_role).value();
+    }
   }
 
   void Run() {
@@ -541,26 +560,6 @@ class Raft {
   /// to its role, and as the second argument, the
   /// message that has been received.
   /////////////////////////////////////////////////////////////
-
-  using ReceiveVariant = std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
-                                      WriteRequest<WriteOperation>, VoteRequest, VoteResponse>;
-
-  void Handle(ReceiveVariant &&message_variant, RequestId request_id, Address from_address) {
-    // dispatch the message to a handler based on our role,
-    // which can be specified in the Handle first argument,
-    // or it can be `auto` if it's a handler for several roles
-    // or messages.
-    std::optional<Role> new_role = std::visit(
-        [&](auto &&msg, auto &role) mutable {
-          return Handle(role, std::forward<decltype(msg)>(msg), request_id, from_address);
-        },
-        std::forward<ReceiveVariant>(message_variant), role_);
-
-    // TODO(tyler) (M3) maybe replace std::visit with get_if for explicit prioritized matching, [[likely]] etc...
-    if (new_role) {
-      role_ = std::move(new_role).value();
-    }
-  }
 
   // all roles can receive Vote and possibly become a follower
   template <AllRoles ALL>

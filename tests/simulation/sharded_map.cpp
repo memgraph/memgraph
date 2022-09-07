@@ -32,6 +32,7 @@
 #include "storage/v3/schemas.hpp"
 #include "utils/result.hpp"
 
+using memgraph::common::SchemaType;
 using memgraph::coordinator::AddressAndStatus;
 using memgraph::coordinator::CompoundKey;
 using memgraph::coordinator::Coordinator;
@@ -83,15 +84,16 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   const auto properties = sm.AllocatePropertyIds(property_names);
   const auto property_id_1 = properties.at("property_1");
   const auto property_id_2 = properties.at("property_2");
-  const auto type_1 = memgraph::common::SchemaType::INT;
-  const auto type_2 = memgraph::common::SchemaType::INT;
+  const auto type_1 = SchemaType::INT;
+  const auto type_2 = SchemaType::INT;
 
   // register new label space
   std::vector<SchemaProperty> schema = {
       SchemaProperty{.property_id = property_id_1, .type = type_1},
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
-  bool label_success = sm.InitializeNewLabel(label_name, schema, sm.shard_map_version);
+  size_t replication_factor = 3;
+  bool label_success = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
   MG_ASSERT(label_success);
 
   const LabelId label_id = sm.labels.at(label_name);

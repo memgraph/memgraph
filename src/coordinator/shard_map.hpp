@@ -14,18 +14,24 @@
 #include <map>
 #include <vector>
 
+#include "common/types.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/temporal.cpp"
 
 namespace memgraph::coordinator {
 
+using memgraph::common::SchemaType;
 using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
+using memgraph::storage::v3::PropertyValue;
 using memgraph::storage::v3::SchemaProperty;
+using memgraph::storage::v3::TemporalData;
+using memgraph::storage::v3::TemporalType;
 
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,
@@ -40,12 +46,50 @@ struct AddressAndStatus {
   Status status;
 };
 
-using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using CompoundKey = std::vector<PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<CompoundKey, Shard>;
 using LabelName = std::string;
 using PropertyName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
+
+CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
+  CompoundKey ret{};
+
+  int64_t zero = 0;
+  TemporalData date{TemporalType::Date, zero};
+  TemporalData local_time{TemporalType::LocalTime, zero};
+  TemporalData local_date_time{TemporalType::LocalDateTime, zero};
+  TemporalData duration{TemporalType::Duration, zero};
+
+  for (auto &schema_property : schema) {
+    switch (schema_property.type) {
+      case SchemaType::BOOL:
+        ret.emplace_back(PropertyValue(false));
+        break;
+      case SchemaType::INT:
+        ret.emplace_back(PropertyValue(0));
+        break;
+      case SchemaType::STRING:
+        ret.emplace_back(PropertyValue(""));
+        break;
+      case SchemaType::DATE:
+        ret.emplace_back(PropertyValue(date));
+        break;
+      case SchemaType::LOCALTIME:
+        ret.emplace_back(PropertyValue(local_time));
+        break;
+      case SchemaType::LOCALDATETIME:
+        ret.emplace_back(PropertyValue(local_date_time));
+        break;
+      case SchemaType::DURATION:
+        ret.emplace_back(PropertyValue(duration));
+        break;
+    }
+  }
+
+  return ret;
+}
 
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
@@ -101,6 +145,8 @@ struct ShardMap {
     const LabelId label_id = LabelId::FromUint(++max_label_id);
 
     labels.emplace(std::move(label_name), label_id);
+
+    CompoundKey initial_key = SchemaToMinKey(schema);
 
     LabelSpace label_space{
         .schema = std::move(schema),
