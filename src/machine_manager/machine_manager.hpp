@@ -59,12 +59,10 @@ class MachineManager {
   Time next_cron_;
 
  public:
+  // TODO initialize ShardManager with "real" coordinator addresses instead of io.GetAddress
+  // which is only true for single-machine config.
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
-      : io_(io), config_(config), coordinator_(coordinator), shard_manager_(ShardManager{io}) {
-    for (const auto &initial_label_space : config.initial_label_spaces) {
-      // TODO(tyler) initialize shard
-    }
-  }
+      : io_(io), config_(config), coordinator_(coordinator), shard_manager_(ShardManager{io, io.GetAddress()}) {}
 
   void Run() {
     while (!io_.ShouldShutDown()) {
@@ -82,6 +80,8 @@ class MachineManager {
         // time to do Cron
         continue;
       }
+
+      spdlog::info("MM got message");
 
       RequestEnvelope<UberMessage> &&request = std::move(request_result.GetValue());
       UberMessage &&um = std::move(std::get<UberMessage>(request.message));
@@ -101,7 +101,9 @@ class MachineManager {
   void Handle(MachineManagerMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(ShardManagerMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(ShardMessages &&, RequestId request_id, Address from, Address to) {}
-  void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {
+    spdlog::info("got coordinator message");
+  }
 };
 
 }  // namespace memgraph::machine_manager

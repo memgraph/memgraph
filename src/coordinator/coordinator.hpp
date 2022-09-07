@@ -117,13 +117,13 @@ struct HeartbeatResponse {};
 
 using CoordinatorWriteRequests =
     std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
-using CoordinatorWriteResponses =
-    std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
-                 DeregisterStorageEngineResponse, InitializeLabelResponse, AllocatePropertyIdsResponse>;
+                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest, HeartbeatRequest>;
+using CoordinatorWriteResponses = std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                                               RegisterStorageEngineResponse, DeregisterStorageEngineResponse,
+                                               InitializeLabelResponse, AllocatePropertyIdsResponse, HeartbeatResponse>;
 
-using CoordinatorReadRequests = std::variant<GetShardMapRequest, HeartbeatRequest>;
-using CoordinatorReadResponses = std::variant<GetShardMapResponse, HeartbeatResponse>;
+using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
+using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
  public:
@@ -148,14 +148,15 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  static CoordinatorReadResponses HandleRead(HeartbeatRequest && /* heartbeat_request */) {
-    return HeartbeatResponse{};
-  }
-
   CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;
     res.shard_map = shard_map_;
     return res;
+  }
+
+  static CoordinatorWriteResponses ApplyWrite(HeartbeatRequest && /* heartbeat_request */) {
+    spdlog::info("Coordinator handling HeartbeatRequest");
+    return HeartbeatResponse{};
   }
 
   CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request) {

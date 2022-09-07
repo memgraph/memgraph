@@ -118,16 +118,15 @@ TEST(MachineManager, BasicFunctionality) {
   ShardMap sm = TestShardMap();
 
   auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, sm);
-  auto mm_2 = MkMm(local_system, coordinator_addresses, machine_2_addr, sm);
-  auto mm_3 = MkMm(local_system, coordinator_addresses, machine_3_addr, sm);
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
-  auto mm_thread_2 = std::jthread(RunMachine, std::move(mm_2));
-  auto mm_thread_3 = std::jthread(RunMachine, std::move(mm_3));
 
   // TODO(tyler) register SM w/ coordinators
   // TODO(tyler) coordinator assigns replicas
   // TODO(tyler) have SM reconcile ShardMap, adjust Raft membership
+
+  using namespace std::chrono_literals;
+  std::this_thread::sleep_for(2010ms);
 
   local_system.ShutDown();
 };

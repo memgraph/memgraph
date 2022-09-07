@@ -15,6 +15,7 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include <coordinator/coordinator.hpp>
 #include <io/address.hpp>
 #include <io/messages.hpp>
 #include <io/rsm/raft.hpp>
@@ -25,11 +26,17 @@
 namespace memgraph::storage::v3 {
 
 using boost::uuids::uuid;
+using memgraph::coordinator::CoordinatorWriteRequests;
+using memgraph::coordinator::CoordinatorWriteResponses;
+using memgraph::coordinator::HeartbeatRequest;
+using memgraph::coordinator::HeartbeatResponse;
 using memgraph::io::Address;
 using memgraph::io::Duration;
 using memgraph::io::Message;
 using memgraph::io::RequestId;
+using memgraph::io::ResponseFuture;
 using memgraph::io::Time;
+using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::Raft;
@@ -48,7 +55,7 @@ using ShardRaft =
 
 using namespace std::chrono_literals;
 static constexpr Duration kMinimumCronInterval = 1000ms;
-static constexpr Duration kMaximumCronInterval = 5000ms;
+static constexpr Duration kMaximumCronInterval = 2000ms;
 static_assert(kMinimumCronInterval < kMaximumCronInterval,
               "The minimum cron interval has to be smaller than the maximum cron interval!");
 
@@ -62,7 +69,7 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io) : io_(io) {}
+  ShardManager(io::Io<IoImpl> io, Address coordinator_leader) : io_(io), coordinator_leader_(coordinator_leader) {}
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -71,6 +78,8 @@ class ShardManager {
     Time now = io_.Now();
 
     if (now >= next_cron_) {
+      Reconciliation();
+
       std::uniform_int_distribution time_distrib(kMinimumCronInterval.count(), kMaximumCronInterval.count());
 
       const auto rand = io_.Rand(time_distrib);
@@ -81,17 +90,17 @@ class ShardManager {
     if (!cron_schedule_.empty()) {
       auto &[time, uuid] = cron_schedule_.top();
 
-      MG_ASSERT(time <= now);
+      if (time <= now) {
+        auto &rsm = rsm_map_.at(uuid);
+        Time next_for_uuid = rsm.Cron();
 
-      auto &rsm = rsm_map_.at(uuid);
-      Time next_for_uuid = rsm.Cron();
+        cron_schedule_.pop();
+        cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
 
-      cron_schedule_.pop();
-      cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
+        auto &[next_time, _uuid] = cron_schedule_.top();
 
-      auto &[next_time, _uuid] = cron_schedule_.top();
-
-      return std::min(next_cron_, next_time);
+        return std::min(next_cron_, next_time);
+      }
     }
 
     return next_cron_;
@@ -112,11 +121,32 @@ class ShardManager {
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<std::pair<Time, uuid>>>
       cron_schedule_;
   Time next_cron_;
+  Address coordinator_leader_;
+  std::optional<ResponseFuture<CoordinatorWriteResponses>> heartbeat_res_;
+
+  void Reconciliation() {
+    if (heartbeat_res_.has_value()) {
+      if (heartbeat_res_->IsReady()) {
+        io::ResponseResult<CoordinatorWriteResponses> response_result = std::move(heartbeat_res_).value().Wait();
+        heartbeat_res_.reset();
+      } else {
+        return;
+      }
+    }
+
+    HeartbeatRequest req{};
+    CoordinatorWriteRequests cwr = req;
+    CoordinatorMessages cm = cwr;
+    spdlog::info("SM sending heartbeat");
+    heartbeat_res_ = io_.template Request<CoordinatorMessages, CoordinatorWriteResponses>(coordinator_leader_, cm);
+    spdlog::info("SM sent heartbeat");
+  }
 
   void Handle(Address from, Address to, RequestId request_id, ShardManagerMessages &&message) {}
 
   void Handle(Address from, Address to, RequestId request_id, ShardMessages &&message) {
     auto &rsm = rsm_map_.at(to.unique_id);
+    // TODO(tyler) call rsm's Raft::Handle method with message
   }
 };
 

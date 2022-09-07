@@ -13,21 +13,23 @@
 
 #include <variant>
 
+#include <coordinator/coordinator.hpp>
+
 namespace memgraph::io::messages {
 
-struct Heartbeat {};
+using memgraph::coordinator::CoordinatorReadRequests;
+using memgraph::coordinator::CoordinatorWriteRequests;
+using memgraph::coordinator::HeartbeatResponse;
 
 // TODO(tyler) make these real types instead of unique placeholders
 struct QEM {};
-struct CM {};
 struct SM {};
-struct SMM {};
 struct MMM {};
 
 using QueryEngineMessages = std::variant<QEM>;
-using CoordinatorMessages = std::variant<CM>;
+using CoordinatorMessages = std::variant<CoordinatorWriteRequests, CoordinatorReadRequests>;
 using ShardMessages = std::variant<SM>;
-using ShardManagerMessages = std::variant<SMM>;
+using ShardManagerMessages = std::variant<HeartbeatResponse>;
 using MachineManagerMessages = std::variant<MMM>;
 
 using UberMessage =
