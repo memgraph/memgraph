@@ -118,7 +118,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/create_delete_query_modules.py"]
-    <<: *update_query_modules_cluster
+    <<: *create_delete_query_modules_cluster
 
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"

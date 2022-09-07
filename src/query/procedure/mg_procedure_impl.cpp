@@ -1635,8 +1635,10 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
-        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                             memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        !(v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                              memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+          v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, {v->graph->impl->NameToLabel(label.name)},
+                                              memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
       throw AuthorizationException{"Insufficient permissions for adding a label to vertex!"};
     }
 
@@ -2285,8 +2287,8 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
   return WrapExceptions(
       [=]() -> mgp_edge * {
         if (graph->ctx && graph->ctx->auth_checker &&
-            !graph->ctx->auth_checker->HasGlobalPermissionOnEdges(
-                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+            !graph->ctx->auth_checker->Accept(*graph->ctx->db_accessor, from->graph->impl->NameToEdgeType(type.name),
+                                              memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw AuthorizationException{"Insufficient permissions for creating edges!"};
         }
 
