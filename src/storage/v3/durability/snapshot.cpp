@@ -19,6 +19,7 @@
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/mvcc.hpp"
+#include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
@@ -636,7 +637,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
                     VerticesSkipList *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints, Config::Items items,
-                    const SchemaValidator &schema_validator, const std::string &uuid, const std::string_view epoch_id,
+                    const VertexValidator &vertex_validator, const std::string &uuid, const std::string_view epoch_id,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
@@ -718,7 +719,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // here.
       // TODO(jbajic) Fix snapshot with new schema rules
       auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints,
-                             items,    schema_validator};
+                             items,    vertex_validator};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
@@ -746,7 +747,7 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     auto acc = vertices->access();
     for (auto &lgo_vertex : acc) {
       // The visibility check is implemented for vertices so we use it here.
-      auto va = VertexAccessor::Create(&lgo_vertex.vertex, transaction, indices, constraints, items, schema_validator,
+      auto va = VertexAccessor::Create(&lgo_vertex.vertex, transaction, indices, constraints, items, vertex_validator,
                                        View::OLD);
       if (!va) continue;
 
