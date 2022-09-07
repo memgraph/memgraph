@@ -17,6 +17,7 @@ update_property_query = "MATCH (n:update_label) SET n.prop = 2 RETURN n.prop;"
 update_properties_query = "MATCH (n:update_label) SET n = {prop: 2, prop2: 3} RETURN n.prop;"
 remove_property_query = "MATCH (n:update_label) REMOVE n.prop RETURN n.prop;"
 set_label_query = "MATCH (p:update_label) SET p:update_label_2;"
+remove_label_query = "MATCH (p:update_label) REMOVE p:update_label;"
 
 
 def test_can_read_node_when_given_update_grant():
@@ -162,55 +163,37 @@ def test_set_label_granted():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    set_property_actual = execute_and_fetch_all(test_cursor, set_label_query)
+    execute_and_fetch_all(test_cursor, set_label_query)
 
 
 def test_set_label_denied():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label_2 TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
-
-    assert update_property_actual[0][0] == 2
-    assert update_properties_actual[0][0] == 2
-    assert remove_property_actual[0][0] is None
+    with pytest.raises(Exception):
+        execute_and_fetch_all(test_cursor, set_label_query)
 
 
 def test_remove_label_granted():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
-
-    assert update_property_actual[0][0] == 2
-    assert update_properties_actual[0][0] == 2
-    assert remove_property_actual[0][0] is None
+    execute_and_fetch_all(test_cursor, remove_label_query)
 
 
 def test_remove_label_denied():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
-
-    assert update_property_actual[0][0] == 2
-    assert update_properties_actual[0][0] == 2
-    assert remove_property_actual[0][0] is None
+    with pytest.raises(Exception):
+        execute_and_fetch_all(test_cursor, remove_label_query)
 
 
 if __name__ == "__main__":
