@@ -163,7 +163,7 @@ def test_set_label_when_label_denied():
     execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label_2 TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    with pytest.raises(Exception):
+    with pytest.raises(DatabaseError):
         execute_and_fetch_all(test_cursor, set_label_query)
 
 
@@ -183,7 +183,7 @@ def test_remove_label_when_label_denied():
     execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
-    with pytest.raises(Exception):
+    with pytest.raises(DatabaseError):
         execute_and_fetch_all(test_cursor, remove_label_query)
 
 
