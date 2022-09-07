@@ -18,13 +18,15 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "query/v2/bindings/frame.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/interpret/frame.hpp"
 #include "query/v2/plan/operator.hpp"
 
 #include "query_v2_query_plan_common.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
@@ -81,7 +83,7 @@ TEST_F(QueryPlanCRUDTest, CreateNodeWithAttributes) {
     EXPECT_EQ(properties.size(), 1);
     auto maybe_prop = vertex.GetProperty(storage::v3::View::OLD, property);
     ASSERT_TRUE(maybe_prop.HasValue());
-    auto prop_eq = TypedValue(*maybe_prop) == TypedValue(42);
+    auto prop_eq = storage::v3::PropertyToTypedValue<TypedValue>(*maybe_prop) == TypedValue(42);
     ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
     EXPECT_TRUE(prop_eq.ValueBool());
   }
@@ -436,7 +438,7 @@ TEST_F(QueryPlanCRUDTest, DeleteReturn) {
   auto produce = MakeProduce(delete_op, n_p);
 
   auto context = MakeContext(storage, symbol_table, &dba);
-  ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
+  ASSERT_THROW(CollectProduce(*produce, &context), memgraph::expr::ExpressionRuntimeException);
 }
 
 TEST(QueryPlan, DeleteNull) {
@@ -484,7 +486,7 @@ TEST_F(QueryPlanCRUDTest, DeleteAdvance) {
     auto n_prop = PROPERTY_LOOKUP(n_get, dba.NameToProperty("prop"));
     auto produce = MakeProduce(advance, NEXPR("res", n_prop)->MapTo(res_sym));
     auto context = MakeContext(storage, symbol_table, &dba);
-    EXPECT_THROW(PullAll(*produce, &context), QueryRuntimeException);
+    EXPECT_THROW(PullAll(*produce, &context), memgraph::expr::ExpressionRuntimeException);
   }
 }
 
@@ -768,7 +770,8 @@ TEST_F(QueryPlanCRUDTest, NodeFilterSet) {
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
-  auto prop_eq = TypedValue(*v1.GetProperty(storage::v3::View::OLD, prop.second)) == TypedValue(42 + 2);
+  auto prop_eq = storage::v3::PropertyToTypedValue<TypedValue>(*v1.GetProperty(storage::v3::View::OLD, prop.second)) ==
+                 TypedValue(42 + 2);
   ASSERT_EQ(prop_eq.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(prop_eq.ValueBool());
 }
