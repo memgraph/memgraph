@@ -561,6 +561,7 @@ class TypedValueT {
   // copy assignment operators
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, member) \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                               \
   TypedValueT &operator=(type_param other) {                                     \
     if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
       this->member = other;                                                      \
@@ -571,7 +572,7 @@ class TypedValueT {
     return *this;                                                                \
   }
 
-  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const char *, TString, string_v)
+  DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const char *, String, string_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int, Int, int_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
   DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
