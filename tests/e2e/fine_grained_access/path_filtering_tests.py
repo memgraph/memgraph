@@ -525,7 +525,7 @@ def test_bfs_single_source_denied_edge_type_3():
     assert source_destination_path[0][0] == expected_path
 
 
-def test_all_shortest_paths_all_edge_types_all_labels_granted():
+def test_all_shortest_paths_when_all_edge_types_all_labels_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
@@ -569,7 +569,7 @@ def test_all_shortest_paths_all_edge_types_all_labels_granted():
     assert all(node.id in expected_path for node in path_result[0][1])
 
 
-def test_all_shortest_paths_all_edge_types_all_labels_denied():
+def test_all_shortest_paths_when_all_edge_types_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
@@ -584,7 +584,7 @@ def test_all_shortest_paths_all_edge_types_all_labels_denied():
     assert len(results) == 0
 
 
-def test_all_shortest_paths_denied_start():
+def test_all_shortest_paths_when_denied_start():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
@@ -603,7 +603,7 @@ def test_all_shortest_paths_denied_start():
     assert len(path_length_result) == 0
 
 
-def test_all_shortest_paths_denied_destination():
+def test_all_shortest_paths_when_denied_destination():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
@@ -622,7 +622,7 @@ def test_all_shortest_paths_denied_destination():
     assert len(path_length_result) == 0
 
 
-def test_all_shortest_paths_denied_label_1():
+def test_all_shortest_paths_when_denied_label_1():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")
@@ -665,7 +665,7 @@ def test_all_shortest_paths_denied_label_1():
     assert all(node.id in expected_path for node in path_result[0][1])
 
 
-def test_all_shortest_paths_denied_edge_type_3():
+def test_all_shortest_paths_when_denied_edge_type_3():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "REVOKE LABELS * FROM user;")

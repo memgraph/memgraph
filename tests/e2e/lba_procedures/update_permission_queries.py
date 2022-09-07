@@ -147,7 +147,7 @@ def test_can_update_node_when_given_create_delete():
     assert remove_property_actual[0][0] is None
 
 
-def test_set_label_granted():
+def test_set_label_when_label_granted():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label_2 TO user;")
@@ -157,7 +157,7 @@ def test_set_label_granted():
     execute_and_fetch_all(test_cursor, set_label_query)
 
 
-def test_set_label_denied():
+def test_set_label_when_label_denied():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
     execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label_2 TO user;")
@@ -167,7 +167,7 @@ def test_set_label_denied():
         execute_and_fetch_all(test_cursor, set_label_query)
 
 
-def test_remove_label_granted():
+def test_remove_label_when_label_granted():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
     execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
@@ -177,7 +177,7 @@ def test_remove_label_granted():
     execute_and_fetch_all(test_cursor, remove_label_query)
 
 
-def test_remove_label_denied():
+def test_remove_label_when_label_denied():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
     execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
