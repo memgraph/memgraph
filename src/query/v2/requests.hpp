@@ -27,16 +27,6 @@
 using memgraph::coordinator::Hlc;
 using memgraph::storage::v3::LabelId;
 
-// /// Hybrid-logical clock
-// struct Hlc {
-//   uint64_t logical_id;
-//   using Duration = std::chrono::microseconds;
-//   using Time = std::chrono::time_point<std::chrono::system_clock, Duration>;
-//   Time coordinator_wall_clock;
-
-//   bool operator==(const Hlc &other) const = default;
-// };
-
 struct Label {
   LabelId id;
 };
@@ -81,16 +71,27 @@ struct Null {};
 
 struct Value {
   Value() : type(NILL), null_v{} {};
+  Value(const bool &val) : type(BOOL), bool_v(val){};
+  Value(const int64_t &val) : type(INT64), int_v(val){};
+  Value(const double &val) : type(DOUBLE), double_v(val){};
+  Value(const std::string &val) : type(STRING), string_v(val){};
+  Value(const std::vector<Value> &val) : type(LIST), list_v(val){};
+  Value(const std::map<PropertyId, Value> &val) : type(MAP), map_v(val){};
+  Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
+  Value(const Edge &val) : type(EDGE), edge_v(val){};
+  Value(const Path &val) : type(PATH), path_v(val){};
+
   ~Value(){};
+
   enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
   union {
     Null null_v;
     bool bool_v;
-    uint64_t int_v;
+    int64_t int_v;
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
-    std::map<std::string, Value> map_v;
+    std::map<PropertyId, Value> map_v;
     Vertex vertex_v;
     Edge edge_v;
     Path path_v;
@@ -99,6 +100,7 @@ struct Value {
   Type type;
 };
 
+// this one
 struct ValuesMap {
   std::unordered_map<PropertyId, Value> values_map;
 };
@@ -133,7 +135,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
-  std::optional<std::vector<std::string>> props_to_return;
+  std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view;

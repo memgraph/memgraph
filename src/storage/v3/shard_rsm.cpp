@@ -9,14 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <iterator>
 #include <utility>
 
 #include "query/v2/plan/operator.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 
 namespace {
 // TODO(gvolfing use come algorithm instead of explicit for loops)
-memgraph::storage::v3::PropertyValue to_property_value(const Value &value) {
+memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
   using PV = memgraph::storage::v3::PropertyValue;
   PV ret;
   switch (value.type) {
@@ -33,14 +35,14 @@ memgraph::storage::v3::PropertyValue to_property_value(const Value &value) {
     case Value::Type::LIST: {
       std::vector<PV> list;
       for (const auto &elem : value.list_v) {
-        list.push_back(to_property_value(elem));
+        list.push_back(ToPropertyValue(elem));
       }
       return PV(list);
     }
     case Value::Type::MAP: {
       std::map<std::string, PV> map;
       for (const auto &[key, value] : value.map_v) {
-        map.emplace(std::make_pair(key, to_property_value(value)));
+        map.emplace(std::make_pair(key, ToPropertyValue(value)));
       }
       return PV(map);
     }
@@ -54,15 +56,58 @@ memgraph::storage::v3::PropertyValue to_property_value(const Value &value) {
   return ret;
 }
 
+Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
+  // There should be a better solution.
+  if (pv.IsBool()) {
+    return Value(pv.ValueBool());
+  }
+  if (pv.IsDouble()) {
+    return Value(pv.ValueDouble());
+  }
+  if (pv.IsInt()) {
+    return Value(pv.ValueInt());
+  }
+  if (pv.IsList()) {
+    std::vector<Value> list(pv.ValueList().size());
+    for (const auto &elem : pv.ValueList()) {
+      list.push_back(ToValue(elem));
+    }
+
+    return Value(list);
+  }
+  if (pv.IsMap()) {
+    std::map<PropertyId, Value> map;
+    for (const auto &[key, val] : pv.ValueMap()) {
+      // maybe use std::make_pair once the && issue is resolved.
+      map.emplace(key, ToValue(val));
+    }
+
+    return Value(map);
+  }
+  if (pv.IsNull()) {
+    // NOOP -> default ctor
+  }
+  if (pv.IsString()) {
+    return Value(pv.ValueString());
+  }
+  if (pv.IsTemporalData()) {
+    // TBD -> we need to specify this in the messages.
+    MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
+  }
+
+  MG_ASSERT(false, "Typematching Value and PropertyValue encounterd unspecified type!");
+  return Value{};
+}
+
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     const std::vector<std::pair<PropertyId, Value>> &properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret(
       properties.size());
 
   for (const auto &[key, value] : properties) {
-    memgraph::storage::v3::PropertyValue converted_value(to_property_value(value));
+    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(value));
 
-    ret.emplace_back(std::make_pair(key, converted_value));
+    ret.push_back(std::make_pair(key, converted_value));
   }
 
   return ret;
@@ -71,11 +116,76 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
 std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const std::vector<Value> &vec) {
   std::vector<memgraph::storage::v3::PropertyValue> ret(vec.size());
   for (const auto &elem : vec) {
-    memgraph::storage::v3::PropertyValue converted_value(to_property_value(elem));
-    ret.emplace_back(converted_value);
+    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(elem));
+    ret.push_back(converted_value);
   }
 
   return ret;
+}
+
+std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
+    const memgraph::storage::v3::VertexAccessor &acc,
+    const std::optional<std::vector<memgraph::storage::v3::PropertyId>> &props, memgraph::storage::v3::View view) {
+  std::map<PropertyId, Value> ret;
+
+  for (const auto &prop : props.value()) {
+    auto result = acc.GetProperty(prop, view);
+    if (result.HasError()) {
+      // ... error!
+      continue;
+    }
+    if (result.HasValue()) {
+      if (result.GetValue().IsNull()) {
+        // The property does not exist but it should!
+        return {};
+      }
+
+      ret.emplace(prop, ToValue(result.GetValue()));
+    }
+  }
+
+  return ret;
+}
+
+std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
+    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
+  std::map<PropertyId, Value> ret;
+  auto iter = acc.Properties(view);
+  if (iter.HasError()) {
+    // ... debug
+  }
+
+  for (const auto &[prop_key, prop_val] : iter.GetValue()) {
+    ret.emplace(prop_key, ToValue(prop_val));
+  }
+
+  return ret;
+}
+
+Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
+  // Create a VERTEX
+  // struct Vertex {
+  //   VertexId id;
+  //   std::vector<Label> labels;
+  // };
+
+  // Get the vertex id
+  auto prim_label = acc.PrimaryLabel(view).GetValue();
+  Label value_label = {.id = prim_label};
+
+  auto prim_key = acc.PrimaryKey(view).GetValue();
+
+  VertexId vertex_id = std::make_pair(value_label, prim_key);
+
+  // Get the labels
+  auto vertex_labels = acc.Labels(view).GetValue();
+  std::vector<Label> value_labels(vertex_labels.size());
+  for (const auto &label : vertex_labels) {
+    Label l = {.id = label};
+    value_labels.push_back(l);
+  }
+
+  return Value({.id = vertex_id, .labels = value_labels});
 }
 
 }  // namespace
@@ -233,7 +343,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
       // TODO(gvolfing) Maybe check if the setting is valid if SetPropertyAndValidate()
       // does not do that alreaedy.
       auto result_schema =
-          vertex_to_update->SetPropertyAndValidate(update_prop.first, to_property_value(update_prop.second));
+          vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(update_prop.second));
       if (result_schema.HasError()) {
         auto &error = result_schema.GetError();
 
@@ -399,7 +509,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
         for (const auto &[key, value] : edge.property_updates) {
           // TODO(gvolfing)
           // Check if the property was set if SetProperty does not do that itself.
-          edge_accessor.SetProperty(key, to_property_value(value));
+          edge_accessor.SetProperty(key, ToPropertyValue(value));
         }
       }
     }
@@ -429,32 +539,86 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
 }
 
 ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
-  ScanVerticesResponse resp{};
+  std::vector<std::vector<Value>> values;
+  auto acc = shard_.Access();
 
-  // auto acc = shard_.Access();
+  bool action_successful = true;
 
-  // bool action_successful = true;
-  // // std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
-  // const auto batch_size = req.batch_limit;
+  const auto view = View(req.storage_view);
+  auto starting_vertex = req.start_id;
+  const auto batch_size = req.batch_limit;
 
-  // // // If there is a batch Limit start looping based on that.
-  // // // How do I get every vertex in the shard? Only FindVertex(std::vector<PropertyValue> primary_key, View view) ?
-  // // // VerticesIterable Vertices(LabelId label, View view) ?
+  // Get the vertices.
+  auto vertex_iterable = acc.Vertices(view);
 
-  // // Get the vertices.
-  // auto vertex_iterable = acc.Vertices(View(req.storage_view));
+  bool did_reach_starting_point = false;
 
-  // uint64_t sample_counter = 0;
+  uint64_t sample_counter = 0;
+
   // for(const auto& vertex : vertex_iterable){
-  //   vertex.GetProperty();
+  for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
+    const auto &vertex = *it;
 
-  //     // How to create Value from VertexAccessor?
-  //     // PropertyValue -> Value?
-  //     if(sample_counter == batch_size)
-  //     {break;}
+    const auto &current_vertex_id = vertex.PrimaryKey(view).GetValue();
+
+    // First elem   -> VertexId
+    // Second elem  -> Properties
+    std::vector<Value> one_vertex_value;
+
+    // is this enough as comparison?
+    if (starting_vertex.second == current_vertex_id) {
+      did_reach_starting_point = true;
+    }
+
+    if (did_reach_starting_point) {
+      // VertexId is needed for the vertex!
+      // Get the properties that are needed for one vertex.
+      // auto asd = get_props(vertex, view, current_vertex_id);
+
+      std::optional<std::map<PropertyId, Value>> found_props;
+
+      if (req.props_to_return) {
+        found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return, view);
+      } else {
+        found_props = CollectAllPropertiesFromAccessor(vertex, view);
+      }
+
+      // if this is nullopt that is not necessarily an error.
+      if (!found_props) {
+        continue;
+      }
+
+      one_vertex_value.push_back(ConstructValueVertex(vertex, view));
+      one_vertex_value.push_back(Value(found_props.value()));
+
+      values.push_back(one_vertex_value);
+
+      ++sample_counter;
+      if (sample_counter == batch_size) {
+        // Reached the maximum specified batch size.
+        // auto next_it = std::next(it);
+        const auto &next_it = *(++it);
+
+        break;
+      }
+    }
+  }
+
+  ScanVerticesResponse resp{};
+  resp.success = action_successful;
+
+  // if(action_successful)
+  // {
+  //   ListedValues lv = {.properties = values};
+  //   resp.values = lv;
+
+  //   resp.next_start_id = ;
   // }
 
   return resp;
 }
+
+// QUESTION do I have to commit on reads?
+// QUESTION is there a way to call std::next on VerticesIterable
 
 }  //    namespace memgraph::storage::v3
