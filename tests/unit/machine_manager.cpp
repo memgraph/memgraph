@@ -59,14 +59,22 @@ ShardMap TestShardMap() {
 
   size_t replication_factor = 1;
 
-  bool initialize_success = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
-  MG_ASSERT(initialize_success);
+  std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
+  MG_ASSERT(label_id);
 
-  std::vector<CompoundKey> split_points = {
+  const auto key1 = memgraph::storage::v3::PropertyValue(100);
+  const auto key2 = memgraph::storage::v3::PropertyValue(0);
+  const CompoundKey split_point_1 = {key1, key2};
 
-  };
+  const auto key3 = memgraph::storage::v3::PropertyValue(200);
+  const auto key4 = memgraph::storage::v3::PropertyValue(0);
+  const CompoundKey split_point_2 = {key3, key4};
 
-  for (auto &split_point : split_points) {
+  std::vector<CompoundKey> split_points = {split_point_1, split_point_2};
+
+  for (const auto &split_point : split_points) {
+    bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
+    MG_ASSERT(split_success);
   }
 
   return sm;

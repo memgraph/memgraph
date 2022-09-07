@@ -56,13 +56,13 @@ using PropertyMap = std::map<PropertyName, PropertyId>;
 CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
   CompoundKey ret{};
 
-  int64_t zero = 0;
-  TemporalData date{TemporalType::Date, zero};
-  TemporalData local_time{TemporalType::LocalTime, zero};
-  TemporalData local_date_time{TemporalType::LocalDateTime, zero};
-  TemporalData duration{TemporalType::Duration, zero};
+  const int64_t zero = 0;
+  const TemporalData date{TemporalType::Date, zero};
+  const TemporalData local_time{TemporalType::LocalTime, zero};
+  const TemporalData local_date_time{TemporalType::LocalDateTime, zero};
+  const TemporalData duration{TemporalType::Duration, zero};
 
-  for (auto &schema_property : schema) {
+  for (const auto &schema_property : schema) {
     switch (schema_property.type) {
       case SchemaType::BOOL:
         ret.emplace_back(PropertyValue(false));
@@ -123,6 +123,7 @@ struct ShardMap {
     auto &label_space = label_spaces.at(label_id);
     auto &shards_in_map = label_space.shards;
 
+    MG_ASSERT(!shards_in_map.empty());
     MG_ASSERT(!shards_in_map.contains(key));
     MG_ASSERT(label_spaces.contains(label_id));
 
@@ -136,10 +137,10 @@ struct ShardMap {
     return true;
   }
 
-  bool InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema, size_t replication_factor,
-                          Hlc last_shard_map_version) {
+  std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
+                                            size_t replication_factor, Hlc last_shard_map_version) {
     if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
-      return false;
+      return std::nullopt;
     }
 
     const LabelId label_id = LabelId::FromUint(++max_label_id);
@@ -147,10 +148,15 @@ struct ShardMap {
     labels.emplace(std::move(label_name), label_id);
 
     CompoundKey initial_key = SchemaToMinKey(schema);
+    Shard empty_shard = {};
+
+    Shards shards = {
+        {initial_key, empty_shard},
+    };
 
     LabelSpace label_space{
         .schema = std::move(schema),
-        .shards = Shards{},
+        .shards = shards,
         .replication_factor = replication_factor,
     };
 
@@ -158,7 +164,7 @@ struct ShardMap {
 
     IncrementShardMapVersion();
 
-    return true;
+    return label_id;
   }
 
   void AddServer(Address server_address) {

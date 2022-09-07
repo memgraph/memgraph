@@ -108,6 +108,7 @@ struct InitializeLabelRequest {
 
 struct InitializeLabelResponse {
   bool success;
+  LabelId new_label_id;
   std::optional<ShardMap> fresher_shard_map;
 };
 
@@ -232,16 +233,17 @@ class Coordinator {
   CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
     InitializeLabelResponse res{};
 
-    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name, initialize_label_request.schema,
-                                                 initialize_label_request.replication_factor,
-                                                 initialize_label_request.last_shard_map_version);
+    std::optional<LabelId> new_label_id = shard_map_.InitializeNewLabel(
+        initialize_label_request.label_name, initialize_label_request.schema,
+        initialize_label_request.replication_factor, initialize_label_request.last_shard_map_version);
 
-    if (success) {
-      res.fresher_shard_map = shard_map_;
-      res.success = false;
-    } else {
+    if (new_label_id) {
+      res.new_label_id = new_label_id.value();
       res.fresher_shard_map = std::nullopt;
       res.success = true;
+    } else {
+      res.fresher_shard_map = shard_map_;
+      res.success = false;
     }
 
     return res;
