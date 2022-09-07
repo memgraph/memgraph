@@ -33,12 +33,6 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Vertex(LabelId primary_label, const std::vector<PropertyValue> &primary_properties)
-      : primary_label{primary_label}, keys(primary_properties) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
   KeyStore keys;
 
   std::vector<LabelId> labels;
