@@ -1082,6 +1082,7 @@ pulled.")
    // that should be inaccessible (private class function won't compile)
    friend class ExpandVariableCursor;
    friend class ExpandWeightedShortestPathCursor;
+   friend class ExpandAllShortestPathCursor;
    cpp<#)
   (:serialize (:slk))
   (:clone))

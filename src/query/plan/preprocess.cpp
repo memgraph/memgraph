@@ -65,7 +65,7 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
       // Remove symbols which are bound by lambda arguments.
       collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_edge));
       collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.inner_node));
-      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
         collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
         collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
       }
