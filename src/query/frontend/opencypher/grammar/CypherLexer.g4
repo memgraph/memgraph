@@ -139,6 +139,7 @@ WHEN           : W H E N ;
 WHERE          : W H E R E ;
 WITH           : W I T H ;
 WSHORTEST      : W S H O R T E S T ;
+ALLSHORTEST    : A L L S H O R T E S T ;
 XOR            : X O R ;
 YIELD          : Y I E L D ;
 

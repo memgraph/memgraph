@@ -120,6 +120,9 @@ bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
       case Type::WEIGHTED_SHORTEST_PATH:
         *out_ << "WeightedShortestPath";
         break;
+      case Type::ALL_SHORTEST_PATHS:
+        *out_ << "AllShortestPaths";
+        break;
       case Type::SINGLE:
         LOG_FATAL("Unexpected ExpandVariable::type_");
     }
@@ -308,6 +311,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "dfs";
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
       return "wsp";
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+      return "asp";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
@@ -548,7 +553,7 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
 
   self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression) : json();
 
-  if (op.type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+  if (op.type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || op.type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
     self["weight_lambda"] = ToJson(op.weight_lambda_->expression);
     self["total_weight_symbol"] = ToJson(*op.total_weight_);
   }
