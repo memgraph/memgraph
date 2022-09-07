@@ -15,11 +15,11 @@
 #include <memory>
 #include <vector>
 
+#include "query/v2/bindings/frame.hpp"
+#include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/common.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/db_accessor.hpp"
-#include "query/v2/frontend/semantic/symbol_table.hpp"
-#include "query/v2/interpret/frame.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/logging.hpp"

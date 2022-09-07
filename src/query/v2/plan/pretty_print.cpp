@@ -12,8 +12,8 @@
 #include "query/v2/plan/pretty_print.hpp"
 #include <variant>
 
+#include "query/v2/bindings/pretty_print.hpp"
 #include "query/v2/db_accessor.hpp"
-#include "query/v2/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query::v2::plan {
@@ -324,7 +324,7 @@ std::string ToString(Ordering ord) {
 
 json ToJson(Expression *expression) {
   std::stringstream sstr;
-  PrintExpression(expression, &sstr);
+  expr::PrintExpression(expression, &sstr);
   return sstr.str();
 }
 

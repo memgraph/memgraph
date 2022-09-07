@@ -15,13 +15,13 @@
 #include <string>
 #include <unordered_map>
 
+#include "query/v2/bindings/typed_value.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query::v2 {
 
 class DbAccessor;
-class TypedValue;
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";

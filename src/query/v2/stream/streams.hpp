@@ -22,9 +22,9 @@
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/stream/common.hpp"
 #include "query/v2/stream/sources.hpp"
-#include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"

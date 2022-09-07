@@ -13,13 +13,13 @@
 
 #include <concepts>
 
+#include "query/v2/bindings/frame.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/cypher_query_interpreter.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/interpret/frame.hpp"
 #include "query/v2/serialization/property_value.hpp"
-#include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/memory.hpp"
 
