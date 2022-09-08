@@ -71,15 +71,20 @@ struct Null {};
 
 struct Value {
   Value() : type(NILL), null_v{} {};
+
+  // copy ctor needed.
+  // Value(const Value& other){};
+  Value(Value &&other) noexcept {};
+
   Value(const bool &val) : type(BOOL), bool_v(val){};
   Value(const int64_t &val) : type(INT64), int_v(val){};
   Value(const double &val) : type(DOUBLE), double_v(val){};
-  // Value(const std::string &val) : type(STRING), string_v(val){};
-  // Value(const std::vector<Value> &val) : type(LIST), list_v(val){};
-  // Value(const std::map<std::string, Value> &val) : type(MAP), map_v(val){};
-  // Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
-  // Value(const Edge &val) : type(EDGE), edge_v(val){};
-  // Value(const Path &val) : type(PATH), path_v(val){};
+  Value(const std::string &val) : type(STRING), string_v(val){};
+  Value(std::vector<Value> &&val) : type(LIST), list_v(std::move(val)){};
+  Value(std::map<std::string, Value> &&val) : type(MAP), map_v(std::move(val)){};
+  Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
+  Value(const Edge &val) : type(EDGE), edge_v(val){};
+  Value(const Path &val) : type(PATH), path_v(val){};
 
   ~Value(){};
 
@@ -109,8 +114,9 @@ struct MappedValues {
   std::vector<ValuesMap> values_map;
 };
 
+using ScannedValue = std::variant<Value, std::map<PropertyId, Value>>;
 struct ListedValues {
-  std::vector<std::vector<Value>> properties;
+  std::vector<std::vector<ScannedValue>> properties;
 };
 
 using Values = std::variant<ListedValues, MappedValues>;

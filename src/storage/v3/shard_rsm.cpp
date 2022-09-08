@@ -35,7 +35,7 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::LIST: {
       std::vector<PV> list;
       for (const auto &elem : value.list_v) {
-        list.push_back(ToPropertyValue(elem));
+        list.emplace_back(ToPropertyValue(elem));
       }
       return PV(list);
     }
@@ -56,7 +56,6 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
   return ret;
 }
 
-/*
 Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
   // There should be a better solution.
   if (pv.IsBool()) {
@@ -71,10 +70,10 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
   if (pv.IsList()) {
     std::vector<Value> list(pv.ValueList().size());
     for (const auto &elem : pv.ValueList()) {
-      list.push_back(ToValue(elem));
+      list.emplace_back(ToValue(elem));
     }
 
-    return Value(list);
+    return Value(std::move(list));
   }
   if (pv.IsMap()) {
     std::map<std::string, Value> map;
@@ -83,7 +82,7 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
       map.emplace(key, ToValue(val));
     }
 
-    return Value(map);
+    return Value(std::move(map));
   }
   if (pv.IsNull()) {
     // NOOP -> default ctor
@@ -99,7 +98,6 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
   MG_ASSERT(false, "Typematching Value and PropertyValue encounterd unspecified type!");
   return Value{};
 }
-*/
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     const std::vector<std::pair<PropertyId, Value>> &properties) {
@@ -475,6 +473,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   return resp;
 }
 
+/*
 // TODO(gvolfing) refactor this abomination
 WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   auto acc = shard_.Access();
@@ -541,7 +540,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   return resp;
 }
 
-/*
+
 ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   std::vector<std::vector<Value>> values;
   auto acc = shard_.Access();
@@ -622,6 +621,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   return resp;
 }
 */
+
 // QUESTION do I have to commit on reads?
 // QUESTION is there a way to call std::next on VerticesIterable
 
