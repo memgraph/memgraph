@@ -123,7 +123,6 @@ std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const st
   return ret;
 }
 
-/*
 std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc,
     const std::optional<std::vector<memgraph::storage::v3::PropertyId>> &props, memgraph::storage::v3::View view) {
@@ -188,7 +187,7 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 
   return Value({.id = vertex_id, .labels = value_labels});
 }
-*/
+
 }  // namespace
 
 namespace memgraph::storage::v3 {
@@ -473,7 +472,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   return resp;
 }
 
-/*
 // TODO(gvolfing) refactor this abomination
 WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   auto acc = shard_.Access();
@@ -540,12 +538,13 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   return resp;
 }
 
-
 ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
-  std::vector<std::vector<Value>> values;
   auto acc = shard_.Access();
 
   bool action_successful = true;
+
+  std::vector<ScanResultRow> results;
+  std::optional<VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto starting_vertex = req.start_id;
@@ -566,7 +565,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
 
     // First elem   -> VertexId
     // Second elem  -> Properties
-    std::vector<Value> one_vertex_value;
+    // std::vector<Value> one_vertex_value;
 
     // is this enough as comparison?
     if (starting_vertex.second == current_vertex_id) {
@@ -574,10 +573,6 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
     }
 
     if (did_reach_starting_point) {
-      // VertexId is needed for the vertex!
-      // Get the properties that are needed for one vertex.
-      // auto asd = get_props(vertex, view, current_vertex_id);
-
       std::optional<std::map<PropertyId, Value>> found_props;
 
       if (req.props_to_return) {
@@ -591,16 +586,17 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
         continue;
       }
 
-      one_vertex_value.push_back(ConstructValueVertex(vertex, view));
-      one_vertex_value.push_back(Value(found_props.value()));
+      auto formatted_vertex = ConstructValueVertex(vertex, view);
 
-      values.push_back(one_vertex_value);
+      ScanResultRow row = {.vertex = std::move(formatted_vertex), .props = std::move(found_props.value())};
+      results.push_back(std::move(row));
 
       ++sample_counter;
       if (sample_counter == batch_size) {
         // Reached the maximum specified batch size.
-        // auto next_it = std::next(it);
-        const auto &next_it = *(++it);
+        // Get the next element before exiting.
+        const auto &next_vertex = *(++it);
+        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
 
         break;
       }
@@ -610,17 +606,13 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   ScanVerticesResponse resp{};
   resp.success = action_successful;
 
-  // if(action_successful)
-  // {
-  //   ListedValues lv = {.properties = values};
-  //   resp.values = lv;
-
-  //   resp.next_start_id = ;
-  // }
+  if (action_successful) {
+    resp.next_start_id = next_start_id;
+    resp.results = std::move(results);
+  }
 
   return resp;
 }
-*/
 
 // QUESTION do I have to commit on reads?
 // QUESTION is there a way to call std::next on VerticesIterable

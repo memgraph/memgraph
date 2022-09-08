@@ -26,7 +26,6 @@
 
 using memgraph::coordinator::Hlc;
 using memgraph::storage::v3::LabelId;
-
 struct Label {
   LabelId id;
 };
@@ -114,9 +113,8 @@ struct MappedValues {
   std::vector<ValuesMap> values_map;
 };
 
-using ScannedValue = std::variant<Value, std::map<PropertyId, Value>>;
 struct ListedValues {
-  std::vector<std::vector<ScannedValue>> properties;
+  std::vector<std::vector<Value>> properties;
 };
 
 using Values = std::variant<ListedValues, MappedValues>;
@@ -147,10 +145,16 @@ struct ScanVerticesRequest {
   StorageView storage_view;
 };
 
+struct ScanResultRow {
+  Value vertex;
+  // empty is no properties returned
+  std::map<PropertyId, Value> props;
+};
+
 struct ScanVerticesResponse {
   bool success;
-  Values values;
   std::optional<VertexId> next_start_id;
+  std::vector<ScanResultRow> results;
 };
 
 using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
