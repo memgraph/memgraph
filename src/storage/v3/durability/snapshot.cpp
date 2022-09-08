@@ -96,7 +96,7 @@ namespace memgraph::storage::v3::durability {
 
 namespace {
 constexpr auto kDummyLabelId = LabelId::FromUint(0);
-}
+}  // namespace
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
