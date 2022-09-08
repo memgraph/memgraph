@@ -335,12 +335,13 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  const auto fine_grained_permission = self_.existing_node_
-                                           ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
-
-                                           : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
 #ifdef MG_ENTERPRISE
   if (utils::license::global_license_checker.IsValidLicenseFast()) {
+    const auto fine_grained_permission = self_.existing_node_
+                                             ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
+
+                                             : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
+
     if (context.auth_checker &&
         !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
                                        memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
@@ -454,28 +455,24 @@ class ScanAllCursor : public Cursor {
       }
       ++vertices_it_.value();
     }
+    return false;
   }
 
-  return false;
-}
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Shutdown() override {
-  input_cursor_->Shutdown();
-}
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+  }
 
-void Reset() override {
-  input_cursor_->Reset();
-  vertices_ = std::nullopt;
-  vertices_it_ = std::nullopt;
-}
-
-private:
-const Symbol output_symbol_;
-const UniqueCursorPtr input_cursor_;
-TVerticesFun get_vertices_;
-std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
-std::optional<decltype(vertices_.value().begin())> vertices_it_;
-const char *op_name_;
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  TVerticesFun get_vertices_;
+  std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
+  std::optional<decltype(vertices_.value().begin())> vertices_it_;
+  const char *op_name_;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
