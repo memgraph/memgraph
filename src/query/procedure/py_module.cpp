@@ -51,6 +51,7 @@ PyObject *gMgpKeyAlreadyExistsError{nullptr};    // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpImmutableObjectError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 // Returns true if an exception is raised
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
@@ -99,6 +100,10 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
     }
     case mgp_error::MGP_ERROR_SERIALIZATION_ERROR: {
       PyErr_SetString(gMgpSerializationError, "Operation cannot be serialized.");
+      return true;
+    }
+    case mgp_error::MGP_ERROR_AUTHORIZATION_ERROR: {
+      PyErr_SetString(gMgpAuthorizationError, "Authorization Error. Permission Denied.");
       return true;
     }
   }
@@ -2116,6 +2121,7 @@ PyObject *PyInitMgpModule() {
       PyMgpError{"_mgp.ImmutableObjectError", gMgpImmutableObjectError, PyExc_RuntimeError, nullptr},
       PyMgpError{"_mgp.ValueConversionError", gMgpValueConversionError, PyExc_RuntimeError, nullptr},
       PyMgpError{"_mgp.SerializationError", gMgpSerializationError, PyExc_RuntimeError, nullptr},
+      PyMgpError{"_mgp.AuthorizationError", gMgpAuthorizationError, PyExc_RuntimeError, nullptr},
   };
   Py_INCREF(Py_None);
 

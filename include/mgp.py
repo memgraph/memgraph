@@ -134,6 +134,15 @@ class SerializationError(_mgp.SerializationError):
     pass
 
 
+class AuthorizationError(_mgp.AuthorizationError):
+    """
+    Signals that the user doesn't have sufficient permissions to perform
+    procedure call.
+    """
+
+    pass
+
+
 class Label:
     """Label of a `Vertex`."""
 
@@ -146,7 +155,7 @@ class Label:
     def name(self) -> str:
         """
         Get the name of the label.
-       
+
         Returns:
             A string that represents the name of the label.
 
@@ -195,20 +204,20 @@ class Properties:
     def get(self, property_name: str, default=None) -> object:
         """
         Get the value of a property with the given name or return default value.
-        
-        Args: 
+
+        Args:
             property_name: String that represents property name.
             default: Default value return if there is no property.
-        
-        Returns: 
-            Any object value that property under `property_name` has or default value otherwise. 
-        
-        Raises: 
-            InvalidContextError: If `edge` or `vertex` is out of context. 
+
+        Returns:
+            Any object value that property under `property_name` has or default value otherwise.
+
+        Raises:
+            InvalidContextError: If `edge` or `vertex` is out of context.
             UnableToAllocateError: If unable to allocate a `mgp.Value`.
             DeletedObjectError: If the `object` has been deleted.
-        
-        Examples: 
+
+        Examples:
             ```
             vertex.properties.get(property_name)
             edge.properties.get(property_name)
@@ -227,23 +236,23 @@ class Properties:
         Set the value of the property. When the value is `None`, then the
         property is removed.
 
-        Args: 
-            property_name: String that represents property name. 
+        Args:
+            property_name: String that represents property name.
             value: Object that represents value to be set.
 
-        Raises: 
+        Raises:
             UnableToAllocateError: If unable to allocate memory for storing the property.
             ImmutableObjectError: If the object is immutable.
             DeletedObjectError: If the object has been deleted.
             SerializationError: If the object has been modified by another transaction.
             ValueConversionError: If `value` is vertex, edge or path.
-        
+
         Examples:
             ```
             vertex.properties.set(property_name, value)
             edge.properties.set(property_name, value)
             ```
-        
+
         """
         self[property_name] = value
 
@@ -252,15 +261,15 @@ class Properties:
         Iterate over the properties. Doesn’t return a dynamic view of the properties but copies the
         current properties.
 
-        Returns: 
+        Returns:
             Iterable `Property` of names and values.
 
-        Raises: 
-            InvalidContextError: If edge or vertex is out of context. 
+        Raises:
+            InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If the object has been deleted.
 
-        Examples: 
+        Examples:
             ```
             items = vertex.properties.items()
             for it in items:
@@ -290,15 +299,15 @@ class Properties:
         Iterate over property names. Doesn’t return a dynamic view of the property names but copies the
         name of the current properties.
 
-        Returns: 
+        Returns:
             Iterable list of strings that represent names/keys of properties.
 
-        Raises: 
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If the object has been deleted.
 
-        Examples: 
+        Examples:
             ```
             graph.vertex.properties.keys()
             graph.edge.properties.keys()
@@ -314,20 +323,20 @@ class Properties:
         Iterate over property values. Doesn’t return a dynamic view of the property values but copies the
         value of the current properties.
 
-        Returns: 
+        Returns:
             Iterable list of property values.
 
-        Raises: 
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If the object has been deleted.
 
-        Examples: 
+        Examples:
             ```
             vertex.properties.values()
             edge.properties.values()
             ```
-        
+
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -338,15 +347,15 @@ class Properties:
         """
         Get the number of properties.
 
-        Returns: 
+        Returns:
             A number of properties on vertex or edge.
 
-        Raises: 
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If the object has been deleted.
-        
-        Examples: 
+
+        Examples:
             ```
             len(vertex.properties)
             len(edge.properties)
@@ -363,15 +372,15 @@ class Properties:
         """
         Iterate over property names.
 
-        Returns: 
+        Returns:
             Iterable list of strings that represent names of properties.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If the object has been deleted.
-        
-        Examples: 
+
+        Examples:
             ```
             iter(vertex.properties)
             iter(edge.properties)
@@ -386,24 +395,24 @@ class Properties:
     def __getitem__(self, property_name: str) -> object:
         """
         Get the value of a property with the given name or raise KeyError.
-        
-        Args: 
+
+        Args:
             property_name: String that represents property name.
 
-        Returns: 
+        Returns:
             Any value that property under property_name have.
 
-        Raises: 
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate a mgp.Value.
             DeletedObjectError: If the object has been deleted.
 
-        Examples: 
+        Examples:
             ```
             vertex.properties[property_name]
             edge.properties[property_name]
             ```
-            
+
         """
         if not self._vertex_or_edge.is_valid():
             raise InvalidContextError()
@@ -417,18 +426,18 @@ class Properties:
         Set the value of the property. When the value is `None`, then the
         property is removed.
 
-        Args: 
+        Args:
             property_name: String that represents property name.
             value: Object that represents value to be set.
-        
+
         Raises:
             UnableToAllocateError: If unable to allocate memory for storing the property.
             ImmutableObjectError: If the object is immutable.
             DeletedObjectError: If the object has been deleted.
             SerializationError: If the object has been modified by another transaction.
             ValueConversionError: If `value` is vertex, edge or path.
-        
-        Examples: 
+
+        Examples:
             ```
             vertex.properties[property_name] = value
             edge.properties[property_name] = value
@@ -443,18 +452,18 @@ class Properties:
         """
         Check if there is a property with the given name.
 
-        Args: 
+        Args:
             property_name: String that represents property name
-        
+
         Returns:
-            Bool value that depends if there is with a given name. 
-        
-        Raises: 
+            Bool value that depends if there is with a given name.
+
+        Raises:
             InvalidContextError: If edge or vertex is out of context.
             UnableToAllocateError: If unable to allocate a mgp.Value.
             DeletedObjectError: If the object has been deleted.
-        
-        Examples: 
+
+        Examples:
             ```
             if property_name in vertex.properties:
             ```
@@ -483,7 +492,7 @@ class EdgeType:
     def name(self) -> str:
         """
         Get the name of EdgeType.
-        
+
         Returns:
             A string that represents the name of EdgeType.
 
@@ -512,7 +521,7 @@ class Edge:
     Access to an Edge is only valid during a single execution of a procedure in
     a query. You should not globally store an instance of an Edge. Using an
     invalid Edge instance will raise InvalidContextError.
-    
+
     """
 
     __slots__ = ("_edge",)
@@ -532,10 +541,10 @@ class Edge:
     def is_valid(self) -> bool:
         """
         Check if `edge` is in a valid context and may be used.
-            
+
         Returns:
-            A `bool` value depends on if the `edge` is in a valid context. 
-        
+            A `bool` value depends on if the `edge` is in a valid context.
+
         Examples:
             ```edge.is_valid()```
 
@@ -543,15 +552,15 @@ class Edge:
         return self._edge.is_valid()
 
     def underlying_graph_is_mutable(self) -> bool:
-        """ 
-        Check if the `graph` can be modified. 
+        """
+        Check if the `graph` can be modified.
 
-        Returns: 
+        Returns:
             A `bool` value depends on if the `graph` is mutable.
-        
-        Examples: 
+
+        Examples:
             ```edge.underlying_graph_is_mutable()```
-        
+
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -564,10 +573,10 @@ class Edge:
 
         Returns:
             `EdgeId` represents ID of the edge.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If edge is out of context.
-        
+
         Examples:
             ```edge.id```
         """
@@ -581,12 +590,12 @@ class Edge:
         Get the type of edge.
 
         Returns:
-            `EdgeType` describing the type of edge. 
+            `EdgeType` describing the type of edge.
 
         Raises:
             InvalidContextError: If edge is out of context.
-        
-        Examples: 
+
+        Examples:
             ```edge.type```
         """
         if not self.is_valid():
@@ -598,10 +607,10 @@ class Edge:
         """
         Get the source vertex.
 
-        Returns: 
+        Returns:
             `Vertex` from where the edge is directed.
 
-        Raises: 
+        Raises:
             InvalidContextError: If edge is out of context.
 
         Examples:
@@ -615,14 +624,14 @@ class Edge:
     def to_vertex(self) -> "Vertex":
         """
         Get the destination vertex.
-        
-        Returns: 
+
+        Returns:
             `Vertex` to where the edge is directed.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If edge is out of context.
 
-        Examples: 
+        Examples:
             ```edge.to_vertex```
         """
         if not self.is_valid():
@@ -635,7 +644,7 @@ class Edge:
         Get the properties of the edge.
 
         Returns:
-            All `Properties` of edge. 
+            All `Properties` of edge.
 
         Raises:
             InvalidContextError: If edge is out of context.
@@ -692,9 +701,9 @@ class Vertex:
         Checks if `Vertex` is in valid context and may be used.
 
         Returns:
-            A `bool` value depends on if the `Vertex` is in a valid context. 
-        
-        Examples: 
+            A `bool` value depends on if the `Vertex` is in a valid context.
+
+        Examples:
             ```vertex.is_valid()```
 
         """
@@ -702,14 +711,14 @@ class Vertex:
 
     def underlying_graph_is_mutable(self) -> bool:
         """
-        Check if the `graph` is mutable. 
+        Check if the `graph` is mutable.
 
-        Returns: 
+        Returns:
             A `bool` value depends on if the `graph` is mutable.
-        
-        Examples: 
+
+        Examples:
             ```vertex.underlying_graph_is_mutable()```
-        
+
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -722,10 +731,10 @@ class Vertex:
 
         Returns:
             `VertexId` represents ID of the vertex.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If vertex is out of context.
-        
+
         Examples:
             ```vertex.id```
         """
@@ -738,15 +747,15 @@ class Vertex:
         """
         Get the labels of the vertex.
 
-        Returns: 
+        Returns:
             A tuple of `Label` representing vertex Labels
 
-        Raises: 
+        Raises:
             InvalidContextError: If vertex is out of context.
             OutOfRangeError: If some of the labels are removed while collecting the labels.
             DeletedObjectError: If `Vertex` has been deleted.
-        
-        Examples: 
+
+        Examples:
             ```vertex.labels```
         """
         if not self.is_valid():
@@ -757,17 +766,17 @@ class Vertex:
         """
         Add the label to the vertex.
 
-        Args: 
-            label: String label to be added. 
-        
-        Raises: 
+        Args:
+            label: String label to be added.
+
+        Raises:
             InvalidContextError: If `Vertex` is out of context.
             UnableToAllocateError: If unable to allocate memory for storing the label.
             ImmutableObjectError: If `Vertex` is immutable.
             DeletedObjectError: If `Vertex` has been deleted.
             SerializationError: If `Vertex` has been modified by another transaction.
-        
-        Examples: 
+
+        Examples:
             ```vertex.add_label(label)```
         """
         if not self.is_valid():
@@ -778,15 +787,15 @@ class Vertex:
         """
         Remove the label from the vertex.
 
-        Args: 
-            label: String label to be deleted 
-        Raises: 
+        Args:
+            label: String label to be deleted
+        Raises:
             InvalidContextError: If `Vertex` is out of context.
             ImmutableObjectError: If `Vertex` is immutable.
             DeletedObjectError: If `Vertex` has been deleted.
             SerializationError: If `Vertex` has been modified by another transaction.
-        
-        Examples: 
+
+        Examples:
             ```vertex.remove_label(label)```
         """
         if not self.is_valid():
@@ -798,13 +807,13 @@ class Vertex:
         """
         Get the properties of the vertex.
 
-        Returns: 
+        Returns:
             `Properties` on a current vertex.
 
-        Raises: 
+        Raises:
             InvalidContextError: If `Vertex` is out of context.
 
-        Examples: 
+        Examples:
             ```vertex.properties```
         """
         if not self.is_valid():
@@ -820,13 +829,13 @@ class Vertex:
 
         Returns:
             Iterable list of `Edge` objects that are directed in towards the current vertex.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If `Vertex` is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If `Vertex` has been deleted.
 
-        Examples: 
+        Examples:
             ```for edge in vertex.in_edges:```
         """
         if not self.is_valid():
@@ -850,12 +859,12 @@ class Vertex:
         Returns:
             Iterable list of `Edge` objects that are directed out of the current vertex.
 
-        Raises: 
+        Raises:
             InvalidContextError: If `Vertex` is out of context.
             UnableToAllocateError: If unable to allocate an iterator.
             DeletedObjectError: If `Vertex` has been deleted.
 
-        Examples: 
+        Examples:
             ```for edge in vertex.out_edges:```
         """
         if not self.is_valid():
@@ -888,7 +897,7 @@ class Path:
     def __init__(self, starting_vertex_or_path: typing.Union[_mgp.Path, Vertex]):
         """Initialize with a starting Vertex.
 
-        Raises: 
+        Raises:
             InvalidContextError: If passed in Vertex is invalid.
             UnableToAllocateError: If cannot allocate a path.
         """
@@ -932,10 +941,10 @@ class Path:
     def is_valid(self) -> bool:
         """
         Check if `Path` is in valid context and may be used.
-            
+
         Returns:
-            A `bool` value depends on if the `Path` is in a valid context. 
-        
+            A `bool` value depends on if the `Path` is in a valid context.
+
         Examples:
             ```path.is_valid()```
         """
@@ -948,15 +957,15 @@ class Path:
         The last vertex on the path will become the other endpoint of the given
         edge, as continued from the current last vertex.
 
-        Args: 
+        Args:
             edge: `Edge` that is added to the path
 
-        Raises: 
+        Raises:
             InvalidContextError: If using an invalid `Path` instance or if passed in `Edge` is invalid.
             LogicErrorError: If the current last vertex in the path is not part of the given edge.
             UnableToAllocateError: If unable to allocate memory for path extension.
 
-        Examples: 
+        Examples:
             ```path.expand(edge)```
         """
         if not isinstance(edge, Edge):
@@ -973,14 +982,14 @@ class Path:
         """
         Vertices are ordered from the start to the end of the path.
 
-        Returns: 
-            A tuple of `Vertex` objects order from start to end of the path. 
+        Returns:
+            A tuple of `Vertex` objects order from start to end of the path.
 
         Raises:
             InvalidContextError: If using an invalid Path instance.
 
         Examples:
-            ```path.vertices```  
+            ```path.vertices```
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -994,11 +1003,11 @@ class Path:
         """
         Edges are ordered from the start to the end of the path.
 
-        Returns: 
+        Returns:
             A tuple of `Edge` objects order from start to end of the path
-        Raises: 
+        Raises:
             InvalidContextError: If using an invalid `Path` instance.
-        Examples: 
+        Examples:
             ```path.edges```
         """
         if not self.is_valid():
@@ -1039,10 +1048,10 @@ class Vertices:
     def is_valid(self) -> bool:
         """
         Check if `Vertices` is in valid context and may be used.
-            
+
         Returns:
-            A `bool` value depends on if the `Vertices` is in valid context.  
-        
+            A `bool` value depends on if the `Vertices` is in valid context.
+
         Examples:
             ```vertices.is_valid()```
         """
@@ -1052,14 +1061,14 @@ class Vertices:
         """
         Iterate over vertices.
 
-        Returns: 
-            Iterable list of `Vertex` objects. 
+        Returns:
+            Iterable list of `Vertex` objects.
 
-        Raises: 
+        Raises:
             InvalidContextError: If context is invalid.
             UnableToAllocateError: If unable to allocate an iterator or a vertex.
 
-        Examples: 
+        Examples:
             ```
             for vertex in graph.vertices:
             ```
@@ -1080,18 +1089,18 @@ class Vertices:
 
     def __contains__(self, vertex):
         """
-        Check if Vertices contain the given vertex. 
+        Check if Vertices contain the given vertex.
 
-        Args: 
+        Args:
             vertex: `Vertex` to be checked if it is a part of graph `Vertices`.
 
         Returns:
-            Bool value depends if there is `Vertex` in graph `Vertices`. 
+            Bool value depends if there is `Vertex` in graph `Vertices`.
 
         Raises:
             UnableToAllocateError: If unable to allocate the vertex.
 
-        Examples: 
+        Examples:
             ```if vertex in graph.vertices:```
         """
         try:
@@ -1104,14 +1113,14 @@ class Vertices:
         """
         Get the number of vertices.
 
-        Returns: 
+        Returns:
             A number of vertices in the graph.
-        
-        Raises: 
+
+        Raises:
             InvalidContextError: If context is invalid.
             UnableToAllocateError: If unable to allocate an iterator or a vertex.
-        
-        Examples: 
+
+        Examples:
             ```len(graph.vertices)```
         """
         if not self._len:
@@ -1140,9 +1149,9 @@ class Graph:
         Check if `graph` is in a valid context and may be used.
 
         Returns:
-            A `bool` value depends on if the `graph` is in a valid context. 
-        
-        Examples: 
+            A `bool` value depends on if the `graph` is in a valid context.
+
+        Examples:
             ```graph.is_valid()```
 
         """
@@ -1169,7 +1178,7 @@ class Graph:
         Examples:
             ```graph.get_vertex_by_id(vertex_id)```
 
-        
+
         """
         if not self.is_valid():
             raise InvalidContextError()
@@ -1207,11 +1216,11 @@ class Graph:
     def is_mutable(self) -> bool:
         """
         Check if the graph is mutable. Thus it can be used to modify vertices and edges.
-        
-        Returns: 
-            A `bool` value that depends if the graph is mutable or not. 
 
-        Examples: 
+        Returns:
+            A `bool` value that depends if the graph is mutable or not.
+
+        Examples:
             ```graph.is_mutable()```
         """
         if not self.is_valid():
@@ -1222,14 +1231,14 @@ class Graph:
         """
         Create an empty vertex.
 
-        Returns: 
-            Created `Vertex`. 
+        Returns:
+            Created `Vertex`.
 
-        Raises: 
+        Raises:
             ImmutableObjectError: If `graph` is immutable.
             UnableToAllocateError: If unable to allocate a vertex.
-        
-        Examples: 
+
+        Examples:
             Creating an empty vertex.
             ```vertex = graph.create_vertex()```
 
@@ -1249,7 +1258,7 @@ class Graph:
             LogicErrorError: If `vertex` has edges.
             SerializationError: If `vertex` has been modified by
             another transaction.
-        Examples: 
+        Examples:
             ```graph.delete_vertex(vertex)```
 
         """
@@ -1260,14 +1269,14 @@ class Graph:
     def detach_delete_vertex(self, vertex: Vertex) -> None:
         """
         Delete a vertex and all of its edges.
-        
-        Args: 
+
+        Args:
              vertex: `Vertex` to be deleted with all of its edges
-        
-        Raises: 
+
+        Raises:
             ImmutableObjectError: If `graph` is immutable.
             SerializationError: If `vertex` has been modified by another transaction.
-        Examples: 
+        Examples:
             ```graph.detach_delete_vertex(vertex)```
         """
         if not self.is_valid():
@@ -1277,18 +1286,18 @@ class Graph:
     def create_edge(self, from_vertex: Vertex, to_vertex: Vertex, edge_type: EdgeType) -> None:
         """
         Create an edge.
-        
-        Args: 
-            from_vertex: `Vertex` from where edge is directed. 
-            to_vertex: `Vertex'  to where edge is directed. 
-            edge_type:  `EdgeType` defines the type of edge. 
+
+        Args:
+            from_vertex: `Vertex` from where edge is directed.
+            to_vertex: `Vertex'  to where edge is directed.
+            edge_type:  `EdgeType` defines the type of edge.
 
         Raises:
             ImmutableObjectError: If `graph` is immutable.
             UnableToAllocateError: If unable to allocate an edge.
             DeletedObjectError: If `from_vertex` or `to_vertex` has been deleted.
             SerializationError: If `from_vertex` or `to_vertex` has been modified by another transaction.
-        Examples: 
+        Examples:
             ```graph.create_edge(from_vertex, vertex, edge_type)```
         """
         if not self.is_valid():
@@ -1301,8 +1310,8 @@ class Graph:
 
         Args:
             edge: `Edge` to be deleted
-        
-        Raises: 
+
+        Raises:
             ImmutableObjectError if `graph` is immutable.
             Raise SerializationError if `edge`, its source or destination vertex has been modified by another transaction.
         """
@@ -1337,15 +1346,15 @@ class ProcCtx:
     @property
     def graph(self) -> Graph:
         """
-        Access to `Graph` object. 
-    
-        Returns: 
-            Graph object. 
+        Access to `Graph` object.
 
-        Raises: 
+        Returns:
+            Graph object.
+
+        Raises:
             InvalidContextError:  If context is invalid.
-        
-        Examples: 
+
+        Examples:
             ```context.graph```
         """
         if not self.is_valid():
@@ -1969,6 +1978,8 @@ def _wrap_exceptions():
                 raise ValueConversionError(e)
             except _mgp.SerializationError as e:
                 raise SerializationError(e)
+            except _mgp.AuthorizationError as e:
+                raise AuthorizationError(e)
 
         return wrapped_func
 

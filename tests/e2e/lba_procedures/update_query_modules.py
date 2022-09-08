@@ -9,19 +9,16 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
 import pytest
+import sys
+
 from common import (
     connect,
     execute_and_fetch_all,
     reset_update_permissions,
 )
 
-# The idea here is to try to set the property to int value of 2
-# Initial value is set to int value of 1
-
 set_vertex_property_query = "MATCH (n:update_label) CALL update.set_property(n) YIELD * RETURN n.prop;"
-
 set_edge_property_query = "MATCH (n:update_label_1)-[r:update_edge_type]->(m:update_label_2) CALL update.set_property(r) YIELD * RETURN r.prop;"
 
 
