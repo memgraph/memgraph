@@ -39,6 +39,7 @@ using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
+using memgraph::io::messages::UberMessage;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
@@ -74,7 +75,7 @@ class ShardManager {
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
   Time Cron() {
-    spdlog::info("running ShardManager::Cron");
+    spdlog::info("running ShardManager::Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
 
     if (now >= next_cron_) {
@@ -114,6 +115,12 @@ class ShardManager {
 
     std::visit([&](auto &&msg) { Handle(from, to, request_id, std::forward<decltype(msg)>(msg)); }, std::move(message));
   }
+  void Handle(Address from, Address to, RequestId request_id, ShardManagerMessages &&message) {}
+
+  void Handle(Address from, Address to, RequestId request_id, ShardMessages &&message) {
+    auto &rsm = rsm_map_.at(to.unique_id);
+    // TODO(tyler) call rsm's Raft::Handle method with message
+  }
 
  private:
   io::Io<IoImpl> io_;
@@ -122,12 +129,12 @@ class ShardManager {
       cron_schedule_;
   Time next_cron_;
   Address coordinator_leader_;
-  std::optional<ResponseFuture<CoordinatorWriteResponses>> heartbeat_res_;
+  std::optional<ResponseFuture<ShardManagerMessages>> heartbeat_res_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
       if (heartbeat_res_->IsReady()) {
-        io::ResponseResult<CoordinatorWriteResponses> response_result = std::move(heartbeat_res_).value().Wait();
+        io::ResponseResult<ShardManagerMessages> response_result = std::move(heartbeat_res_).value().Wait();
         heartbeat_res_.reset();
       } else {
         return;
@@ -136,17 +143,11 @@ class ShardManager {
 
     HeartbeatRequest req{};
     CoordinatorWriteRequests cwr = req;
-    CoordinatorMessages cm = cwr;
+    CoordinatorMessages cm = 13;  // cwr;
+    UberMessage um{cm};
     spdlog::info("SM sending heartbeat");
-    heartbeat_res_ = io_.template Request<CoordinatorMessages, CoordinatorWriteResponses>(coordinator_leader_, cm);
+    heartbeat_res_.emplace(std::move(io_.template Request<UberMessage, ShardManagerMessages>(coordinator_leader_, um)));
     spdlog::info("SM sent heartbeat");
-  }
-
-  void Handle(Address from, Address to, RequestId request_id, ShardManagerMessages &&message) {}
-
-  void Handle(Address from, Address to, RequestId request_id, ShardMessages &&message) {
-    auto &rsm = rsm_map_.at(to.unique_id);
-    // TODO(tyler) call rsm's Raft::Handle method with message
   }
 };
 

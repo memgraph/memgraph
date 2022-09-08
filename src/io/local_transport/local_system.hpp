@@ -25,7 +25,7 @@ class LocalSystem {
 
  public:
   Io<LocalTransport> Register(Address address) {
-    LocalTransport local_transport(local_transport_handle_, address);
+    LocalTransport local_transport(local_transport_handle_);
     return Io{local_transport, address};
   }
 

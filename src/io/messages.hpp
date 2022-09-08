@@ -27,9 +27,9 @@ struct SM {};
 struct MMM {};
 
 using QueryEngineMessages = std::variant<QEM>;
-using CoordinatorMessages = std::variant<CoordinatorWriteRequests, CoordinatorReadRequests>;
+using CoordinatorMessages = uint64_t;  // std::variant<CoordinatorWriteRequests, CoordinatorReadRequests>;
 using ShardMessages = std::variant<SM>;
-using ShardManagerMessages = std::variant<HeartbeatResponse>;
+using ShardManagerMessages = uint8_t;  // std::variant<HeartbeatResponse>;
 using MachineManagerMessages = std::variant<MMM>;
 
 using UberMessage =

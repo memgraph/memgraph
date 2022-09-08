@@ -62,7 +62,10 @@ class MachineManager {
   // TODO initialize ShardManager with "real" coordinator addresses instead of io.GetAddress
   // which is only true for single-machine config.
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
-      : io_(io), config_(config), coordinator_(coordinator), shard_manager_(ShardManager{io, io.GetAddress()}) {}
+      : io_(io),
+        config_(config),
+        coordinator_(coordinator),
+        shard_manager_(ShardManager{io.ForkLocal(), io.GetAddress()}) {}
 
   void Run() {
     while (!io_.ShouldShutDown()) {
@@ -74,10 +77,12 @@ class MachineManager {
 
       Duration receive_timeout = next_cron_ - now;
 
+      spdlog::info("MM waiting on Receive");
       auto request_result = io_.template ReceiveWithTimeout<UberMessage>(receive_timeout);
 
       if (request_result.HasError()) {
         // time to do Cron
+        spdlog::info("MM got timeout");
         continue;
       }
 
@@ -95,11 +100,17 @@ class MachineManager {
   }
 
  private:
-  Time Cron() { return shard_manager_.Cron(); }
+  Time Cron() {
+    spdlog::info("running MachineManager::Cron, address {}", io_.GetAddress().ToString());
+    return shard_manager_.Cron();
+  }
 
   void Handle(QueryEngineMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(MachineManagerMessages &&, RequestId request_id, Address from, Address to) {}
-  void Handle(ShardManagerMessages &&, RequestId request_id, Address from, Address to) {}
+  void Handle(ShardManagerMessages &&smm, RequestId request_id, Address from, Address to) {
+    spdlog::info("got SMM message");
+    shard_manager_.Handle(from, to, request_id, std::forward<ShardManagerMessages>(smm));
+  }
   void Handle(ShardMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {
     spdlog::info("got coordinator message");

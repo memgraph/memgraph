@@ -104,15 +104,11 @@ TEST(MachineManager, BasicFunctionality) {
 
   auto cli_addr = Address::TestAddress(0);
   auto machine_1_addr = Address::TestAddress(1);
-  auto machine_2_addr = Address::TestAddress(2);
-  auto machine_3_addr = Address::TestAddress(3);
 
   Io<LocalTransport> cli_io = local_system.Register(cli_addr);
 
   auto coordinator_addresses = std::vector{
       machine_1_addr,
-      machine_2_addr,
-      machine_3_addr,
   };
 
   ShardMap sm = TestShardMap();
