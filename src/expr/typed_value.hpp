@@ -116,14 +116,17 @@ class TypedValueT {
           return hash;
         }
         case TypedValueT::Type::Vertex:
-          return value.ValueVertex().Gid().AsUint();
+          return 34;
+          // return value.ValueVertex().Gid().AsUint();
         case TypedValueT::Type::Edge:
-          return value.ValueEdge().Gid().AsUint();
+          return 35;
+          // return value.ValueEdge().Gid().AsUint();
         case TypedValueT::Type::Path: {
-          const auto &vertices = value.ValuePath().vertices();
-          const auto &edges = value.ValuePath().edges();
-          return utils::FnvCollection<decltype(vertices), TVertexAccessor>{}(vertices) ^
-                 utils::FnvCollection<decltype(edges), TEdgeAccessor>{}(edges);
+          // const auto &vertices = value.ValuePath().vertices();
+          // const auto &edges = value.ValuePath().edges();
+          // return utils::FnvCollection<decltype(vertices), TVertexAccessor>{}(vertices) ^
+          //        utils::FnvCollection<decltype(edges), TEdgeAccessor>{}(edges);
+          return 36;
         }
         case TypedValueT::Type::Date:
           return utils::DateHash{}(value.ValueDate());

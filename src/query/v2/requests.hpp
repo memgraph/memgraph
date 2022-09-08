@@ -26,18 +26,30 @@
 using memgraph::coordinator::Hlc;
 using memgraph::storage::v3::LabelId;
 
+namespace requests {
+
 struct Label {
   LabelId id;
+  friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
 using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
-using VertexId = std::pair<Label, PrimaryKey>;
+
+struct VertexId {
+  Label primary_label;
+  PrimaryKey primary_key;
+  friend bool operator==(const VertexId &lhs, const VertexId &rhs) {
+    return (lhs.primary_label == rhs.primary_label) && (lhs.primary_key == rhs.primary_key);
+  }
+};
+
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
   std::string name;
+  friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
 struct EdgeId {
@@ -48,12 +60,18 @@ struct EdgeId {
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) {
+    return (lhs.id == rhs.id) && (lhs.labels == rhs.labels);
+  }
 };
 
 struct Edge {
   VertexId src;
   VertexId dst;
   EdgeType type;
+  friend bool operator==(const Edge &lhs, const Edge &rhs) {
+    return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
+  }
 };
 
 struct PathPart {
@@ -73,7 +91,7 @@ struct Value {
   union {
     Null null_v;
     bool bool_v;
-    int int_v;
+    int64_t int_v;
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
@@ -85,7 +103,126 @@ struct Value {
 
   Type type;
 
-  Value() : type(NILL), null_v{} {}
+  Value() : null_v{}, type(NILL) {}
+
+  // copy ctor needed.
+  Value(const Value &value) : type(value.type) {
+    switch (value.type) {
+      case NILL:
+        null_v = {};
+        break;
+      case BOOL:
+        bool_v = value.bool_v;
+        break;
+      case INT64:
+        int_v = value.int_v;
+        break;
+      case DOUBLE:
+        double_v = value.double_v;
+        break;
+      case STRING:
+        string_v = value.string_v;
+        break;
+      case LIST:
+        list_v = value.list_v;
+        break;
+      case MAP:
+        map_v = value.map_v;
+        break;
+      case VERTEX:
+        vertex_v = value.vertex_v;
+        break;
+      case EDGE:
+        edge_v = value.edge_v;
+        break;
+      case PATH:
+        path_v = value.path_v;
+        break;
+    }
+  }
+  //  Value(Value &&other) noexcept {};
+
+  explicit Value(const bool val) : bool_v(val), type(BOOL){};
+  explicit Value(const int64_t val) : int_v(val), type(INT64){};
+  explicit Value(const double val) : double_v(val), type(DOUBLE){};
+  explicit Value(const std::string &val) : string_v(val), type(STRING){};
+
+  explicit Value(std::vector<Value> &&val) : list_v(std::move(val)), type(LIST){};
+  explicit Value(std::map<std::string, Value> &&val) : map_v(std::move(val)), type(MAP){};
+
+  explicit Value(const Vertex &val) : vertex_v(val), type(VERTEX){};
+  explicit Value(const Edge &val) : edge_v(val), type(EDGE){};
+  explicit Value(const Path &val) : path_v(val), type(PATH){};
+
+  Value &operator=(const Value &value) {
+    if (&value == this) {
+      return *this;
+    }
+    type = value.type;
+    switch (value.type) {
+      case NILL:
+        null_v = {};
+        break;
+      case BOOL:
+        bool_v = value.bool_v;
+        break;
+      case INT64:
+        int_v = value.int_v;
+        break;
+      case DOUBLE:
+        double_v = value.double_v;
+        break;
+      case STRING:
+        string_v = value.string_v;
+        break;
+      case LIST:
+        list_v = value.list_v;
+        break;
+      case MAP:
+        map_v = value.map_v;
+        break;
+      case VERTEX:
+        vertex_v = value.vertex_v;
+        break;
+      case EDGE:
+        edge_v = value.edge_v;
+        break;
+      case PATH:
+        path_v = value.path_v;
+        break;
+    }
+    return *this;
+  }
+
+  friend bool operator==(const Value &lhs, const Value &rhs) {
+    if (lhs.type != rhs.type) {
+      return false;
+    }
+    switch (lhs.type) {
+      case NILL:
+        return true;
+      case BOOL:
+        return lhs.bool_v == rhs.bool_v;
+      case INT64:
+        return lhs.int_v == rhs.int_v;
+      case DOUBLE:
+        return lhs.double_v == rhs.double_v;
+      case STRING:
+        return lhs.string_v == rhs.string_v;
+      case LIST:
+        return lhs.list_v == rhs.list_v;
+      case MAP:
+        return lhs.map_v == rhs.map_v;
+      case VERTEX:
+        return lhs.vertex_v == rhs.vertex_v;
+      case EDGE:
+        return lhs.edge_v == rhs.edge_v;
+      case PATH:
+        return true;
+    }
+  }
+
+  ~Value(){};
 };
 
 struct ValuesMap {
@@ -230,3 +367,4 @@ using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, Sca
 
 using WriteRequests = CreateVerticesRequest;
 using WriteResponses = CreateVerticesResponse;
+}  // namespace requests

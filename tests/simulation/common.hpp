@@ -51,6 +51,13 @@ using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
+using requests::CreateVerticesRequest;
+using requests::CreateVerticesResponse;
+using requests::ListedValues;
+using requests::ScanVerticesRequest;
+using requests::ScanVerticesResponse;
+using requests::Value;
+using requests::VertexId;
 
 using ShardRsmKey = std::vector<memgraph::storage::v3::PropertyValue>;
 
@@ -73,24 +80,24 @@ class MockedShardRsm {
   //  GetPropertiesResponse Read(GetPropertiesRequest rqst);
   ScanVerticesResponse Read(ScanVerticesRequest rqst) {
     ScanVerticesResponse ret;
-    if (!IsKeyInRange(rqst.start_id.second)) {
+    if (!IsKeyInRange(rqst.start_id.primary_key)) {
       ret.success = false;
-    } else if (rqst.start_id.second == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
-      Value val{.int_v = 0, .type = Value::Type::INT64};
+    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
+      Value val(int64_t(0));
       ListedValues listed_values;
       listed_values.properties.push_back(std::vector<Value>{val});
       ret.next_start_id = std::make_optional<VertexId>();
-      ret.next_start_id->second = ShardRsmKey{PropertyValue(1), PropertyValue(0)};
+      ret.next_start_id->primary_key = ShardRsmKey{PropertyValue(1), PropertyValue(0)};
       ret.values = std::move(listed_values);
       ret.success = true;
-    } else if (rqst.start_id.second == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
-      Value val{.int_v = 1, .type = Value::Type::INT64};
+    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
+      Value val(int64_t(1));
       ListedValues listed_values;
       listed_values.properties.push_back(std::vector<Value>{val});
       ret.values = std::move(listed_values);
       ret.success = true;
-    } else if (rqst.start_id.second == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
-      Value val{.int_v = 444, .type = Value::Type::INT64};
+    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
+      Value val(int64_t(444));
       ListedValues listed_values;
       listed_values.properties.push_back(std::vector<Value>{val});
       ret.values = std::move(listed_values);

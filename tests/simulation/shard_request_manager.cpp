@@ -29,6 +29,7 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v2/property_value.hpp"
@@ -55,7 +56,6 @@ using memgraph::io::TimedOut;
 using memgraph::io::rsm::Raft;
 using memgraph::io::rsm::ReadRequest;
 using memgraph::io::rsm::ReadResponse;
-using memgraph::io::rsm::RsmClient;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageWriteRequest;
@@ -69,9 +69,12 @@ using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::SchemaProperty;
 using memgraph::utils::BasicResult;
-
-using ShardClient =
-    RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, ScanVerticesRequest, ScanVerticesResponse>;
+using requests::CreateVerticesRequest;
+using requests::CreateVerticesResponse;
+using requests::ListedValues;
+using requests::NewVertexLabel;
+using requests::ScanVerticesRequest;
+using requests::ScanVerticesResponse;
 
 namespace {
 
@@ -144,7 +147,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, CreateVerticesRequest, CreateVe
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &io) {
-  ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
+  requests::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
   auto result = io.Request(state);
   MG_ASSERT(result.size() == 2);
@@ -170,7 +173,7 @@ void TestScanAll(ShardRequestManager &io) {
 template <typename ShardRequestManager>
 void TestCreateVertices(ShardRequestManager &io) {
   using PropVal = memgraph::storage::v3::PropertyValue;
-  ExecutionState<CreateVerticesRequest> state;
+  requests::ExecutionState<CreateVerticesRequest> state;
   std::vector<NewVertexLabel> new_vertices;
   NewVertexLabel a1{.label = "test_label", .primary_key = {PropVal(1), PropVal(0)}};
   NewVertexLabel a2{.label = "test_label", .primary_key = {PropVal(13), PropVal(13)}};
@@ -289,8 +292,8 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  ShardRequestManager<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(std::move(coordinator_client),
-                                                                                        std::move(cli_io));
+  requests::ShardRequestManager<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(
+      std::move(coordinator_client), std::move(cli_io));
 
   io.StartTransaction();
   TestScanAll(io);

@@ -10,10 +10,10 @@
 // licenses/APL.txt.
 
 #include "expr/typed_value.hpp"
-#include "query/v2/db_accessor.hpp"
+#include "query/v2/accessors.hpp"
 #include "query/v2/path.hpp"
 
 namespace memgraph::expr {
 namespace v2 = memgraph::query::v2;
-template class TypedValueT<v2::VertexAccessor, v2::EdgeAccessor, v2::Path>;
+template class TypedValueT<v2::accessors::VertexAccessor, v2::accessors::EdgeAccessor, v2::accessors::Path>;
 }  // namespace memgraph::expr

@@ -18,59 +18,33 @@
 #include "storage/v3/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 
-TypedValue ValueToTypedValue(const Value &value) {
-  switch (value.type) {
-    case Value::NILL:
-      return {};
-    case Value::BOOL:
-      return {value.bool_v};
-    case Value::INT64:
-      return {value.int_v};
-    case Value::DOUBLE:
-      return {value.double_v};
-    case Value::STRING:
-      return {value.string_v};
-    case Value::LIST:
-      return {value.list_v};
-    case Value::MAP:
-      return {value.map_v};
-    case Value::VERTEX:
-    case Value::EDGE:
-    case Value::PATH:
-  }
-  std::runtime_error("Incorrect type in conversion");
-}
+namespace memgraph::query::v2::accessors {
+
+using Value = requests::Value;
+using Edge = requests::Edge;
+using Vertex = requests::Vertex;
+using Label = requests::Label;
 
 class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  EdgeAccessor(Edge *edge, std::map<std::string, Value> *props) : edge(edge), properties(props) {
-    MG_ASSERT(edge != nullptr);
-    MG_ASSERT(properties != nullptr);
-  }
+  EdgeAccessor(Edge edge, std::map<std::string, Value> props);
 
-  std::string EdgeType() const { return edge->type.name; }
+  std::string EdgeType() const;
 
-  std::map<std::string, TypedValue> Properties() const {
-    std::map<std::string, TypedValue> res;
-    for (const auto &[name, value] : *properties) {
-      res[name] = ValueToTypedValue(value);
-    }
-    return res;
-  }
+  std::map<std::string, Value> Properties() const;
 
-  TypedValue GetProperty(const std::string &prop_name) const {
-    MG_ASSERT(properties->contains(prop_name));
-    return ValueToTypedValue(properties[prop_name]);
-  }
+  Value GetProperty(const std::string &prop_name);
 
   //  bool HasSrcAccessor const { return src == nullptr; }
   //  bool HasDstAccessor const { return dst == nullptr; }
 
-//  VertexAccessor To() const;
-//  VertexAccessor From() const;
+  //  VertexAccessor To() const;
+  //  VertexAccessor From() const;
 
   friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) noexcept {
     return lhs.edge == rhs.edge && lhs.properties == rhs.properties;
@@ -79,38 +53,23 @@ class EdgeAccessor final {
   friend bool operator!=(const EdgeAccessor &lhs, const EdgeAccessor &rhs) noexcept { return !(lhs == rhs); }
 
  private:
-  Edge *edge;
+  Edge edge;
   //  VertexAccessor *src {nullptr};
   //  VertexAccessor *dst {nullptr};
-  std::map<std::string, Value> *properties;
+  std::map<std::string, Value> properties;
 };
 
 class VertexAccessor final {
  public:
-  VertexAccessor(Vertex *v, std::map<std::string, Value> *props) : vertex(v), properties(props) {
-    MG_ASSERT(vertex != nullptr);
-    MG_ASSERT(properties != nullptr);
-  }
+  VertexAccessor(Vertex v, std::map<std::string, Value> props);
 
-  std::vector<Label> Labels() const { return vertex->labels; }
+  std::vector<Label> Labels() const;
 
-  bool HasLabel(Label &label) const {
-    return std::find_if(vertex->labels.begin(), vertex->labels.end(),
-                        [label](const auto &l) { return l.id == label.id; }) != vertex->labels.end();
-  }
+  bool HasLabel(Label &label) const;
 
-  std::map<std::string, TypedValue> Properties() const {
-    std::map<std::string, TypedValue> res;
-    for (const auto &[name, value] : *properties) {
-      res[name] = ValueToTypedValue(value);
-    }
-    return res;
-  }
+  std::map<std::string, Value> Properties() const;
 
-  TypedValue GetProperty(const std::string &prop_name) const {
-    MG_ASSERT(properties->contains(prop_name));
-    return ValueToTypedValue(properties[prop_name]);
-  }
+  Value GetProperty(const std::string &prop_name);
 
   //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
   //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
@@ -158,10 +117,39 @@ class VertexAccessor final {
   friend bool operator!=(const VertexAccessor lhs, const VertexAccessor &rhs) noexcept { return !(lhs == rhs); }
 
  private:
-  Vertex *vertex;
-  std::map<std::string, Value> *properties;
+  Vertex vertex;
+  std::map<std::string, Value> properties;
 };
 
-//inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+// inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
 
-//inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+// inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+
+// Highly mocked interface. Won't work if used.
+class Path {
+ public:
+  // Empty for now
+  explicit Path(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : mem(memory) {}
+
+  template <typename... TOthers>
+  explicit Path(const VertexAccessor &vertex, const TOthers &...others) {}
+
+  template <typename... TOthers>
+  Path(std::allocator_arg_t, utils::MemoryResource *memory, const VertexAccessor &vertex, const TOthers &...others) {}
+
+  Path(const Path &other) {}
+
+  Path(const Path &other, utils::MemoryResource *memory) : mem(memory) {}
+
+  Path(Path &&other) noexcept {}
+
+  Path(Path &&other, utils::MemoryResource *memory) : mem(memory) {}
+  Path &operator=(const Path &path) { return *this; }
+  friend bool operator==(const Path &lhs, const Path &rhs) { return true; };
+  utils::MemoryResource *GetMemoryResource() { return mem; }
+
+ private:
+  utils::MemoryResource *mem = utils::NewDeleteResource();
+};
+}  // namespace memgraph::query::v2::accessors

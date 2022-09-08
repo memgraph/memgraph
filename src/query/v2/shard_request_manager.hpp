@@ -37,6 +37,7 @@
 #include "storage/v3/id_types.hpp"
 #include "utils/result.hpp"
 
+namespace requests {
 template <typename TStorageClient>
 class RsmStorageClientManager {
  public:
@@ -111,6 +112,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   ShardRequestManager(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
       : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
+  ShardRequestManager(const ShardRequestManager &) = delete;
+  ShardRequestManager(ShardRequestManager &&) = delete;
+
   ~ShardRequestManager() override {}
 
   void StartTransaction() override {
@@ -138,7 +142,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     auto &shard_cacheref = state.shard_cache;
     size_t id = 0;
     for (auto shard_it = shard_cacheref.begin(); shard_it != shard_cacheref.end(); ++id) {
-      auto &storage_client = GetStorageClientForShard(*state.label, state.requests[id].start_id.second);
+      auto &storage_client = GetStorageClientForShard(*state.label, state.requests[id].start_id.primary_key);
       // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture instead.
       auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
       // RETRY on timeouts?
@@ -153,7 +157,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       if (!read_response_result.GetValue().next_start_id) {
         shard_it = shard_cacheref.erase(shard_it);
       } else {
-        state.requests[id].start_id.second = read_response_result.GetValue().next_start_id->second;
+        state.requests[id].start_id.primary_key = read_response_result.GetValue().next_start_id->primary_key;
         ++shard_it;
       }
     }
@@ -196,28 +200,29 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) {
-    MaybeInitializeExecutionState(state);
-    std::vector<ExpandOneResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const Label label = state.requests[id].new_vertices[0].label_ids;
-      auto primary_key = state.requests[id].new_vertices[0].primary_key;
-      auto &storage_client = GetStorageClientForShard(*shard_it, label.id);
-      auto read_response_result = storage_client.SendWriteRequest(state.requests[id]);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-      if (read_response_result.HasError()) {
-        throw std::runtime_error("Write request error");
-      }
-      if (read_response_result.GetValue().success == false) {
-        throw std::runtime_error("Write request did not succeed");
-      }
-      responses.push_back(read_response_result.GetValue());
-      shard_it = shard_cache_ref.erase(shard_it);
-    }
-    return responses;
+    throw std::runtime_error("Not yet implemented request");
+    //    MaybeInitializeExecutionState(state);
+    //    std::vector<ExpandOneResponse> responses;
+    //    auto &shard_cache_ref = state.shard_cache;
+    //    size_t id = 0;
+    //    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+    //      // This is fine because all new_vertices of each request end up on the same shard
+    //      const Label label = state.requests[id].new_vertices[0].label_ids;
+    //      auto primary_key = state.requests[id].new_vertices[0].primary_key;
+    //      auto &storage_client = GetStorageClientForShard(*shard_it, label.id);
+    //      auto read_response_result = storage_client.SendWriteRequest(state.requests[id]);
+    //      // RETRY on timeouts?
+    //      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map
+    //      test if (read_response_result.HasError()) {
+    //        throw std::runtime_error("Write request error");
+    //      }
+    //      if (read_response_result.GetValue().success == false) {
+    //        throw std::runtime_error("Write request did not succeed");
+    //      }
+    //      responses.push_back(read_response_result.GetValue());
+    //      shard_it = shard_cache_ref.erase(shard_it);
+    //    }
+    //    return responses;
   }
 
  private:
@@ -280,7 +285,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       state.shard_cache.push_back(std::move(shard));
       ScanVerticesRequest rqst;
       rqst.transaction_id = transaction_id_;
-      rqst.start_id.second = std::move(key);
+      rqst.start_id.primary_key = std::move(key);
       state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
@@ -350,3 +355,4 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   memgraph::coordinator::Hlc transaction_id_;
   // TODO(kostasrim) Add batch prefetching
 };
+}  // namespace requests
