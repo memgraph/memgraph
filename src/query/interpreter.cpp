@@ -985,7 +985,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (username.has_value() && utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (utils::license::global_license_checker.IsValidLicenseFast() && username.has_value()) {
     ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username);
   }
 #endif
