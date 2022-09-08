@@ -65,7 +65,7 @@ class BoltClient : public ::testing::Test {
   memgraph::io::network::Endpoint endpoint_{memgraph::io::network::ResolveHostname(FLAGS_address),
                                             static_cast<uint16_t>(FLAGS_port)};
   memgraph::communication::ClientContext context_{FLAGS_use_ssl};
-  Client client_{&context_};
+  Client client_{context_};
 };
 
 const std::string kNoCurrentTransactionToCommit = "No current transaction to commit.";
@@ -100,20 +100,20 @@ TEST_F(BoltClient, DoubleRollbackWithoutTransaction) {
 TEST_F(BoltClient, DoubleBegin) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, DoubleBeginAndCommit) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(Execute("commit"));
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, DoubleBeginAndRollback) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(Execute("rollback"));
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
@@ -157,30 +157,29 @@ TEST_F(BoltClient, BeginAndCorrectQueriesAndBegin) {
   EXPECT_TRUE(Execute("create (n)"));
   ASSERT_EQ(GetCount(), count + 1);
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_EQ(GetCount(), count + 1);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_EQ(GetCount(), count);
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, BeginAndWrongQueryAndRollback) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
-  EXPECT_TRUE(Execute("rollback"));
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, BeginAndWrongQueryAndCommit) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
-  EXPECT_THROW(Execute("commit", kCommitInvalid), ClientQueryException);
-  EXPECT_TRUE(Execute("rollback"));
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, BeginAndWrongQueryAndBegin) {
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
-  EXPECT_THROW(Execute("commit", kCommitInvalid), ClientQueryException);
-  EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
+  EXPECT_TRUE(Execute("begin"));
   EXPECT_TRUE(TransactionActive());
 }
 
@@ -230,7 +229,7 @@ TEST_F(BoltClient, CorrectQueryAndBeginAndBegin) {
   EXPECT_TRUE(Execute("match (n) return count(n)"));
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, WrongQueryAndBeginAndCommit) {
@@ -251,7 +250,7 @@ TEST_F(BoltClient, WrongQueryAndBeginAndBegin) {
   EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, CorrectQueriesAndBeginAndCommit) {
@@ -278,7 +277,7 @@ TEST_F(BoltClient, CorrectQueriesAndBeginAndBegin) {
   }
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, WrongQueriesAndBeginAndCommit) {
@@ -305,7 +304,7 @@ TEST_F(BoltClient, WrongQueriesAndBeginAndBegin) {
   }
   EXPECT_TRUE(Execute("begin"));
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, CorrectQueriesAndBeginAndCorrectQueriesAndCommit) {
@@ -341,7 +340,7 @@ TEST_F(BoltClient, CorrectQueriesAndBeginAndCorrectQueriesAndBegin) {
     EXPECT_TRUE(Execute("match (n) return count(n)"));
   }
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, WrongQueriesAndBeginAndCorrectQueriesAndCommit) {
@@ -377,7 +376,7 @@ TEST_F(BoltClient, WrongQueriesAndBeginAndCorrectQueriesAndBegin) {
     EXPECT_TRUE(Execute("match (n) return count(n)"));
   }
   EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, CorrectQueriesAndBeginAndWrongQueriesAndCommit) {
@@ -388,8 +387,8 @@ TEST_F(BoltClient, CorrectQueriesAndBeginAndWrongQueriesAndCommit) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_THROW(Execute("commit", kCommitInvalid), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, CorrectQueriesAndBeginAndWrongQueriesAndRollback) {
@@ -400,7 +399,7 @@ TEST_F(BoltClient, CorrectQueriesAndBeginAndWrongQueriesAndRollback) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_TRUE(Execute("rollback"));
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
@@ -412,7 +411,7 @@ TEST_F(BoltClient, CorrectQueriesAndBeginAndWrongQueriesAndBegin) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
+  EXPECT_TRUE(Execute("begin"));
   EXPECT_TRUE(TransactionActive());
 }
 
@@ -424,8 +423,8 @@ TEST_F(BoltClient, WrongQueriesAndBeginAndWrongQueriesAndCommit) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_THROW(Execute("commit", kCommitInvalid), ClientQueryException);
-  EXPECT_TRUE(TransactionActive());
+  EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
+  EXPECT_FALSE(TransactionActive());
 }
 
 TEST_F(BoltClient, WrongQueriesAndBeginAndWrongQueriesAndRollback) {
@@ -436,7 +435,7 @@ TEST_F(BoltClient, WrongQueriesAndBeginAndWrongQueriesAndRollback) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_TRUE(Execute("rollback"));
+  EXPECT_THROW(Execute("rollback", kNoCurrentTransactionToRollback), ClientQueryException);
   EXPECT_FALSE(TransactionActive());
 }
 
@@ -448,7 +447,7 @@ TEST_F(BoltClient, WrongQueriesAndBeginAndWrongQueriesAndBegin) {
   for (int i = 0; i < 3; ++i) {
     EXPECT_THROW(Execute("asdasd"), ClientQueryException);
   }
-  EXPECT_THROW(Execute("begin", kNestedTransactions), ClientQueryException);
+  EXPECT_TRUE(Execute("begin"));
   EXPECT_TRUE(TransactionActive());
 }
 

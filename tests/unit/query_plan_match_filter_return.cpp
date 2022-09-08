@@ -2030,6 +2030,359 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+/** A test fixture for all shortest paths expansion */
+class QueryPlanExpandAllShortestPaths : public testing::Test {
+ public:
+  struct ResultType {
+    std::vector<memgraph::query::EdgeAccessor> path;
+    memgraph::query::VertexAccessor vertex;
+    double total_weight;
+  };
+
+ protected:
+  memgraph::storage::Storage db;
+  memgraph::storage::Storage::Accessor storage_dba{db.Access()};
+  memgraph::query::DbAccessor dba{&storage_dba};
+  std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR("property");
+  memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
+
+  // make 5 vertices because we'll need to compare against them exactly
+  // v[0] has `prop` with the value 0
+  std::vector<memgraph::query::VertexAccessor> v;
+
+  // make some edges too, in a map (from, to) vertex indices
+  std::unordered_map<std::pair<int, int>, memgraph::query::EdgeAccessor> e;
+
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  // inner edge and vertex symbols
+  Symbol filter_edge = symbol_table.CreateSymbol("f_edge", true);
+  Symbol filter_node = symbol_table.CreateSymbol("f_node", true);
+
+  Symbol weight_edge = symbol_table.CreateSymbol("w_edge", true);
+  Symbol weight_node = symbol_table.CreateSymbol("w_node", true);
+
+  Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
+
+  void SetUp() {
+    for (int i = 0; i < 5; i++) {
+      v.push_back(dba.InsertVertex());
+      ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
+    }
+
+    auto add_edge = [&](int from, int to, double weight) {
+      auto edge = dba.InsertEdge(&v[from], &v[to], edge_type);
+      ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(weight)).HasValue());
+      e.emplace(std::make_pair(from, to), *edge);
+    };
+
+    add_edge(0, 1, 5);
+    add_edge(1, 4, 5);
+    add_edge(0, 2, 3);
+    add_edge(2, 3, 3);
+    add_edge(3, 4, 3);
+    add_edge(4, 0, 12);
+
+    dba.AdvanceCommand();
+  }
+
+  // defines and performs an all shortest paths expansion with the given
+  // params returns a vector of pairs. each pair is (vector-of-edges,
+  // vertex)
+  auto ExpandAllShortest(EdgeAtom::Direction direction, std::optional<int> max_depth, Expression *where,
+                         std::optional<int> node_id = 0, ScanAllTuple *existing_node_input = nullptr) {
+    // scan the nodes optionally filtering on property value
+    auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
+    auto last_op = n.op_;
+    if (node_id) {
+      last_op = std::make_shared<Filter>(last_op, EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+    }
+
+    auto ident_e = IDENT("e");
+    ident_e->MapTo(weight_edge);
+
+    // expand allshortest
+    auto node_sym = existing_node_input ? existing_node_input->sym_ : symbol_table.CreateSymbol("node", true);
+    auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
+    auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
+        last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::ALL_SHORTEST_PATHS, direction,
+        std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
+        existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(ident_e, prop)}, total_weight);
+
+    Frame frame(symbol_table.max_position());
+    auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
+    std::vector<ResultType> results;
+    auto context = MakeContext(storage, symbol_table, &dba);
+    while (cursor->Pull(frame, context)) {
+      results.push_back(ResultType{std::vector<memgraph::query::EdgeAccessor>(), frame[node_sym].ValueVertex(),
+                                   frame[total_weight].ValueDouble()});
+      for (const TypedValue &edge : frame[edge_list_sym].ValueList())
+        results.back().path.emplace_back(edge.ValueEdge());
+    }
+
+    return results;
+  }
+
+  template <typename TAccessor>
+  auto GetProp(const TAccessor &accessor) {
+    return accessor.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueInt();
+  }
+
+  template <typename TAccessor>
+  auto GetDoubleProp(const TAccessor &accessor) {
+    return accessor.GetProperty(memgraph::storage::View::OLD, prop.second)->ValueDouble();
+  }
+
+  Expression *PropNe(Symbol symbol, int value) {
+    auto ident = IDENT("inner_element");
+    ident->MapTo(symbol);
+    return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
+  }
+};
+
+bool compareResultType(const QueryPlanExpandAllShortestPaths::ResultType &a,
+                       const QueryPlanExpandAllShortestPaths::ResultType &b) {
+  return a.total_weight < b.total_weight;
+}
+
+// Testing all shortest paths on this graph:
+//
+//      5            5
+//      /-->--[1]-->--\
+//     /               \
+//    /        12       \         2
+//  [0]--------<--------[4]------->-------[5]
+//    \                 /         (on some tests only)
+//     \               /
+//      \->[2]->-[3]->/
+//      3      3     3
+
+TEST_F(QueryPlanExpandAllShortestPaths, Basic) {
+  auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  sort(results.begin(), results.end(), compareResultType);
+
+  ASSERT_EQ(results.size(), 4);
+
+  // check end nodes
+  EXPECT_EQ(GetProp(results[0].vertex), 2);
+  EXPECT_EQ(GetProp(results[1].vertex), 1);
+  EXPECT_EQ(GetProp(results[2].vertex), 3);
+  EXPECT_EQ(GetProp(results[3].vertex), 4);
+
+  // check paths and total weights
+  EXPECT_EQ(results[0].path.size(), 1);
+  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+  EXPECT_EQ(results[0].total_weight, 3);
+
+  EXPECT_EQ(results[1].path.size(), 1);
+  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+  EXPECT_EQ(results[1].total_weight, 5);
+
+  EXPECT_EQ(results[2].path.size(), 2);
+  EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
+  EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+  EXPECT_EQ(results[2].total_weight, 6);
+
+  EXPECT_EQ(results[3].path.size(), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+  EXPECT_EQ(results[3].total_weight, 9);
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, EdgeDirection) {
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 4);
+    EXPECT_EQ(results[0].total_weight, 12);
+    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(results[1].total_weight, 15);
+    EXPECT_EQ(GetProp(results[2].vertex), 1);
+    EXPECT_EQ(results[2].total_weight, 17);
+    EXPECT_EQ(GetProp(results[3].vertex), 2);
+    EXPECT_EQ(results[3].total_weight, 18);
+  }
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, Where) {
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 2));
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 1);
+    EXPECT_EQ(results[0].total_weight, 5);
+    EXPECT_EQ(GetProp(results[1].vertex), 4);
+    EXPECT_EQ(results[1].total_weight, 10);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 13);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, PropNe(filter_node, 1));
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(results[1].total_weight, 6);
+    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(results[2].total_weight, 9);
+  }
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, UpperBound) {
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, std::nullopt, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 10);
+  }
+  {
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(results[2].total_weight, 12);
+  }
+  {
+    auto new_vertex = dba.InsertVertex();
+    ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(2)).HasValue());
+    dba.AdvanceCommand();
+
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
+    std::sort(results.begin(), results.end(), compareResultType);
+    ASSERT_EQ(results.size(), 5);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(results[4].total_weight, 12);
+  }
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NonNumericWeight) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue("not a number")).HasValue());
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NegativeWeight) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(-10)).HasValue());  // negative weight
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)), QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandAllShortestPaths, NegativeUpperBound) {
+  EXPECT_THROW(ExpandAllShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
+}
+
+// MultiplePaths testing on this graph:
+//       5        5
+//  [0]-->--[1]--->---[6]
+//   |        \       /
+//  \/ 3     5 >-[4]->
+//   |           /   1
+//  [2]-->--[3]->
+//       3       3
+
+TEST_F(QueryPlanExpandAllShortestPaths, MultiplePaths) {
+  auto new_vertex = dba.InsertVertex();
+  ASSERT_TRUE(new_vertex.SetProperty(prop.second, memgraph::storage::PropertyValue(6)).HasValue());
+
+  auto edge = dba.InsertEdge(&v[4], &new_vertex, edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+  dba.AdvanceCommand();
+
+  auto edge2 = dba.InsertEdge(&v[1], &new_vertex, edge_type);
+  ASSERT_TRUE(edge2.HasValue());
+  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+  dba.AdvanceCommand();
+
+  auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType);
+  ASSERT_EQ(results.size(), 6);
+  EXPECT_EQ(GetProp(results[4].vertex), 6);
+  EXPECT_EQ(results[4].total_weight, 10);
+  EXPECT_EQ(GetProp(results[5].vertex), 6);
+  EXPECT_EQ(results[5].total_weight, 10);
+}
+
+// Uses graph from Basic test, with double edge 2->-3 and 3->-4
+TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
+  auto edge = dba.InsertEdge(&v[2], &v[3], edge_type);
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  dba.AdvanceCommand();
+
+  auto edge2 = dba.InsertEdge(&v[3], &v[4], edge_type);
+  ASSERT_TRUE(edge2.HasValue());
+  ASSERT_TRUE(edge2->SetProperty(prop.second, memgraph::storage::PropertyValue(3)).HasValue());
+  dba.AdvanceCommand();
+
+  auto results = ExpandAllShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+  std::sort(results.begin(), results.end(), compareResultType);
+  ASSERT_EQ(results.size(), 8);
+  EXPECT_EQ(GetProp(results[6].vertex), 4);
+  EXPECT_EQ(results[4].total_weight, 9);
+  EXPECT_EQ(GetProp(results[7].vertex), 4);
+  EXPECT_EQ(results[5].total_weight, 9);
+}
+
 TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {

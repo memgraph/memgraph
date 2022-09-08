@@ -2057,6 +2057,81 @@ PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
   return py_path;
 }
 
+// clang-format off
+struct PyLogger {
+  PyObject_HEAD
+};
+// clang-format on
+
+PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const mgp_log_level level) {
+  MG_ASSERT(self);
+  const char *out = nullptr;
+  if (!PyArg_ParseTuple(args, "s", &out)) {
+    return nullptr;
+  }
+
+  if (RaiseExceptionFromErrorCode(mgp_log(level, out))) {
+    return nullptr;
+  }
+
+  Py_RETURN_NONE;
+}
+
+PyObject *PyLoggerLogInfo(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_INFO);
+}
+
+PyObject *PyLoggerLogWarning(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_WARN);
+}
+
+PyObject *PyLoggerLogError(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_ERROR);
+}
+
+PyObject *PyLoggerLogCritical(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_CRITICAL);
+}
+
+PyObject *PyLoggerLogTrace(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_TRACE);
+}
+
+PyObject *PyLoggerLogDebug(PyLogger *self, PyObject *args) {
+  return PyLoggerLog(self, args, mgp_log_level::MGP_LOG_LEVEL_DEBUG);
+}
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyMethodDef PyLoggerMethods[] = {
+    {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
+    {"info", reinterpret_cast<PyCFunction>(PyLoggerLogInfo), METH_VARARGS,
+     "Logs a message with level INFO on this logger."},
+    {"warning", reinterpret_cast<PyCFunction>(PyLoggerLogWarning), METH_VARARGS,
+     "Logs a message with level WARNNING on this logger."},
+    {"error", reinterpret_cast<PyCFunction>(PyLoggerLogError), METH_VARARGS,
+     "Logs a message with level ERROR on this logger."},
+    {"critical", reinterpret_cast<PyCFunction>(PyLoggerLogCritical), METH_VARARGS,
+     "Logs a message with level CRITICAL on this logger."},
+    {"trace", reinterpret_cast<PyCFunction>(PyLoggerLogTrace), METH_VARARGS,
+     "Logs a message with level TRACE on this logger."},
+    {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
+     "Logs a message with level DEBUG on this logger."},
+    {nullptr},
+};
+
+// clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyTypeObject PyLoggerType = {
+    PyVarObject_HEAD_INIT(nullptr, 0)
+    .tp_name = "_mgp.Logger",
+    .tp_basicsize = sizeof(PyLogger),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Logging API.",
+    .tp_methods = PyLoggerMethods,
+};
+// clang-format on
+
 struct PyMgpError {
   const char *name;
   PyObject *&exception;
@@ -2108,6 +2183,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
   if (!register_type(&PyMessageType, "Message")) return nullptr;
+  if (!register_type(&PyLoggerType, "Logger")) return nullptr;
 
   std::array py_mgp_errors{
       PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},
@@ -2175,8 +2251,14 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
             "import a new module. Is some other thread also importing Python "
             "modules?");
   auto *py_query_module = MakePyQueryModule(module_def);
+
   MG_ASSERT(py_query_module);
   MG_ASSERT(py_mgp.SetAttr("_MODULE", py_query_module));
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_logger = reinterpret_cast<PyObject *>(PyObject_New(PyLogger, &PyLoggerType));
+  MG_ASSERT(py_mgp.SetAttr("_LOGGER", py_logger));
+
   auto ret = fun();
   auto maybe_exc = py::FetchError();
   MG_ASSERT(py_mgp.SetAttr("_MODULE", Py_None));
