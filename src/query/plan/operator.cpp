@@ -25,7 +25,6 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
-#include "auth/models.hpp"
 #include "spdlog/spdlog.h"
 
 #include "query/auth_checker.hpp"
@@ -2755,8 +2754,9 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
 
-  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 
@@ -2900,8 +2900,9 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
-  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 
