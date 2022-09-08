@@ -56,6 +56,7 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
   return ret;
 }
 
+/*
 Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
   // There should be a better solution.
   if (pv.IsBool()) {
@@ -76,7 +77,7 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
     return Value(list);
   }
   if (pv.IsMap()) {
-    std::map<PropertyId, Value> map;
+    std::map<std::string, Value> map;
     for (const auto &[key, val] : pv.ValueMap()) {
       // maybe use std::make_pair once the && issue is resolved.
       map.emplace(key, ToValue(val));
@@ -98,6 +99,7 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
   MG_ASSERT(false, "Typematching Value and PropertyValue encounterd unspecified type!");
   return Value{};
 }
+*/
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     const std::vector<std::pair<PropertyId, Value>> &properties) {
@@ -123,6 +125,7 @@ std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const st
   return ret;
 }
 
+/*
 std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc,
     const std::optional<std::vector<memgraph::storage::v3::PropertyId>> &props, memgraph::storage::v3::View view) {
@@ -187,7 +190,7 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 
   return Value({.id = vertex_id, .labels = value_labels});
 }
-
+*/
 }  // namespace
 
 namespace memgraph::storage::v3 {
@@ -538,6 +541,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
   return resp;
 }
 
+/*
 ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   std::vector<std::vector<Value>> values;
   auto acc = shard_.Access();
@@ -617,7 +621,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
 
   return resp;
 }
-
+*/
 // QUESTION do I have to commit on reads?
 // QUESTION is there a way to call std::next on VerticesIterable
 

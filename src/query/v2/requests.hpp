@@ -74,12 +74,12 @@ struct Value {
   Value(const bool &val) : type(BOOL), bool_v(val){};
   Value(const int64_t &val) : type(INT64), int_v(val){};
   Value(const double &val) : type(DOUBLE), double_v(val){};
-  Value(const std::string &val) : type(STRING), string_v(val){};
-  Value(const std::vector<Value> &val) : type(LIST), list_v(val){};
-  Value(const std::map<PropertyId, Value> &val) : type(MAP), map_v(val){};
-  Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
-  Value(const Edge &val) : type(EDGE), edge_v(val){};
-  Value(const Path &val) : type(PATH), path_v(val){};
+  // Value(const std::string &val) : type(STRING), string_v(val){};
+  // Value(const std::vector<Value> &val) : type(LIST), list_v(val){};
+  // Value(const std::map<std::string, Value> &val) : type(MAP), map_v(val){};
+  // Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
+  // Value(const Edge &val) : type(EDGE), edge_v(val){};
+  // Value(const Path &val) : type(PATH), path_v(val){};
 
   ~Value(){};
 
@@ -91,7 +91,7 @@ struct Value {
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
-    std::map<PropertyId, Value> map_v;
+    std::map<std::string, Value> map_v;
     Vertex vertex_v;
     Edge edge_v;
     Path path_v;
