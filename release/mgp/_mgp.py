@@ -173,6 +173,10 @@ class SerializationError(Exception):
     pass
 
 
+class AuthorizationError(Exception):
+    pass
+
+
 def type_nullable(elem: Any):
     pass
 

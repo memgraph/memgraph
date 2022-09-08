@@ -12,7 +12,6 @@
 #pragma once
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "glue/auth.hpp"
 #include "query/auth_checker.hpp"
 #include "query/db_accessor.hpp"
@@ -53,6 +52,12 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
               query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
+
+  bool HasGlobalPermissionOnVertices(
+      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
+
+  bool HasGlobalPermissionOnEdges(
+      memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
  private:
   auth::User user_;

@@ -1,1 +1,3 @@
 copy_lba_procedures_e2e_python_files(read.py)
+copy_lba_procedures_e2e_python_files(update.py)
+copy_lba_procedures_e2e_python_files(create_delete.py)
