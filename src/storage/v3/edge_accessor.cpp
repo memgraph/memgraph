@@ -96,6 +96,10 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return std::move(properties);
 }
 
+Result<PropertyValue> EdgeAccessor::GetProperty(View view, PropertyId property) const {
+  return GetProperty(property, view);
+}
+
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
   if (!config_.properties_on_edges) return PropertyValue();
   auto exists = true;

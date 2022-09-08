@@ -80,6 +80,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   ResultSchema<bool> RemoveLabelAndValidate(LabelId label);
 
+  Result<bool> HasLabel(View view, LabelId label) const;
+
   Result<bool> HasLabel(LabelId label, View view) const;
 
   /// @throw std::bad_alloc
@@ -101,6 +103,9 @@ class VertexAccessor final {
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+
+  // TODO Remove this
+  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;

@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
@@ -21,6 +22,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/vertex.hpp"
+#include "typed_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -149,6 +151,8 @@ ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
   vertex_->labels.pop_back();
   return true;
 }
+
+Result<bool> VertexAccessor::HasLabel(View view, LabelId label) const { return HasLabel(label, view); }
 
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool exists = true;
@@ -380,6 +384,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   vertex_->properties.ClearProperties();
 
   return std::move(properties);
+}
+
+Result<PropertyValue> VertexAccessor::GetProperty(View view, PropertyId property) const {
+  return GetProperty(property, view).GetValue();
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {

@@ -21,7 +21,8 @@
 #include "storage/v3/bindings/symbol.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
-#include "storage/v3/property_value.hpp"
+#include "storage/v3/conversions.hpp"
+#include "storage/v3/path.hpp"
 #include "utils/typeinfo.hpp"
 
 cpp<#
@@ -629,7 +630,7 @@ cpp<#
   (:clone))
 
 (lcp:define-class primitive-literal (base-literal)
-  ((value "::storage::v3::PropertyValue" :scope :public)
+  ((value "TypedValue" :scope :public)
    (token-position :int32_t :scope :public :initval -1
                    :documentation "This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object is not created from query, leave its value at -1."))
   (:public
@@ -646,6 +647,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
+    explicit PrimitiveLiteral(const PropertyValue &value) : value_(PropertyToTypedValue<TypedValue>(value)) {}
+
     template <typename T>
     explicit PrimitiveLiteral(T value) : value_(value) {}
     template <typename T>
