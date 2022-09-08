@@ -19,6 +19,8 @@ from common import (
     reset_create_delete_permissions,
 )
 
+AUTHORIZATION_ERROR_IDENTIFIER = "AuthorizationError"
+
 create_vertex_query = "CALL create_delete.create_vertex() YIELD created_node RETURN labels(created_node);"
 remove_label_vertex_query = "CALL create_delete.remove_label('create_delete_label') YIELD node RETURN labels(node);"
 set_label_vertex_query = "CALL create_delete.set_label('new_create_delete_label') YIELD node RETURN labels(node);"
@@ -32,7 +34,7 @@ def test_can_not_create_vertex_when_given_nothing():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_vertex_query)
 
 
@@ -57,7 +59,7 @@ def test_can_not_create_vertex_when_given_global_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_vertex_query)
 
 
@@ -69,7 +71,7 @@ def test_can_not_create_vertex_when_given_global_update():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_vertex_query)
 
 
@@ -98,7 +100,7 @@ def test_can_not_add_vertex_label_when_given_update():
     )
 
     test_cursor = connect(username="user", password="test").cursor()
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
 
@@ -111,7 +113,7 @@ def test_can_not_add_vertex_label_when_given_read():
     )
 
     test_cursor = connect(username="user", password="test").cursor()
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, set_label_vertex_query)
 
 
@@ -147,7 +149,7 @@ def test_can_not_remove_vertex_label_when_given_update():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
@@ -159,7 +161,7 @@ def test_can_not_remove_vertex_label_when_given_global_update():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
@@ -171,7 +173,7 @@ def test_can_not_remove_vertex_label_when_given_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
@@ -183,7 +185,7 @@ def test_can_not_remove_vertex_label_when_given_global_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, remove_label_vertex_query)
 
 
@@ -193,7 +195,7 @@ def test_can_not_create_edge_when_given_nothing():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_edge_query)
 
 
@@ -205,7 +207,7 @@ def test_can_not_create_edge_when_given_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_edge_query)
 
 
@@ -217,7 +219,7 @@ def test_can_not_create_edge_when_given_update():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, create_edge_query)
 
 
@@ -243,7 +245,7 @@ def test_can_not_delete_edge_when_given_nothing():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, delete_edge_query)
 
 
@@ -258,7 +260,7 @@ def test_can_not_delete_edge_when_given_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, delete_edge_query)
 
 
@@ -273,7 +275,7 @@ def test_can_not_delete_edge_when_given_update():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    with pytest.raises(mgclient.DatabaseError, match="AuthorizationError"):
+    with pytest.raises(mgclient.DatabaseError, match=AUTHORIZATION_ERROR_IDENTIFIER):
         execute_and_fetch_all(test_cursor, delete_edge_query)
 
 
