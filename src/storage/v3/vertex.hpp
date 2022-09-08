@@ -36,6 +36,8 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
+  friend bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
+
   KeyStore keys;
 
   std::vector<LabelId> labels;
@@ -54,5 +56,4 @@ static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!
 
 inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) { return utils::Contains(vertex.labels, label); }
 
-inline bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
 }  // namespace memgraph::storage::v3
