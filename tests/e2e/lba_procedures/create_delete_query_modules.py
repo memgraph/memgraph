@@ -9,8 +9,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
 import pytest
+import sys
+
 from common import (
     connect,
     execute_and_fetch_all,
@@ -20,7 +21,7 @@ from common import (
 
 create_vertex_query = "CALL create_delete.create_vertex() YIELD created_node RETURN labels(created_node);"
 remove_label_vertex_query = "CALL create_delete.remove_label('create_delete_label') YIELD node RETURN labels(node);"
-set_label_vertex_query = 'CALL create_delete.set_label("new_create_delete_label") YIELD node RETURN labels(node);'
+set_label_vertex_query = "CALL create_delete.set_label('new_create_delete_label') YIELD node RETURN labels(node);"
 create_edge_query = "MATCH (n:create_delete_label_1), (m:create_delete_label_2) CALL create_delete.create_edge(n, m) YIELD nr_of_edges RETURN nr_of_edges;"
 delete_edge_query = "CALL create_delete.delete_edge() YIELD * RETURN *;"
 
