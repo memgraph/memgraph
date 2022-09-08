@@ -150,8 +150,6 @@ class VertexAccessor final {
   bool for_deleted_{false};
 };
 
-[[nodiscard]] VertexId Id(const Vertex &vertex);
-
 }  // namespace memgraph::storage::v3
 
 namespace std {

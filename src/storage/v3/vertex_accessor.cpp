@@ -216,7 +216,7 @@ Result<VertexId> VertexAccessor::Id(View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return v3::Id(*vertex_);
+  return VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
 };
 
 Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
@@ -537,8 +537,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, constraints_, config_,
-                     *vertex_validator_);
+    ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, constraints_, config_);
   }
   return ret;
 }
@@ -618,7 +617,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, constraints_, config_, *vertex_validator_);
+    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, constraints_, config_);
   }
   return ret;
 }

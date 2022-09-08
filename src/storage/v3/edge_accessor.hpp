@@ -36,8 +36,7 @@ class EdgeAccessor final {
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, VertexId from_vertex, VertexId to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config,
-               const VertexValidator &vertex_validator, bool for_deleted = false)
+               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(std::move(from_vertex)),
@@ -46,7 +45,6 @@ class EdgeAccessor final {
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        vertex_validator_{&vertex_validator},
         for_deleted_(for_deleted) {}
 
   /// @return true if the object is visible from the current transaction
@@ -95,7 +93,6 @@ class EdgeAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  const VertexValidator *vertex_validator_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this

@@ -575,11 +575,11 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   }
 
   std::vector<EdgeAccessor> deleted_edges;
-  const auto vertex_id = Id(*vertex_ptr);
+  const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys.Keys()};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->vertex_validator_);
+                   config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -593,7 +593,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->vertex_validator_);
+                   config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -677,7 +677,7 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
   ++shard_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), &transaction_,
-                      &shard_->indices_, &shard_->constraints_, config_, shard_->schema_validator_);
+                      &shard_->indices_, &shard_->constraints_, config_);
 }
 
 Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id,
@@ -779,8 +779,7 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
   --shard_->edge_count_;
 
   return std::make_optional<EdgeAccessor>(edge_ref, *edge_type, std::move(from_vertex_id), std::move(to_vertex_id),
-                                          &transaction_, &shard_->indices_, &shard_->constraints_, config_,
-                                          shard_->vertex_validator_, true);
+                                          &transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
 }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
