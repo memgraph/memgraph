@@ -19,7 +19,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 
-namespace memgraph::storage::v3 {
+namespace memgraph::storage::v3::tests {
 using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {
@@ -5271,4 +5271,4 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   ASSERT_FALSE(acc.Commit().HasError());
 // }
-}  // namespace memgraph::storage::v3
+}  // namespace memgraph::storage::v3::tests
