@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <variant>
+
 #include <openssl/ec.h>
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard.hpp"
@@ -43,6 +45,8 @@ constexpr auto kAlwaysFalse = false;
 class ShardRsm {
   Shard shard_;
 
+  ReadResponses HandleRead(ExpandOneRequest &&req);
+  ReadResponses HandleRead(GetPropertiesRequest &&req);
   ReadResponses HandleRead(ScanVerticesRequest &&req);
 
   WriteResponses ApplyWrite(CreateVerticesRequest &&req);
@@ -54,6 +58,21 @@ class ShardRsm {
   WriteResponses ApplyWrite(UpdateEdgesRequest &&req);
 
  public:
+  explicit ShardRsm(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
+                    Config config = Config())
+      : shard_(primary_label, min_primary_key, max_primary_key, config){};
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
+  ReadResponses Read(ReadRequests requests) {
+    return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
+                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+  }
+
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
+  WriteResponses Apply(WriteRequests requests) {
+    return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
+                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+  }
 };
 
 }  // namespace memgraph::storage::v3

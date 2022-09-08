@@ -617,4 +617,8 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
 // QUESTION do I have to commit on reads?
 // QUESTION is there a way to call std::next on VerticesIterable
 
+ReadResponses ShardRsm::HandleRead(ExpandOneRequest &&req) { return ExpandOneResponse{}; }
+
+ReadResponses ShardRsm::HandleRead(GetPropertiesRequest &&req) { return GetPropertiesResponse{}; }
+
 }  //    namespace memgraph::storage::v3
