@@ -166,7 +166,7 @@ template <typename TFunc, typename... Args>
     return mgp_error::MGP_ERROR_SERIALIZATION_ERROR;
   } catch (const AuthorizationException &ae) {
     spdlog::error("Authorization error during mg API call: {}", ae.what());
-    return mgp_error::MGP_ERROR_PERMISSION_DENIED;
+    return mgp_error::MGP_ERROR_AUTHORIZATION_ERROR;
   } catch (const std::bad_alloc &bae) {
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
     return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;

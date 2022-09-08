@@ -102,7 +102,7 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
       PyErr_SetString(gMgpSerializationError, "Operation cannot be serialized.");
       return true;
     }
-    case mgp_error::MGP_ERROR_PERMISSION_DENIED: {
+    case mgp_error::MGP_ERROR_AUTHORIZATION_ERROR: {
       PyErr_SetString(gMgpAuthorizationError, "Authorization Error. Permission Denied.");
       return true;
     }
