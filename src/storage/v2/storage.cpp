@@ -802,9 +802,6 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
   auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
   auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
 
-  if (!(op1 && op2)) {
-    spdlog::warn("alma");
-  }
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
   } else {
