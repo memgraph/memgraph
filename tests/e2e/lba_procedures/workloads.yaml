@@ -4,12 +4,10 @@ read_query_modules_cluster: &read_query_modules_cluster
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
       setup_queries:
-        [
-          "CREATE USER admin IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO admin",
-          "CREATE USER user IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO user",
-        ]
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
       validation_queries: []
 
 update_query_modules_cluster: &update_query_modules_cluster
@@ -18,12 +16,10 @@ update_query_modules_cluster: &update_query_modules_cluster
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
       setup_queries:
-        [
-          "CREATE USER admin IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO admin",
-          "CREATE USER user IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO user",
-        ]
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
       validation_queries: []
 
 show_privileges_cluster: &show_privileges_cluster
@@ -69,12 +65,10 @@ read_permission_queries: &read_permission_queries
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
       setup_queries:
-        [
-          "CREATE USER admin IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO admin",
-          "CREATE USER user IDENTIFIED BY 'test';",
-          "GRANT ALL PRIVILEGES TO user",
-        ]
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
       validation_queries: []
 
 create_delete_query_modules_cluster: &create_delete_query_modules_cluster
