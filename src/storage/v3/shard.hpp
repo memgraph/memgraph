@@ -80,7 +80,7 @@ class AllVerticesIterable final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  const SchemaValidator *schema_validator_;
+  const VertexValidator *vertex_validator_;
   const Schemas *schemas_;
   std::optional<VertexAccessor> vertex_;
 
@@ -103,14 +103,14 @@ class AllVerticesIterable final {
 
   AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
                       Indices *indices, Constraints *constraints, Config::Items config,
-                      const SchemaValidator &schema_validator)
+                      const VertexValidator &vertex_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_{&schema_validator} {}
+        vertex_validator_{&vertex_validator} {}
 
   Iterator begin() { return {this, vertices_accessor_.begin()}; }
   Iterator end() { return {this, vertices_accessor_.end()}; }
@@ -247,7 +247,7 @@ class Shard final {
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), &transaction_, view, &shard_->indices_,
                                                   &shard_->constraints_, shard_->config_.items,
-                                                  shard_->schema_validator_));
+                                                  shard_->vertex_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -519,6 +519,7 @@ class Shard final {
   uint64_t edge_count_{0};
 
   SchemaValidator schema_validator_;
+  VertexValidator vertex_validator_;
   Constraints constraints_;
   Indices indices_;
   Schemas schemas_;

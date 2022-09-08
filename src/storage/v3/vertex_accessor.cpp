@@ -64,12 +64,12 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                                      Constraints *constraints, Config::Items config,
-                                                     const SchemaValidator &schema_validator, View view) {
+                                                     const VertexValidator &vertex_validator, View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, transaction, indices, constraints, config, schema_validator};
+  return VertexAccessor{vertex, transaction, indices, constraints, config, vertex_validator};
 }
 
 bool VertexAccessor::IsVisible(View view) const {
@@ -96,7 +96,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 }
 
 ResultSchema<bool> VertexAccessor::AddLabelAndValidate(LabelId label) {
-  if (const auto maybe_violation_error = vertex_validator_.ValidateAddLabel(label); maybe_violation_error) {
+  if (const auto maybe_violation_error = vertex_validator_->ValidateAddLabel(label); maybe_violation_error) {
     return {*maybe_violation_error};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -132,7 +132,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 }
 
 ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
-  if (const auto maybe_violation_error = vertex_validator_.ValidateRemoveLabel(label); maybe_violation_error) {
+  if (const auto maybe_violation_error = vertex_validator_->ValidateRemoveLabel(label); maybe_violation_error) {
     return {*maybe_violation_error};
   }
 
@@ -157,7 +157,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    has_label = VertexHasLabel(*vertex_, label);
+    has_label = label == vertex_validator_->primary_label_ || VertexHasLabel(*vertex_, label);
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &has_label, label](const Delta &delta) {
@@ -201,7 +201,8 @@ Result<LabelId> VertexAccessor::PrimaryLabel(const View view) const {
   if (const auto result = CheckVertexExistence(view); result.HasError()) {
     return result.GetError();
   }
-  return vertex_->primary_label;
+
+  return vertex_validator_->primary_label_;
 }
 
 Result<PrimaryKey> VertexAccessor::PrimaryKey(const View view) const {
@@ -326,7 +327,7 @@ Result<void> VertexAccessor::CheckVertexExistence(View view) const {
 }
 
 ResultSchema<PropertyValue> VertexAccessor::SetPropertyAndValidate(PropertyId property, const PropertyValue &value) {
-  if (auto maybe_violation_error = vertex_validator_.ValidatePropertyUpdate(property); maybe_violation_error) {
+  if (auto maybe_violation_error = vertex_validator_->ValidatePropertyUpdate(property); maybe_violation_error) {
     return {*maybe_violation_error};
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
@@ -533,11 +534,11 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
     return ret;
   }
   ret.reserve(in_edges.size());
-  const auto id = VertexId{vertex_->primary_label, vertex_->keys.Keys()};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
     ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, constraints_, config_,
-                     *vertex_validator_.schema_validator);
+                     *vertex_validator_);
   }
   return ret;
 }
@@ -614,11 +615,10 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
     return ret;
   }
   ret.reserve(out_edges.size());
-  const auto id = VertexId{vertex_->primary_label, vertex_->keys.Keys()};
+  const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, constraints_, config_,
-                     *vertex_validator_.schema_validator);
+    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, constraints_, config_, *vertex_validator_);
   }
   return ret;
 }
@@ -697,22 +697,4 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
-VertexAccessor::VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const Vertex *vertex)
-    : schema_validator{&schema_validator}, vertex_{vertex} {}
-
-[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidatePropertyUpdate(
-    PropertyId property_id) const {
-  MG_ASSERT(vertex_ != nullptr, "Cannot validate vertex which is nullptr");
-  return schema_validator->ValidatePropertyUpdate(vertex_->primary_label, property_id);
-};
-
-[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateAddLabel(LabelId label) const {
-  return schema_validator->ValidateLabelUpdate(label);
-}
-
-[[nodiscard]] std::optional<SchemaViolation> VertexAccessor::VertexValidator::ValidateRemoveLabel(LabelId label) const {
-  return schema_validator->ValidateLabelUpdate(label);
-}
-
-VertexId Id(const Vertex &vertex) { return VertexId{vertex.primary_label, vertex.keys.Keys()}; }
 }  // namespace memgraph::storage::v3

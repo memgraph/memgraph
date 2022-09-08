@@ -32,39 +32,24 @@ struct Constraints;
 
 class VertexAccessor final {
  private:
-  struct VertexValidator {
-    // TODO(jbajic) Beware since vertex is pointer it will be accessed even as nullptr
-    explicit VertexValidator(const SchemaValidator &schema_validator, const Vertex *vertex);
-
-    [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
-
-    [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId label) const;
-
-    [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
-
-    const SchemaValidator *schema_validator;
-
-   private:
-    const Vertex *vertex_;
-  };
   friend class Shard;
 
  public:
   // Be careful when using VertexAccessor since it can be instantiated with
   // nullptr values
   VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, const SchemaValidator &schema_validator, bool for_deleted = false)
+                 Config::Items config, const VertexValidator &vertex_validator, bool for_deleted = false)
       : vertex_(vertex),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        vertex_validator_{schema_validator, vertex},
+        vertex_validator_{&vertex_validator},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
                                               Constraints *constraints, Config::Items config,
-                                              const SchemaValidator &schema_validator, View view);
+                                              const VertexValidator &vertex_validator, View view);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
@@ -153,7 +138,7 @@ class VertexAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  VertexValidator vertex_validator_;
+  const VertexValidator *vertex_validator_;
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this
