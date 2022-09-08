@@ -1203,21 +1203,20 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, View view) {
-  return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, std::nullopt, std::nullopt, view, &transaction_, shard_->vertex_validator_));
+  return VerticesIterable(
+      shard_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
-      shard_->vertex_validator_));
+      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, lower_bound, upper_bound, view, &transaction_, shard_->vertex_validator_));
+  return VerticesIterable(
+      shard_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
 Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
