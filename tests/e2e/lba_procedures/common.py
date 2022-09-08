@@ -24,7 +24,7 @@ def connect(**kwargs) -> mgclient.Connection:
     return connection
 
 
-def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool):
+def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool = False):
     execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
     execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
@@ -32,6 +32,9 @@ def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool):
     execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label;")
 
     execute_and_fetch_all(admin_cursor, "CREATE (n:read_label {prop: 5});")
+    execute_and_fetch_all(
+        admin_cursor, "CREATE (n:read_label_1 {prop: 5})-[r:read_edge_type]->(m:read_label_2 {prop: 5});"
+    )
 
     if create_index:
         execute_and_fetch_all(admin_cursor, "CREATE INDEX ON :read_label;")
@@ -41,11 +44,26 @@ def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool):
 def reset_update_permissions(admin_cursor: mgclient.Cursor):
     execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
     execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
-
-    execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
+    execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
 
     execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {prop: 1});")
     execute_and_fetch_all(
         admin_cursor,
-        "CREATE (n:update_label_1)-[r:update_edge_type]->(m:update_label_2);",
+        "CREATE (n:update_label_1)-[r:update_edge_type {prop: 1}]->(m:update_label_2);",
+    )
+
+
+def reset_create_delete_permissions(admin_cursor: mgclient.Cursor):
+    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES * TO user;")
+
+    execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
+
+    execute_and_fetch_all(admin_cursor, "CREATE (n:create_delete_label);")
+    execute_and_fetch_all(
+        admin_cursor,
+        "CREATE (n:create_delete_label_1)-[r:create_delete_edge_type]->(m:create_delete_label_2);",
     )
