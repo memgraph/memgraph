@@ -18,25 +18,6 @@
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
-// struct CreateVerticesRequest {
-//   Hlc transaction_id;
-//   std::vector<NewVertex> new_vertices;
-// };
-
-// struct CreateVerticesResponse {
-//   bool success;
-// };
-
-// using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
-// using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
-
-// using WriteRequests = CreateVerticesRequest;
-// using WriteResponses = CreateVerticesResponse;
-
-// ResultSchema<VertexAccessor> CreateVertexAndValidate(
-//         LabelId primary_label, const std::vector<LabelId> &labels,
-//         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
-
 namespace memgraph::storage::v3 {
 
 template <typename>
@@ -64,7 +45,7 @@ class ShardRsm {
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   ReadResponses Read(ReadRequests requests) {
-    return std::visit([&](auto &&request) { return HandleRead(std::forward<decltype(request)>(request)); },
+    return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
                       std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
   }
 

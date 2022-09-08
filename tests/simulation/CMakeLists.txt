@@ -1,6 +1,8 @@
 set(test_prefix memgraph__simulation__)
 
 find_package(gflags)
+find_package(Boost REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 add_custom_target(memgraph__simulation)
 
@@ -14,7 +16,7 @@ function(add_simulation_test test_cpp san)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} gtest gmock mg-utils mg-io mg-io-simulator)
+  target_link_libraries(${target_name} mg-communication gtest gmock mg-utils mg-io mg-io-simulator Boost::headers)
 
   # sanitize
   target_compile_options(${target_name} PRIVATE -fsanitize=${san})
@@ -33,4 +35,4 @@ add_simulation_test(trial_query_storage/query_storage_test.cpp address)
 
 add_simulation_test(sharded_map.cpp address)
 
-add_simulation_test(shard_map.cpp address)
+add_simulation_test(shard_rsm.cpp address)
