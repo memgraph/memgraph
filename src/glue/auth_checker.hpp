@@ -42,16 +42,16 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
   explicit FineGrainedAuthChecker(auth::User user);
 
   bool Accept(const memgraph::query::DbAccessor &dba, const query::VertexAccessor &vertex, memgraph::storage::View view,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
+              query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const query::EdgeAccessor &edge,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
+              query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const std::vector<memgraph::storage::LabelId> &labels,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
+              query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool Accept(const memgraph::query::DbAccessor &dba, const memgraph::storage::EdgeTypeId &edge_type,
-              query::AuthQuery::FineGrainedPrivilege fine_grained_permission) const override;
+              query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
   bool HasGlobalPermissionOnVertices(
       memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
@@ -62,5 +62,4 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  private:
   auth::User user_;
 };
-
 }  // namespace memgraph::glue
