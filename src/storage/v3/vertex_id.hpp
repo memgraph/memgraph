@@ -20,7 +20,9 @@ namespace memgraph::storage::v3 {
 // vertices we can spare some space by eliminating copying the primary label and key, however it might introduce some
 // overhead for "remove vertices", because of the extra enum that is necessary for this optimization.
 struct VertexId {
-  LabelId primary_label{LabelId::FromInt(0)};
+  VertexId(const LabelId primary_label, PrimaryKey primary_key)
+      : primary_label{primary_label}, primary_key{std::move(primary_key)} {}
+  LabelId primary_label;
   PrimaryKey primary_key;
 };
 

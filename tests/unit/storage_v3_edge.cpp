@@ -3179,8 +3179,8 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(0U);
   auto acc = store.Access();
-  VertexId from_id{};
-  VertexId to_id{};
+  const VertexId from_id{primary_label, {from_key}};
+  const VertexId to_id{primary_label, {to_key}};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
   // Create dataset
@@ -3188,8 +3188,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     auto acc = store.Access();
     auto vertex_from = CreateVertex(acc, from_key).GetValue();
     auto vertex_to = CreateVertex(acc, to_key).GetValue();
-    from_id = vertex_from.Id(View::NEW).GetValue();
-    to_id = vertex_to.Id(View::NEW).GetValue();
 
     auto res = acc.CreateEdge(from_id, to_id, et, edge_id);
     ASSERT_TRUE(res.HasValue());
