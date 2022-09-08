@@ -1675,8 +1675,10 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
 mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     if (v->graph->ctx && v->graph->ctx->auth_checker &&
-        !v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
-                                             memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        !(v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, v->impl, v->graph->view,
+                                              memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
+          v->graph->ctx->auth_checker->Accept(*v->graph->ctx->db_accessor, {v->graph->impl->NameToLabel(label.name)},
+                                              memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
       throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
     }
 
