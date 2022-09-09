@@ -73,6 +73,31 @@ add_custom_command(TARGET memgraph POST_BUILD
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/python_support
                    COMMENT "Creating symlink for python_support")
 
+# memgraph v3 executable
+set(memgraph_v3_sources
+    glue/communication.cpp
+    memgraph_v3.cpp
+    glue/auth.cpp
+)
+set(memgraph_v3_libs stdc++fs Threads::Threads
+    telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings)
+if (MG_ENTERPRISE)
+  # These are enterprise subsystems
+  set(memgraph_v3_libs ${mg_single_node_v2_libs} mg-audit)
+endif()
+add_executable(memgraph_v3 ${memgraph_v3_sources})
+target_include_directories(memgraph_v3 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(memgraph_v3 ${memgraph_v3_libs})
+# NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
+# should be dynamically exported, so that `dlopen` can correctly link the
+# symbols in custom procedure module libraries.
+target_link_libraries(memgraph_v3 "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
+set_target_properties(memgraph_v3 PROPERTIES
+                      # Set the executable output name to include version information.
+                      OUTPUT_NAME "memgraph-distributed"
+                      # Output the executable in main binary dir.
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
 # Strip the executable in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET memgraph POST_BUILD
