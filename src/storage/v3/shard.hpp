@@ -236,6 +236,9 @@ class Shard final {
 
     ~Accessor();
 
+    // TODO(gvolfing) this is just a workaround for stitching remove this later.
+    LabelId GetPrimaryLabel() const noexcept { return shard_->primary_label_; }
+
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         LabelId primary_label, const std::vector<LabelId> &labels,

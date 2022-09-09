@@ -18,7 +18,7 @@
 
 namespace {
 // TODO(gvolfing use come algorithm instead of explicit for loops)
-memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
+memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
   using PV = memgraph::storage::v3::PropertyValue;
   PV ret;
   switch (value.type) {
@@ -34,15 +34,15 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
       return PV(value.string_v);
     case Value::Type::LIST: {
       std::vector<PV> list;
-      for (const auto &elem : value.list_v) {
-        list.emplace_back(ToPropertyValue(elem));
+      for (auto &elem : value.list_v) {
+        list.emplace_back(ToPropertyValue(std::move(elem)));
       }
       return PV(list);
     }
     case Value::Type::MAP: {
       std::map<std::string, PV> map;
-      for (const auto &[key, value] : value.map_v) {
-        map.emplace(std::make_pair(key, ToPropertyValue(value)));
+      for (auto &[key, value] : value.map_v) {
+        map.emplace(std::make_pair(key, std::move(ToPropertyValue(std::move(value)))));
       }
       return PV(map);
     }
@@ -79,7 +79,7 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
     std::map<std::string, Value> map;
     for (const auto &[key, val] : pv.ValueMap()) {
       // maybe use std::make_pair once the && issue is resolved.
-      map.emplace(key, ToValue(val));
+      map.emplace(key, std::move(ToValue(val)));
     }
 
     return Value(std::move(map));
@@ -100,12 +100,12 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
 }
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
-    const std::vector<std::pair<PropertyId, Value>> &properties) {
+    std::vector<std::pair<PropertyId, Value>> &properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret(
       properties.size());
 
-  for (const auto &[key, value] : properties) {
-    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(value));
+  for (auto &[key, value] : properties) {
+    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(std::move(value)));
 
     ret.push_back(std::make_pair(key, converted_value));
   }
@@ -113,10 +113,10 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const std::vector<Value> &vec) {
+std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &vec) {
   std::vector<memgraph::storage::v3::PropertyValue> ret(vec.size());
-  for (const auto &elem : vec) {
-    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(elem));
+  for (auto &elem : vec) {
+    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(std::move(elem)));
     ret.push_back(converted_value);
   }
 
@@ -193,7 +193,9 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 namespace memgraph::storage::v3 {
 
 WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
-  auto acc = shard_.Access();
+  auto acc = shard_->Access();
+
+  auto prim_label = acc.GetPrimaryLabel();
 
   bool action_successful = true;
 
@@ -206,7 +208,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     /// will have a predetermined primary label, so there is no point in
     /// specifying it in the accessor functions. Their signature will
     /// change.
-    LabelId primary_label;
+    // LabelId primary_label = ;
 
     /// TODO(gvolfing) Consider other methods than converting. Change either
     /// the way that the property map is stored in the messages, or the
@@ -219,7 +221,8 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
       converted_label_ids.emplace_back(label_id.id);
     }
 
-    auto result_schema = acc.CreateVertexAndValidate(primary_label, converted_label_ids, converted_property_map);
+    // auto result_schema = acc.CreateVertexAndValidate(primary_label, converted_label_ids, converted_property_map);
+    auto result_schema = acc.CreateVertexAndValidate(prim_label, converted_label_ids, converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -259,7 +262,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
 
 WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   bool action_successful = true;
-  auto acc = shard_.Access();
+  auto acc = shard_->Access();
 
   for (auto &propval : req.primary_keys) {
     if (!action_successful) {
@@ -321,11 +324,11 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
 }
 
 WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
-  auto acc = shard_.Access();
+  auto acc = shard_->Access();
 
   bool action_successful = true;
 
-  for (const auto &vertex : req.new_properties) {
+  for (auto &vertex : req.new_properties) {
     if (!action_successful) {
       break;
     }
@@ -339,11 +342,11 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
       continue;
     }
 
-    for (const auto &update_prop : vertex.property_updates) {
+    for (auto &update_prop : vertex.property_updates) {
       // TODO(gvolfing) Maybe check if the setting is valid if SetPropertyAndValidate()
       // does not do that alreaedy.
       auto result_schema =
-          vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(update_prop.second));
+          vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
       if (result_schema.HasError()) {
         auto &error = result_schema.GetError();
 
@@ -384,7 +387,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
 }
 
 WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
-  auto acc = shard_.Access();
+  auto acc = shard_->Access();
   bool action_successful = true;
 
   for (const auto &edge : req.edges) {
@@ -439,7 +442,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
 // DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   // bool action_successful = true;
-  // auto acc = shard_.Access();
+  // auto acc = shard_->Access();
 
   // for(const auto& edge : req.edges)
   // {
@@ -474,11 +477,11 @@ WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
 
 // TODO(gvolfing) refactor this abomination
 WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
-  auto acc = shard_.Access();
+  auto acc = shard_->Access();
 
   bool action_successful = true;
 
-  for (const auto &edge : req.new_properties) {
+  for (auto &edge : req.new_properties) {
     if (!action_successful) {
       break;
     }
@@ -506,10 +509,13 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
     for (auto &edge_accessor : edge_accessors) {
       if (edge_accessor.Gid().AsUint() == edge.edge.id.gid) {  // Found the appropriate accessor
         edge_accesspr_did_match = true;
-        for (const auto &[key, value] : edge.property_updates) {
+        for (auto &[key, value] : edge.property_updates) {
           // TODO(gvolfing)
           // Check if the property was set if SetProperty does not do that itself.
-          edge_accessor.SetProperty(key, ToPropertyValue(value));
+          auto res = edge_accessor.SetProperty(key, ToPropertyValue(std::move(value)));
+          if (res.HasError()) {
+            //....
+          }
         }
       }
     }
@@ -539,7 +545,8 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
 }
 
 ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
-  auto acc = shard_.Access();
+  /*
+  auto acc = shard_->Access();
 
   bool action_successful = true;
 
@@ -562,10 +569,6 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
     const auto &vertex = *it;
 
     const auto &current_vertex_id = vertex.PrimaryKey(view).GetValue();
-
-    // First elem   -> VertexId
-    // Second elem  -> Properties
-    // std::vector<Value> one_vertex_value;
 
     // is this enough as comparison?
     if (starting_vertex.second == current_vertex_id) {
@@ -602,14 +605,15 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
       }
     }
   }
+  */
 
   ScanVerticesResponse resp{};
-  resp.success = action_successful;
+  // resp.success = action_successful;
 
-  if (action_successful) {
-    resp.next_start_id = next_start_id;
-    resp.results = std::move(results);
-  }
+  // if (action_successful) {
+  //   resp.next_start_id = next_start_id;
+  //   resp.results = std::move(results);
+  // }
 
   return resp;
 }

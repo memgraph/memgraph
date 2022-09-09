@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <memory>
 #include <variant>
 
 #include <openssl/ec.h>
@@ -24,7 +25,7 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 class ShardRsm {
-  Shard shard_;
+  std::unique_ptr<Shard> shard_;
 
   ReadResponses HandleRead(ExpandOneRequest &&req);
   ReadResponses HandleRead(GetPropertiesRequest &&req);
@@ -39,9 +40,7 @@ class ShardRsm {
   WriteResponses ApplyWrite(UpdateEdgesRequest &&req);
 
  public:
-  explicit ShardRsm(LabelId primary_label, PrimaryKey min_primary_key, std::optional<PrimaryKey> max_primary_key,
-                    Config config = Config())
-      : shard_(primary_label, min_primary_key, max_primary_key, config){};
+  explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   ReadResponses Read(ReadRequests requests) {
