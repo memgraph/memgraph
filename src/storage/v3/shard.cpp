@@ -417,12 +417,6 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
     //   }
     // });
   }
-
-  if (timestamp_ == kTimestampInitialId) {
-    commit_log_.emplace();
-  } else {
-    commit_log_.emplace(timestamp_);
-  }
 }
 
 Shard::~Shard() {
@@ -799,11 +793,7 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
-  if (transaction_.deltas.empty()) {
-    // We don't have to update the commit timestamp here because no one reads
-    // it.
-    shard_->commit_log_->MarkFinished(transaction_.start_timestamp);
-  } else {
+  if (!transaction_.deltas.empty()) {
     // Validate that existence constraints are satisfied for all modified
     // vertices.
     for (const auto &delta : transaction_.deltas) {
@@ -825,9 +815,6 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
     // declared outside of the critical section scope because its value is
     // tested for Abort call which has to be done out of the scope.
     std::optional<ConstraintViolation> unique_constraint_violation;
-
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
 
     commit_timestamp_.emplace(shard_->CommitTimestamp(desired_commit_timestamp));
 
@@ -880,7 +867,8 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
       //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
       // TODO: Update all deltas to have a local copy of the commit timestamp
       MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
-      transaction_.commit_info->timestamp = *commit_timestamp_;
+      // TODO(antaljanosbenjamin): Fix before merge, handle the commit timestamp, receive it as a parameter
+      transaction_.commit_info->timestamp.logical_id = *commit_timestamp_;
       transaction_.commit_info->is_locally_committed = true;
       // Replica can only update the last commit timestamp with
       // the commits received from main.
@@ -888,8 +876,6 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
         // Update the last commit timestamp
         shard_->last_commit_timestamp_ = *commit_timestamp_;
       }
-
-      shard_->commit_log_->MarkFinished(start_timestamp);
     }
 
     if (unique_constraint_violation) {
@@ -1045,13 +1031,11 @@ void Shard::Accessor::Abort() {
     shard_->garbage_undo_buffers_.emplace_back(mark_timestamp, std::move(transaction_.deltas));
   }
 
-  shard_->commit_log_->MarkFinished(transaction_.start_timestamp);
   is_transaction_active_ = false;
 }
 
 void Shard::Accessor::FinalizeTransaction() {
   if (commit_timestamp_) {
-    shard_->commit_log_->MarkFinished(*commit_timestamp_);
     shard_->committed_transactions_.emplace_back(std::move(transaction_));
     commit_timestamp_.reset();
   }
@@ -1067,19 +1051,20 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
   return name_id_mapper_.IdToName(edge_type.AsUint());
 }
 
-bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   // TODO(jbajic) response should be different when label == primary_label
   if (label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_.access())) {
     return false;
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // TODO(antaljanosbenjamin): do we need to mark the transaction committed?
+  // const auto commit_timestamp = CommitTimestamp();
+  // AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
-bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+bool Shard::CreateIndex(LabelId label, PropertyId property,
+                        const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   // TODO(jbajic) response should be different when index conflicts with schema
   if (label == primary_label_ && schemas_.GetSchema(primary_label_)->second.size() == 1 &&
       schemas_.GetSchema(primary_label_)->second[0].property_id == property) {
@@ -1089,30 +1074,30 @@ bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
     return false;
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
-bool Shard::DropIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
+bool Shard::DropIndex(LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   if (!indices_.label_index.DropIndex(label)) return false;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
-bool Shard::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+bool Shard::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   if (!indices_.label_property_index.DropIndex(label, property)) return false;
   // For a description why using `timestamp_` is correct, see
   // `CreateIndex(LabelId label)`.
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
@@ -1121,25 +1106,24 @@ IndicesInfo Shard::ListAllIndices() const {
 }
 
 utils::BasicResult<ConstraintViolation, bool> Shard::CreateExistenceConstraint(
-    LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
+    LabelId /*label*/, PropertyId /*property*/, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
   // TODO Fix constraints
   // auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
   // if (ret.HasError() || !ret.GetValue()) return ret;
   return false;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
-  return true;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
 }
 
 bool Shard::DropExistenceConstraint(LabelId label, PropertyId property,
                                     const std::optional<uint64_t> desired_commit_timestamp) {
   if (!memgraph::storage::v3::DropExistenceConstraint(&constraints_, label, property)) return false;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
@@ -1151,11 +1135,11 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Shard
   //   return ret;
   // }
   return UniqueConstraints::CreationStatus::ALREADY_EXISTS;
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::CreationStatus::SUCCESS;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
+  // return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
 UniqueConstraints::DeletionStatus Shard::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
@@ -1164,10 +1148,10 @@ UniqueConstraints::DeletionStatus Shard::DropUniqueConstraint(LabelId label, con
   if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
-  commit_log_->MarkFinished(commit_timestamp);
-  last_commit_timestamp_ = commit_timestamp;
+  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
+  // AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
+  // commit_log_->MarkFinished(commit_timestamp);
+  // last_commit_timestamp_ = commit_timestamp;
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
@@ -1255,7 +1239,8 @@ void Shard::CollectGarbage() {
   // in the second GC phase in this GC iteration or some of the following
   // ones.
 
-  uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+  // TODO(antaljanosbenjamin): Fix before merge, make garbage collection work in some way
+  uint64_t oldest_active_start_timestamp = 0;
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -1690,9 +1675,6 @@ utils::BasicResult<Shard::CreateSnapshotError> Shard::CreateSnapshot() {
   //                            config_.durability.snapshot_retention_count, &vertices_, &edges_,
   //                            &name_id_mapper_, &indices_, &constraints_, config_.items, schema_validator_,
   //                            uuid_, epoch_id_, epoch_history_, &file_retainer_);
-
-  // Finalize snapshot transaction.
-  commit_log_->MarkFinished(transaction.start_timestamp);
   return {};
 }
 

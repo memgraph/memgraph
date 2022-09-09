@@ -16,8 +16,7 @@
 #include <list>
 #include <memory>
 
-#include "utils/skip_list.hpp"
-
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/isolation_level.hpp"
@@ -31,13 +30,13 @@ const uint64_t kTimestampInitialId = 0;
 
 struct CommitInfo {
   bool is_locally_committed{false};
-  uint64_t timestamp;
+  coordinator::Hlc timestamp;
 };
 
 struct Transaction {
   Transaction(uint64_t start_timestamp, IsolationLevel isolation_level)
-      : start_timestamp(start_timestamp),
-        commit_info(std::make_unique<CommitInfo>(CommitInfo{false, start_timestamp})),
+      : start_timestamp(coordinator::Hlc{start_timestamp, {}}),
+        commit_info(std::make_unique<CommitInfo>(CommitInfo{false, {start_timestamp}})),
         command_id(0),
         must_abort(false),
         isolation_level(isolation_level) {}
@@ -56,7 +55,7 @@ struct Transaction {
 
   ~Transaction() {}
 
-  uint64_t start_timestamp;
+  coordinator::Hlc start_timestamp;
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
@@ -75,7 +74,7 @@ inline bool operator==(const Transaction &first, const Transaction &second) {
 inline bool operator<(const Transaction &first, const Transaction &second) {
   return first.start_timestamp < second.start_timestamp;
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) { return first.start_timestamp == second; }
-inline bool operator<(const Transaction &first, const uint64_t &second) { return first.start_timestamp < second; }
+inline bool operator==(const Transaction &first, const uint64_t second) { return first.start_timestamp == second; }
+inline bool operator<(const Transaction &first, const uint64_t second) { return first.start_timestamp < second; }
 
 }  // namespace memgraph::storage::v3

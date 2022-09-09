@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <compare>
+
 #include "io/time.hpp"
 
 namespace memgraph::coordinator {
@@ -22,7 +24,13 @@ struct Hlc {
   uint64_t logical_id;
   Time coordinator_wall_clock;
 
+  auto operator<=>(const Hlc &other) const { return logical_id <=> other.logical_id; }
+
   bool operator==(const Hlc &other) const = default;
+  bool operator<(const Hlc &other) const = default;
+  bool operator==(const uint64_t other) const { return logical_id == other; }
+  bool operator<(const uint64_t other) const { return logical_id < other; }
+  bool operator>=(const uint64_t other) const { return logical_id >= other; }
 };
 
 }  // namespace memgraph::coordinator

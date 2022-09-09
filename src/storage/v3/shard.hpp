@@ -23,7 +23,6 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
-#include "storage/v3/commit_log.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/constraints.hpp"
 #include "storage/v3/durability/metadata.hpp"
@@ -526,11 +525,6 @@ class Shard final {
 
   // Transaction engine
   uint64_t timestamp_{kTimestampInitialId};
-  // TODO: This isn't really a commit log, it doesn't even care if a
-  // transaction commited or aborted. We could probably combine this with
-  // `timestamp_` in a sensible unit, something like TransactionClock or
-  // whatever.
-  std::optional<CommitLog> commit_log_;
 
   std::list<Transaction> committed_transactions_;
   IsolationLevel isolation_level_;

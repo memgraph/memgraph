@@ -43,7 +43,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     //
     // For READ UNCOMMITTED -> we accept any change.
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_commit_info.is_locally_committed &&
-         delta_commit_info.timestamp < transaction->start_timestamp) ||
+         delta_commit_info.timestamp.logical_id < transaction->start_timestamp.logical_id) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && delta_commit_info.is_locally_committed) ||
         (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;

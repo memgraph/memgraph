@@ -1,5 +1,4 @@
 set(storage_v3_src_files
-    commit_log.cpp
     constraints.cpp
     temporal.cpp
     durability/durability.cpp

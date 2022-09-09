@@ -272,7 +272,7 @@ void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transacti
     auto values = ExtractPropertyValues(*vertex, label_props.second);
     if (values) {
       auto acc = storage.access();
-      acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp});
+      acc.insert(Entry{std::move(*values), vertex, tx.start_timestamp.logical_id});
     }
   }
 }

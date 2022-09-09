@@ -267,7 +267,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   auto it = index_.find(label);
   if (it == index_.end()) return;
   auto acc = it->second.access();
-  acc.insert(Entry{vertex, tx.start_timestamp});
+  acc.insert(Entry{vertex, tx.start_timestamp.logical_id});
 }
 
 bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices) {
@@ -397,7 +397,7 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const T
     auto prop_value = vertex->properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
       auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
+      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -413,7 +413,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
     }
     if (utils::Contains(vertex->labels, label_prop.first)) {
       auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
+      acc.insert(Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }

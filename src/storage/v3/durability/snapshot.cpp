@@ -649,7 +649,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
   utils::EnsureDirOrDie(snapshot_directory);
 
   // Create snapshot file.
-  auto path = snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
+  // TODO(antaljanosbenjamin): make this work when we make durability work
+  auto path = snapshot_directory;  // / MakeSnapshotName(transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
@@ -893,7 +894,8 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
     snapshot.WriteMarker(Marker::SECTION_METADATA);
     snapshot.WriteString(uuid);
     snapshot.WriteString(epoch_id);
-    snapshot.WriteUint(transaction->start_timestamp);
+    // TODO(antaljanosbenjamin): make this work when we make durability work
+    // snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
   }
@@ -972,7 +974,9 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
                                  error_code.message(), "https://memgr.ph/snapshots"));
     }
     std::sort(wal_files.begin(), wal_files.end());
-    uint64_t snapshot_start_timestamp = transaction->start_timestamp;
+
+    // TODO(antaljanosbenjamin): make this work when we make durability work
+    uint64_t snapshot_start_timestamp = 0;  // transaction->start_timestamp;
     if (!old_snapshot_files.empty()) {
       snapshot_start_timestamp = old_snapshot_files.front().first;
     }
