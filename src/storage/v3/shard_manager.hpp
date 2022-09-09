@@ -12,6 +12,7 @@
 #pragma once
 
 #include <queue>
+#include <set>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -137,6 +138,7 @@ class ShardManager {
   Time next_cron_;
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
+  std::set<boost::uuids::uuid> initialized_but_not_confirmed_rms_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
@@ -144,13 +146,34 @@ class ShardManager {
         io::ResponseResult<WriteResponse<CoordinatorWriteResponses>> response_result =
             std::move(heartbeat_res_).value().Wait();
         heartbeat_res_.reset();
-        spdlog::info("SM received response from C");
+
+        if (response_result.HasError()) {
+          spdlog::error("SM timed out while trying to reach C");
+        } else {
+          auto response_envelope = response_result.GetValue();
+          WriteResponse<CoordinatorWriteResponses> wr = response_envelope.message;
+
+          if (wr.retry_leader.has_value()) {
+            spdlog::info("SM redirected to new C leader");
+            coordinator_leader_ = wr.retry_leader.value();
+          } else if (wr.success) {
+            CoordinatorWriteResponses cwr = wr.write_return;
+            HeartbeatResponse hr = std::get<HeartbeatResponse>(cwr);
+            spdlog::info("SM received heartbeat response from C");
+
+            EnsureShardsInitialized(hr);
+          }
+        }
       } else {
         return;
       }
     }
 
-    HeartbeatRequest req{};
+    HeartbeatRequest req{
+        .from_storage_manager = GetAddress(),
+        .initialized_rsms = initialized_but_not_confirmed_rms_,
+    };
+
     CoordinatorWriteRequests cwr = req;
     WriteRequest<CoordinatorWriteRequests> ww;
     ww.operation = cwr;
@@ -160,6 +183,37 @@ class ShardManager {
         io_.template Request<WriteRequest<CoordinatorWriteRequests>, WriteResponse<CoordinatorWriteResponses>>(
             coordinator_leader_, ww)));
     spdlog::info("SM sent heartbeat");
+  }
+
+  void EnsureShardsInitialized(HeartbeatResponse hr) {
+    for (const auto rsm_uuid : hr.create_storage_rsms) {
+      InitializeRsm(rsm_uuid);
+      initialized_but_not_confirmed_rms_.emplace(rsm_uuid);
+    }
+  }
+
+  /// Returns true if the RSM was able to be initialized, and false if it was already initialized
+  void InitializeRsm(boost::uuids::uuid rsm_uuid) {
+    if (rsm_map_.contains(rsm_uuid)) {
+      // it's not a bug for the coordinator to send us UUIDs that we have
+      // already created, because there may have been lag that caused
+      // the coordinator not to hear back from us.
+      return;
+    }
+
+    auto rsm_io = io_.ForkLocal();
+    auto io_addr = rsm_io.GetAddress();
+    io_addr.unique_id = rsm_uuid;
+    rsm_io.SetAddress(io_addr);
+
+    // TODO(tyler) get geers from Coordinator in HeartbeatResponse
+    std::vector<Address> rsm_peers = {};
+
+    ShardRsm rsm_state{};
+
+    ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
+
+    rsm_map_.emplace(rsm_uuid, rsm);
   }
 };
 

@@ -137,6 +137,7 @@ class Io {
   }
 
   Address GetAddress() { return address_; }
+  void SetAddress(Address address) { address_ = address; }
 
   Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
 };

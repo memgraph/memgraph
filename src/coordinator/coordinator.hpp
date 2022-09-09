@@ -12,18 +12,21 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_set>
 #include <variant>
 #include <vector>
 
-#include "coordinator/hybrid_logical_clock.hpp"
-#include "coordinator/shard_map.hpp"
-#include "io/simulator/simulator.hpp"
-#include "io/time.hpp"
-#include "io/transport.hpp"
-#include "storage/v3/id_types.hpp"
-#include "storage/v3/schemas.hpp"
+#include <boost/uuid/uuid.hpp>
+
+#include <coordinator/hybrid_logical_clock.hpp>
+#include <coordinator/shard_map.hpp>
+#include <io/simulator/simulator.hpp>
+#include <io/time.hpp>
+#include <io/transport.hpp>
+#include <storage/v3/id_types.hpp>
+#include <storage/v3/schemas.hpp>
 
 namespace memgraph::coordinator {
 
@@ -112,8 +115,14 @@ struct InitializeLabelResponse {
   std::optional<ShardMap> fresher_shard_map;
 };
 
-struct HeartbeatRequest {};
-struct HeartbeatResponse {};
+struct HeartbeatRequest {
+  Address from_storage_manager;
+  std::set<boost::uuids::uuid> initialized_rsms;
+};
+
+struct HeartbeatResponse {
+  std::vector<boost::uuids::uuid> create_storage_rsms;
+};
 
 using CoordinatorWriteRequests =
     std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
