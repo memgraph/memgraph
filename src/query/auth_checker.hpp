@@ -34,53 +34,53 @@ class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
 
-  [[nodiscard]] virtual bool Accept(const query::VertexAccessor &vertex, memgraph::storage::View view,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
+                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const query::EdgeAccessor &edge,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const query::EdgeAccessor &edge,
+                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const std::vector<memgraph::storage::LabelId> &labels,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const std::vector<memgraph::storage::LabelId> &labels,
+                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool Accept(const memgraph::storage::EdgeTypeId &edge_type,
-                                    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
+  [[nodiscard]] virtual bool Has(const memgraph::storage::EdgeTypeId &edge_type,
+                                 query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool HasGlobalPermissionOnVertices(
+  [[nodiscard]] virtual bool HasGlobalPrivilegeOnVertices(
       memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 
-  [[nodiscard]] virtual bool HasGlobalPermissionOnEdges(
+  [[nodiscard]] virtual bool HasGlobalPrivilegeOnEdges(
       memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const = 0;
 };
 
 class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAuthChecker {
  public:
-  bool Accept(const VertexAccessor & /*vertex*/, const memgraph::storage::View /*view*/,
-              const query::AuthQuery::FineGrainedPrivilege /*fine_grained_permission*/) const override {
+  bool Has(const VertexAccessor & /*vertex*/, const memgraph::storage::View /*view*/,
+           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool Accept(const memgraph::query::EdgeAccessor & /*edge*/,
-              const query::AuthQuery::FineGrainedPrivilege /*fine_grained_permission*/) const override {
+  bool Has(const memgraph::query::EdgeAccessor & /*edge*/,
+           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool Accept(const std::vector<memgraph::storage::LabelId> & /*labels*/,
-              const query::AuthQuery::FineGrainedPrivilege /*fine_grained_permission*/) const override {
+  bool Has(const std::vector<memgraph::storage::LabelId> & /*labels*/,
+           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool Accept(const memgraph::storage::EdgeTypeId & /*edge_type*/,
-              const query::AuthQuery::FineGrainedPrivilege /*fine_grained_permission*/) const override {
+  bool Has(const memgraph::storage::EdgeTypeId & /*edge_type*/,
+           const query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool HasGlobalPermissionOnVertices(
+  bool HasGlobalPrivilegeOnVertices(
       const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
 
-  bool HasGlobalPermissionOnEdges(
+  bool HasGlobalPrivilegeOnEdges(
       const memgraph::query::AuthQuery::FineGrainedPrivilege /*fine_grained_privilege*/) const override {
     return true;
   }
