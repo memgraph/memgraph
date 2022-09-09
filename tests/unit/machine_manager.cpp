@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <limits>
 #include <thread>
 
 #include <gtest/gtest.h>
@@ -64,23 +65,27 @@ ShardMap TestShardMap() {
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
 
-  size_t replication_factor = 1;
+  const size_t replication_factor = 1;
 
   std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
   MG_ASSERT(label_id);
 
-  const auto key1 = memgraph::storage::v3::PropertyValue(100);
-  const auto key2 = memgraph::storage::v3::PropertyValue(0);
-  const CompoundKey split_point_1 = {key1, key2};
+  // split the shard at N split points
+  // NB: this is the logic that should be provided by the "split file"
+  // TODO(tyler) split points should account for signedness
+  const size_t n_splits = 16;
+  const split_interval = std::numeric_limits<int64_t>::max() / n_splits;
 
-  const auto key3 = memgraph::storage::v3::PropertyValue(200);
-  const auto key4 = memgraph::storage::v3::PropertyValue(0);
-  const CompoundKey split_point_2 = {key3, key4};
+  for (int64_t i = 0; i < n_splits; ++i) {
+    const int64_t value = i * split_interval;
 
-  std::vector<CompoundKey> split_points = {split_point_1, split_point_2};
+    const auto key1 = memgraph::storage::v3::PropertyValue(value);
+    const auto key2 = memgraph::storage::v3::PropertyValue(0);
 
-  for (const auto &split_point : split_points) {
-    bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
+    const CompoundKey split_point = {key1, key2};
+
+    const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
+
     MG_ASSERT(split_success);
   }
 
@@ -106,7 +111,11 @@ MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Addre
 
 void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
 
-void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &cc) {}
+void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &cc) {
+  // TODO(tyler) call coordinator client's read method for GetShardMap
+  // and keep reading it until the shard map contains proper replicas
+  // for each shard in the label space.
+}
 
 TEST(MachineManager, BasicFunctionality) {
   LocalSystem local_system;

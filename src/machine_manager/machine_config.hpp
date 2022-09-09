@@ -34,6 +34,7 @@ struct MachineConfig {
   std::vector<Address> coordinator_addresses;
   bool is_storage;
   bool is_coordinator;
+  bool is_query_engine;
   boost::asio::ip::address listen_ip;
   uint16_t listen_port;
 };

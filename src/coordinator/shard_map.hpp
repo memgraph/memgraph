@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <limits>
 #include <map>
 #include <vector>
 
@@ -56,11 +57,12 @@ using PropertyMap = std::map<PropertyName, PropertyId>;
 CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
   CompoundKey ret{};
 
-  const int64_t zero = 0;
-  const TemporalData date{TemporalType::Date, zero};
-  const TemporalData local_time{TemporalType::LocalTime, zero};
-  const TemporalData local_date_time{TemporalType::LocalDateTime, zero};
-  const TemporalData duration{TemporalType::Duration, zero};
+  const int64_t min_int = std::numeric_limits<int64_t>::min();
+
+  const TemporalData date{TemporalType::Date, min_int};
+  const TemporalData local_time{TemporalType::LocalTime, min_int};
+  const TemporalData local_date_time{TemporalType::LocalDateTime, min_int};
+  const TemporalData duration{TemporalType::Duration, min_int};
 
   for (const auto &schema_property : schema) {
     switch (schema_property.type) {
@@ -68,7 +70,7 @@ CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
         ret.emplace_back(PropertyValue(false));
         break;
       case SchemaType::INT:
-        ret.emplace_back(PropertyValue(0));
+        ret.emplace_back(PropertyValue(min_int));
         break;
       case SchemaType::STRING:
         ret.emplace_back(PropertyValue(""));
