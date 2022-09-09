@@ -216,7 +216,7 @@ std::optional<Return> ConvertVariantInner(From &&a) {
   }
 
   if constexpr (sizeof...(Rest) > 0) {
-    return ConvertVariantInner<Return, Rest...>(std::move(a));
+    return ConvertVariantInner<From, Return, Rest...>(std::forward<From>(a));
   } else {
     return std::nullopt;
   }
@@ -225,8 +225,8 @@ std::optional<Return> ConvertVariantInner(From &&a) {
 /// This function converts a variant to another variant holding a subset OR superset of
 /// possible types.
 template <class From, class... Ms>
-requires(sizeof...(Ms) > 0) std::optional<std::variant<Ms...>> ConvertVariant(From from) {
-  return ConvertVariantInner<From, std::variant<Ms...>, Ms...>(std::move(from));
+requires(sizeof...(Ms) > 0) std::optional<std::variant<Ms...>> ConvertVariant(From &&from) {
+  return ConvertVariantInner<From, std::variant<Ms...>, Ms...>(std::forward<From>(from));
 }
 
 }  // namespace memgraph::io

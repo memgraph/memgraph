@@ -14,6 +14,7 @@
 #include <boost/uuid/uuid.hpp>
 
 #include <coordinator/coordinator_rsm.hpp>
+#include <io/message_conversion.hpp>
 #include <io/messages.hpp>
 #include <io/rsm/rsm_client.hpp>
 #include <io/time.hpp>
@@ -27,8 +28,10 @@ using boost::uuids::uuid;
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorReadResponses;
+using memgraph::coordinator::CoordinatorRsm;
 using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
+using memgraph::io::ConvertVariant;
 using memgraph::io::Duration;
 using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
@@ -64,7 +67,7 @@ template <typename IoImpl>
 class MachineManager {
   io::Io<IoImpl> io_;
   MachineConfig config_;
-  Coordinator coordinator_;
+  CoordinatorRsm<IoImpl> coordinator_;
   ShardManager<IoImpl> shard_manager_;
   Time next_cron_;
 
@@ -74,7 +77,7 @@ class MachineManager {
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
       : io_(io),
         config_(config),
-        coordinator_(coordinator),
+        coordinator_{std::move(io.ForkLocal()), config.coordinator_addresses, std::move(coordinator)},
         shard_manager_(ShardManager{io.ForkLocal(), io.GetAddress()}) {}
 
   void Run() {
@@ -87,8 +90,15 @@ class MachineManager {
 
       Duration receive_timeout = next_cron_ - now;
 
+      using AllMessages =
+          std::variant<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
+                       WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>;
+
       spdlog::info("MM waiting on Receive");
-      auto request_result = io_.template ReceiveWithTimeout<WriteRequest<CoordinatorWriteRequests>>(receive_timeout);
+      auto request_result =
+          io_.template ReceiveWithTimeout<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
+                                          AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest,
+                                          VoteResponse>(receive_timeout);
 
       if (request_result.HasError()) {
         // time to do Cron
@@ -99,6 +109,27 @@ class MachineManager {
       spdlog::info("MM got message");
 
       auto &&request_envelope = std::move(request_result.GetValue());
+
+      // If message is for the coordinator, cast it to subset and pass it to the coordinator
+      bool to_coordinator = true;
+      if (to_coordinator) {
+        std::optional<CoordinatorMessages> conversion_attempt =
+            ConvertVariant<AllMessages, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
+                           AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>(
+                std::move(request_envelope.message));
+
+        if (!conversion_attempt.has_value()) {
+          spdlog::error("message conversion failed");
+          continue;
+        }
+
+        CoordinatorMessages &&cm = std::move(conversion_attempt.value());
+
+        coordinator_.Handle(std::forward<CoordinatorMessages>(cm), request_envelope.request_id,
+                            request_envelope.from_address);
+      }
+
+      // Otherwise pass message to ShardManager for processing
       /*
       &&um = std::move(std::get<UberMessage>(request.message));
 
