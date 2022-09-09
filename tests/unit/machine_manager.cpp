@@ -15,9 +15,11 @@
 #include <gtest/gtest.h>
 
 #include <coordinator/coordinator.hpp>
+#include <coordinator/coordinator_client.hpp>
 #include <coordinator/shard_map.hpp>
 #include <io/local_transport/local_system.hpp>
 #include <io/local_transport/local_transport.hpp>
+#include <io/rsm/rsm_client.hpp>
 #include <io/transport.hpp>
 #include <machine_manager/machine_config.hpp>
 #include <machine_manager/machine_manager.hpp>
@@ -27,6 +29,11 @@
 namespace memgraph::io::tests {
 
 using memgraph::coordinator::Coordinator;
+using memgraph::coordinator::CoordinatorClient;
+using memgraph::coordinator::CoordinatorReadRequests;
+using memgraph::coordinator::CoordinatorReadResponses;
+using memgraph::coordinator::CoordinatorWriteRequests;
+using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::coordinator::ShardMap;
 using memgraph::io::Io;
 using memgraph::io::local_transport::LocalSystem;
@@ -99,6 +106,8 @@ MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Addre
 
 void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
 
+void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &cc) {}
+
 TEST(MachineManager, BasicFunctionality) {
   LocalSystem local_system;
 
@@ -120,6 +129,10 @@ TEST(MachineManager, BasicFunctionality) {
   // TODO(tyler) register SM w/ coordinators
   // TODO(tyler) coordinator assigns replicas
   // TODO(tyler) have SM reconcile ShardMap, adjust Raft membership
+
+  CoordinatorClient<LocalTransport> cc{cli_io, coordinator_addresses[0], coordinator_addresses};
+
+  WaitForShardsToInitialize(cc);
 
   using namespace std::chrono_literals;
   std::this_thread::sleep_for(2010ms);

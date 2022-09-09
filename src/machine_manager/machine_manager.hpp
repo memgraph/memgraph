@@ -25,16 +25,26 @@ namespace memgraph::machine_manager {
 using boost::uuids::uuid;
 
 using memgraph::coordinator::Coordinator;
+using memgraph::coordinator::CoordinatorReadRequests;
+using memgraph::coordinator::CoordinatorReadResponses;
+using memgraph::coordinator::CoordinatorWriteRequests;
+using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::io::Duration;
 using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
-using memgraph::io::messages::MachineManagerMessages;
 using memgraph::io::messages::QueryEngineMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
-using memgraph::io::messages::UberMessage;
+using memgraph::io::rsm::AppendRequest;
+using memgraph::io::rsm::AppendResponse;
+using memgraph::io::rsm::ReadRequest;
+using memgraph::io::rsm::ReadResponse;
+using memgraph::io::rsm::VoteRequest;
+using memgraph::io::rsm::VoteResponse;
+using memgraph::io::rsm::WriteRequest;
+using memgraph::io::rsm::WriteResponse;
 using memgraph::storage::v3::ShardManager;
 
 /// The MachineManager is responsible for:
@@ -78,7 +88,7 @@ class MachineManager {
       Duration receive_timeout = next_cron_ - now;
 
       spdlog::info("MM waiting on Receive");
-      auto request_result = io_.template ReceiveWithTimeout<UberMessage>(receive_timeout);
+      auto request_result = io_.template ReceiveWithTimeout<WriteRequest<CoordinatorWriteRequests>>(receive_timeout);
 
       if (request_result.HasError()) {
         // time to do Cron
@@ -88,14 +98,16 @@ class MachineManager {
 
       spdlog::info("MM got message");
 
-      RequestEnvelope<UberMessage> &&request = std::move(request_result.GetValue());
-      UberMessage &&um = std::move(std::get<UberMessage>(request.message));
+      auto &&request_envelope = std::move(request_result.GetValue());
+      /*
+      &&um = std::move(std::get<UberMessage>(request.message));
 
       std::visit(
           [&](auto &&msg) {
             Handle(std::forward<decltype(msg)>(msg), request.request_id, request.from_address, request.to_address);
           },
           std::forward<UberMessage>(um));
+      */
     }
   }
 
@@ -106,7 +118,6 @@ class MachineManager {
   }
 
   void Handle(QueryEngineMessages &&, RequestId request_id, Address from, Address to) {}
-  void Handle(MachineManagerMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(ShardManagerMessages &&smm, RequestId request_id, Address from, Address to) {
     spdlog::info("got SMM message");
     shard_manager_.Handle(from, to, request_id, std::forward<ShardManagerMessages>(smm));
@@ -114,6 +125,7 @@ class MachineManager {
   void Handle(ShardMessages &&, RequestId request_id, Address from, Address to) {}
   void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {
     spdlog::info("got coordinator message");
+    // coordinator_.
   }
 };
 

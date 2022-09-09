@@ -26,6 +26,7 @@
 namespace memgraph::storage::v3 {
 
 using boost::uuids::uuid;
+
 using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::coordinator::HeartbeatRequest;
@@ -39,13 +40,16 @@ using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
-using memgraph::io::messages::UberMessage;
 using memgraph::io::rsm::Raft;
+using memgraph::io::rsm::ReadRequest;
+using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageWriteRequest;
 using memgraph::io::rsm::StorageWriteResponse;
+using memgraph::io::rsm::WriteRequest;
+using memgraph::io::rsm::WriteResponse;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
 using TimeUuidPair = std::pair<Time, uuid>;
@@ -143,10 +147,12 @@ class ShardManager {
 
     HeartbeatRequest req{};
     CoordinatorWriteRequests cwr = req;
-    CoordinatorMessages cm = 13;  // cwr;
-    UberMessage um{cm};
+    WriteRequest<CoordinatorWriteRequests> ww;
+    ww.operation = cwr;
+
     spdlog::info("SM sending heartbeat");
-    heartbeat_res_.emplace(std::move(io_.template Request<UberMessage, ShardManagerMessages>(coordinator_leader_, um)));
+    heartbeat_res_.emplace(std::move(
+        io_.template Request<WriteRequest<CoordinatorWriteRequests>, ShardManagerMessages>(coordinator_leader_, ww)));
     spdlog::info("SM sent heartbeat");
   }
 };
