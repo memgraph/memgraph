@@ -98,8 +98,10 @@ class LocalTransportHandle {
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     std::any message_any(std::forward<M>(message));
-    OpaqueMessage opaque_message{
-        .from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
+    OpaqueMessage opaque_message{.to_address = to_address,
+                                 .from_address = from_address,
+                                 .request_id = request_id,
+                                 .message = std::move(message_any)};
 
     PromiseKey promise_key{
         .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};

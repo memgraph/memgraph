@@ -112,6 +112,9 @@ class ShardManager {
     return next_cron_;
   }
 
+  /// Returns the Address for our underlying Io implementation
+  Address GetAddress() { return io_.GetAddress(); }
+
   void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {}
 
   void Route(ShardMessages &&sm, RequestId request_id, Address to, Address from) {
@@ -133,12 +136,13 @@ class ShardManager {
       cron_schedule_;
   Time next_cron_;
   Address coordinator_leader_;
-  std::optional<ResponseFuture<ShardManagerMessages>> heartbeat_res_;
+  std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
       if (heartbeat_res_->IsReady()) {
-        io::ResponseResult<ShardManagerMessages> response_result = std::move(heartbeat_res_).value().Wait();
+        io::ResponseResult<WriteResponse<CoordinatorWriteResponses>> response_result =
+            std::move(heartbeat_res_).value().Wait();
         heartbeat_res_.reset();
       } else {
         return;
@@ -150,9 +154,10 @@ class ShardManager {
     WriteRequest<CoordinatorWriteRequests> ww;
     ww.operation = cwr;
 
-    spdlog::info("SM sending heartbeat");
+    spdlog::info("SM sending heartbeat to coordinator {}", coordinator_leader_.ToString());
     heartbeat_res_.emplace(std::move(
-        io_.template Request<WriteRequest<CoordinatorWriteRequests>, ShardManagerMessages>(coordinator_leader_, ww)));
+        io_.template Request<WriteRequest<CoordinatorWriteRequests>, WriteResponse<CoordinatorWriteResponses>>(
+            coordinator_leader_, ww)));
     spdlog::info("SM sent heartbeat");
   }
 };

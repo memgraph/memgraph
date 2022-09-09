@@ -251,6 +251,9 @@ class Raft {
     return io_.Now() + random_cron_interval;
   }
 
+  /// Returns the Address for our underlying Io implementation
+  Address GetAddress() { return io_.GetAddress(); }
+
   using ReceiveVariant = std::variant<ReadRequest<ReadOperation>, AppendRequest<WriteOperation>, AppendResponse,
                                       WriteRequest<WriteOperation>, VoteRequest, VoteResponse>;
 

@@ -83,7 +83,7 @@ class MachineManager {
       : io_(io),
         config_(config),
         coordinator_{std::move(io.ForkLocal()), config.coordinator_addresses, std::move(coordinator)},
-        shard_manager_(ShardManager{io.ForkLocal(), io.GetAddress()}) {}
+        shard_manager_(ShardManager{io.ForkLocal(), coordinator_.GetAddress()}) {}
 
   void Run() {
     while (!io_.ShouldShutDown()) {
@@ -95,6 +95,7 @@ class MachineManager {
 
       Duration receive_timeout = next_cron_ - now;
 
+      // Note: this parameter pack must be kept in-sync with the ReceiveWithTimeout parameter pack below
       using AllMessages =
           std::variant<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
                        WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse,
@@ -102,6 +103,8 @@ class MachineManager {
                        AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>;
 
       spdlog::info("MM waiting on Receive");
+
+      // Note: this parameter pack must be kept in-sync with the AllMessages parameter pack above
       auto request_result = io_.template ReceiveWithTimeout<
           ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
           WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse, WriteResponse<CoordinatorWriteResponses>,
@@ -114,22 +117,20 @@ class MachineManager {
         continue;
       }
 
-      spdlog::info("MM got message");
-
       auto &&request_envelope = std::move(request_result.GetValue());
 
+      spdlog::info("MM got message to {}", request_envelope.to_address.ToString());
+
       // If message is for the coordinator, cast it to subset and pass it to the coordinator
-      bool to_coordinator = true;
+      bool to_coordinator = coordinator_.GetAddress() == request_envelope.to_address;
+      spdlog::info("coordinator: {}", coordinator_.GetAddress().ToString());
       if (to_coordinator) {
         std::optional<CoordinatorMessages> conversion_attempt =
             ConvertVariant<AllMessages, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
                            AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>(
                 std::move(request_envelope.message));
 
-        if (!conversion_attempt.has_value()) {
-          spdlog::error("coordinator message conversion failed");
-          continue;
-        }
+        MG_ASSERT(conversion_attempt.has_value(), "coordinator message conversion failed");
 
         spdlog::info("got coordinator message");
 
@@ -137,23 +138,23 @@ class MachineManager {
 
         coordinator_.Handle(std::forward<CoordinatorMessages>(cm), request_envelope.request_id,
                             request_envelope.from_address);
+        continue;
       }
 
-      bool to_sm = true;
+      bool to_sm = shard_manager_.GetAddress() == request_envelope.to_address;
+      spdlog::info("smm: {}", shard_manager_.GetAddress().ToString());
       if (to_sm) {
         std::optional<ShardManagerMessages> conversion_attempt =
             ConvertVariant<AllMessages, WriteResponse<CoordinatorWriteResponses>>(std::move(request_envelope.message));
 
-        if (!conversion_attempt.has_value()) {
-          spdlog::error("shard manager message conversion failed");
-          continue;
-        }
+        MG_ASSERT(conversion_attempt.has_value(), "shard manager message conversion failed");
 
         spdlog::info("got shard manager message");
 
         ShardManagerMessages &&smm = std::move(conversion_attempt.value());
         shard_manager_.Receive(std::forward<ShardManagerMessages>(smm), request_envelope.request_id,
                                request_envelope.from_address);
+        continue;
       }
 
       // treat this as a message to a specific shard rsm and cast it accordingly
@@ -163,12 +164,10 @@ class MachineManager {
                          AppendResponse, WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>(
               std::move(request_envelope.message));
 
-      if (!conversion_attempt.has_value()) {
-        spdlog::error("coordinator message conversion failed");
-        continue;
-      }
+      MG_ASSERT(conversion_attempt.has_value(), "shard rsm message conversion failed for {}",
+                request_envelope.to_address.ToString());
 
-      spdlog::info("got shard message");
+      spdlog::info("got shard rsm message");
 
       ShardMessages &&sm = std::move(conversion_attempt.value());
       shard_manager_.Route(std::forward<ShardMessages>(sm), request_envelope.request_id, request_envelope.to_address,
