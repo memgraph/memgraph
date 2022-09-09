@@ -170,7 +170,7 @@ TEST(MachineManager, BasicFunctionality) {
   HlcResponse hlc_response = std::get<HlcResponse>(coordinator_read_response);
   ShardMap sm = hlc_response.fresher_shard_map.value();
 
-  // Get shard for key
+  // Get shard for key and create rsm client
   const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
   const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
 
@@ -188,6 +188,8 @@ TEST(MachineManager, BasicFunctionality) {
   }
 
   ShardClient shard_client{cli_io, shard_for_client[0], shard_for_client};
+
+  // submit a read request and assert that the requested key does not yet exist
 
   LabelId label_id = sm.labels.at(label_name);
   StorageReadRequest storage_get_req;
