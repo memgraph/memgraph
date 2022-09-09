@@ -31,6 +31,10 @@ Value EdgeAccessor::GetProperty(const std::string &prop_name) {
   return properties[prop_name];
 }
 
+VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}, {}); }
+
+VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.src}, {}); }
+
 VertexAccessor::VertexAccessor(Vertex v, std::map<std::string, Value> props)
     : vertex(std::move(v)), properties(std::move(props)) {}
 

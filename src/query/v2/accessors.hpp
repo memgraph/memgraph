@@ -43,8 +43,8 @@ class EdgeAccessor final {
   //  bool HasSrcAccessor const { return src == nullptr; }
   //  bool HasDstAccessor const { return dst == nullptr; }
 
-  //  VertexAccessor To() const;
-  //  VertexAccessor From() const;
+  VertexAccessor To() const;
+  VertexAccessor From() const;
 
   friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) noexcept {
     return lhs.edge == rhs.edge && lhs.properties == rhs.properties;
@@ -54,8 +54,6 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  //  VertexAccessor *src {nullptr};
-  //  VertexAccessor *dst {nullptr};
   std::map<std::string, Value> properties;
 };
 
