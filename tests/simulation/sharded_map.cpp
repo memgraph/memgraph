@@ -93,10 +93,11 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
   size_t replication_factor = 3;
-  bool label_success = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
-  MG_ASSERT(label_success);
+  std::optional<LabelId> label_id_opt =
+      sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
+  MG_ASSERT(label_id_opt.has_value());
 
-  const LabelId label_id = sm.labels.at(label_name);
+  const LabelId label_id = label_id_opt.value();
   auto &label_space = sm.label_spaces.at(label_id);
   Shards &shards_for_label = label_space.shards;
 
