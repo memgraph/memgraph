@@ -213,6 +213,8 @@ class ShardManager {
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
+    spdlog::info("SM created a new shard with UUID {}", rsm_uuid);
+
     rsm_map_.emplace(rsm_uuid, rsm);
   }
 };

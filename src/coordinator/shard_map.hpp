@@ -15,6 +15,9 @@
 #include <map>
 #include <vector>
 
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+
 #include "common/types.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
@@ -117,10 +120,44 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
+  // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   std::vector<boost::uuids::uuid> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
     std::vector<boost::uuids::uuid> ret{};
 
     for (auto &[label_id, label_space] : label_spaces) {
+      for (auto &[low_key, shard] : label_space.shards) {
+        // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
+        bool machine_contains_shard = false;
+
+        for (auto &aas : shard) {
+          if (initialized.contains(aas.address.unique_id)) {
+            spdlog::info("marking shard as full consensus participant: {}", aas.address.unique_id);
+            aas.status = Status::CONSENSUS_PARTICIPANT;
+            machine_contains_shard = true;
+          } else {
+            bool same_machine = aas.address.last_known_ip == storage_manager.last_known_ip &&
+                                aas.address.last_known_port == storage_manager.last_known_port;
+            if (same_machine) {
+              machine_contains_shard = true;
+              ret.push_back(aas.address.unique_id);
+            }
+          }
+        }
+
+        if (!machine_contains_shard && shard.size() < label_space.replication_factor) {
+          Address address = storage_manager;
+          address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+
+          ret.push_back(address.unique_id);
+
+          AddressAndStatus aas = {
+              .address = address,
+              .status = Status::INITIALIZING,
+          };
+
+          shard.emplace_back(aas);
+        }
+      }
     }
 
     return ret;
