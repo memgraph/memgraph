@@ -17,6 +17,7 @@
 
 #include <coordinator/coordinator.hpp>
 #include <io/address.hpp>
+#include <io/message_conversion.hpp>
 #include <io/messages.hpp>
 #include <io/rsm/raft.hpp>
 #include <io/rsm/shard_rsm.hpp>

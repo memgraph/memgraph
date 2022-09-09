@@ -74,7 +74,7 @@ ShardMap TestShardMap() {
   // NB: this is the logic that should be provided by the "split file"
   // TODO(tyler) split points should account for signedness
   const size_t n_splits = 16;
-  const split_interval = std::numeric_limits<int64_t>::max() / n_splits;
+  const auto split_interval = std::numeric_limits<int64_t>::max() / n_splits;
 
   for (int64_t i = 0; i < n_splits; ++i) {
     const int64_t value = i * split_interval;
