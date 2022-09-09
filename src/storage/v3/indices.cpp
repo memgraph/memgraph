@@ -32,11 +32,12 @@ namespace {
 template <typename TCallback>
 bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
-    // This is a committed change that we see so we shouldn't undo it.
-    if (ts < timestamp) {
-      break;
-    }
+    // TODO(antaljanosbenjamin) FIXME before merging
+    // auto ts = delta->timestamp->load(std::memory_order_acquire);
+    // // This is a committed change that we see so we shouldn't undo it.
+    // if (ts < timestamp) {
+    //   break;
+    // }
     if (predicate(*delta)) {
       return true;
     }

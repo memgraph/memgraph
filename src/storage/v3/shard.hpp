@@ -526,7 +526,6 @@ class Shard final {
 
   // Transaction engine
   uint64_t timestamp_{kTimestampInitialId};
-  uint64_t transaction_id_{kTransactionInitialId};
   // TODO: This isn't really a commit log, it doesn't even care if a
   // transaction commited or aborted. We could probably combine this with
   // `timestamp_` in a sensible unit, something like TransactionClock or

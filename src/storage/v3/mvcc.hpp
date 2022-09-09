@@ -28,11 +28,9 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.
   // This allows the transaction to see its changes even though it's committed.
-  const auto commit_timestamp = transaction->commit_timestamp
-                                    ? transaction->commit_timestamp->load(std::memory_order_acquire)
-                                    : transaction->transaction_id;
+  const auto &commit_info = *transaction->commit_info;
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto &delta_commit_info = *delta->commit_info;
     auto cid = delta->command_id;
 
     // For SNAPSHOT ISOLATION -> we can only see the changes which were committed before the start of the current
@@ -44,21 +42,23 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     // id value, that the change is committed.
     //
     // For READ UNCOMMITTED -> we accept any change.
-    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
-        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId) ||
+    if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_commit_info.is_locally_committed &&
+         delta_commit_info.timestamp < transaction->start_timestamp) ||
+        (transaction->isolation_level == IsolationLevel::READ_COMMITTED && delta_commit_info.is_locally_committed) ||
         (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
-    if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
+    if (view == View::NEW && delta_commit_info.timestamp == commit_info.timestamp && cid <= transaction->command_id) {
       break;
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && ts == commit_timestamp && cid < transaction->command_id) {
+    if (view == View::OLD && delta_commit_info.timestamp == commit_info.timestamp &&
+        delta->command_id < transaction->command_id) {
       break;
     }
 
@@ -79,8 +79,9 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
 
-  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  const auto &delta_commit_info = *object->delta->commit_info;
+  if (delta_commit_info.timestamp == transaction->commit_info->timestamp ||
+      (delta_commit_info.is_locally_committed && delta_commit_info.timestamp < transaction->start_timestamp)) {
     return true;
   }
 
@@ -94,8 +95,7 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 /// a `DELETE_OBJECT` delta).
 /// @throw std::bad_alloc
 inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
-  transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_info.get(),
                                            transaction->command_id);
 }
 
@@ -104,8 +104,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
 /// @throw std::bad_alloc
 template <typename TObj, class... Args>
 inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&...args) {
-  transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_info.get(),
                                                  transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`

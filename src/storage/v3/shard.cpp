@@ -879,8 +879,9 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
       //   1. How the committed transactions are sorted in `committed_transactions_`
       //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
       // TODO: Update all deltas to have a local copy of the commit timestamp
-      MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-      transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+      MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
+      transaction_.commit_info->timestamp = *commit_timestamp_;
+      transaction_.commit_info->is_locally_committed = true;
       // Replica can only update the last commit timestamp with
       // the commits received from main.
       if (shard_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
@@ -910,8 +911,7 @@ void Shard::Accessor::Abort() {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->commit_info->timestamp == transaction_.start_timestamp) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -996,8 +996,7 @@ void Shard::Accessor::Abort() {
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
         Delta *current = edge->delta;
-        while (current != nullptr &&
-               current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        while (current != nullptr && current->commit_info->timestamp == transaction_.start_timestamp) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1220,10 +1219,8 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
 }
 
 Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
-  uint64_t transaction_id{0};
   uint64_t start_timestamp{0};
 
-  transaction_id = transaction_id_++;
   // Replica should have only read queries and the write queries
   // can come from main instance with any past timestamp.
   // To preserve snapshot isolation we set the start timestamp
@@ -1236,7 +1233,7 @@ Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
     start_timestamp = timestamp_++;
   }
 
-  return {transaction_id, start_timestamp, isolation_level};
+  return {start_timestamp, isolation_level};
 }
 
 // `force` means there are no active transactions, so everything can be deleted without worrying about removing some
@@ -1285,7 +1282,8 @@ void Shard::CollectGarbage() {
       transaction = &committed_transactions_.front();
     }
 
-    auto commit_timestamp = transaction->commit_timestamp->load(std::memory_order_acquire);
+    // TODO(antaljanosbenjamin): use HLC here
+    auto commit_timestamp = transaction->commit_info->timestamp;
     if (commit_timestamp >= oldest_active_start_timestamp) {
       break;
     }
@@ -1352,7 +1350,7 @@ void Shard::CollectGarbage() {
             break;
           }
           case PreviousPtr::Type::DELTA: {
-            if (prev.delta->timestamp->load(std::memory_order_acquire) == commit_timestamp) {
+            if (prev.delta->commit_info->timestamp == commit_timestamp) {
               // The delta that is newer than this one is also a delta from this
               // transaction. We skip the current delta and will remove it as a
               // part of the suffix later.
@@ -1484,7 +1482,7 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   if (!InitializeWalFile()) return;
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
-  auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+  auto current_commit_timestamp = transaction.commit_info->timestamp;
 
   if (replication_role_ == ReplicationRole::MAIN) {
     replication_clients_.WithLock([&](auto &clients) {
@@ -1499,7 +1497,9 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
       auto *older = delta->next.load(std::memory_order_acquire);
-      if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+      if (older == nullptr || older->commit_info->timestamp != current_commit_timestamp) {
+        break;
+      }
       delta = older;
     }
     while (true) {
