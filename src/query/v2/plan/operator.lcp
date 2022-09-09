@@ -24,8 +24,10 @@
 
 #include "query/v2/common.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
-#include "query/v2/typed_value.hpp"
+#include "expr/semantic/symbol.hpp"
+#include "query/v2//bindings/typed_value.hpp"
+#include "query/v2//bindings/frame.hpp"
+#include "query/v2//bindings/symbol_table.hpp"
 #include "storage/v3/id_types.hpp"
 #include "utils/bound.hpp"
 #include "utils/fnv.hpp"
@@ -40,9 +42,6 @@ cpp<#
 
 #>cpp
 struct ExecutionContext;
-class ExpressionEvaluator;
-class Frame;
-class SymbolTable;
 cpp<#
 
 (lcp:namespace plan)
