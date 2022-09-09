@@ -482,8 +482,10 @@ def test_set_label_when_label_granted():
 def test_set_label_when_label_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connection = common.connect(username="user", password="test")
+
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) SET p:update_label_2;")
@@ -492,6 +494,7 @@ def test_set_label_when_label_denied():
 def test_remove_label_when_label_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connection = common.connect(username="user", password="test")
+
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :test_delete TO user;")
 
@@ -501,8 +504,10 @@ def test_remove_label_when_label_granted():
 def test_remove_label_when_label_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connection = common.connect(username="user", password="test")
+
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) REMOVE p:test_delete;")
