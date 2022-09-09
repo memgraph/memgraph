@@ -38,6 +38,7 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
+  friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
 };
 
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
@@ -60,6 +61,22 @@ struct ShardMap {
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  Shards GetShards(const LabelName &label) {
+    const auto id = labels[label];
+    auto &shards = label_spaces[id].shards;
+    return shards;
+  }
+
+  auto FindShardToInsert(const LabelName &name, CompoundKey &key) {
+    MG_ASSERT(labels.contains(name));
+    const auto id = labels.find(name)->second;
+    auto &shards_ref = label_spaces[id].shards;
+    auto it =
+        std::find_if(shards_ref.rbegin(), shards_ref.rend(), [&key](const auto &shard) { return shard.first <= key; });
+    MG_ASSERT(it != shards_ref.rbegin());
+    return it;
+  }
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
@@ -116,7 +133,9 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key, const CompoundKey &end_key) const {
+  LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key,
+                           const CompoundKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
@@ -143,6 +162,17 @@ struct ShardMap {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
+
+    const auto &label_space = label_spaces.at(label_id);
+
+    MG_ASSERT(label_space.shards.begin()->first <= key,
+              "the ShardMap must always contain a minimal key that is less than or equal to any requested key");
+
+    return std::prev(label_space.shards.upper_bound(key))->second;
+  }
+
+  Shard GetShardForKey(const LabelId &label_id, const CompoundKey &key) const {
+    MG_ASSERT(label_spaces.contains(label_id));
 
     const auto &label_space = label_spaces.at(label_id);
 

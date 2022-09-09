@@ -36,3 +36,5 @@ add_simulation_test(trial_query_storage/query_storage_test.cpp address)
 add_simulation_test(sharded_map.cpp address)
 
 add_simulation_test(shard_rsm.cpp address)
+
+add_simulation_test(shard_request_manager.cpp address)

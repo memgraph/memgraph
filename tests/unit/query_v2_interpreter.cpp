@@ -21,11 +21,11 @@
 #include "communication/bolt/v1/value.hpp"
 #include "glue/v2/communication.hpp"
 #include "query/v2/auth_checker.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/config.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/interpreter.hpp"
 #include "query/v2/stream.hpp"
-#include "query/v2/typed_value.hpp"
 #include "query_v2_query_common.hpp"
 #include "result_stream_faker.hpp"
 #include "storage/v3/isolation_level.hpp"
@@ -1118,7 +1118,6 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
 //     EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
 //   }
-
 //   {
 //     SCOPED_TRACE("Uncacheable query");
 //     // Queries which are calling procedure should not be cached because the

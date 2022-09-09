@@ -26,18 +26,30 @@
 
 using memgraph::coordinator::Hlc;
 using memgraph::storage::v3::LabelId;
+namespace requests {
+
 struct Label {
   LabelId id;
+  friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
 using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
-using VertexId = std::pair<Label, PrimaryKey>;
+
+struct VertexId {
+  Label primary_label;
+  PrimaryKey primary_key;
+  friend bool operator==(const VertexId &lhs, const VertexId &rhs) {
+    return (lhs.primary_label == rhs.primary_label) && (lhs.primary_key == rhs.primary_key);
+  }
+};
+
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
   uint64_t id;
+  friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
 struct EdgeId {
@@ -46,14 +58,20 @@ struct EdgeId {
   Gid gid;
 };
 
-struct Edge {
-  EdgeId id;
-  EdgeType type;
-};
-
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) {
+    return (lhs.id == rhs.id) && (lhs.labels == rhs.labels);
+  }
+};
+
+struct Edge {
+  EdgeId edge_id;
+  EdgeType type;
+  friend bool operator==(const Edge &lhs, const Edge &rhs) {
+    return (lhs.edge_id.src == rhs.edge_id.src) && (lhs.edge_id.dst == rhs.edge_id.dst) && (lhs.type == rhs.type);
+  }
 };
 
 struct PathPart {
@@ -70,21 +88,6 @@ struct Null {};
 
 struct Value {
   Value() : type(NILL), null_v{} {};
-
-  // copy ctor needed.
-  // Value(const Value& other){};
-  Value(Value &&other) noexcept {};
-
-  Value(const bool &val) : type(BOOL), bool_v(val){};
-  Value(const int64_t &val) : type(INT64), int_v(val){};
-  Value(const double &val) : type(DOUBLE), double_v(val){};
-  Value(const std::string &val) : type(STRING), string_v(val){};
-  Value(std::vector<Value> &&val) : type(LIST), list_v(std::move(val)){};
-  Value(std::map<std::string, Value> &&val) : type(MAP), map_v(std::move(val)){};
-  Value(const Vertex &val) : type(VERTEX), vertex_v(val){};
-  Value(const Edge &val) : type(EDGE), edge_v(val){};
-  Value(const Path &val) : type(PATH), path_v(val){};
-
   ~Value(){};
 
   enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
@@ -102,6 +105,123 @@ struct Value {
   };
 
   Type type;
+
+  // copy ctor needed.
+  Value(const Value &value) : type(value.type) {
+    switch (value.type) {
+      case NILL:
+        null_v = {};
+        break;
+      case BOOL:
+        bool_v = value.bool_v;
+        break;
+      case INT64:
+        int_v = value.int_v;
+        break;
+      case DOUBLE:
+        double_v = value.double_v;
+        break;
+      case STRING:
+        string_v = value.string_v;
+        break;
+      case LIST:
+        list_v = value.list_v;
+        break;
+      case MAP:
+        map_v = value.map_v;
+        break;
+      case VERTEX:
+        vertex_v = value.vertex_v;
+        break;
+      case EDGE:
+        edge_v = value.edge_v;
+        break;
+      case PATH:
+        path_v = value.path_v;
+        break;
+    }
+  }
+  //  Value(Value &&other) noexcept {};
+
+  explicit Value(const bool val) : bool_v(val), type(BOOL){};
+  explicit Value(const int64_t val) : int_v(val), type(INT64){};
+  explicit Value(const double val) : double_v(val), type(DOUBLE){};
+  explicit Value(const std::string &val) : string_v(val), type(STRING){};
+
+  explicit Value(std::vector<Value> &&val) : list_v(std::move(val)), type(LIST){};
+  explicit Value(std::map<std::string, Value> &&val) : map_v(std::move(val)), type(MAP){};
+
+  explicit Value(const Vertex &val) : vertex_v(val), type(VERTEX){};
+  explicit Value(const Edge &val) : edge_v(val), type(EDGE){};
+  explicit Value(const Path &val) : path_v(val), type(PATH){};
+
+  Value &operator=(const Value &value) {
+    if (&value == this) {
+      return *this;
+    }
+    type = value.type;
+    switch (value.type) {
+      case NILL:
+        null_v = {};
+        break;
+      case BOOL:
+        bool_v = value.bool_v;
+        break;
+      case INT64:
+        int_v = value.int_v;
+        break;
+      case DOUBLE:
+        double_v = value.double_v;
+        break;
+      case STRING:
+        string_v = value.string_v;
+        break;
+      case LIST:
+        list_v = value.list_v;
+        break;
+      case MAP:
+        map_v = value.map_v;
+        break;
+      case VERTEX:
+        vertex_v = value.vertex_v;
+        break;
+      case EDGE:
+        edge_v = value.edge_v;
+        break;
+      case PATH:
+        path_v = value.path_v;
+        break;
+    }
+    return *this;
+  }
+
+  friend bool operator==(const Value &lhs, const Value &rhs) {
+    if (lhs.type != rhs.type) {
+      return false;
+    }
+    switch (lhs.type) {
+      case NILL:
+        return true;
+      case BOOL:
+        return lhs.bool_v == rhs.bool_v;
+      case INT64:
+        return lhs.int_v == rhs.int_v;
+      case DOUBLE:
+        return lhs.double_v == rhs.double_v;
+      case STRING:
+        return lhs.string_v == rhs.string_v;
+      case LIST:
+        return lhs.list_v == rhs.list_v;
+      case MAP:
+        return lhs.map_v == rhs.map_v;
+      case VERTEX:
+        return lhs.vertex_v == rhs.vertex_v;
+      case EDGE:
+        return lhs.edge_v == rhs.edge_v;
+      case PATH:
+        return true;
+    }
+  }
 };
 
 // this one
@@ -177,6 +297,11 @@ struct GetPropertiesResponse {
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
+struct VertexEdgeId {
+  VertexId vertex_id;
+  std::optional<EdgeId> next_id;
+};
+
 struct ExpandOneRequest {
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
@@ -238,10 +363,18 @@ struct UpdateEdgeProp {
 struct NewVertex {
   std::vector<Label> label_ids;
   PrimaryKey primary_key;
+  LabelId primary_label_id;
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 
+struct NewVertexLabel {
+  std::string label;
+  PrimaryKey primary_key;
+  std::map<PropertyId, Value> properties;
+};
+
 struct CreateVerticesRequest {
+  std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
 };
@@ -307,3 +440,4 @@ using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest,
                                    CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest>;
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
                                     CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
+}  // namespace requests

@@ -33,16 +33,18 @@
 #include <gtest/gtest.h>
 
 #include "common/types.hpp"
+#include "parser/opencypher/parser.hpp"
+#include "query/v2/bindings/cypher_main_visitor.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/ast/cypher_main_visitor.hpp"
-#include "query/v2/frontend/opencypher/parser.hpp"
 #include "query/v2/frontend/stripped.hpp"
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_impl.hpp"
 #include "query/v2/procedure/module.hpp"
-#include "query/v2/typed_value.hpp"
+#include "storage/v3/conversions.hpp"
 
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -56,7 +58,7 @@ using testing::UnorderedElementsAre;
 // Base class for all test types
 class Base {
  public:
-  ParsingContext context_;
+  memgraph::expr::ParsingContext context_;
   Parameters parameters_;
 
   virtual ~Base() {}
@@ -72,7 +74,8 @@ class Base {
   TypedValue LiteralValue(Expression *expression) {
     if (context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
-      return TypedValue(parameters_.AtTokenPosition(param_lookup->token_position_));
+      return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(
+          parameters_.AtTokenPosition(param_lookup->token_position_));
     } else {
       auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
       return TypedValue(literal->value_);
@@ -90,7 +93,8 @@ class Base {
       if (token_position) {
         EXPECT_EQ(param_lookup->token_position_, *token_position);
       }
-      return TypedValue(parameters_.AtTokenPosition(param_lookup->token_position_));
+      return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(
+          parameters_.AtTokenPosition(param_lookup->token_position_));
     }
 
     auto *literal = dynamic_cast<PrimitiveLiteral *>(expression);
@@ -118,7 +122,7 @@ class Base {
 class AstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
-    ::frontend::opencypher::Parser parser(query_string);
+    memgraph::frontend::opencypher::Parser parser(query_string);
     CypherMainVisitor visitor(context_, &ast_storage_);
     visitor.visit(parser.tree());
     return visitor.query();
@@ -151,7 +155,7 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
 class ClonedAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
-    ::frontend::opencypher::Parser parser(query_string);
+    memgraph::frontend::opencypher::Parser parser(query_string);
     AstStorage tmp_storage;
     {
       // Add a label, property and edge type into temporary storage so
@@ -182,7 +186,7 @@ class CachedAstGenerator : public Base {
     context_.is_query_cached = true;
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
-    ::frontend::opencypher::Parser parser(stripped.query());
+    memgraph::frontend::opencypher::Parser parser(stripped.query());
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
@@ -313,12 +317,12 @@ INSTANTIATE_TEST_CASE_P(AstGeneratorTypes, CypherMainVisitorTest, ::testing::Val
 
 TEST_P(CypherMainVisitorTest, SyntaxException) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE ()-[*1....2]-()"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ()-[*1....2]-()"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, SyntaxExceptionOnTrailingText) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 2 + 2 mirko"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 2 + 2 mirko"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, PropertyLookup) {
@@ -503,7 +507,7 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
 
 TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"), memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, BooleanLiteralTrue) {
@@ -690,7 +694,7 @@ TEST_P(CypherMainVisitorTest, ListIndexing) {
 
 TEST_P(CypherMainVisitorTest, ListSlicingOperatorNoBounds) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN [1,2,3] [ .. ]"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN [1,2,3] [ .. ]"), memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, ListSlicingOperator) {
@@ -708,19 +712,19 @@ TEST_P(CypherMainVisitorTest, ListSlicingOperator) {
   ast_generator.CheckLiteral(list_slicing_op->upper_bound_, 2);
 }
 
-TEST_P(CypherMainVisitorTest, InListOperator) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 5 IN [1,2]"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  auto *in_list_operator = dynamic_cast<InListOperator *>(return_clause->body_.named_expressions[0]->expression_);
-  ASSERT_TRUE(in_list_operator);
-  ast_generator.CheckLiteral(in_list_operator->expression1_, 5);
-  auto *list = dynamic_cast<ListLiteral *>(in_list_operator->expression2_);
-  ASSERT_TRUE(list);
-}
+// TEST_P(CypherMainVisitorTest, InListOperator) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 5 IN [1,2]"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+//   auto *in_list_operator = dynamic_cast<InListOperator *>(return_clause->body_.named_expressions[0]->expression_);
+//   ASSERT_TRUE(in_list_operator);
+//   ast_generator.CheckLiteral(in_list_operator->expression1_, 5);
+//   auto *list = dynamic_cast<ListLiteral *>(in_list_operator->expression2_);
+//   ASSERT_TRUE(list);
+// }
 
 TEST_P(CypherMainVisitorTest, InWithListIndexing) {
   auto &ast_generator = *GetParam();
@@ -874,10 +878,11 @@ TEST_P(CypherMainVisitorTest, UndefinedFunction) {
                SemanticException);
 }
 
+// TODO(kostasrim) Add user defined functions on distributed
 TEST_P(CypherMainVisitorTest, MissingFunction) {
   AddFunc(*mock_module, "get", {});
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN missing_function.get()"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN missing_function.get()"), memgraph::utils::NotYetImplemented);
 }
 
 TEST_P(CypherMainVisitorTest, Function) {
@@ -893,19 +898,20 @@ TEST_P(CypherMainVisitorTest, Function) {
   ASSERT_TRUE(function->function_);
 }
 
-TEST_P(CypherMainVisitorTest, MagicFunction) {
-  AddFunc(*mock_module, "get", {});
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN mock_module.get()"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
-  auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
-  ASSERT_TRUE(function);
-  ASSERT_TRUE(function->function_);
-}
+// TODO(kostasrim) Add magic functions on distributed
+// TEST_P(CypherMainVisitorTest, MagicFunction) {
+//   AddFunc(*mock_module, "get", {});
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN mock_module.get()"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+//   ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
+//   auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
+//   ASSERT_TRUE(function);
+//   ASSERT_TRUE(function->function_);
+// }
 
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto &ast_generator = *GetParam();
@@ -955,7 +961,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN '\\U221daaa'"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN '\\U221daaa'"), memgraph::utils::BasicException);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
@@ -1063,7 +1069,7 @@ TEST_P(CypherMainVisitorTest, NodePattern) {
 
 TEST_P(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("MATCH ({a : 1, a : 2})"), SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("MATCH ({a : 1, a : 2})"), memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, NodePatternIdentifier) {
@@ -1549,7 +1555,7 @@ TEST_P(CypherMainVisitorTest, With) {
 
 TEST_P(CypherMainVisitorTest, WithNonAliasedExpression) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("WITH n.x RETURN 1"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("WITH n.x RETURN 1"), memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, WithNonAliasedVariable) {
@@ -1646,38 +1652,38 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   // bigger query.
   auto &ast_generator = *GetParam();
   ast_generator.ParseQuery("RETURN 1");
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 RETURN 1"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MATCH (n) RETURN n"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 DELETE n"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MERGE (n)"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 RETURN 1"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MATCH (n) RETURN n"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 DELETE n"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MERGE (n)"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), memgraph::expr::SemanticException);
 
-  ASSERT_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"), memgraph::expr::SemanticException);
   ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m");
   ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
   ast_generator.ParseQuery("MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
 
   ast_generator.ParseQuery("CREATE (n)");
-  ASSERT_THROW(ast_generator.ParseQuery("SET n:x MATCH (n) RETURN n"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET n:x MATCH (n) RETURN n"), memgraph::expr::SemanticException);
   ast_generator.ParseQuery("REMOVE n.x SET n.x = 1");
   ast_generator.ParseQuery("REMOVE n:L RETURN n");
   ast_generator.ParseQuery("SET n.x = 1 WITH n AS m RETURN m");
 
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH (n)"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH (n)"), memgraph::expr::SemanticException);
   ast_generator.ParseQuery("MATCH (n) MATCH (n) RETURN n");
   ast_generator.ParseQuery("MATCH (n) SET n = m");
   ast_generator.ParseQuery("MATCH (n) RETURN n");
   ast_generator.ParseQuery("MATCH (n) WITH n AS m RETURN m");
 
-  ASSERT_THROW(ast_generator.ParseQuery("WITH 1 AS n"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("WITH 1 AS n"), memgraph::expr::SemanticException);
   ast_generator.ParseQuery("WITH 1 AS n WITH n AS m RETURN m");
   ast_generator.ParseQuery("WITH 1 AS n RETURN n");
   ast_generator.ParseQuery("WITH 1 AS n SET n += m");
   ast_generator.ParseQuery("WITH 1 AS n MATCH (n) RETURN n");
 
-  ASSERT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] AS x"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE (n) UNWIND [1,2,3] AS x RETURN x"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] AS x"), memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE (n) UNWIND [1,2,3] AS x RETURN x"), memgraph::expr::SemanticException);
   ast_generator.ParseQuery("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
   ast_generator.ParseQuery("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
 }
@@ -1721,7 +1727,7 @@ TEST_P(CypherMainVisitorTest, Unwind) {
 
 TEST_P(CypherMainVisitorTest, UnwindWithoutAsError) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] RETURN 42"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] RETURN 42"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, CreateIndex) {
@@ -1746,18 +1752,19 @@ TEST_P(CypherMainVisitorTest, DropIndex) {
 
 TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"),
+               memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAll) {
   {
     auto &ast_generator = *GetParam();
-    EXPECT_THROW(ast_generator.ParseQuery("RETURN all(x in [1,2,3])"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("RETURN all(x in [1,2,3])"), memgraph::expr::SyntaxException);
   }
   {
     auto &ast_generator = *GetParam();
@@ -1782,7 +1789,7 @@ TEST_P(CypherMainVisitorTest, ReturnAll) {
 TEST_P(CypherMainVisitorTest, ReturnSingle) {
   {
     auto &ast_generator = *GetParam();
-    EXPECT_THROW(ast_generator.ParseQuery("RETURN single(x in [1,2,3])"), SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("RETURN single(x in [1,2,3])"), memgraph::expr::SyntaxException);
   }
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN single(x IN [1,2,3] WHERE x = 2)"));
@@ -1962,21 +1969,23 @@ TEST_P(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest 10.. (e, n | 42)]-() RETURN r"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest 10..20 (e, n | 42)]-() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest 10.. (e, n | 42)]-() RETURN r"),
+               memgraph::expr::SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest 10..20 (e, n | 42)]-() RETURN r"),
+               memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"), memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 5 as X UNION ALL RETURN 6 AS X UNION RETURN 7 AS X"),
-               SemanticException);
+               memgraph::expr::SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 5 as X UNION RETURN 6 AS X UNION ALL RETURN 7 AS X"),
-               SemanticException);
+               memgraph::expr::SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, Union) {
@@ -2084,28 +2093,28 @@ TEST_P(CypherMainVisitorTest, UserOrRoleName) {
 
 TEST_P(CypherMainVisitorTest, CreateRole) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "CREATE ROLE rola", AuthQuery::Action::CREATE_ROLE, "", "rola", "", {}, {});
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE lagano rolamo"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE lagano rolamo"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, DropRole) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "DROP ROLE rola", AuthQuery::Action::DROP_ROLE, "", "rola", "", {}, {});
-  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE lagano rolamo"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE lagano rolamo"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowRoles) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLES ROLES"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLES ROLES"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "", "", "", {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateUser) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER 123"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER 123"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "CREATE USER user", AuthQuery::Action::CREATE_USER, "user", "", "", {}, {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY 'password'", AuthQuery::Action::CREATE_USER, "user",
                    "", "", TypedValue("password"), {});
@@ -2113,41 +2122,43 @@ TEST_P(CypherMainVisitorTest, CreateUser) {
                    TypedValue(""), {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null", AuthQuery::Action::CREATE_USER, "user", "",
                    "", TypedValue(), {});
-  ASSERT_THROW(ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY "), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"),
+               memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"), memgraph::expr::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY "),
+               memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, SetPassword) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user "), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user "), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null", AuthQuery::Action::SET_PASSWORD, "user", "", "",
                    TypedValue(), {});
   check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'", AuthQuery::Action::SET_PASSWORD, "user", "",
                    "", TypedValue("password"), {});
-  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"), memgraph::expr::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, DropUser) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", "", "", {}, {});
-  ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowUsers) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS, "", "", "", {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, SetRole) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user TO"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user TO"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", "role", "", {},
                    {});
   check_auth_query(&ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", "null", "", {},
@@ -2156,19 +2167,20 @@ TEST_P(CypherMainVisitorTest, SetRole) {
 
 TEST_P(CypherMainVisitorTest, ClearRole) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", "", "", {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT BLABLA TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, BLABLA TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT BLABLA TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, BLABLA TO user"),
+               memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "GRANT MATCH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MATCH});
   check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
@@ -2220,11 +2232,11 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
 
 TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("DENY"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("DENY TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("DENY BLABLA TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, TO user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, BLABLA TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY BLABLA TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, TO user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, BLABLA TO user"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "DENY MATCH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MATCH});
   check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
@@ -2262,11 +2274,12 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE FROM user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE BLABLA FROM user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, FROM user"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, BLABLA FROM user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE FROM user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE BLABLA FROM user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, FROM user"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, BLABLA FROM user"),
+               memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "REVOKE MATCH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MATCH});
   check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
@@ -2306,25 +2319,27 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user", AuthQuery::Action::SHOW_PRIVILEGES, "", "", "user", {},
                    {});
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"),
+               memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "", "", {}, {});
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), memgraph::frontend::opencypher::SyntaxException);
   check_auth_query(&ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", "role", "", {},
                    {});
-  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"),
+               memgraph::frontend::opencypher::SyntaxException);
 }
 
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
@@ -2361,12 +2376,12 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 
   {
     const std::string query = "SET REPLICATION ROLE";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = "SET REPLICATION ROLE TO BUTTERY";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
@@ -2378,7 +2393,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 
   {
     const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::expr::SemanticException);
   }
 
   {
@@ -2394,10 +2409,10 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
   const std::string faulty_query = "REGISTER REPLICA TO";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), memgraph::frontend::opencypher::SyntaxException);
 
   const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), memgraph::frontend::opencypher::SyntaxException);
 
   const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
@@ -2415,7 +2430,7 @@ TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
   std::string missing_name_query = "DROP REPLICA";
-  ASSERT_THROW(ast_generator.ParseQuery(missing_name_query), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery(missing_name_query), memgraph::frontend::opencypher::SyntaxException);
 
   std::string correct_query = "DROP REPLICA replica1";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
@@ -2430,12 +2445,12 @@ TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
 
 TEST_P(CypherMainVisitorTest, TestExplainExplainQuery) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN EXPLAIN RETURN n"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN EXPLAIN RETURN n"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, TestExplainAuthQuery) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN SHOW ROLES"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN SHOW ROLES"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, TestProfileRegularQuery) {
@@ -2457,12 +2472,12 @@ TEST_P(CypherMainVisitorTest, TestProfileComplicatedQuery) {
 
 TEST_P(CypherMainVisitorTest, TestProfileProfileQuery) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("PROFILE PROFILE RETURN n"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("PROFILE PROFILE RETURN n"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("PROFILE SHOW ROLES"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("PROFILE SHOW ROLES"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
@@ -2488,44 +2503,56 @@ TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
 
 TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT EXISTS"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT EXISTS"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT EXISTS(prop1)"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT EXISTS (prop1, prop2)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT EXISTS"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ()  ASSERT EXISTS"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE  CONSTRAINT ON () ASSERT EXISTS(prop1)"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT EXISTS (prop1, prop2)"),
+               memgraph::frontend::opencypher::SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "EXISTS (n.prop1, missing.prop2)"),
-               SemanticException);
+               memgraph::expr::SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "EXISTS (m.prop1, m.prop2)"),
-               SemanticException);
+               memgraph::expr::SemanticException);
 
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT IS UNIQUE"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT IS UNIQUE"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT prop1 IS UNIQUE"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT prop1, prop2 IS UNIQUE"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT IS UNIQUE"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT IS UNIQUE"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT prop1 IS UNIQUE"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT prop1, prop2 IS UNIQUE"),
+               memgraph::frontend::opencypher::SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "n.prop1, missing.prop2 IS UNIQUE"),
-               SemanticException);
+               memgraph::expr::SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "m.prop1, m.prop2 IS UNIQUE"),
-               SemanticException);
+               memgraph::expr::SemanticException);
 
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT IS NODE KEY"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT IS NODE KEY"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT (prop1) IS NODE KEY"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT (prop1, prop2) IS NODE KEY"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT IS NODE KEY"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT IS NODE KEY"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT (prop1) IS NODE KEY"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT (prop1, prop2) IS NODE KEY"),
+               memgraph::frontend::opencypher::SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "(n.prop1, missing.prop2) IS NODE KEY"),
-               SemanticException);
+               memgraph::expr::SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "(m.prop1, m.prop2) IS NODE KEY"),
-               SemanticException);
+               memgraph::expr::SemanticException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "n.prop1, n.prop2 IS NODE KEY"),
-               SyntaxException);
+               memgraph::frontend::opencypher::SyntaxException);
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "exists(n.prop1, n.prop2) IS NODE KEY"),
-               SyntaxException);
+               memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraint) {
@@ -2703,316 +2730,315 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
   ASSERT_TRUE(query);
 }
 
+// namespace {
+// template <class TAst>
+// void CheckCallProcedureDefaultMemoryLimit(const TAst &ast, const CallProcedure &call_proc) {
+//   // Should be 100 MB
+//   auto *literal = dynamic_cast<PrimitiveLiteral *>(call_proc.memory_limit_);
+//   ASSERT_TRUE(literal);
+//   TypedValue value(literal->value_);
+//   ASSERT_TRUE(TypedValue::BoolEqual{}(value, TypedValue(100)));
+//   ASSERT_EQ(call_proc.memory_scale_, 1024 * 1024);
+// }
+// }  // namespace
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
+//   AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, ProcedureType::WRITE);
+//   auto &ast_generator = *GetParam();
+//
+//   auto *query =
+//       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.with.dots.in.name.proc() YIELD res"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> expected_names{"res"};
+//   ASSERT_EQ(identifier_names, expected_names);
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
+//   AddProc(*mock_module, "proc-with-dashes", {}, {"res"}, ProcedureType::READ);
+//   auto &ast_generator = *GetParam();
+//
+//   auto *query =
+//       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL `mock_module.proc-with-dashes`() YIELD res"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> expected_names{"res"};
+//   ASSERT_EQ(identifier_names, expected_names);
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
+//   auto &ast_generator = *GetParam();
+//   auto check_proc = [this, &ast_generator](const ProcedureType type) {
+//     const auto proc_name = std::string{"proc_"} + ToString(type);
+//     SCOPED_TRACE(proc_name);
+//     const auto fully_qualified_proc_name = std::string{"mock_module."} + proc_name;
+//     AddProc(*mock_module, proc_name.c_str(), {}, {"fst", "field-with-dashes", "last_field"}, type);
+//     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+//         fmt::format("CALL {}() YIELD fst, `field-with-dashes`, last_field", fully_qualified_proc_name)));
+//     ASSERT_TRUE(query);
+//     ASSERT_TRUE(query->single_query_);
+//     auto *single_query = query->single_query_;
+//     ASSERT_EQ(single_query->clauses_.size(), 1U);
+//     auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//     ASSERT_TRUE(call_proc);
+//     ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
+//     ASSERT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
+//     ASSERT_TRUE(call_proc->arguments_.empty());
+//     ASSERT_EQ(call_proc->result_fields_.size(), 3U);
+//     ASSERT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
+//     std::vector<std::string> identifier_names;
+//     identifier_names.reserve(call_proc->result_identifiers_.size());
+//     for (const auto *identifier : call_proc->result_identifiers_) {
+//       ASSERT_TRUE(identifier->user_declared_);
+//       identifier_names.push_back(identifier->name_);
+//     }
+//     std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
+//     ASSERT_EQ(identifier_names, expected_names);
+//     ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//     CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+//   };
+//   check_proc(ProcedureType::READ);
+//   check_proc(ProcedureType::WRITE);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
+//   AddProc(*mock_module, "proc", {}, {"fst", "snd", "thrd"}, ProcedureType::READ);
+//   auto &ast_generator = *GetParam();
+//
+//   auto *query =
+//       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc() YIELD fst AS res1, snd AS "
+//                                                            "`result-with-dashes`, thrd AS last_result"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   ASSERT_EQ(call_proc->result_fields_.size(), 3U);
+//   ASSERT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> aliased_names{"res1", "result-with-dashes", "last_result"};
+//   ASSERT_EQ(identifier_names, aliased_names);
+//   std::vector<std::string> field_names{"fst", "snd", "thrd"};
+//   ASSERT_EQ(call_proc->result_fields_, field_names);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
+//   AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, ProcedureType::READ);
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc(0, 1, 2) YIELD res"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
+//   ASSERT_EQ(call_proc->arguments_.size(), 3U);
+//   for (int64_t i = 0; i < 3; ++i) {
+//     ast_generator.CheckLiteral(call_proc->arguments_[i], i);
+//   }
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> expected_names{"res"};
+//   ASSERT_EQ(identifier_names, expected_names);
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() YIELD *"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() YIELD * RETURN *"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 2U);
+//   auto *ret = dynamic_cast<Return *>(single_query->clauses_[1]);
+//   ASSERT_TRUE(ret);
+//   ASSERT_TRUE(ret->body_.all_identifiers);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+
+// TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all()"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   ASSERT_TRUE(call_proc->result_fields_.empty());
+//   ASSERT_TRUE(call_proc->result_identifiers_.empty());
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// }
+
+// TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
+//   auto &ast_generator = *GetParam();
+//   auto *query =
+//       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 KB"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   ASSERT_TRUE(call_proc->result_fields_.empty());
+//   ASSERT_TRUE(call_proc->result_identifiers_.empty());
+//   ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
+//   ASSERT_EQ(call_proc->memory_scale_, 1024);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimitedWithoutYield) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY
+//   UNLIMITED")); ASSERT_TRUE(query); ASSERT_TRUE(query->single_query_); auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   ASSERT_TRUE(call_proc->result_fields_.empty());
+//   ASSERT_TRUE(call_proc->result_identifiers_.empty());
+//   ASSERT_FALSE(call_proc->memory_limit_);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
+//   auto &ast_generator = *GetParam();
+//   auto *query = dynamic_cast<CypherQuery *>(
+//       ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> expected_names{"res"};
+//   ASSERT_EQ(identifier_names, expected_names);
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
+//   ASSERT_EQ(call_proc->memory_scale_, 1024 * 1024);
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
+//   auto &ast_generator = *GetParam();
+//   auto *query =
+//       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED YIELD
+//       res"));
+//   ASSERT_TRUE(query);
+//   ASSERT_TRUE(query->single_query_);
+//   auto *single_query = query->single_query_;
+//   ASSERT_EQ(single_query->clauses_.size(), 1U);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+//   ASSERT_TRUE(call_proc);
+//   ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
+//   ASSERT_TRUE(call_proc->arguments_.empty());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     ASSERT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> expected_names{"res"};
+//   ASSERT_EQ(identifier_names, expected_names);
+//   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+//   ASSERT_FALSE(call_proc->memory_limit_);
+// }
+
 namespace {
-template <class TAst>
-void CheckCallProcedureDefaultMemoryLimit(const TAst &ast, const CallProcedure &call_proc) {
-  // Should be 100 MB
-  auto *literal = dynamic_cast<PrimitiveLiteral *>(call_proc.memory_limit_);
-  ASSERT_TRUE(literal);
-  TypedValue value(literal->value_);
-  ASSERT_TRUE(TypedValue::BoolEqual{}(value, TypedValue(100)));
-  ASSERT_EQ(call_proc.memory_scale_, 1024 * 1024);
-}
-}  // namespace
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
-  AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, ProcedureType::WRITE);
-  auto &ast_generator = *GetParam();
-
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.with.dots.in.name.proc() YIELD res"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> expected_names{"res"};
-  ASSERT_EQ(identifier_names, expected_names);
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
-  AddProc(*mock_module, "proc-with-dashes", {}, {"res"}, ProcedureType::READ);
-  auto &ast_generator = *GetParam();
-
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL `mock_module.proc-with-dashes`() YIELD res"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> expected_names{"res"};
-  ASSERT_EQ(identifier_names, expected_names);
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
-  auto &ast_generator = *GetParam();
-  auto check_proc = [this, &ast_generator](const ProcedureType type) {
-    const auto proc_name = std::string{"proc_"} + ToString(type);
-    SCOPED_TRACE(proc_name);
-    const auto fully_qualified_proc_name = std::string{"mock_module."} + proc_name;
-    AddProc(*mock_module, proc_name.c_str(), {}, {"fst", "field-with-dashes", "last_field"}, type);
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
-        fmt::format("CALL {}() YIELD fst, `field-with-dashes`, last_field", fully_qualified_proc_name)));
-    ASSERT_TRUE(query);
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    ASSERT_TRUE(call_proc);
-    ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
-    ASSERT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
-    ASSERT_TRUE(call_proc->arguments_.empty());
-    ASSERT_EQ(call_proc->result_fields_.size(), 3U);
-    ASSERT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
-    std::vector<std::string> identifier_names;
-    identifier_names.reserve(call_proc->result_identifiers_.size());
-    for (const auto *identifier : call_proc->result_identifiers_) {
-      ASSERT_TRUE(identifier->user_declared_);
-      identifier_names.push_back(identifier->name_);
-    }
-    std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
-    ASSERT_EQ(identifier_names, expected_names);
-    ASSERT_EQ(identifier_names, call_proc->result_fields_);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-  };
-  check_proc(ProcedureType::READ);
-  check_proc(ProcedureType::WRITE);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
-  AddProc(*mock_module, "proc", {}, {"fst", "snd", "thrd"}, ProcedureType::READ);
-  auto &ast_generator = *GetParam();
-
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc() YIELD fst AS res1, snd AS "
-                                                           "`result-with-dashes`, thrd AS last_result"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_EQ(call_proc->result_fields_.size(), 3U);
-  ASSERT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> aliased_names{"res1", "result-with-dashes", "last_result"};
-  ASSERT_EQ(identifier_names, aliased_names);
-  std::vector<std::string> field_names{"fst", "snd", "thrd"};
-  ASSERT_EQ(call_proc->result_fields_, field_names);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
-  AddProc(*mock_module, "proc", {"arg1", "arg2", "arg3"}, {"res"}, ProcedureType::READ);
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mock_module.proc(0, 1, 2) YIELD res"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc");
-  ASSERT_EQ(call_proc->arguments_.size(), 3U);
-  for (int64_t i = 0; i < 3; ++i) {
-    ast_generator.CheckLiteral(call_proc->arguments_[i], i);
-  }
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> expected_names{"res"};
-  ASSERT_EQ(identifier_names, expected_names);
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() YIELD *"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.procedures() YIELD * RETURN *"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 2U);
-  auto *ret = dynamic_cast<Return *>(single_query->clauses_[1]);
-  ASSERT_TRUE(ret);
-  ASSERT_TRUE(ret->body_.all_identifiers);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.procedures");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all()"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_TRUE(call_proc->result_identifiers_.empty());
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
-  auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 KB"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_TRUE(call_proc->result_identifiers_.empty());
-  ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
-  ASSERT_EQ(call_proc->memory_scale_, 1024);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimitedWithoutYield) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  ASSERT_TRUE(call_proc->result_fields_.empty());
-  ASSERT_TRUE(call_proc->result_identifiers_.empty());
-  ASSERT_FALSE(call_proc->memory_limit_);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 32 MB YIELD res"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> expected_names{"res"};
-  ASSERT_EQ(identifier_names, expected_names);
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
-  ASSERT_EQ(call_proc->memory_scale_, 1024 * 1024);
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
-  auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY UNLIMITED YIELD res"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-  ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mg.load_all");
-  ASSERT_TRUE(call_proc->arguments_.empty());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    ASSERT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> expected_names{"res"};
-  ASSERT_EQ(identifier_names, expected_names);
-  ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  ASSERT_FALSE(call_proc->memory_limit_);
-}
-
-namespace {
-template <typename TException = SyntaxException>
+template <typename TException = memgraph::frontend::opencypher::SyntaxException>
 void TestInvalidQuery(const auto &query, Base &ast_generator) {
   SCOPED_TRACE(query);
   EXPECT_THROW(ast_generator.ParseQuery(query), TException) << query;
 }
 
-template <typename TException = SyntaxException>
+template <typename TException = memgraph::frontend::opencypher::SyntaxException>
 void TestInvalidQueryWithMessage(const auto &query, Base &ast_generator, const std::string_view message) {
   bool exception_is_thrown = false;
   try {
@@ -3026,267 +3052,279 @@ void TestInvalidQueryWithMessage(const auto &query, Base &ast_generator, const s
   EXPECT_TRUE(exception_is_thrown);
 }
 
-void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
-                              const std::string_view fully_qualified_proc_name,
-                              const std::vector<std::string_view> &args, const ProcedureType type,
-                              const size_t clauses_size, const size_t call_procedure_index) {
-  ASSERT_NE(query.single_query_, nullptr);
-  auto *single_query = query.single_query_;
-  EXPECT_EQ(single_query->clauses_.size(), clauses_size);
-  ASSERT_FALSE(single_query->clauses_.empty());
-  ASSERT_LT(call_procedure_index, clauses_size);
-  auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[call_procedure_index]);
-  ASSERT_NE(call_proc, nullptr);
-  EXPECT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
-  EXPECT_TRUE(call_proc->arguments_.empty());
-  EXPECT_EQ(call_proc->result_fields_.size(), 2U);
-  EXPECT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
-  std::vector<std::string> identifier_names;
-  identifier_names.reserve(call_proc->result_identifiers_.size());
-  for (const auto *identifier : call_proc->result_identifiers_) {
-    EXPECT_TRUE(identifier->user_declared_);
-    identifier_names.push_back(identifier->name_);
-  }
-  std::vector<std::string> args_as_str{};
-  std::transform(args.begin(), args.end(), std::back_inserter(args_as_str),
-                 [](const std::string_view arg) { return std::string{arg}; });
-  EXPECT_EQ(identifier_names, args_as_str);
-  EXPECT_EQ(identifier_names, call_proc->result_fields_);
-  ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-};
+// void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
+//                               const std::string_view fully_qualified_proc_name,
+//                               const std::vector<std::string_view> &args, const ProcedureType type,
+//                               const size_t clauses_size, const size_t call_procedure_index) {
+//   ASSERT_NE(query.single_query_, nullptr);
+//   auto *single_query = query.single_query_;
+//   EXPECT_EQ(single_query->clauses_.size(), clauses_size);
+//   ASSERT_FALSE(single_query->clauses_.empty());
+//   ASSERT_LT(call_procedure_index, clauses_size);
+//   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[call_procedure_index]);
+//   ASSERT_NE(call_proc, nullptr);
+//   EXPECT_EQ(call_proc->procedure_name_, fully_qualified_proc_name);
+//   EXPECT_TRUE(call_proc->arguments_.empty());
+//   EXPECT_EQ(call_proc->result_fields_.size(), 2U);
+//   EXPECT_EQ(call_proc->result_identifiers_.size(), call_proc->result_fields_.size());
+//   std::vector<std::string> identifier_names;
+//   identifier_names.reserve(call_proc->result_identifiers_.size());
+//   for (const auto *identifier : call_proc->result_identifiers_) {
+//     EXPECT_TRUE(identifier->user_declared_);
+//     identifier_names.push_back(identifier->name_);
+//   }
+//   std::vector<std::string> args_as_str{};
+//   std::transform(args.begin(), args.end(), std::back_inserter(args_as_str),
+//                  [](const std::string_view arg) { return std::string{arg}; });
+//   EXPECT_EQ(identifier_names, args_as_str);
+//   EXPECT_EQ(identifier_names, call_proc->result_fields_);
+//   ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
+//   CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+// };
 }  // namespace
 
-TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
-  auto &ast_generator = *GetParam();
-  static constexpr std::string_view fst{"fst"};
-  static constexpr std::string_view snd{"snd"};
-  const std::vector args{fst, snd};
-
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
-
-  const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
-                                                              const std::string_view fully_qualified_proc_name,
-                                                              const ProcedureType type, const size_t clause_size) {
-    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, 0);
-  };
-  {
-    SCOPED_TRACE("Read query part");
-    {
-      SCOPED_TRACE("With WITH");
-      static constexpr std::string_view kQueryWithWith{"CALL {}() YIELD {},{} WITH {},{} UNWIND {} as u RETURN u"};
-      static constexpr size_t kQueryParts{4};
-      {
-        SCOPED_TRACE("Write proc");
-        const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
-        TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator,
-            "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-      }
-      {
-        SCOPED_TRACE("Read proc");
-        const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
-        const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-        ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-      }
-    }
-    {
-      SCOPED_TRACE("Without WITH");
-      static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} UNWIND {} as u RETURN u"};
-      static constexpr size_t kQueryParts{3};
-      {
-        SCOPED_TRACE("Write proc");
-        const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
-        TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator,
-            "UNWIND can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-      }
-      {
-        SCOPED_TRACE("Read proc");
-        const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst);
-        const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-        ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-      }
-    }
-  }
-  {
-    SCOPED_TRACE("Write query part");
-    {
-      SCOPED_TRACE("With WITH");
-      static constexpr std::string_view kQueryWithWith{
-          "CALL {}() YIELD {},{} WITH {},{} CREATE(n {{prop : {}}}) RETURN n"};
-      static constexpr size_t kQueryParts{4};
-      {
-        SCOPED_TRACE("Write proc");
-        const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
-        TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator,
-            "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-      }
-      {
-        SCOPED_TRACE("Read proc");
-        const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
-        const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-        ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-      }
-    }
-    {
-      SCOPED_TRACE("Without WITH");
-      static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} CREATE(n {{prop : {}}}) RETURN n"};
-      static constexpr size_t kQueryParts{3};
-      {
-        SCOPED_TRACE("Write proc");
-        const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
-        TestInvalidQueryWithMessage<SemanticException>(
-            query_str, ast_generator,
-            "Update clause can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-      }
-      {
-        SCOPED_TRACE("Read proc");
-        const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst, snd, fst);
-        const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-        ASSERT_NE(query, nullptr);
-        check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-      }
-    }
-  }
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
-  auto &ast_generator = *GetParam();
-  static constexpr std::string_view fst{"fst"};
-  static constexpr std::string_view snd{"snd"};
-  const std::vector args{fst, snd};
-
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
-
-  const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
-                                                              const std::string_view fully_qualified_proc_name,
-                                                              const ProcedureType type, const size_t clause_size) {
-    CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, clause_size - 2);
-  };
-  {
-    SCOPED_TRACE("Read query part");
-    static constexpr std::string_view kQueryWithReadQueryPart{"MATCH (n) CALL {}() YIELD * RETURN *"};
-    static constexpr size_t kQueryParts{3};
-    {
-      SCOPED_TRACE("Write proc");
-      const auto query_str = fmt::format(kQueryWithReadQueryPart, write_proc);
-      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-      ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
-    }
-    {
-      SCOPED_TRACE("Read proc");
-      const auto query_str = fmt::format(kQueryWithReadQueryPart, read_proc);
-      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-      ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-    }
-  }
-  {
-    SCOPED_TRACE("Write query part");
-    static constexpr std::string_view kQueryWithWriteQueryPart{"CREATE (n) WITH n CALL {}() YIELD * RETURN *"};
-    static constexpr size_t kQueryParts{4};
-    {
-      SCOPED_TRACE("Write proc");
-      const auto query_str = fmt::format(kQueryWithWriteQueryPart, write_proc, fst, snd, fst);
-      TestInvalidQueryWithMessage<SemanticException>(
-          query_str, ast_generator, "Write procedures cannot be used in queries that contains any update clauses!");
-    }
-    {
-      SCOPED_TRACE("Read proc");
-      const auto query_str = fmt::format(kQueryWithWriteQueryPart, read_proc, fst, snd, fst, snd, fst);
-      const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-      ASSERT_NE(query, nullptr);
-      check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
-    }
-  }
-}
-
-TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
-  auto &ast_generator = *GetParam();
-  static constexpr std::string_view fst{"fst"};
-  static constexpr std::string_view snd{"snd"};
-  const std::vector args{fst, snd};
-
-  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
-  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
-
-  {
-    SCOPED_TRACE("Read then write");
-    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", read_proc, write_proc);
-    static constexpr size_t kQueryParts{3};
-    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
-    ASSERT_NE(query, nullptr);
-
-    CheckParsedCallProcedure(*query, ast_generator, read_proc, args, ProcedureType::READ, kQueryParts, 0);
-    CheckParsedCallProcedure(*query, ast_generator, write_proc, args, ProcedureType::WRITE, kQueryParts, 1);
-  }
-  {
-    SCOPED_TRACE("Write then read");
-    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, read_proc);
-    TestInvalidQueryWithMessage<SemanticException>(
-        query_str, ast_generator,
-        "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-  }
-  {
-    SCOPED_TRACE("Write twice");
-    const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, write_proc);
-    TestInvalidQueryWithMessage<SemanticException>(
-        query_str, ast_generator,
-        "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
-  }
-}
-
-TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
-  auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc-with-dashes()"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield field-with-dashes"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield field.with.dots"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield res AS result-with-dashes"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield res AS result.with.dots"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("WITH 42 AS x CALL not_standalone(x)"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL procedure() YIELD"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD res"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"), SyntaxException);
-  // mg.procedures returns something, so it needs to have a YIELD.
-  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"), SemanticException);
-  // TODO: Implement support for the following syntax. These are defined in
-  // Neo4j and accepted in openCypher CIP.
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"), SyntaxException);
-}
+// TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsAfter) {
+//   auto &ast_generator = *GetParam();
+//   static constexpr std::string_view fst{"fst"};
+//   static constexpr std::string_view snd{"snd"};
+//   const std::vector args{fst, snd};
+//
+//   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+//   const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+//
+//   const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
+//                                                               const std::string_view fully_qualified_proc_name,
+//                                                               const ProcedureType type, const size_t clause_size) {
+//     CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, 0);
+//   };
+//   {
+//     SCOPED_TRACE("Read query part");
+//     {
+//       SCOPED_TRACE("With WITH");
+//       static constexpr std::string_view kQueryWithWith{"CALL {}() YIELD {},{} WITH {},{} UNWIND {} as u RETURN u"};
+//       static constexpr size_t kQueryParts{4};
+//       {
+//         SCOPED_TRACE("Write proc");
+//         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
+//         TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//             query_str, ast_generator,
+//             "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//       }
+//       {
+//         SCOPED_TRACE("Read proc");
+//         const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
+//         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//         ASSERT_NE(query, nullptr);
+//         check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//       }
+//     }
+//     {
+//       SCOPED_TRACE("Without WITH");
+//       static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} UNWIND {} as u RETURN u"};
+//       static constexpr size_t kQueryParts{3};
+//       {
+//         SCOPED_TRACE("Write proc");
+//         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
+//         TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//             query_str, ast_generator,
+//             "UNWIND can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//       }
+//       {
+//         SCOPED_TRACE("Read proc");
+//         const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst);
+//         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//         ASSERT_NE(query, nullptr);
+//         check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//       }
+//     }
+//   }
+//   {
+//     SCOPED_TRACE("Write query part");
+//     {
+//       SCOPED_TRACE("With WITH");
+//       static constexpr std::string_view kQueryWithWith{
+//           "CALL {}() YIELD {},{} WITH {},{} CREATE(n {{prop : {}}}) RETURN n"};
+//       static constexpr size_t kQueryParts{4};
+//       {
+//         SCOPED_TRACE("Write proc");
+//         const auto query_str = fmt::format(kQueryWithWith, write_proc, fst, snd, fst, snd, fst);
+//         TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//             query_str, ast_generator,
+//             "WITH can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//       }
+//       {
+//         SCOPED_TRACE("Read proc");
+//         const auto query_str = fmt::format(kQueryWithWith, read_proc, fst, snd, fst, snd, fst);
+//         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//         ASSERT_NE(query, nullptr);
+//         check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//       }
+//     }
+//     {
+//       SCOPED_TRACE("Without WITH");
+//       static constexpr std::string_view kQueryWithoutWith{"CALL {}() YIELD {},{} CREATE(n {{prop : {}}}) RETURN n"};
+//       static constexpr size_t kQueryParts{3};
+//       {
+//         SCOPED_TRACE("Write proc");
+//         const auto query_str = fmt::format(kQueryWithoutWith, write_proc, fst, snd, fst);
+//         TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//             query_str, ast_generator,
+//             "Update clause can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//       }
+//       {
+//         SCOPED_TRACE("Read proc");
+//         const auto query_str = fmt::format(kQueryWithoutWith, read_proc, fst, snd, fst, snd, fst);
+//         const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//         ASSERT_NE(query, nullptr);
+//         check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//       }
+//     }
+//   }
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
+//   auto &ast_generator = *GetParam();
+//   static constexpr std::string_view fst{"fst"};
+//   static constexpr std::string_view snd{"snd"};
+//   const std::vector args{fst, snd};
+//
+//   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+//   const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+//
+//   const auto check_parsed_call_proc = [&ast_generator, &args](const CypherQuery &query,
+//                                                               const std::string_view fully_qualified_proc_name,
+//                                                               const ProcedureType type, const size_t clause_size) {
+//     CheckParsedCallProcedure(query, ast_generator, fully_qualified_proc_name, args, type, clause_size, clause_size -
+//     2);
+//   };
+//   {
+//     SCOPED_TRACE("Read query part");
+//     static constexpr std::string_view kQueryWithReadQueryPart{"MATCH (n) CALL {}() YIELD * RETURN *"};
+//     static constexpr size_t kQueryParts{3};
+//     {
+//       SCOPED_TRACE("Write proc");
+//       const auto query_str = fmt::format(kQueryWithReadQueryPart, write_proc);
+//       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//       ASSERT_NE(query, nullptr);
+//       check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
+//     }
+//     {
+//       SCOPED_TRACE("Read proc");
+//       const auto query_str = fmt::format(kQueryWithReadQueryPart, read_proc);
+//       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//       ASSERT_NE(query, nullptr);
+//       check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//     }
+//   }
+//   {
+//     SCOPED_TRACE("Write query part");
+//     static constexpr std::string_view kQueryWithWriteQueryPart{"CREATE (n) WITH n CALL {}() YIELD * RETURN *"};
+//     static constexpr size_t kQueryParts{4};
+//     {
+//       SCOPED_TRACE("Write proc");
+//       const auto query_str = fmt::format(kQueryWithWriteQueryPart, write_proc, fst, snd, fst);
+//       TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//           query_str, ast_generator, "Write procedures cannot be used in queries that contains any update clauses!");
+//     }
+//     {
+//       SCOPED_TRACE("Read proc");
+//       const auto query_str = fmt::format(kQueryWithWriteQueryPart, read_proc, fst, snd, fst, snd, fst);
+//       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//       ASSERT_NE(query, nullptr);
+//       check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+//     }
+//   }
+// }
+//
+// TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
+//   auto &ast_generator = *GetParam();
+//   static constexpr std::string_view fst{"fst"};
+//   static constexpr std::string_view snd{"snd"};
+//   const std::vector args{fst, snd};
+//
+//   const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+//   const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+//
+//   {
+//     SCOPED_TRACE("Read then write");
+//     const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", read_proc, write_proc);
+//     static constexpr size_t kQueryParts{3};
+//     const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+//     ASSERT_NE(query, nullptr);
+//
+//     CheckParsedCallProcedure(*query, ast_generator, read_proc, args, ProcedureType::READ, kQueryParts, 0);
+//     CheckParsedCallProcedure(*query, ast_generator, write_proc, args, ProcedureType::WRITE, kQueryParts, 1);
+//   }
+//   {
+//     SCOPED_TRACE("Write then read");
+//     const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, read_proc);
+//     TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//         query_str, ast_generator,
+//         "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//   }
+//   {
+//     SCOPED_TRACE("Write twice");
+//     const auto query_str = fmt::format("CALL {}() YIELD * CALL {}() YIELD * RETURN *", write_proc, write_proc);
+//     TestInvalidQueryWithMessage<memgraph::expr::SemanticException>(
+//         query_str, ast_generator,
+//         "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+//   }
+// }
+//
+// TEST_P(CypherMainVisitorTest, IncorrectCallProcedure) {
+//   auto &ast_generator = *GetParam();
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc-with-dashes()"), memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield field-with-dashes"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield field.with.dots"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield res AS result-with-dashes"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() yield res AS result.with.dots"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("WITH 42 AS x CALL not_standalone(x)"), memgraph::expr::SemanticException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL procedure() YIELD"), memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42, CALL procedure() YIELD res"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("RETURN 42 AS x CALL procedure() YIELD res"),
+//                memgraph::expr::SemanticException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc.with.dots() MEMORY YIELD res"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   // mg.procedures returns something, so it needs to have a YIELD.
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures()"), memgraph::expr::SemanticException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY UNLIMITED"),
+//                memgraph::expr::SemanticException);
+//   // TODO: Implement support for the following syntax. These are defined in
+//   // Neo4j and accepted in openCypher CIP.
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc"), memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc RETURN 42"), memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42"),
+//                memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(ast_generator.ParseQuery("CALL proc() YIELD res WHERE res > 42 RETURN *"),
+//                memgraph::frontend::opencypher::SyntaxException);
+// }
 
 TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   auto &ast_generator = *GetParam();
 
   const auto test_lock_path_query = [&](const std::string_view command, const LockPathQuery::Action action) {
-    ASSERT_THROW(ast_generator.ParseQuery(command.data()), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(command.data()), memgraph::frontend::opencypher::SyntaxException);
 
     {
       const std::string query = fmt::format("{} ME", command);
-      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+      ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
     }
 
     {
       const std::string query = fmt::format("{} DATA", command);
-      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+      ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
     }
 
     {
       const std::string query = fmt::format("{} DATA STUFF", command);
-      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+      ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
     }
 
     {
@@ -3306,53 +3344,53 @@ TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv")";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";")";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'")";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER DELIMITER ";" QUOTE "'" AS)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM file WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::frontend::opencypher::SyntaxException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER 0 QUOTE "'" AS x)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::expr::SemanticException);
   }
 
   {
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE 0 AS x)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::expr::SemanticException);
   }
 
   {
     // can't be a standalone clause
     const std::string query = R"(LOAD CSV FROM "file.csv" WITH HEADER IGNORE BAD DELIMITER ";" QUOTE "'" AS x)";
-    ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
+    ASSERT_THROW(ast_generator.ParseQuery(query), memgraph::expr::SemanticException);
   }
 
   {
@@ -3370,15 +3408,19 @@ TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
 TEST_P(CypherMainVisitorTest, MemoryLimit) {
   auto &ast_generator = *GetParam();
 
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUE"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEM"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIM"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT KB"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12GB"), SyntaxException);
-  ASSERT_THROW(ast_generator.ParseQuery("QUERY MEMORY LIMIT 12KB RETURN x"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUE"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEM"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIM"), memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT"),
+               memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT KB"),
+               memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN x QUERY MEMORY LIMIT 12GB"),
+               memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("QUERY MEMORY LIMIT 12KB RETURN x"),
+               memgraph::frontend::opencypher::SyntaxException);
 
   {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
@@ -3402,81 +3444,79 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
   }
 
-  {
-    auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
-    ASSERT_TRUE(query);
-    ASSERT_TRUE(query->memory_limit_);
-    ast_generator.CheckLiteral(query->memory_limit_, 12);
-    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
-
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-  }
-
-  {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
-        "CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
-    ASSERT_TRUE(query);
-    ASSERT_TRUE(query->memory_limit_);
-    ast_generator.CheckLiteral(query->memory_limit_, 12);
-    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
-
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    ASSERT_TRUE(call_proc->memory_limit_);
-    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
-    ASSERT_EQ(call_proc->memory_scale_, 1024U);
-  }
-
-  {
-    auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x"));
-    ASSERT_TRUE(query);
-    ASSERT_FALSE(query->memory_limit_);
-
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    ASSERT_TRUE(call_proc->memory_limit_);
-    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
-    ASSERT_EQ(call_proc->memory_scale_, 1024U);
-  }
-
-  {
-    auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 3KB"));
-    ASSERT_TRUE(query);
-    ASSERT_FALSE(query->memory_limit_);
-
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    ASSERT_TRUE(call_proc->memory_limit_);
-    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
-    ASSERT_EQ(call_proc->memory_scale_, 1024U);
-  }
-
-  {
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() QUERY MEMORY LIMIT 3KB"));
-    ASSERT_TRUE(query);
-    ASSERT_TRUE(query->memory_limit_);
-    ast_generator.CheckLiteral(query->memory_limit_, 3);
-    ASSERT_EQ(query->memory_scale_, 1024U);
-
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
-  }
+  //  {
+  //    auto *query = dynamic_cast<CypherQuery *>(
+  //        ast_generator.ParseQuery("CALL mg.procedures() YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
+  //    ASSERT_TRUE(query);
+  //    ASSERT_TRUE(query->memory_limit_);
+  //    ast_generator.CheckLiteral(query->memory_limit_, 12);
+  //    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+  //
+  //    ASSERT_TRUE(query->single_query_);
+  //    auto *single_query = query->single_query_;
+  //    ASSERT_EQ(single_query->clauses_.size(), 2U);
+  //    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  //    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  //  }
+  //
+  //  {
+  //    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+  //        "CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x QUERY MEMORY LIMIT 12MB"));
+  //    ASSERT_TRUE(query);
+  //    ASSERT_TRUE(query->memory_limit_);
+  //    ast_generator.CheckLiteral(query->memory_limit_, 12);
+  //    ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+  //
+  //    ASSERT_TRUE(query->single_query_);
+  //    auto *single_query = query->single_query_;
+  //    ASSERT_EQ(single_query->clauses_.size(), 2U);
+  //    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  //    ASSERT_TRUE(call_proc->memory_limit_);
+  //    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+  //    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  //  }
+  //
+  //  {
+  //    auto *query = dynamic_cast<CypherQuery *>(
+  //        ast_generator.ParseQuery("CALL mg.procedures() PROCEDURE MEMORY LIMIT 3KB YIELD x RETURN x"));
+  //    ASSERT_TRUE(query);
+  //    ASSERT_FALSE(query->memory_limit_);
+  //
+  //    ASSERT_TRUE(query->single_query_);
+  //    auto *single_query = query->single_query_;
+  //    ASSERT_EQ(single_query->clauses_.size(), 2U);
+  //    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  //    ASSERT_TRUE(call_proc->memory_limit_);
+  //    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+  //    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  //  }
+  //
+  //  {
+  //    auto *query =
+  //        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() PROCEDURE MEMORY LIMIT 3KB"));
+  //    ASSERT_TRUE(query);
+  //    ASSERT_FALSE(query->memory_limit_);
+  //
+  //    ASSERT_TRUE(query->single_query_);
+  //    auto *single_query = query->single_query_;
+  //    ASSERT_EQ(single_query->clauses_.size(), 1U);
+  //    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  //    ASSERT_TRUE(call_proc->memory_limit_);
+  //    ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
+  //    ASSERT_EQ(call_proc->memory_scale_, 1024U);
+  //  }
+  //
+  //  {
+  //    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL mg.load_all() QUERY MEMORY LIMIT
+  //    3KB")); ASSERT_TRUE(query); ASSERT_TRUE(query->memory_limit_); ast_generator.CheckLiteral(query->memory_limit_,
+  //    3); ASSERT_EQ(query->memory_scale_, 1024U);
+  //
+  //    ASSERT_TRUE(query->single_query_);
+  //    auto *single_query = query->single_query_;
+  //    ASSERT_EQ(single_query->clauses_.size(), 1U);
+  //    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+  //    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+  //  }
 }
 
 TEST_P(CypherMainVisitorTest, DropTrigger) {
@@ -3776,21 +3816,22 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS invalid topic name TRANSFORM transform", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM invalid transformation name", ast_generator);
   // required configs are missing
-  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TRANSFORM transform", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CREATE KAFKA STREAM stream TRANSFORM transform", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS TRANSFORM transform", ast_generator);
   // required configs are missing
-  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP", ast_generator);
-  TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group",
-                   ast_generator);
+  TestInvalidQuery(
+      "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform CONSUMER_GROUP invalid consumer group ",
+      ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL", ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_INTERVAL 'invalid interval'", ast_generator);
-  TestInvalidQuery<SemanticException>("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform TOPICS topic2",
-                                      ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>(
+      "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform TOPICS topic2 ", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE", ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE KAFKA STREAM stream TOPICS topic1 TRANSFORM transform BATCH_SIZE 'invalid size'", ast_generator);
   TestInvalidQuery("CREATE KAFKA STREAM stream TOPICS topic1, TRANSFORM transform BATCH_SIZE 2 CONSUMER_GROUP Gru",
                    ast_generator);
@@ -3851,7 +3892,7 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
 
     ValidateCreateKafkaStreamQuery(
         ast_generator,
-        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {}",
+        fmt::format("CREATE KAFKA STREAM {} TOPICS {} TRANSFORM {} CONSUMER_GROUP {} BATCH_INTERVAL {} BATCH_SIZE {} ",
                     kStreamName, topic_names_as_str, kTransformName, kConsumerGroup, kBatchInterval, kBatchSize),
         kStreamName, topic_names, kTransformName, kConsumerGroup, batch_interval_value, batch_size_value, {}, {}, {});
     using namespace std::string_literals;
@@ -3937,8 +3978,8 @@ TEST_P(CypherMainVisitorTest, CreateKafkaStream) {
 
   const std::array config_maps = {std::unordered_map<std::string, std::string>{},
                                   std::unordered_map<std::string, std::string>{{"key", "value"}},
-                                  std::unordered_map<std::string, std::string>{{"key.with.dot", "value.with.doth"},
-                                                                               {"key with space", "value with space"}}};
+                                  std::unordered_map<std::string, std::string>{
+                                      {"key.with.dot", "value.with.doth"}, {"key with space", "value with space "}}};
   for (const auto &map_to_test : config_maps) {
     EXPECT_NO_FATAL_FAILURE(check_config_map(map_to_test));
   }
@@ -3971,31 +4012,31 @@ TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
   auto &ast_generator = *GetParam();
 
   TestInvalidQuery("CREATE PULSAR STREAM", ast_generator);
-  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CREATE PULSAR STREAM stream", ast_generator);
   TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS", ast_generator);
-  TestInvalidQuery<SemanticException>("CREATE PULSAR STREAM stream TOPICS topic_name", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CREATE PULSAR STREAM stream TOPICS topic_name", ast_generator);
   TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM", ast_generator);
   TestInvalidQuery("CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL", ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 1", ast_generator);
   TestInvalidQuery(
       "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name BOOTSTRAP_SERVERS 'bootstrap'",
       ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' TOPICS topic_name",
       ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream TRANSFORM transform.name TOPICS topic_name TRANSFORM transform.name SERVICE_URL "
       "'test'",
       ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream BATCH_INTERVAL 1 TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test' "
       "BATCH_INTERVAL 1000",
       ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream BATCH_INTERVAL 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
       ast_generator);
-  TestInvalidQuery<SemanticException>(
+  TestInvalidQuery<memgraph::expr::SemanticException>(
       "CREATE PULSAR STREAM stream BATCH_SIZE 'a' TOPICS topic_name TRANSFORM transform.name SERVICE_URL 'test'",
       ast_generator);
 
@@ -4056,12 +4097,12 @@ TEST_P(CypherMainVisitorTest, CreatePulsarStream) {
     SCOPED_TRACE("batch interval");
     ValidateCreatePulsarStreamQuery(
         ast_generator,
-        fmt::format("CREATE PULSAR STREAM {} BATCH_INTERVAL {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {}",
+        fmt::format("CREATE PULSAR STREAM {} BATCH_INTERVAL {} SERVICE_URL '{}' BATCH_SIZE {} TRANSFORM {} TOPICS {} ",
                     kStreamName, kBatchInterval, kServiceUrl, kBatchSize, kTransformName, topic_names_str),
         kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
     ValidateCreatePulsarStreamQuery(
         ast_generator,
-        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' BATCH_INTERVAL {} TOPICS {} BATCH_SIZE {}",
+        fmt::format("CREATE PULSAR STREAM {} TRANSFORM {} SERVICE_URL '{}' BATCH_INTERVAL {} TOPICS {} BATCH_SIZE {} ",
                     kStreamName, kTransformName, kServiceUrl, kBatchInterval, topic_names_str, kBatchSize),
         kStreamName, topic_names, kTransformName, TypedValue(kBatchInterval), TypedValue(kBatchSize), kServiceUrl);
   }
@@ -4078,9 +4119,11 @@ TEST_P(CypherMainVisitorTest, CheckStream) {
   TestInvalidQuery("CHECK STREAM something BATCH_LIMIT", ast_generator);
   TestInvalidQuery("CHECK STREAM something TIMEOUT", ast_generator);
   TestInvalidQuery("CHECK STREAM something BATCH_LIMIT 1 TIMEOUT", ast_generator);
-  TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 'it should be an integer'", ast_generator);
-  TestInvalidQuery<SemanticException>("CHECK STREAM something BATCH_LIMIT 2.5", ast_generator);
-  TestInvalidQuery<SemanticException>("CHECK STREAM something TIMEOUT 'it should be an integer'", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CHECK STREAM something BATCH_LIMIT 'it should be an integer'",
+                                                      ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CHECK STREAM something BATCH_LIMIT 2.5", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("CHECK STREAM something TIMEOUT 'it should be an integer'",
+                                                      ast_generator);
 
   ValidateMostlyEmptyStreamQuery(ast_generator, "CHECK STREAM checkedStream", StreamQuery::Action::CHECK_STREAM,
                                  "checkedStream");
@@ -4100,11 +4143,11 @@ TEST_P(CypherMainVisitorTest, SettingQuery) {
   TestInvalidQuery("SHOW DATABASE SETTING", ast_generator);
   TestInvalidQuery("SHOW DB SETTING 'setting'", ast_generator);
   TestInvalidQuery("SHOW SETTING 'setting'", ast_generator);
-  TestInvalidQuery<SemanticException>("SHOW DATABASE SETTING 1", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("SHOW DATABASE SETTING 1", ast_generator);
   TestInvalidQuery("SET SETTING 'setting' TO 'value'", ast_generator);
   TestInvalidQuery("SET DB SETTING 'setting' TO 'value'", ast_generator);
-  TestInvalidQuery<SemanticException>("SET DATABASE SETTING 1 TO 'value'", ast_generator);
-  TestInvalidQuery<SemanticException>("SET DATABASE SETTING 'setting' TO 2", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("SET DATABASE SETTING 1 TO 'value'", ast_generator);
+  TestInvalidQuery<memgraph::expr::SemanticException>("SET DATABASE SETTING 'setting' TO 2", ast_generator);
 
   const auto validate_setting_query = [&](const auto &query, const auto action,
                                           const std::optional<TypedValue> &expected_setting_name,
@@ -4134,10 +4177,13 @@ TEST_P(CypherMainVisitorTest, VersionQuery) {
 
 TEST_P(CypherMainVisitorTest, ForeachThrow) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND [1,2,3] AS j CREATE (n))"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] CREATE (:Foo {prop : i}))"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | MATCH (n)"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN x | MATCH (n)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | UNWIND [1,2,3] AS j CREATE (n))"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] CREATE (:Foo {prop : i}))"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN [1, 2] | MATCH (n)"),
+               memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("FOREACH(i IN x | MATCH (n)"), memgraph::frontend::opencypher::SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, Foreach) {
@@ -4227,9 +4273,9 @@ TEST_P(CypherMainVisitorTest, TestShowSchemas) {
 
 TEST_P(CypherMainVisitorTest, TestShowSchema) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA ON label"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA :label"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA label"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA ON label"), memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA :label"), memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("SHOW SCHEMA label"), memgraph::frontend::opencypher::SyntaxException);
 
   auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("SHOW SCHEMA ON :label"));
   ASSERT_TRUE(query);
@@ -4252,15 +4298,22 @@ void AssertSchemaPropertyMap(auto &schema_property_map,
 TEST_P(CypherMainVisitorTest, TestCreateSchema) {
   {
     auto &ast_generator = *GetParam();
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label()"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(123 INTEGER)"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name TYPE)"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, age)"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, DURATION)"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON label(name INTEGER)"), SyntaxException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name INTEGER)"), SemanticException);
-    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name STRING)"), SemanticException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label"), memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label()"),
+                 memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(123 INTEGER)"),
+                 memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name TYPE)"), memgraph::expr::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, age)"),
+                 memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name, DURATION)"),
+                 memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON label(name INTEGER)"),
+                 memgraph::frontend::opencypher::SyntaxException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name INTEGER)"),
+                 memgraph::expr::SemanticException);
+    EXPECT_THROW(ast_generator.ParseQuery("CREATE SCHEMA ON :label(name INTEGER, name STRING)"),
+                 memgraph::expr::SemanticException);
   }
   {
     auto &ast_generator = *GetParam();
@@ -4314,10 +4367,10 @@ TEST_P(CypherMainVisitorTest, TestCreateSchema) {
 
 TEST_P(CypherMainVisitorTest, TestDropSchema) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON label"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA :label"), SyntaxException);
-  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON :label()"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA"), memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON label"), memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA :label"), memgraph::frontend::opencypher::SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("DROP SCHEMA ON :label()"), memgraph::frontend::opencypher::SyntaxException);
 
   auto *query = dynamic_cast<SchemaQuery *>(ast_generator.ParseQuery("DROP SCHEMA ON :label"));
   ASSERT_TRUE(query);

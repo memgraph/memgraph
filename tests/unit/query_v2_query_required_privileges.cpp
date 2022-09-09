@@ -12,8 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "query/v2/bindings/ast_visitor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/ast/ast_visitor.hpp"
 #include "query/v2/frontend/semantic/required_privileges.hpp"
 #include "storage/v3/id_types.hpp"
 

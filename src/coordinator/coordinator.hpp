@@ -50,6 +50,11 @@ struct GetShardMapResponse {
   ShardMap shard_map;
 };
 
+struct AllocateHlcBatchRequest {
+  Hlc low;
+  Hlc high;
+};
+
 struct AllocateHlcBatchResponse {
   bool success;
   Hlc low;
