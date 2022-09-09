@@ -67,6 +67,6 @@ using QueryEngineMessages = std::variant<QEM>;
 template <typename M>
 concept ShardManagerMessageC = memgraph::utils::SameAsAnyOf<M, CoordinatorWriteResponses>;
 
-using ShardManagerMessages = std::variant<CoordinatorWriteResponses>;
+using ShardManagerMessages = std::variant<WriteResponse<CoordinatorWriteResponses>>;
 
 }  // namespace memgraph::io::messages

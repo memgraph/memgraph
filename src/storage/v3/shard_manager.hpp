@@ -112,19 +112,18 @@ class ShardManager {
     return next_cron_;
   }
 
-  void Handle(Address from, Address to, RequestId request_id, ShardManagerOrRsmMessage message) {
+  void Receive(ShardManagerMessages &&smm, RequestId request_id, Address from) {}
+
+  void Route(ShardMessages &&sm, RequestId request_id, Address to, Address from) {
     Address address = io_.GetAddress();
 
     MG_ASSERT(address.last_known_port == to.last_known_port);
     MG_ASSERT(address.last_known_ip == to.last_known_ip);
 
-    std::visit([&](auto &&msg) { Handle(from, to, request_id, std::forward<decltype(msg)>(msg)); }, std::move(message));
-  }
-  void Handle(Address from, Address to, RequestId request_id, ShardManagerMessages &&message) {}
-
-  void Handle(Address from, Address to, RequestId request_id, ShardMessages &&message) {
-    auto &rsm = rsm_map_.at(to.unique_id);
     // TODO(tyler) call rsm's Raft::Handle method with message
+    auto &rsm = rsm_map_.at(to.unique_id);
+
+    rsm.Handle(std::forward<ShardMessages>(sm), request_id, from);
   }
 
  private:

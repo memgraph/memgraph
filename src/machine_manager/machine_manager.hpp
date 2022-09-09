@@ -50,6 +50,11 @@ using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::storage::v3::ShardManager;
 
+using memgraph::io::rsm::StorageReadRequest;
+using memgraph::io::rsm::StorageReadResponse;
+using memgraph::io::rsm::StorageWriteRequest;
+using memgraph::io::rsm::StorageWriteResponse;
+
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level
 ///   operational requirements continue to be met
@@ -92,13 +97,16 @@ class MachineManager {
 
       using AllMessages =
           std::variant<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
-                       WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>;
+                       WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse,
+                       WriteResponse<CoordinatorWriteResponses>, ReadRequest<StorageReadRequest>,
+                       AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>;
 
       spdlog::info("MM waiting on Receive");
-      auto request_result =
-          io_.template ReceiveWithTimeout<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
-                                          AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest,
-                                          VoteResponse>(receive_timeout);
+      auto request_result = io_.template ReceiveWithTimeout<
+          ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
+          WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse, WriteResponse<CoordinatorWriteResponses>,
+          ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>(
+          receive_timeout);
 
       if (request_result.HasError()) {
         // time to do Cron
@@ -119,9 +127,11 @@ class MachineManager {
                 std::move(request_envelope.message));
 
         if (!conversion_attempt.has_value()) {
-          spdlog::error("message conversion failed");
+          spdlog::error("coordinator message conversion failed");
           continue;
         }
+
+        spdlog::info("got coordinator message");
 
         CoordinatorMessages &&cm = std::move(conversion_attempt.value());
 
@@ -129,16 +139,40 @@ class MachineManager {
                             request_envelope.from_address);
       }
 
-      // Otherwise pass message to ShardManager for processing
-      /*
-      &&um = std::move(std::get<UberMessage>(request.message));
+      bool to_sm = true;
+      if (to_sm) {
+        std::optional<ShardManagerMessages> conversion_attempt =
+            ConvertVariant<AllMessages, WriteResponse<CoordinatorWriteResponses>>(std::move(request_envelope.message));
 
-      std::visit(
-          [&](auto &&msg) {
-            Handle(std::forward<decltype(msg)>(msg), request.request_id, request.from_address, request.to_address);
-          },
-          std::forward<UberMessage>(um));
-      */
+        if (!conversion_attempt.has_value()) {
+          spdlog::error("shard manager message conversion failed");
+          continue;
+        }
+
+        spdlog::info("got shard manager message");
+
+        ShardManagerMessages &&smm = std::move(conversion_attempt.value());
+        shard_manager_.Receive(std::forward<ShardManagerMessages>(smm), request_envelope.request_id,
+                               request_envelope.from_address);
+      }
+
+      // treat this as a message to a specific shard rsm and cast it accordingly
+
+      std::optional<ShardMessages> conversion_attempt =
+          ConvertVariant<AllMessages, ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>,
+                         AppendResponse, WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>(
+              std::move(request_envelope.message));
+
+      if (!conversion_attempt.has_value()) {
+        spdlog::error("coordinator message conversion failed");
+        continue;
+      }
+
+      spdlog::info("got shard message");
+
+      ShardMessages &&sm = std::move(conversion_attempt.value());
+      shard_manager_.Route(std::forward<ShardMessages>(sm), request_envelope.request_id, request_envelope.to_address,
+                           request_envelope.from_address);
     }
   }
 
@@ -146,17 +180,6 @@ class MachineManager {
   Time Cron() {
     spdlog::info("running MachineManager::Cron, address {}", io_.GetAddress().ToString());
     return shard_manager_.Cron();
-  }
-
-  void Handle(QueryEngineMessages &&, RequestId request_id, Address from, Address to) {}
-  void Handle(ShardManagerMessages &&smm, RequestId request_id, Address from, Address to) {
-    spdlog::info("got SMM message");
-    shard_manager_.Handle(from, to, request_id, std::forward<ShardManagerMessages>(smm));
-  }
-  void Handle(ShardMessages &&, RequestId request_id, Address from, Address to) {}
-  void Handle(CoordinatorMessages &&, RequestId request_id, Address from, Address to) {
-    spdlog::info("got coordinator message");
-    // coordinator_.
   }
 };
 
