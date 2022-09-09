@@ -83,7 +83,7 @@ set(memgraph_v3_libs stdc++fs Threads::Threads
     telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
-  set(memgraph_v3_libs ${mg_single_node_v2_libs} mg-audit)
+  set(memgraph_v3_libs ${memgraph_v3_libs} mg-audit)
 endif()
 add_executable(memgraph_v3 ${memgraph_v3_sources})
 target_include_directories(memgraph_v3 PUBLIC ${CMAKE_SOURCE_DIR}/include)
