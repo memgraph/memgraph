@@ -117,6 +117,15 @@ struct ShardMap {
 
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
+  std::vector<boost::uuids::uuid> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
+    std::vector<boost::uuids::uuid> ret{};
+
+    for (auto &[label_id, label_space] : label_spaces) {
+    }
+
+    return ret;
+  }
+
   bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey &key) {
     if (previous_shard_map_version != shard_map_version) {
       return false;

@@ -25,10 +25,9 @@ using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::coordinator::HeartbeatResponse;
 
+// TODO(everbody) change these to the real shard messages
 using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
 
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;
@@ -39,33 +38,12 @@ using memgraph::io::rsm::VoteResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 
-// TODO(tyler) make these real types instead of unique placeholders
-struct QEM {};
-
-template <typename M>
-concept CoordinatorMessageC =
-    memgraph::utils::SameAsAnyOf<M, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
-                                 AppendResponse, WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>;
-
 using CoordinatorMessages =
     std::variant<ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>, AppendResponse,
                  WriteRequest<CoordinatorWriteRequests>, VoteRequest, VoteResponse>;
 
-template <typename M>
-concept ShardMessageC =
-    memgraph::utils::SameAsAnyOf<M, ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, AppendResponse,
-                                 WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>;
-
 using ShardMessages = std::variant<ReadRequest<StorageReadRequest>, AppendRequest<StorageWriteRequest>, AppendResponse,
                                    WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>;
-
-template <typename M>
-concept QueryEngineMessageC = memgraph::utils::SameAsAnyOf<M, CoordinatorWriteResponses>;
-
-using QueryEngineMessages = std::variant<QEM>;
-
-template <typename M>
-concept ShardManagerMessageC = memgraph::utils::SameAsAnyOf<M, CoordinatorWriteResponses>;
 
 using ShardManagerMessages = std::variant<WriteResponse<CoordinatorWriteResponses>>;
 

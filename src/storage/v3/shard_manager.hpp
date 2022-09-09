@@ -124,7 +124,6 @@ class ShardManager {
     MG_ASSERT(address.last_known_port == to.last_known_port);
     MG_ASSERT(address.last_known_ip == to.last_known_ip);
 
-    // TODO(tyler) call rsm's Raft::Handle method with message
     auto &rsm = rsm_map_.at(to.unique_id);
 
     rsm.Handle(std::forward<ShardMessages>(sm), request_id, from);
@@ -209,6 +208,7 @@ class ShardManager {
     // TODO(tyler) get geers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
 
+    // TODO(everbody) change this to storage::Shard
     ShardRsm rsm_state{};
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};

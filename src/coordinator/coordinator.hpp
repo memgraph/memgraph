@@ -163,9 +163,17 @@ class Coordinator {
     return res;
   }
 
-  static CoordinatorWriteResponses ApplyWrite(HeartbeatRequest && /* heartbeat_request */) {
+  CoordinatorWriteResponses ApplyWrite(HeartbeatRequest &&heartbeat_request) {
     spdlog::info("Coordinator handling HeartbeatRequest");
-    return HeartbeatResponse{};
+
+    // add this storage engine to any under-replicated shards that it is not already a part of
+
+    auto initializing_rsms_for_shard_manager =
+        shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms);
+
+    return HeartbeatResponse{
+        .create_storage_rsms = initializing_rsms_for_shard_manager,
+    };
   }
 
   CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request) {

@@ -37,7 +37,6 @@ using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
-using memgraph::io::messages::QueryEngineMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::AppendRequest;
