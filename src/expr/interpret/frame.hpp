@@ -13,14 +13,14 @@
 
 #include <vector>
 
-#include "query/v2/frontend/semantic/symbol_table.hpp"
-#include "query/v2/typed_value.hpp"
+#include "expr/semantic/symbol_table.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::expr {
 
+template <typename TypedValue>
 class Frame {
  public:
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
@@ -42,4 +42,4 @@ class Frame {
   utils::pmr::vector<TypedValue> elems_;
 };
 
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::expr

@@ -70,9 +70,9 @@ void InsertVertexPKIntoList(auto &container, const PrimaryKey &primary_key) { co
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config, const SchemaValidator &schema_validator) {
+                            Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, schema_validator, view);
+    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, vertex_validator, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -85,14 +85,14 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_, *self_->schema_validator_)) {}
+                                 self->indices_, self_->constraints_, self->config_, *self_->vertex_validator_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_, *self_->schema_validator_);
+                               self_->indices_, self_->constraints_, self_->config_, *self_->vertex_validator_);
   return *this;
 }
 
@@ -321,7 +321,8 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
       schema_validator_{schemas_},
-      indices_{&constraints_, config.items, schema_validator_},
+      vertex_validator_{schema_validator_, primary_label},
+      indices_{&constraints_, config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
       snapshot_directory_{config_.durability.storage_directory / durability::kSnapshotDirectory},
@@ -494,23 +495,31 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
           return property_pair.first == property_id;
         })->second);
   }
-
-  // Get secondary properties
-  std::vector<std::pair<PropertyId, PropertyValue>> secondary_properties;
-  for (const auto &[property_id, property_value] : properties) {
-    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
-      secondary_properties.emplace_back(property_id, property_value);
-    }
-  }
-
   auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_label, primary_properties, labels, secondary_properties}});
+  auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
+
+  VertexAccessor vertex_acc{&it->vertex,           &transaction_, &shard_->indices_,
+                            &shard_->constraints_, config_,       shard_->vertex_validator_};
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
+
+  // TODO(jbajic) Improve, maybe delay index update
+  for (const auto &[property_id, property_value] : properties) {
+    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
+      if (const auto err = vertex_acc.SetProperty(property_id, property_value); err.HasError()) {
+        return {err.GetError()};
+      }
+    }
+  }
+  // Set secondary labels
+  for (auto label : labels) {
+    if (const auto err = vertex_acc.AddLabel(label); err.HasError()) {
+      return {err.GetError()};
+    }
+  }
   delta->prev.Set(&it->vertex);
-  return VertexAccessor{&it->vertex,           &transaction_, &shard_->indices_,
-                        &shard_->constraints_, config_,       shard_->schema_validator_};
+  return vertex_acc;
 }
 
 std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyValue> primary_key, View view) {
@@ -521,7 +530,7 @@ std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyVa
     return std::nullopt;
   }
   return VertexAccessor::Create(&it->vertex, &transaction_, &shard_->indices_, &shard_->constraints_, config_,
-                                shard_->schema_validator_, view);
+                                shard_->vertex_validator_, view);
 }
 
 Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -542,7 +551,7 @@ Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccess
   vertex_ptr->deleted = true;
 
   return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &shard_->indices_, &shard_->constraints_,
-                                            config_, shard_->schema_validator_, true);
+                                            config_, shard_->vertex_validator_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shard::Accessor::DetachDeleteVertex(
@@ -570,7 +579,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->schema_validator_);
+                   config_, shard_->vertex_validator_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -584,7 +593,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
     EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->schema_validator_);
+                   config_, shard_->vertex_validator_);
     auto ret = DeleteEdge(&e);
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -608,7 +617,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   vertex_ptr->deleted = true;
 
   return std::make_optional<ReturnType>(VertexAccessor{vertex_ptr, &transaction_, &shard_->indices_,
-                                                       &shard_->constraints_, config_, shard_->schema_validator_, true},
+                                                       &shard_->constraints_, config_, shard_->vertex_validator_, true},
                                         std::move(deleted_edges));
 }
 
@@ -654,7 +663,7 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAcc
   ++shard_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                      config_, shard_->schema_validator_);
+                      config_, shard_->vertex_validator_);
 }
 
 Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
@@ -707,7 +716,7 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAcc
   ++shard_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                      config_, shard_->schema_validator_);
+                      config_, shard_->vertex_validator_);
 }
 
 Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *edge) {
@@ -775,7 +784,7 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
   --shard_->edge_count_;
 
   return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_,
-                                          &shard_->constraints_, config_, shard_->schema_validator_, true);
+                                          &shard_->constraints_, config_, shard_->vertex_validator_, true);
 }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
@@ -1065,8 +1074,10 @@ const std::string &Shard::EdgeTypeToName(EdgeTypeId edge_type) const {
 }
 
 bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  return false;
+  // TODO(jbajic) response should be different when label == primary_label
+  if (label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1075,9 +1086,15 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> desired_com
 }
 
 bool Shard::CreateIndex(LabelId label, PropertyId property, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix Index
-  // if (!indices_.label_property_index.CreateIndex(label, property, labelspace.access())) return false;
-  return false;
+  // TODO(jbajic) response should be different when index conflicts with schema
+  if (label == primary_label_ && schemas_.GetSchema(primary_label_)->second.size() == 1 &&
+      schemas_.GetSchema(primary_label_)->second[0].property_id == property) {
+    // Index already exists on primary key
+    return false;
+  }
+  if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
+    return false;
+  }
   const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
   AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
   commit_log_->MarkFinished(commit_timestamp);
@@ -1192,20 +1209,20 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, std::nullopt, std::nullopt, view, &transaction_, shard_->schema_validator_));
+      label, property, std::nullopt, std::nullopt, view, &transaction_, shard_->vertex_validator_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
       label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
-      shard_->schema_validator_));
+      shard_->vertex_validator_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, lower_bound, upper_bound, view, &transaction_, shard_->schema_validator_));
+      label, property, lower_bound, upper_bound, view, &transaction_, shard_->vertex_validator_));
 }
 
 Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {

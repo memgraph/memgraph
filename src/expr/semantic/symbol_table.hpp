@@ -14,11 +14,11 @@
 #include <map>
 #include <string>
 
-#include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
+#include "expr/ast.hpp"
+#include "expr/semantic/symbol.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::expr {
 
 class SymbolTable final {
  public:
@@ -61,4 +61,4 @@ class SymbolTable final {
   std::map<int32_t, Symbol> table_;
 };
 
-}  // namespace memgraph::query::v2
+}  // namespace memgraph::expr

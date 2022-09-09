@@ -18,8 +18,7 @@
 cpp<#
 
 (lcp:namespace memgraph)
-(lcp:namespace query)
-(lcp:namespace v2)
+(lcp:namespace expr)
 
 (lcp:define-class symbol ()
   ((name "std::string" :scope :public)
@@ -66,16 +65,15 @@ cpp<#
     cpp<#)
   (:serialize (:slk)))
 
-(lcp:pop-namespace) ;; v2
-(lcp:pop-namespace) ;; query
+(lcp:pop-namespace) ;; expr
 (lcp:pop-namespace) ;; memgraph
 
 #>cpp
 namespace std {
 
 template <>
-struct hash<memgraph::query::v2::Symbol> {
-  size_t operator()(const memgraph::query::v2::Symbol &symbol) const {
+struct hash<memgraph::expr::Symbol> {
+  size_t operator()(const memgraph::expr::Symbol &symbol) const {
     size_t prime = 265443599u;
     size_t hash = std::hash<int>{}(symbol.position());
     hash ^= prime * std::hash<std::string>{}(symbol.name());

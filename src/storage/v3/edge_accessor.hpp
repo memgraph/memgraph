@@ -17,6 +17,7 @@
 #include "storage/v3/edge_ref.hpp"
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
@@ -36,7 +37,7 @@ class EdgeAccessor final {
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
                Indices *indices, Constraints *constraints, Config::Items config,
-               const SchemaValidator &schema_validator, bool for_deleted = false)
+               const VertexValidator &vertex_validator, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
@@ -45,7 +46,7 @@ class EdgeAccessor final {
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_{&schema_validator},
+        vertex_validator_{&vertex_validator},
         for_deleted_(for_deleted) {}
 
   /// @return true if the object is visible from the current transaction
@@ -94,7 +95,7 @@ class EdgeAccessor final {
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  const SchemaValidator *schema_validator_;
+  const VertexValidator *vertex_validator_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this

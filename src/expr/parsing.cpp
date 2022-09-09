@@ -9,18 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/v2/frontend/parsing.hpp"
+#include "expr/parsing.hpp"
 
 #include <cctype>
 #include <codecvt>
 #include <locale>
 #include <stdexcept>
 
-#include "query/v2/exceptions.hpp"
+#include "expr/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
-namespace memgraph::query::v2::frontend {
+namespace memgraph::expr {
 
 int64_t ParseIntegerLiteral(const std::string &s) {
   try {
@@ -181,4 +181,4 @@ std::string ParseParameter(const std::string &s) {
   return out;
 }
 
-}  // namespace memgraph::query::v2::frontend
+}  // namespace memgraph::expr
