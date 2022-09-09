@@ -124,6 +124,8 @@ struct ShardMap {
   std::vector<boost::uuids::uuid> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
     std::vector<boost::uuids::uuid> ret{};
 
+    bool mutated = false;
+
     for (auto &[label_id, label_space] : label_spaces) {
       for (auto &[low_key, shard] : label_space.shards) {
         // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
@@ -146,6 +148,8 @@ struct ShardMap {
 
         if (!machine_contains_shard && shard.size() < label_space.replication_factor) {
           Address address = storage_manager;
+
+          // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
           address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
 
           ret.push_back(address.unique_id);
@@ -158,6 +162,10 @@ struct ShardMap {
           shard.emplace_back(aas);
         }
       }
+    }
+
+    if (mutated) {
+      IncrementShardMapVersion();
     }
 
     return ret;

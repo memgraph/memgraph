@@ -137,7 +137,10 @@ class ShardManager {
   Time next_cron_;
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
-  std::set<boost::uuids::uuid> initialized_but_not_confirmed_rms_;
+
+  // TODO(tyler) over time remove items from initialized_but_not_confirmed_rsm_
+  // after the Coordinator is clearly aware of them
+  std::set<boost::uuids::uuid> initialized_but_not_confirmed_rsm_;
 
   void Reconciliation() {
     if (heartbeat_res_.has_value()) {
@@ -170,7 +173,7 @@ class ShardManager {
 
     HeartbeatRequest req{
         .from_storage_manager = GetAddress(),
-        .initialized_rsms = initialized_but_not_confirmed_rms_,
+        .initialized_rsms = initialized_but_not_confirmed_rsm_,
     };
 
     CoordinatorWriteRequests cwr = req;
@@ -187,7 +190,7 @@ class ShardManager {
   void EnsureShardsInitialized(HeartbeatResponse hr) {
     for (const auto rsm_uuid : hr.create_storage_rsms) {
       InitializeRsm(rsm_uuid);
-      initialized_but_not_confirmed_rms_.emplace(rsm_uuid);
+      initialized_but_not_confirmed_rsm_.emplace(rsm_uuid);
     }
   }
 

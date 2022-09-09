@@ -17,6 +17,7 @@
 
 #include <coordinator/coordinator.hpp>
 #include <coordinator/coordinator_client.hpp>
+#include <coordinator/hybrid_logical_clock.hpp>
 #include <coordinator/shard_map.hpp>
 #include <io/local_transport/local_system.hpp>
 #include <io/local_transport/local_transport.hpp>
@@ -24,6 +25,8 @@
 #include <io/transport.hpp>
 #include <machine_manager/machine_config.hpp>
 #include <machine_manager/machine_manager.hpp>
+#include "io/rsm/rsm_client.hpp"
+#include "io/rsm/shard_rsm.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/schemas.hpp"
 
@@ -35,16 +38,26 @@ using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorReadResponses;
 using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
+using memgraph::coordinator::Hlc;
+using memgraph::coordinator::HlcResponse;
+using memgraph::coordinator::Shard;
 using memgraph::coordinator::ShardMap;
 using memgraph::io::Io;
 using memgraph::io::local_transport::LocalSystem;
 using memgraph::io::local_transport::LocalTransport;
+using memgraph::io::rsm::RsmClient;
+using memgraph::io::rsm::StorageReadRequest;
+using memgraph::io::rsm::StorageReadResponse;
+using memgraph::io::rsm::StorageWriteRequest;
+using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::machine_manager::MachineConfig;
 using memgraph::machine_manager::MachineManager;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::SchemaProperty;
 
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using ShardClient =
+    RsmClient<LocalTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 
 ShardMap TestShardMap() {
   ShardMap sm{};
@@ -120,8 +133,8 @@ void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &cc) {
 TEST(MachineManager, BasicFunctionality) {
   LocalSystem local_system;
 
-  auto cli_addr = Address::TestAddress(0);
-  auto machine_1_addr = Address::TestAddress(1);
+  auto cli_addr = Address::TestAddress(1);
+  auto machine_1_addr = cli_addr.ForkUniqueAddress();
 
   Io<LocalTransport> cli_io = local_system.Register(cli_addr);
 
@@ -129,22 +142,64 @@ TEST(MachineManager, BasicFunctionality) {
       machine_1_addr,
   };
 
-  ShardMap sm = TestShardMap();
+  ShardMap initialization_sm = TestShardMap();
 
-  auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, sm);
+  auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, initialization_sm);
+  Address coordinator_address = mm_1.CoordinatorAddress();
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
 
-  // TODO(tyler) register SM w/ coordinators
-  // TODO(tyler) coordinator assigns replicas
-  // TODO(tyler) have SM reconcile ShardMap, adjust Raft membership
-
-  CoordinatorClient<LocalTransport> cc{cli_io, coordinator_addresses[0], coordinator_addresses};
+  // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
+  CoordinatorClient<LocalTransport> cc{cli_io, coordinator_address, {coordinator_address}};
 
   WaitForShardsToInitialize(cc);
 
   using namespace std::chrono_literals;
   std::this_thread::sleep_for(2010ms);
+
+  // get ShardMap from coordinator
+  memgraph::coordinator::HlcRequest req;
+  req.last_shard_map_version = Hlc{
+      .logical_id = 0,
+  };
+
+  BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res = cc.SendWriteRequest(req);
+  MG_ASSERT(!read_res.HasError(), "HLC request unexpectedly timed out");
+
+  auto coordinator_read_response = read_res.GetValue();
+  HlcResponse hlc_response = std::get<HlcResponse>(coordinator_read_response);
+  ShardMap sm = hlc_response.fresher_shard_map.value();
+
+  // Get shard for key
+  const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
+  const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
+
+  const CompoundKey compound_key = {cm_key_1, cm_key_2};
+
+  std::string label_name = "test_label";
+
+  Shard shard_for_key = sm.GetShardForKey(label_name, compound_key);
+
+  auto shard_for_client = std::vector<Address>{};
+
+  for (const auto &aas : shard_for_key) {
+    spdlog::info("got address for shard: {}", aas.address.ToString());
+    shard_for_client.push_back(aas.address);
+  }
+
+  ShardClient shard_client{cli_io, shard_for_client[0], shard_for_client};
+
+  LabelId label_id = sm.labels.at(label_name);
+  StorageReadRequest storage_get_req;
+  storage_get_req.label_id = label_id;
+  storage_get_req.key = compound_key;
+  storage_get_req.transaction_id = hlc_response.new_hlc;
+
+  auto get_response_result = shard_client.SendReadRequest(storage_get_req);
+  auto get_response = get_response_result.GetValue();
+  auto val = get_response.value;
+
+  MG_ASSERT(!val.has_value());
 
   local_system.ShutDown();
 };

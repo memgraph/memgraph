@@ -84,6 +84,8 @@ class MachineManager {
         coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)},
         shard_manager_(ShardManager{io.ForkLocal(), coordinator_.GetAddress()}) {}
 
+  Address CoordinatorAddress() { return coordinator_.GetAddress(); }
+
   void Run() {
     while (!io_.ShouldShutDown()) {
       const auto now = io_.Now();
