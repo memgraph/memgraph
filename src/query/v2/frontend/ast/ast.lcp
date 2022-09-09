@@ -17,11 +17,12 @@
 #include <variant>
 #include <vector>
 
-#include "query/v2/frontend/ast/ast_visitor.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
+#include "query/v2/bindings/ast_visitor.hpp"
+#include "query/v2/bindings/symbol.hpp"
 #include "query/v2/interpret/awesome_memgraph_functions.hpp"
-#include "query/v2/typed_value.hpp"
-#include "storage/v3/property_value.hpp"
+#include "query/v2/bindings/typed_value.hpp"
+#include "query/v2/db_accessor.hpp"
+#include "query/v2/path.hpp"
 #include "utils/typeinfo.hpp"
 
 cpp<#
@@ -630,7 +631,7 @@ cpp<#
   (:clone))
 
 (lcp:define-class primitive-literal (base-literal)
-  ((value "::storage::v3::PropertyValue" :scope :public)
+  ((value "TypedValue" :scope :public)
    (token-position :int32_t :scope :public :initval -1
                    :documentation "This field contains token position of literal used to create PrimitiveLiteral object. If PrimitiveLiteral object is not created from query, leave its value at -1."))
   (:public

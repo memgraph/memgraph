@@ -23,6 +23,7 @@
 #include "query/v2/plan/operator.hpp"
 
 #include "query_v2_query_plan_common.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 
 using namespace memgraph::query::v2;
@@ -165,7 +166,7 @@ TEST_F(QueryPlanBagSemanticsTest, OrderBy) {
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
     values.reserve(order_value_pair.second.size());
-    for (const auto &v : order_value_pair.second) values.emplace_back(v);
+    for (const auto &v : order_value_pair.second) values.emplace_back(storage::v3::PropertyToTypedValue<TypedValue>(v));
     // empty database
     for (auto vertex : dba.Vertices(storage::v3::View::OLD)) ASSERT_TRUE(dba.DetachRemoveVertex(&vertex).HasValue());
     dba.AdvanceCommand();
@@ -186,7 +187,7 @@ TEST_F(QueryPlanBagSemanticsTest, OrderBy) {
     // create the vertices
     for (const auto &value : shuffled) {
       ASSERT_TRUE(dba.InsertVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(1)}})
-                      ->SetProperty(prop, storage::v3::PropertyValue(value))
+                      ->SetProperty(prop, storage::v3::TypedToPropertyValue(value))
                       .HasValue());
     }
     dba.AdvanceCommand();

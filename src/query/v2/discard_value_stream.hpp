@@ -13,7 +13,7 @@
 
 #include <vector>
 
-#include "query/v2/typed_value.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 
 namespace memgraph::query::v2 {
 struct DiscardValueResultStream final {

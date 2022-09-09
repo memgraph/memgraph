@@ -22,6 +22,7 @@
 #include "query/v2/exceptions.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query_v2_query_plan_common.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 
@@ -358,7 +359,7 @@ TEST_F(QueryPlanAccumulateAggregateTest, AggregateGroupByValues) {
   ASSERT_EQ(result_group_bys.size(), group_by_vals.size() - 2);
   std::vector<TypedValue> group_by_tvals;
   group_by_tvals.reserve(group_by_vals.size());
-  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(v);
+  for (const auto &v : group_by_vals) group_by_tvals.emplace_back(storage::v3::PropertyToTypedValue<TypedValue>(v));
   EXPECT_TRUE(std::is_permutation(group_by_tvals.begin(), group_by_tvals.end() - 2, result_group_bys.begin(),
                                   TypedValue::BoolEqual{}));
 }
@@ -599,11 +600,9 @@ TEST(QueryPlan, Unwind) {
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
-  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<storage::v3::PropertyValue>{
-      storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{
-          storage::v3::PropertyValue(1), storage::v3::PropertyValue(true), storage::v3::PropertyValue("x")}),
-      storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{}),
-      storage::v3::PropertyValue(std::vector<storage::v3::PropertyValue>{storage::v3::PropertyValue("bla")})});
+  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<TypedValue>{
+      TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(true), TypedValue("x")}),
+      TypedValue(std::vector<TypedValue>{}), TypedValue(std::vector<TypedValue>{TypedValue("bla")})});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);

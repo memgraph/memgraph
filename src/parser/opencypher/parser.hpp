@@ -14,17 +14,29 @@
 #include <string>
 
 #include "antlr4-runtime.h"
-#include "query/v2/exceptions.hpp"
-#include "query/v2/frontend/opencypher/generated/MemgraphCypher.h"
-#include "query/v2/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#include "utils/exceptions.hpp"
+#include "parser/opencypher/generated/MemgraphCypher.h"
+#include "parser/opencypher/generated/MemgraphCypherLexer.h"
+#include "utils/concepts.hpp"
 
-namespace memgraph::query::v2::frontend::opencypher {
+namespace memgraph::frontend::opencypher {
+
+class SyntaxException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  SyntaxException() : SyntaxException("") {}
+};
 
 /**
  * Generates openCypher AST
  * This thing must me a class since parser.cypher() returns pointer and there is
  * no way for us to get ownership over the object.
  */
+enum class ParserOpTag : uint8_t {
+  CYPHER, EXPRESSION
+};
+
+template<ParserOpTag Tag = ParserOpTag::CYPHER>
 class Parser {
  public:
   /**
@@ -34,9 +46,14 @@ class Parser {
   Parser(const std::string query) : query_(std::move(query)) {
     parser_.removeErrorListeners();
     parser_.addErrorListener(&error_listener_);
-    tree_ = parser_.cypher();
+    if constexpr(Tag == ParserOpTag::CYPHER) {
+      tree_ = parser_.cypher();
+    }
+    else {
+      tree_ = parser_.expression();
+    }
     if (parser_.getNumberOfSyntaxErrors()) {
-      throw query::v2::SyntaxException(error_listener_.error_);
+      throw SyntaxException(error_listener_.error_);
     }
   }
 
@@ -65,4 +82,4 @@ class Parser {
   antlropencypher::MemgraphCypher parser_{&tokens_};
   antlr4::tree::ParseTree *tree_ = nullptr;
 };
-}  // namespace memgraph::query::v2::frontend::opencypher
+}  // namespace memgraph::frontend::opencypher

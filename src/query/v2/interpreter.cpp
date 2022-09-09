@@ -21,7 +21,14 @@
 #include <limits>
 #include <optional>
 
+#include "expr/ast/ast_visitor.hpp"
 #include "memory/memory_control.hpp"
+#include "parser/opencypher/parser.hpp"
+#include "query/v2/bindings/eval.hpp"
+#include "query/v2/bindings/frame.hpp"
+#include "query/v2/bindings/symbol_table.hpp"
+#include "query/v2/bindings/typed_value.hpp"
+#include "query/v2/common.hpp"
 #include "query/v2/constants.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/cypher_query_interpreter.hpp"
@@ -29,19 +36,13 @@
 #include "query/v2/dump.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/ast/ast_visitor.hpp"
-#include "query/v2/frontend/ast/cypher_main_visitor.hpp"
-#include "query/v2/frontend/opencypher/parser.hpp"
 #include "query/v2/frontend/semantic/required_privileges.hpp"
-#include "query/v2/frontend/semantic/symbol_generator.hpp"
-#include "query/v2/interpret/eval.hpp"
 #include "query/v2/metadata.hpp"
 #include "query/v2/plan/planner.hpp"
 #include "query/v2/plan/profile.hpp"
 #include "query/v2/plan/vertex_count_cache.hpp"
 #include "query/v2/stream/common.hpp"
 #include "query/v2/trigger.hpp"
-#include "query/v2/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/storage.hpp"
@@ -266,7 +267,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -433,7 +434,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 InterpreterContext *interpreter_context, DbAccessor *db_accessor,
                                 std::vector<Notification> *notifications) {
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -664,7 +665,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
 Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &parameters,
                            InterpreterContext *interpreter_context, DbAccessor *db_accessor,
                            const std::string *username, std::vector<Notification> *notifications) {
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -798,7 +799,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1008,7 +1009,7 @@ struct PullPlan {
  private:
   std::shared_ptr<CachedPlan> plan_ = nullptr;
   plan::UniqueCursorPtr cursor_ = nullptr;
-  Frame frame_;
+  expr::Frame<TypedValue> frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
 
@@ -1215,13 +1216,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
-  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto memory_limit =
+      expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
@@ -1354,13 +1356,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
-  Frame frame(0);
+  expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
-  const auto memory_limit = EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
+  const auto memory_limit =
+      expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,

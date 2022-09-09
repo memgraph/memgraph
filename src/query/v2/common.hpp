@@ -18,11 +18,13 @@
 #include <string_view>
 #include <type_traits>
 
+#include "query/v2/bindings/symbol.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/frontend/semantic/symbol.hpp"
-#include "query/v2/typed_value.hpp"
+#include "query/v2/path.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
@@ -155,7 +157,7 @@ storage::v3::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, con
                                            const TypedValue &value) {
   try {
     if constexpr (std::is_same_v<T, VertexAccessor>) {
-      const auto maybe_old_value = record->SetPropertyAndValidate(key, storage::v3::PropertyValue(value));
+      const auto maybe_old_value = record->SetPropertyAndValidate(key, storage::v3::TypedToPropertyValue(value));
       if (maybe_old_value.HasError()) {
         std::visit(utils::Overloaded{[](const storage::v3::Error error) { HandleErrorOnPropertyUpdate(error); },
                                      [&dba](const storage::v3::SchemaViolation &schema_violation) {
@@ -166,13 +168,13 @@ storage::v3::PropertyValue PropsSetChecked(T *record, const DbAccessor &dba, con
       return std::move(*maybe_old_value);
     } else {
       // No validation on edge properties
-      const auto maybe_old_value = record->SetProperty(key, storage::v3::PropertyValue(value));
+      const auto maybe_old_value = record->SetProperty(key, storage::v3::TypedToPropertyValue(value));
       if (maybe_old_value.HasError()) {
         HandleErrorOnPropertyUpdate(maybe_old_value.GetError());
       }
       return std::move(*maybe_old_value);
     }
-  } catch (const TypedValueException &) {
+  } catch (const expr::TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
   }
 }
