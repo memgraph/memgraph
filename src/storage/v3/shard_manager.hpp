@@ -144,6 +144,7 @@ class ShardManager {
         io::ResponseResult<WriteResponse<CoordinatorWriteResponses>> response_result =
             std::move(heartbeat_res_).value().Wait();
         heartbeat_res_.reset();
+        spdlog::info("SM received response from C");
       } else {
         return;
       }

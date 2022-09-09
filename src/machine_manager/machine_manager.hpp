@@ -82,7 +82,7 @@ class MachineManager {
   MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
       : io_(io),
         config_(config),
-        coordinator_{std::move(io.ForkLocal()), config.coordinator_addresses, std::move(coordinator)},
+        coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)},
         shard_manager_(ShardManager{io.ForkLocal(), coordinator_.GetAddress()}) {}
 
   void Run() {

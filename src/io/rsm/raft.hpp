@@ -235,7 +235,11 @@ class Raft {
   Raft(Io<IoImpl> &&io, std::vector<Address> peers, ReplicatedState &&replicated_state)
       : io_(std::forward<Io<IoImpl>>(io)),
         peers_(peers),
-        replicated_state_(std::forward<ReplicatedState>(replicated_state)) {}
+        replicated_state_(std::forward<ReplicatedState>(replicated_state)) {
+    if (peers.empty()) {
+      role_ = Leader{};
+    }
+  }
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -909,7 +913,11 @@ class Raft {
 
     leader.pending_client_requests.emplace(log_index, pcr);
 
-    BroadcastAppendEntries(leader.followers);
+    if (peers_.empty()) {
+      BumpCommitIndexAndReplyToClients(leader);
+    } else {
+      BroadcastAppendEntries(leader.followers);
+    }
 
     return std::nullopt;
   }
