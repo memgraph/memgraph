@@ -26,7 +26,7 @@ std::map<std::string, Value> EdgeAccessor::Properties() const {
   //    return res;
 }
 
-Value EdgeAccessor::GetProperty(const std::string &prop_name) {
+Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
   MG_ASSERT(properties.contains(prop_name));
   return properties[prop_name];
 }
@@ -54,7 +54,7 @@ std::map<std::string, Value> VertexAccessor::Properties() const {
   return properties;
 }
 
-Value VertexAccessor::GetProperty(const std::string &prop_name) {
+Value VertexAccessor::GetProperty(const std::string &prop_name) const {
   MG_ASSERT(properties.contains(prop_name));
   return Value(properties[prop_name]);
   //    return ValueToTypedValue(properties[prop_name]);

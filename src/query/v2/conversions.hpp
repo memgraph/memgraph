@@ -35,9 +35,9 @@ inline TypedValue ValueToTypedValue(const Value &value) {
     case Value::MAP:
       // return TypedValue(value.map_v);
     case Value::VERTEX:
-      //      return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
+      return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
     case Value::EDGE:
-      //      return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
+      return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
     case Value::PATH:
       break;
   }

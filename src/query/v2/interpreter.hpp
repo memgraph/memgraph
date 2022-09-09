@@ -27,8 +27,8 @@
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/read_write_type_checker.hpp"
 #include "query/v2/stream.hpp"
-#include "query/v2/stream/streams.hpp"
-#include "query/v2/trigger.hpp"
+//#include "query/v2/stream/streams.hpp"
+//#include "query/v2/trigger.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
@@ -179,12 +179,12 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  TriggerStore trigger_store;
-  utils::ThreadPool after_commit_trigger_pool{1};
+  //  TriggerStore trigger_store;
+  //  utils::ThreadPool after_commit_trigger_pool{1};
 
   const InterpreterConfig config;
 
-  query::v2::stream::Streams streams;
+  //  query::v2::stream::Streams streams;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -317,7 +317,7 @@ class Interpreter final {
   // move this unique_ptr into a shrared_ptr.
   std::unique_ptr<storage::v3::Storage::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
-  std::optional<TriggerContextCollector> trigger_context_collector_;
+  //  std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 

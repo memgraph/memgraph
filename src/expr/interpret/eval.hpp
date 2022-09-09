@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <regex>
+#include <type_traits>
 #include <vector>
 
 #include "expr/ast.hpp"
@@ -27,8 +28,11 @@
 
 namespace memgraph::expr {
 
+struct StorageTag {};
+struct QueryEngineTag {};
+
 template <typename TypedValue, typename EvaluationContext, typename DbAccessor, typename StorageView, typename LabelId,
-          typename PropertyValue, typename ConvFunction, typename Error>
+          typename PropertyValue, typename ConvFunction, typename Error, typename Tag = StorageTag>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
@@ -377,6 +381,46 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
+  template <typename VertexAccessor, typename TTag = Tag,
+            typename TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, bool>>
+  TReturnType HasLabelImpl(const VertexAccessor &vertex, StorageTag tag, const LabelIx &label) {
+    auto has_label = vertex.HasLabel(view_, GetLabel(label));
+    if (has_label.HasError() && has_label.GetError() == Error::NONEXISTENT_OBJECT) {
+      // This is a very nasty and temporary hack in order to make MERGE
+      // work. The old storage had the following logic when returning an
+      // `OLD` view: `return old ? old : new`. That means that if the
+      // `OLD` view didn't exist, it returned the NEW view. With this hack
+      // we simulate that behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is
+      // reimplemented.
+      has_label = vertex.HasLabel(StorageView::NEW, GetLabel(label));
+    }
+    if (has_label.HasError()) {
+      switch (has_label.GetError()) {
+        case Error::DELETED_OBJECT:
+          throw ExpressionRuntimeException("Trying to access labels on a deleted node.");
+        case Error::NONEXISTENT_OBJECT:
+          throw ExpressionRuntimeException("Trying to access labels from a node that doesn't exist.");
+        case Error::SERIALIZATION_ERROR:
+        case Error::VERTEX_HAS_EDGES:
+        case Error::PROPERTIES_DISABLED:
+          throw ExpressionRuntimeException("Unexpected error when accessing labels.");
+      }
+    }
+    if (!*has_label) {
+      return true;
+    }
+    return false;
+  }
+
+  template <typename VertexAccessor, typename TTag = Tag,
+            typename TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, bool>>
+  TReturnType HasLabelImpl(const VertexAccessor &vertex, QueryEngineTag tag, const LabelIx &label_ix) {
+    auto label = requests::Label{.id = LabelId::FromUint(label_ix.ix)};
+    auto has_label = vertex.HasLabel(label);
+    return !has_label;
+  }
+
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
     switch (expression_result.type()) {
@@ -385,30 +429,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label.HasError() && has_label.GetError() == Error::NONEXISTENT_OBJECT) {
-            // This is a very nasty and temporary hack in order to make MERGE
-            // work. The old storage had the following logic when returning an
-            // `OLD` view: `return old ? old : new`. That means that if the
-            // `OLD` view didn't exist, it returned the NEW view. With this hack
-            // we simulate that behavior.
-            // TODO (mferencevic, teon.banek): Remove once MERGE is
-            // reimplemented.
-            has_label = vertex.HasLabel(StorageView::NEW, GetLabel(label));
-          }
-          if (has_label.HasError()) {
-            switch (has_label.GetError()) {
-              case Error::DELETED_OBJECT:
-                throw ExpressionRuntimeException("Trying to access labels on a deleted node.");
-              case Error::NONEXISTENT_OBJECT:
-                throw ExpressionRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case Error::SERIALIZATION_ERROR:
-              case Error::VERTEX_HAS_EDGES:
-              case Error::PROPERTIES_DISABLED:
-                throw ExpressionRuntimeException("Unexpected error when accessing labels.");
-            }
-          }
-          if (!*has_label) {
+          if (HasLabelImpl(vertex, Tag{}, label)) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -695,58 +716,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
-  template <class TRecordAccessor>
-  TypedValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(StorageView::NEW, ctx_->properties[prop.ix]);
-    }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case Error::DELETED_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
-        case Error::NONEXISTENT_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case Error::SERIALIZATION_ERROR:
-        case Error::VERTEX_HAS_EDGES:
-        case Error::PROPERTIES_DISABLED:
-          throw ExpressionRuntimeException("Unexpected error when getting a property.");
-      }
-    }
-    return conv_(*maybe_prop);
+  template <class TRecordAccessor, class TTag = Tag,
+            class TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, TypedValue>>
+  TReturnType GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+    auto maybe_prop = record_accessor.GetProperty(prop.name);
+    // Handler non existent property
+    return conv_(maybe_prop);
   }
 
-  template <class TRecordAccessor>
-  TypedValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
-    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
-        case Error::DELETED_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
-        case Error::NONEXISTENT_OBJECT:
-          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
-        case Error::SERIALIZATION_ERROR:
-        case Error::VERTEX_HAS_EDGES:
-        case Error::PROPERTIES_DISABLED:
-          throw ExpressionRuntimeException("Unexpected error when getting a property.");
-      }
-    }
-    return conv_(*maybe_prop);
+  template <class TRecordAccessor, class TTag = Tag,
+            class TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, TypedValue>>
+  TReturnType GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+    auto maybe_prop = record_accessor.GetProperty(std::string(name));
+    // Handler non existent property
+    return conv_(maybe_prop);
   }
 
   LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }

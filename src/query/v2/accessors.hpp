@@ -38,7 +38,10 @@ class EdgeAccessor final {
 
   std::map<std::string, Value> Properties() const;
 
-  Value GetProperty(const std::string &prop_name);
+  Value GetProperty(const std::string &prop_name) const;
+
+  // Dummy function
+  inline size_t CypherId() const { return 10; }
 
   //  bool HasSrcAccessor const { return src == nullptr; }
   //  bool HasDstAccessor const { return dst == nullptr; }
@@ -54,7 +57,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  std::map<std::string, Value> properties;
+  mutable std::map<std::string, Value> properties;
 };
 
 class VertexAccessor final {
@@ -67,7 +70,10 @@ class VertexAccessor final {
 
   std::map<std::string, Value> Properties() const;
 
-  Value GetProperty(const std::string &prop_name);
+  Value GetProperty(const std::string &prop_name) const;
+
+  // Dummy function
+  inline size_t CypherId() const { return 10; }
 
   //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
   //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
@@ -116,7 +122,7 @@ class VertexAccessor final {
 
  private:
   Vertex vertex;
-  std::map<std::string, Value> properties;
+  mutable std::map<std::string, Value> properties;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
