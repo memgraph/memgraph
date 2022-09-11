@@ -184,17 +184,18 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
   }
 }
 
-bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2) {
+bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+                      int64_t edge_type_id) {
   auto src = Value(static_cast<int64_t>(value_of_vertex_1));
   auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
 
   auto id = EdgeId{};
   id.src = {src};
   id.dst = {dst};
-  id.gid = GetUniqueInteger();
+  id.gid = edge_gid;
 
   auto type = EdgeType{};
-  type.id = GetUniqueInteger();
+  type.id = edge_type_id;
 
   auto edge = Edge{};
   edge.id = id;
@@ -215,6 +216,43 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
 
     return write_response.success;
   }
+}
+
+bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+                         int64_t edge_type_id) {
+  // TODO(gvolfing) uncomment this once the handle is implemented
+
+  // auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+  // auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+
+  // auto id = EdgeId{};
+  // id.src = {src};
+  // id.dst = {dst};
+  // id.gid = edge_gid;
+
+  // auto type = EdgeType{};
+  // type.id = edge_type_id;
+
+  // auto edge = Edge{};
+  // edge.id = id;
+  // edge.type = type;
+
+  // UpdateEdgesRequest delete_req{};
+  // delete_req.edges = {edge};
+  // delete_req.transaction_id.logical_id = GetTransactionId();
+
+  // while (true) {
+  //   auto write_res = client.SendWriteRequest(delete_req);
+  //   if (write_res.HasError()) {
+  //     continue;
+  //   }
+
+  //   auto write_response_result = write_res.GetValue();
+  //   auto write_response = std::get<UpdateEdgesResponse>(write_response_result);
+
+  //   return write_response.success;
+  // }
+  return false;
 }
 
 }  // namespace
@@ -245,7 +283,48 @@ void TestAddEdge(ShardClient &client) {
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
 
-  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2));
+  auto edge_gid = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+}
+
+void TestDeleteEdge(ShardClient &client) {
+  // Add the Edge
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+  auto edge_gid = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+
+  // Delete the Edge
+  MG_ASSERT(AttemptToDeleteEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+}
+
+void TestUpdateEdge(ShardClient &client) {
+  // Add the Edge
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+  auto edge_gid = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+
+  // Update the Edge
+
+  // struct UpdateEdgeProp {
+  //   Edge edge;
+  //   std::vector<std::pair<PropertyId, Value>> property_updates;
+  // };
 }
 
 }  // namespace
@@ -310,6 +389,8 @@ int main() {
   TestCreateAndDeleteVertices(client);
   TestCreateAndUpdateVertices(client);
   TestAddEdge(client);
+  // TestDeleteEdge(client); -> Not yet implemented.
+  TestUpdateEdge(client);
 
   simulator.ShutDown();
 
