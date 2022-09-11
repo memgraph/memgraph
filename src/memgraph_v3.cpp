@@ -67,6 +67,13 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+#include "coordinator/coordinator_client.hpp"
+#include "coordinator/shard_map.hpp"
+#include "io/local_transport/local_system.hpp"
+#include "machine_manager/machine_config.hpp"
+#include "machine_manager/machine_manager.hpp"
+#include "storage/v3/property_value.hpp"
+
 // Communication libraries must be included after query libraries are included.
 // This is to enable compilation of the binary when linking with old OpenSSL
 // libraries (as on CentOS 7).
@@ -440,6 +447,7 @@ DEFINE_string(organization_name, "", "Organization name.");
 
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
+template <typename TTransport>
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
@@ -852,10 +860,11 @@ class AuthChecker final : public memgraph::query::AuthChecker {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth_;
 };
 
+template <typename TTransport>
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+  BoltSession(SessionData<TTransport> *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
               memgraph::communication::v2::InputStream *input_stream,
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -880,33 +889,34 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params) override {
-    std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
-    const std::string *username{nullptr};
-    if (user_) {
-      username = &user_->username();
-    }
-#ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
-      audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                         memgraph::storage::PropertyValue(params_pv));
-    }
-#endif
-    try {
-      auto result = interpreter_.Prepare(query, params_pv, username);
-      if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
-        interpreter_.Abort();
-        throw memgraph::communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact "
-            "your database administrator.");
-      }
-      return {result.headers, result.qid};
-
-    } catch (const memgraph::query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw memgraph::communication::bolt::ClientError(e.what());
-    }
+    //    std::map<std::string, memgraph::storage::PropertyValue> params_pv;
+    //    for (const auto &kv : params) params_pv.emplace(kv.first, memgraph::glue::ToPropertyValue(kv.second));
+    //     const std::string *username{nullptr};
+    //     if (user_) {
+    //       username = &user_->username();
+    //     }
+    // #ifdef MG_ENTERPRISE
+    //     if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    //       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
+    //                          memgraph::storage::PropertyValue(params_pv));
+    //     }
+    // #endif
+    //     try {
+    //       auto result = interpreter_.Prepare(query, params_pv, username);
+    //       if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges)) {
+    //         interpreter_.Abort();
+    //         throw memgraph::communication::bolt::ClientError(
+    //             "You are not authorized to execute this query! Please contact "
+    //             "your database administrator.");
+    //       }
+    //       return {result.headers, result.qid};
+    //
+    //     } catch (const memgraph::query::QueryException &e) {
+    //       // Wrap QueryException into ClientError, because we want to allow the
+    //       // client to fix their query.
+    //       throw memgraph::communication::bolt::ClientError(e.what());
+    //     }
+    return {{}, std::nullopt};
   }
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
@@ -1011,7 +1021,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };
 
-using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
+template <typename TTransport>
+using ServerT = memgraph::communication::v2::Server<BoltSession<TTransport>, SessionData<TTransport>>;
 using memgraph::communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
@@ -1043,6 +1054,40 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Interupt, shutdown,
                                                             block_shutdown_signals),
             "Unable to register SIGINT handler!");
+}
+
+using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
+// TODO(gitbuda): Come up with the splits for all datatypes.
+// TODO(gitbuda): Don't allow ids smaller than 0.
+memgraph::coordinator::ShardMap M1ShardMap() {
+  memgraph::coordinator::ShardMap sm{};
+  const size_t replication_factor = 1;
+  const size_t n_splits = std::thread::hardware_concurrency();
+
+  // Register new label space.
+  const std::string label_name = std::string("Label");
+  const std::vector<std::string> property_names = {"id"};
+  const auto properties = sm.AllocatePropertyIds(property_names);
+  const auto property_id = properties.at("id");
+  const auto property_type = memgraph::common::SchemaType::INT;
+  std::vector<memgraph::coordinator::SchemaProperty> schema = {
+      memgraph::coordinator::SchemaProperty{.property_id = property_id, .type = property_type},
+  };
+  std::optional<memgraph::storage::v3::LabelId> label_id =
+      sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
+  MG_ASSERT(label_id);
+
+  const auto split_interval = static_cast<int64_t>(std::numeric_limits<int64_t>::max() / n_splits);
+  for (int64_t i = 0; i < n_splits; ++i) {
+    const int64_t value = i * split_interval;
+    const auto key1 = memgraph::storage::v3::PropertyValue(value);
+    const auto key2 = memgraph::storage::v3::PropertyValue(value + split_interval);
+    const CompoundKey split_point = {key1, key2};
+    const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
+    MG_ASSERT(split_success);
+  }
+
+  return sm;
 }
 
 int main(int argc, char **argv) {
@@ -1190,6 +1235,29 @@ int main(int argc, char **argv) {
   // End enterprise features initialization
 #endif
 
+  using memgraph::coordinator::Address;
+  using memgraph::io::local_transport::LocalTransport;
+  memgraph::io::local_transport::LocalSystem local_system;
+  auto cli_addr = Address::TestAddress(5000);
+  auto cli_io = local_system.Register(cli_addr);
+  auto machine_addr = cli_addr.ForkUniqueAddress();
+  auto coordinator_addresses = std::vector{
+      machine_addr,
+  };
+  memgraph::machine_manager::MachineConfig machine_config{
+      .coordinator_addresses = coordinator_addresses,
+      .is_storage = true,
+      .is_coordinator = true,
+      .listen_ip = machine_addr.last_known_ip,
+      .listen_port = machine_addr.last_known_port,
+  };
+  auto shard_map = M1ShardMap();
+  memgraph::coordinator::Coordinator coordinator{shard_map};
+  auto io = local_system.Register(machine_addr);
+  memgraph::machine_manager::MachineManager machine_manager{io, machine_config, coordinator};
+  Address coordinator_address = machine_manager.CoordinatorAddress();
+  memgraph::coordinator::CoordinatorClient<LocalTransport> cc{cli_io, coordinator_address, coordinator_addresses};
+
   // Main storage and execution engines initialization
   memgraph::storage::Config db_config{
       .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC,
@@ -1234,9 +1302,9 @@ int main(int argc, char **argv) {
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory};
 #ifdef MG_ENTERPRISE
-  SessionData session_data{&db, &interpreter_context, &auth, &audit_log};
+  SessionData<LocalTransport> session_data{&db, &interpreter_context, &auth, &audit_log};
 #else
-  SessionData session_data{&db, &interpreter_context, &auth};
+  SessionData<LocalTransport> session_data{&db, &interpreter_context, &auth};
 #endif
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(query_modules_directories, FLAGS_data_directory);
@@ -1272,8 +1340,8 @@ int main(int argc, char **argv) {
 
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
-                 FLAGS_bolt_num_workers);
+  ServerT<LocalTransport> server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout,
+                                 service_name, FLAGS_bolt_num_workers);
 
   // Setup telemetry
   std::optional<memgraph::telemetry::Telemetry> telemetry;
