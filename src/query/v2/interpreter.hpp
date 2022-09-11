@@ -187,16 +187,25 @@ struct InterpreterContext {
 
   query::v2::stream::Streams streams;
 
-  storage::v3::LabelId NameToLabelId(std::string_view label_name) {
-    return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
+  std::optional<storage::v3::LabelId> NameToLabelId(std::string_view label_name) {
+    if (const auto maybe_label_id = query_id_mapper.NameToId(label_name); maybe_label_id) {
+      return storage::v3::LabelId::FromUint(*maybe_label_id);
+    }
+    return std::nullopt;
   }
 
-  storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
-    return storage::v3::PropertyId::FromUint(query_id_mapper.NameToId(property_name));
+  std::optional<storage::v3::PropertyId> NameToPropertyId(std::string_view property_name) {
+    if (const auto maybe_property_id = query_id_mapper.NameToId(property_name); maybe_property_id) {
+      return storage::v3::PropertyId::FromUint(*maybe_property_id);
+    }
+    return std::nullopt;
   }
 
-  storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return storage::v3::EdgeTypeId::FromUint(query_id_mapper.NameToId(edge_type_name));
+  std::optional<storage::v3::EdgeTypeId> NameToEdgeTypeId(std::string_view edge_type_name) {
+    if (const auto maybe_edge_type_id = query_id_mapper.NameToId(edge_type_name); maybe_edge_type_id) {
+      return storage::v3::EdgeTypeId::FromUint(*maybe_edge_type_id);
+    }
+    return std::nullopt;
   }
 
  private:

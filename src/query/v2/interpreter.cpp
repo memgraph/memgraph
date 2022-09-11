@@ -916,7 +916,8 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
         const auto label = interpreter_context->NameToLabelId(primary_label.name);
-        const auto *schema = db->GetSchema(label);
+        // TODO Check
+        const auto *schema = db->GetSchema(*label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
           for (const auto &schema_property : schema->second) {
@@ -945,9 +946,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
           auto property_id = interpreter_context->NameToPropertyId(schema_type.first.name);
-          schemas_types.push_back({property_id, schema_type.second});
+          // TODO Check
+          schemas_types.push_back({*property_id, schema_type.second});
         }
-        if (!db->CreateSchema(label, schemas_types)) {
+        // TODO Check
+        if (!db->CreateSchema(*label, schemas_types)) {
           throw QueryException(fmt::format("Schema on label :{} already exists!", primary_label.name));
         }
         return std::vector<std::vector<TypedValue>>{};
@@ -960,8 +963,8 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
         const auto label = interpreter_context->NameToLabelId(primary_label.name);
-
-        if (!db->DropSchema(label)) {
+        // TODO Check
+        if (!db->DropSchema(*label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
         }
 
@@ -1431,14 +1434,19 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   };
 
-  auto label = interpreter_context->NameToLabelId(index_query->label_.name);
+  const auto label = std::invoke([&]() {
+    if (const auto maybe_label = interpreter_context->NameToLabelId(index_query->label_.name); maybe_label) {
+      return *maybe_label;
+    }
+    throw QueryRuntimeException("Specified label unkown!");
+  });
 
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
+    properties.push_back(*interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -1998,14 +2006,22 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
   auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  auto label = interpreter_context->NameToLabelId(constraint_query->constraint_.label.name);
+  auto maybe_label = interpreter_context->NameToLabelId(constraint_query->constraint_.label.name);
+  if (!maybe_label) {
+    throw QueryRuntimeException("Specified label does not exist!");
+  }
+  const auto label = *maybe_label;
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(constraint_query->constraint_.properties.size());
   properties_string.reserve(constraint_query->constraint_.properties.size());
   for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
-    properties_string.push_back(prop.name);
+    if (const auto maybe_property = interpreter_context->NameToPropertyId(prop.name); !maybe_property) {
+      properties.push_back(*maybe_property);
+      properties_string.push_back(prop.name);
+    } else {
+      throw QueryRuntimeException("Specified property does not exist!");
+    }
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
 
