@@ -9,19 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-/// @file
 #pragma once
 
-#include <cstdint>
-#include <string>
+#include "query/v2/bindings/bindings.hpp"
 
-namespace memgraph::query::v2::frontend {
-
-// These are the functions for parsing literals and parameter names from
-// opencypher query.
-int64_t ParseIntegerLiteral(const std::string &s);
-std::string ParseStringLiteral(const std::string &s);
-double ParseDoubleLiteral(const std::string &s);
-std::string ParseParameter(const std::string &s);
-
-}  // namespace memgraph::query::v2::frontend
+#include "expr/ast/ast_visitor.hpp"
