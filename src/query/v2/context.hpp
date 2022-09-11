@@ -21,6 +21,9 @@
 #include "query/v2/trigger.hpp"
 #include "utils/async_timer.hpp"
 
+// TODO(gitbuda): Merge with the include block above.
+#include "query/v2/shard_request_manager_mock.hpp"
+
 namespace memgraph::query::v2 {
 
 struct EvaluationContext {

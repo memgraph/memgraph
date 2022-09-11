@@ -164,6 +164,12 @@ struct PreparedQuery {
  * Users should initialize the context but should not modify it after it has
  * been passed to an `Interpreter` instance.
  */
+// TODO(gitbuda): InterpreterContext has to be aware of the transport -> a lot of type changes.
+//
+// TODO(gitbuda): Does it make sense to introduce DistributedContext which
+// would be part of InterpreterContext including CoordinatorClient and IoImpl?
+//
+// template <typename TTransport>
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Storage *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory);
