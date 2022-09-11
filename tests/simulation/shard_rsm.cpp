@@ -9,11 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
 #include <iostream>
-#include <map>
 #include <optional>
-#include <set>
 #include <thread>
 #include <vector>
 
@@ -57,85 +54,112 @@ using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses,
 
 using ConcreteShardRsm = Raft<SimulatorTransport, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
+// TODO(gvolfing) test vertex deletion with DETACH_DELETE
+
 template <typename IoImpl>
 void RunShardRaft(Raft<IoImpl, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses> server) {
   server.Run();
 }
 
-namespace localschema {
-// struct SchemaProperty {
-//   PropertyId property_id;
-//   common::SchemaType type;
-
-//   friend bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
-// };
-
-// bool Shard::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
-LabelId primary_label = LabelId::FromUint(0);
-SchemaProperty schema_prop = {.property_id = PropertyId::FromUint(0), .type = memgraph::common::SchemaType::INT};
-}  // namespace localschema
-
-// tests
 namespace {
 
-void TestCreateVertices(ShardClient &client) {
-  // struct CreateVerticesRequest {
-  //   Hlc transaction_id;
-  //   std::vector<NewVertex> new_vertices;
-  // };
+uint64_t GetTransactionId() {
+  static uint64_t transaction_id = 0;
+  return transaction_id++;
+}
 
-  // struct CreateVerticesResponse {
-  //   bool success;
-  // };
+LabelId get_primary_label() { return LabelId::FromUint(0); }
 
-  // struct NewVertex {
-  //   std::vector<Label> label_ids;
-  //   PrimaryKey primary_key;
-  //   std::vector<std::pair<PropertyId, Value>> properties;
-  // };
+SchemaProperty get_schema_property() {
+  return {.property_id = PropertyId::FromUint(0), .type = memgraph::common::SchemaType::INT};
+}
 
-  // struct Label {
-  //   LabelId id;
-  // };
+PrimaryKey GetPrimaryKey() {
+  // PropertyValue prop_val(100);
+  PropertyValue prop_val(50);
+  PrimaryKey primary_key = {prop_val};
+  return primary_key;
+}
 
-  // using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
-
+NewVertex get_new_vertex() {
   // Specify Labels.
   Label label1 = {.id = LabelId::FromUint(1)};
   Label label2 = {.id = LabelId::FromUint(2)};
-
   std::vector<Label> label_ids = {label1, label2};
 
-  std::vector<NewVertex> vertices;
-
   // Specify primary key.
-  PropertyValue prop_val(100);
-  PrimaryKey primary_key = {prop_val};
+  PrimaryKey primary_key = GetPrimaryKey();
 
   // Specify properties
   auto val1 = Value(static_cast<int64_t>(1001));
-  // auto val2 = Value(static_cast<int64_t>(1002));
   auto prop1 = std::make_pair(PropertyId::FromUint(0), val1);
-  // auto prop2 = std::make_pair(PropertyId::FromUint(2), val2);
-
-  // std::vector<std::pair<PropertyId, Value>> properties{prop1, prop2};
   std::vector<std::pair<PropertyId, Value>> properties{prop1};
 
-  // Create NewVertex
-  NewVertex vertex = {.label_ids = label_ids, .primary_key = primary_key, .properties = properties};
+  // NewVertex
+  return {.label_ids = label_ids, .primary_key = primary_key, .properties = properties};
+}
 
-  auto req = CreateVerticesRequest{};
-  req.new_vertices = {vertex};
-  req.transaction_id.logical_id = 1;
+std::vector<std::vector<Value>> GetValuePrimaryKeys() {
+  // Value val(static_cast<int64_t>(100));
+  Value val(static_cast<int64_t>(1001));
+  return {{val}};
+}
+
+}  // namespace
+
+namespace {
+
+bool AttemtpToCreateVertex(ShardClient &client) {
+  NewVertex vertex = get_new_vertex();
+
+  auto create_req = CreateVerticesRequest{};
+  create_req.new_vertices = {vertex};
+  create_req.transaction_id.logical_id = GetTransactionId();
 
   while (true) {
-    auto write_res = client.SendWriteRequest(req);
+    auto write_res = client.SendWriteRequest(create_req);
     if (write_res.HasError()) {
       continue;
     }
 
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<CreateVerticesResponse>(write_response_result);
+
+    return (write_response.success);
+  }
+}
+
+}  // namespace
+
+// tests
+namespace {
+
+void TestCreateVertices(ShardClient &client) { MG_ASSERT(AttemtpToCreateVertex(client)); }
+
+void TestCreateAndDeleteVertices(ShardClient &client) {
+  MG_ASSERT(AttemtpToCreateVertex(client));
+
+  // Attempt to delete the just created vertex
+  // struct DeleteVerticesRequest {
+  //   enum class DeletionType { DELETE, DETACH_DELETE };
+  //   Hlc transaction_id;
+  //   std::vector<std::vector<Value>> primary_keys;
+  //   DeletionType deletion_type;
+  // };
+
+  auto delete_req = DeleteVerticesRequest{};
+  delete_req.deletion_type = DeleteVerticesRequest::DeletionType::DELETE;
+  delete_req.primary_keys = GetValuePrimaryKeys();
+  delete_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(delete_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<DeleteVerticesResponse>(write_response_result);
 
     MG_ASSERT(write_response.success);
     break;
@@ -161,19 +185,21 @@ int main() {
   Io<SimulatorTransport> shard_server_io_3 = simulator.RegisterNew();
   Io<SimulatorTransport> shard_client_io = simulator.RegisterNew();
 
-  PropertyValue age(50);
+  PropertyValue min_pk(static_cast<int64_t>(1));
+  std::vector<PropertyValue> min_prim_key = {min_pk};
 
-  std::vector<PropertyValue> prim_key = {age};
+  PropertyValue max_pk(static_cast<int64_t>(100000));
+  std::vector<PropertyValue> max_prim_key = {max_pk};
 
-  std::optional<std::vector<PropertyValue>> max_prim_key = std::nullopt;
+  // std::optional<std::vector<PropertyValue>> max_prim_key = std::nullopt;
 
-  auto shard_ptr1 = std::make_unique<memgraph::storage::v3::Shard>(localschema::primary_label, prim_key, max_prim_key);
-  auto shard_ptr2 = std::make_unique<memgraph::storage::v3::Shard>(localschema::primary_label, prim_key, max_prim_key);
-  auto shard_ptr3 = std::make_unique<memgraph::storage::v3::Shard>(localschema::primary_label, prim_key, max_prim_key);
+  auto shard_ptr1 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  auto shard_ptr2 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  auto shard_ptr3 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
 
-  // bool Shard::CreateSchema(const LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
-  shard_ptr1->CreateSchema(localschema::primary_label, {localschema::schema_prop});
-  shard_ptr2->CreateSchema(localschema::primary_label, {localschema::schema_prop});
+  shard_ptr1->CreateSchema(get_primary_label(), {get_schema_property()});
+  shard_ptr2->CreateSchema(get_primary_label(), {get_schema_property()});
+  shard_ptr3->CreateSchema(get_primary_label(), {get_schema_property()});
 
   std::vector<Address> address_for_1{shard_server_io_2.GetAddress(), shard_server_io_3.GetAddress()};
   std::vector<Address> address_for_2{shard_server_io_1.GetAddress(), shard_server_io_3.GetAddress()};
@@ -196,9 +222,12 @@ int main() {
 
   std::cout << "Beginning test after servers have become quiescent." << std::endl;
 
-  ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), {shard_server_io_2.GetAddress()});
+  std::vector server_addrs = {shard_server_io_1.GetAddress(), shard_server_io_2.GetAddress(),
+                              shard_server_io_3.GetAddress()};
+  ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), server_addrs);
 
-  TestCreateVertices(client);
+  // TestCreateVertices(client);
+  TestCreateAndDeleteVertices(client);
 
   simulator.ShutDown();
 

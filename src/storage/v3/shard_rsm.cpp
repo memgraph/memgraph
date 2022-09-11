@@ -114,7 +114,8 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
 }
 
 std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &vec) {
-  std::vector<memgraph::storage::v3::PropertyValue> ret(vec.size());
+  std::vector<memgraph::storage::v3::PropertyValue> ret;
+  ret.reserve(vec.size());
   for (auto &elem : vec) {
     memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(std::move(elem)));
     ret.push_back(converted_value);
@@ -273,7 +274,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
       break;
     }
 
-    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
+    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::NEW);
 
     if (!vertex_acc) {
       // Vertex does not exist.
