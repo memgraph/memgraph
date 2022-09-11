@@ -802,6 +802,10 @@ mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
   return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph);
 }
 
+mgp_error mgp_value_copy(mgp_value *val, mgp_memory *memory, mgp_value **result) {
+  return WrapExceptions([val, memory] { return NewRawMgpObject<mgp_value>(memory, *val); }, result);
+}
+
 void mgp_value_destroy(mgp_value *val) { DeleteRawMgpObject(val); }
 
 mgp_error mgp_value_make_null(mgp_memory *memory, mgp_value **result) {
@@ -917,6 +921,10 @@ mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **re
       result);
 }
 
+mgp_error mgp_list_copy(mgp_list *list, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([list, memory] { return NewRawMgpObject<mgp_list>(memory, *list); }, result);
+}
+
 void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
 namespace {
@@ -962,6 +970,10 @@ mgp_error mgp_list_at(mgp_list *list, size_t i, mgp_value **result) {
 
 mgp_error mgp_map_make_empty(mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([&memory] { return NewRawMgpObject<mgp_map>(memory); }, result);
+}
+
+mgp_error mgp_map_copy(mgp_map *map, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([map, memory] { return NewRawMgpObject<mgp_map>(memory, *map); }, result);
 }
 
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
