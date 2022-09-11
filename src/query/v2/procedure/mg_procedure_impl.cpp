@@ -24,9 +24,11 @@
 
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/procedure/mg_procedure_helpers.hpp"
 #include "query/v2/stream/common.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/algorithm.hpp"
@@ -1606,7 +1608,8 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::v2::VertexAccessor>()) {
       return;
     }
-    const auto old_value = memgraph::query::v2::TypedValue(*result);
+    using memgraph::query::v2::TypedValue;
+    const auto old_value = memgraph::storage::v3::PropertyToTypedValue<TypedValue>(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       trigger_ctx_collector->RegisterRemovedObjectProperty(v->impl, prop_key, old_value);
       return;
@@ -2031,7 +2034,8 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
         !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::v2::EdgeAccessor>()) {
       return;
     }
-    const auto old_value = memgraph::query::v2::TypedValue(*result);
+    using memgraph::query::v2::TypedValue;
+    const auto old_value = memgraph::storage::v3::PropertyToTypedValue<TypedValue>(*result);
     if (property_value->type == mgp_value_type::MGP_VALUE_TYPE_NULL) {
       e->from.graph->ctx->trigger_context_collector->RegisterRemovedObjectProperty(e->impl, prop_key, old_value);
       return;

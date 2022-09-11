@@ -13,7 +13,7 @@
 
 #include "utils/visitor.hpp"
 
-namespace memgraph::query::v2 {
+namespace MG_INJECTED_NAMESPACE_NAME {
 
 // Forward declares for Tree visitors.
 class CypherQuery;
@@ -96,7 +96,7 @@ class VersionQuery;
 class Foreach;
 class SchemaQuery;
 
-using TreeCompositeVisitor = utils::CompositeVisitor<
+using TreeCompositeVisitor = memgraph::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
     SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
     LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
@@ -105,7 +105,7 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
     RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach>;
 
-using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
+using TreeLeafVisitor = memgraph::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisitor {
  public:
@@ -117,7 +117,7 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
 
 template <class TResult>
 class ExpressionVisitor
-    : public utils::Visitor<
+    : public memgraph::utils::Visitor<
           TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
           SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
           LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
@@ -126,9 +126,10 @@ class ExpressionVisitor
           None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch> {};
 
 template <class TResult>
-class QueryVisitor : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
-                                           InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-                                           FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
-                                           StreamQuery, SettingQuery, VersionQuery, SchemaQuery> {};
+class QueryVisitor
+    : public memgraph::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, AuthQuery,
+                                      InfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
+                                      FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
+                                      StreamQuery, SettingQuery, VersionQuery, SchemaQuery> {};
 
-}  // namespace memgraph::query::v2
+}  // namespace MG_INJECTED_NAMESPACE_NAME

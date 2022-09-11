@@ -37,4 +37,4 @@ add_library(mg-storage-v3 STATIC ${storage_v3_src_files})
 target_link_libraries(mg-storage-v3 Threads::Threads mg-utils gflags)
 
 add_dependencies(mg-storage-v3 generate_lcp_storage)
-target_link_libraries(mg-storage-v3 mg-rpc mg-slk)
+target_link_libraries(mg-storage-v3 mg-rpc mg-slk mg-expr)

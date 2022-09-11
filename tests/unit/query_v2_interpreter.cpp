@@ -21,11 +21,11 @@
 #include "communication/bolt/v1/value.hpp"
 #include "glue/v2/communication.hpp"
 #include "query/v2/auth_checker.hpp"
+#include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/config.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/interpreter.hpp"
 #include "query/v2/stream.hpp"
-#include "query/v2/typed_value.hpp"
 #include "query_v2_query_common.hpp"
 #include "result_stream_faker.hpp"
 #include "storage/v3/isolation_level.hpp"
@@ -565,8 +565,10 @@ TEST_F(InterpreterTest, UniqueConstraintTest) {
   ASSERT_NO_THROW(Interpret("CREATE SCHEMA ON :A(a INTEGER);"));
 
   // Empty property list should result with syntax exception.
-  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
-  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+               memgraph::frontend::opencypher::SyntaxException);
+  ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+               memgraph::frontend::opencypher::SyntaxException);
 
   // Too large list of properties should also result with syntax exception.
   {
@@ -1083,25 +1085,27 @@ TEST_F(InterpreterTest, LoadCsvClause) {
   }
 }
 
-TEST_F(InterpreterTest, CacheableQueries) {
-  const auto &interpreter_context = default_interpreter.interpreter_context;
-  // This should be cached
-  {
-    SCOPED_TRACE("Cacheable query");
-    Interpret("RETURN 1");
-    EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
-    EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
-  }
-
-  {
-    SCOPED_TRACE("Uncacheable query");
-    // Queries which are calling procedure should not be cached because the
-    // result signature could be changed
-    Interpret("CALL mg.load_all()");
-    EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
-    EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
-  }
-}
+// TODO(kostasrim)
+// Fix this when we support modules for distributed
+// TEST_F(InterpreterTest, CacheableQueries) {
+//   const auto &interpreter_context = default_interpreter.interpreter_context;
+//   // This should be cached
+//   {
+//     SCOPED_TRACE("Cacheable query");
+//     Interpret("RETURN 1");
+//     EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
+//     EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+//   }
+//
+//   {
+//     SCOPED_TRACE("Uncacheable query");
+//     // Queries which are calling procedure should not be cached because the
+//     // result signature could be changed
+//     Interpret("CALL mg.load_all()");
+//     EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
+//     EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+//   }
+// }
 
 TEST_F(InterpreterTest, AllowLoadCsvConfig) {
   const auto check_load_csv_queries = [&](const bool allow_load_csv) {
@@ -1528,12 +1532,11 @@ TEST_F(InterpreterTest, DropSchemaMulticommandTransaction) {
 
 TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
   // Empty schema type map should result with syntax exception.
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::frontend::opencypher::SyntaxException);
 
   // Duplicate properties are should also cause an exception
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"), memgraph::query::v2::SemanticException);
-  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name INTEGER);"),
-               memgraph::query::v2::SemanticException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"), memgraph::expr::SemanticException);
+  ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name INTEGER);"), memgraph::expr::SemanticException);
 
   {
     // Cannot create same schema twice
@@ -1597,7 +1600,7 @@ TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
 TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
   Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
   // Wrong syntax for dropping schema.
-  ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
+  ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::frontend::opencypher::SyntaxException);
   // Cannot drop non existant schema.
   ASSERT_THROW(Interpret("DROP SCHEMA ON :label1;"), memgraph::query::v2::QueryException);
 

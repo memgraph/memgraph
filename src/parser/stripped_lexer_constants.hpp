@@ -17,7 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace memgraph::query::v2 {
+namespace parser {
 namespace lexer_constants {
 
 namespace trie {
@@ -2922,4 +2922,4 @@ const trie::Trie kSpecialTokens = {";",
                                    "\xEF\xB9\xA3",   // u8"\ufe63"
                                    "\xEF\xBC\x8D"};  // u8"\uff0d"
 }  // namespace lexer_constants
-}  // namespace memgraph::query::v2
+}  // namespace parser
