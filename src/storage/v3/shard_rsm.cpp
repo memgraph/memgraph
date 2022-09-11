@@ -180,7 +180,7 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 
   // Get the labels
   auto vertex_labels = acc.Labels(view).GetValue();
-  std::vector<Label> value_labels(vertex_labels.size());
+  std::vector<Label> value_labels;
   for (const auto &label : vertex_labels) {
     Label l = {.id = label};
     value_labels.push_back(l);
@@ -196,6 +196,8 @@ namespace memgraph::storage::v3 {
 WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   auto acc = shard_->Access();
 
+  // Workaround untill we have access to CreateVertexAndValidate()
+  // with the new signature that does not require the primary label.
   auto prim_label = acc.GetPrimaryLabel();
 
   bool action_successful = true;
@@ -206,11 +208,9 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     }
 
     /// TODO(gvolfing) Remove this. In the new implementation each shard
-    /// will have a predetermined primary label, so there is no point in
+    /// should have a predetermined primary label, so there is no point in
     /// specifying it in the accessor functions. Their signature will
     /// change.
-    // LabelId primary_label = ;
-
     /// TODO(gvolfing) Consider other methods than converting. Change either
     /// the way that the property map is stored in the messages, or the
     /// signature of CreateVertexAndValidate.
@@ -274,10 +274,9 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
       break;
     }
 
-    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::NEW);
+    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
 
     if (!vertex_acc) {
-      // Vertex does not exist.
       spdlog::debug(
           &"Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: "[req.transaction_id
                                                                                                         .logical_id]);
@@ -288,7 +287,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
       // we dont have to enter the switch statement on every iteration. Optimize this.
       switch (req.deletion_type) {
         case DeleteVerticesRequest::DeletionType::DELETE: {
-          // Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -338,7 +336,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
       break;
     }
 
-    auto vertex_to_update = acc.FindVertex(vertex.vertex.second, View::OLD);
+    auto vertex_to_update = acc.FindVertex(ConvertPropertyVector(vertex.vertex), View::OLD);
     if (!vertex_to_update) {
       action_successful = false;
       spdlog::debug(
@@ -400,7 +398,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       break;
     }
 
-    // auto vertex_acc_from_primary_key = edge.src.second;
     auto vertex_acc_from_primary_key = edge.id.src.second;
     auto vertex_from_acc = acc.FindVertex(vertex_acc_from_primary_key, View::OLD);
 
@@ -415,7 +412,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
     }
 
     auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
-
     auto edge_acc = acc.CreateEdge(&vertex_from_acc.value(), &vertex_to_acc.value(), edge_type_id);
 
     if (edge_acc.HasError()) {
@@ -443,7 +439,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
 }
 
 // TODO(gvolfing)
-// Uncomment this once the new overload for DeleteEdges is in place.
+// Uncomment this once the new overload for DeleteEdges() is in place.
 // DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
 WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
   // bool action_successful = true;

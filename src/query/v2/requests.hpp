@@ -26,12 +26,17 @@
 
 using memgraph::coordinator::Hlc;
 using memgraph::storage::v3::LabelId;
+
+struct Value;
+
 struct Label {
   LabelId id;
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
+// i don't think PrimaryKey is ever needed like this.
 using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
+// what does Label do here? it is never called. and primKey should be composed of Values.
 using VertexId = std::pair<Label, PrimaryKey>;
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
@@ -424,7 +429,8 @@ struct ExpandOneResponse {
 
 // Update related messages
 struct UpdateVertexProp {
-  VertexId vertex;
+  VertexId primary_key;  // This will very likely be deleted
+  std::vector<Value> vertex;
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
@@ -438,7 +444,8 @@ struct UpdateEdgeProp {
  */
 struct NewVertex {
   std::vector<Label> label_ids;
-  PrimaryKey primary_key;
+  PrimaryKey
+      primary_key;  // why? its never used. it is only defined here as part of NewVertex and not needed in the handle
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 

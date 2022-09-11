@@ -12,6 +12,7 @@
 #include <iostream>
 #include <optional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "io/address.hpp"
@@ -68,6 +69,11 @@ uint64_t GetTransactionId() {
   return transaction_id++;
 }
 
+uint64_t GetUniquePropertyValueValue() {
+  static uint64_t prop_val_val = 1001;
+  return prop_val_val++;
+}
+
 LabelId get_primary_label() { return LabelId::FromUint(0); }
 
 SchemaProperty get_schema_property() {
@@ -75,42 +81,45 @@ SchemaProperty get_schema_property() {
 }
 
 PrimaryKey GetPrimaryKey() {
-  // PropertyValue prop_val(100);
   PropertyValue prop_val(50);
   PrimaryKey primary_key = {prop_val};
   return primary_key;
 }
 
-NewVertex get_new_vertex() {
+NewVertex get_new_vertex(int64_t value) {
   // Specify Labels.
   Label label1 = {.id = LabelId::FromUint(1)};
-  Label label2 = {.id = LabelId::FromUint(2)};
-  std::vector<Label> label_ids = {label1, label2};
+  std::vector<Label> label_ids = {label1};
 
   // Specify primary key.
   PrimaryKey primary_key = GetPrimaryKey();
 
   // Specify properties
-  auto val1 = Value(static_cast<int64_t>(1001));
+  auto val1 = Value(static_cast<int64_t>(value));
   auto prop1 = std::make_pair(PropertyId::FromUint(0), val1);
-  std::vector<std::pair<PropertyId, Value>> properties{prop1};
+
+  auto val2 = Value(static_cast<int64_t>(value));
+  auto prop2 = std::make_pair(PropertyId::FromUint(1), val1);
+
+  std::vector<std::pair<PropertyId, Value>> properties{prop1, prop2};
 
   // NewVertex
   return {.label_ids = label_ids, .primary_key = primary_key, .properties = properties};
 }
 
-std::vector<std::vector<Value>> GetValuePrimaryKeys() {
-  // Value val(static_cast<int64_t>(100));
-  Value val(static_cast<int64_t>(1001));
+// TODO(gvolfing) maybe rename that something that makes sense.
+std::vector<std::vector<Value>> GetValuePrimaryKeysWithValue(int64_t value) {
+  Value val(static_cast<int64_t>(value));
   return {{val}};
 }
 
 }  // namespace
 
+// attempts to sending different requests
 namespace {
 
-bool AttemtpToCreateVertex(ShardClient &client) {
-  NewVertex vertex = get_new_vertex();
+bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
+  NewVertex vertex = get_new_vertex(value);
 
   auto create_req = CreateVerticesRequest{};
   create_req.new_vertices = {vertex};
@@ -125,31 +134,14 @@ bool AttemtpToCreateVertex(ShardClient &client) {
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<CreateVerticesResponse>(write_response_result);
 
-    return (write_response.success);
+    return write_response.success;
   }
 }
 
-}  // namespace
-
-// tests
-namespace {
-
-void TestCreateVertices(ShardClient &client) { MG_ASSERT(AttemtpToCreateVertex(client)); }
-
-void TestCreateAndDeleteVertices(ShardClient &client) {
-  MG_ASSERT(AttemtpToCreateVertex(client));
-
-  // Attempt to delete the just created vertex
-  // struct DeleteVerticesRequest {
-  //   enum class DeletionType { DELETE, DETACH_DELETE };
-  //   Hlc transaction_id;
-  //   std::vector<std::vector<Value>> primary_keys;
-  //   DeletionType deletion_type;
-  // };
-
+bool AttemptToDeleteVertex(ShardClient &client, int64_t value) {
   auto delete_req = DeleteVerticesRequest{};
   delete_req.deletion_type = DeleteVerticesRequest::DeletionType::DELETE;
-  delete_req.primary_keys = GetValuePrimaryKeys();
+  delete_req.primary_keys = GetValuePrimaryKeysWithValue(value);
   delete_req.transaction_id.logical_id = GetTransactionId();
 
   while (true) {
@@ -161,9 +153,58 @@ void TestCreateAndDeleteVertices(ShardClient &client) {
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<DeleteVerticesResponse>(write_response_result);
 
-    MG_ASSERT(write_response.success);
-    break;
+    return write_response.success;
   }
+}
+
+bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
+  auto vertex_id = GetValuePrimaryKeysWithValue(value)[0];
+
+  std::vector<std::pair<PropertyId, Value>> property_updates;
+  auto property_update = std::make_pair(PropertyId::FromUint(1), Value(static_cast<int64_t>(10000)));
+
+  auto vertex_prop = UpdateVertexProp{};
+  vertex_prop.vertex = vertex_id;
+  vertex_prop.property_updates = {property_update};
+
+  auto update_req = UpdateVerticesRequest{};
+  update_req.transaction_id.logical_id = GetTransactionId();
+  update_req.new_properties = {vertex_prop};
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(update_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<UpdateVerticesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
+}  // namespace
+
+// tests
+namespace {
+
+void TestCreateVertices(ShardClient &client) {
+  MG_ASSERT(AttemtpToCreateVertex(client, GetUniquePropertyValueValue()));
+}
+
+void TestCreateAndDeleteVertices(ShardClient &client) {
+  auto unique_prop_val = GetUniquePropertyValueValue();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
+  MG_ASSERT(AttemptToDeleteVertex(client, unique_prop_val));
+}
+
+void TestCreateAndUpdateVertices(ShardClient &client) {
+  auto unique_prop_val = GetUniquePropertyValueValue();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
+  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val));
 }
 
 }  // namespace
@@ -185,13 +226,11 @@ int main() {
   Io<SimulatorTransport> shard_server_io_3 = simulator.RegisterNew();
   Io<SimulatorTransport> shard_client_io = simulator.RegisterNew();
 
-  PropertyValue min_pk(static_cast<int64_t>(1));
+  PropertyValue min_pk(static_cast<int64_t>(0));
   std::vector<PropertyValue> min_prim_key = {min_pk};
 
   PropertyValue max_pk(static_cast<int64_t>(100000));
   std::vector<PropertyValue> max_prim_key = {max_pk};
-
-  // std::optional<std::vector<PropertyValue>> max_prim_key = std::nullopt;
 
   auto shard_ptr1 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
   auto shard_ptr2 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
@@ -226,8 +265,9 @@ int main() {
                               shard_server_io_3.GetAddress()};
   ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), server_addrs);
 
-  // TestCreateVertices(client);
+  TestCreateVertices(client);
   TestCreateAndDeleteVertices(client);
+  TestCreateAndUpdateVertices(client);
 
   simulator.ShutDown();
 
