@@ -101,8 +101,8 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &properties) {
-  std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret(
-      properties.size());
+  std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
+  ret.reserve(properties.size());
 
   for (auto &[key, value] : properties) {
     memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(std::move(value)));
@@ -215,8 +215,12 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     /// signature of CreateVertexAndValidate.
     auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
 
+    // TODO(gvolfing) make sure you don't create vectors bigger than they actually should be, e.g.
+    // std::vector<memgraph::storage::v3::LabelId> converted_label_ids(new_vertex.label_ids.size());
     // TODO(gvolfing) make sure if this conversion is actually needed.
-    std::vector<memgraph::storage::v3::LabelId> converted_label_ids(new_vertex.label_ids.size());
+    std::vector<memgraph::storage::v3::LabelId> converted_label_ids;
+    converted_label_ids.reserve(new_vertex.label_ids.size());
+
     for (const auto &label_id : new_vertex.label_ids) {
       converted_label_ids.emplace_back(label_id.id);
     }

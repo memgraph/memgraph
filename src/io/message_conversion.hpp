@@ -12,6 +12,7 @@
 #pragma once
 
 #include "io/transport.hpp"
+#include "spdlog/spdlog.h"
 
 namespace memgraph::io {
 
@@ -119,7 +120,11 @@ class OpaquePromiseTrait : public OpaquePromiseTraitBase {
   bool IsAwaited(void *ptr) const override { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); };
 
   void Fill(void *ptr, OpaqueMessage &&opaque_message) const override {
+    spdlog::critical(typeid(T).name());
+    spdlog::critical(opaque_message.message.type().name());
+
     T message = std::any_cast<T>(std::move(opaque_message.message));
+
     auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                  .request_id = opaque_message.request_id,
                                                  .to_address = opaque_message.to_address,
