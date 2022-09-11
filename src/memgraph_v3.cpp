@@ -67,6 +67,7 @@
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
+// TODO(gitbuda): Merge to the above block.
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/shard_map.hpp"
 #include "io/local_transport/local_system.hpp"

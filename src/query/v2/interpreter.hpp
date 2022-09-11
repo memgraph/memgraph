@@ -169,6 +169,7 @@ struct InterpreterContext {
                               const std::filesystem::path &data_directory);
 
   storage::v3::Storage *db;
+  // TODO(gitbuda): Add CoordinatorClient and/or Io and/or ShardRequestManager to InterpreterContext.
 
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};

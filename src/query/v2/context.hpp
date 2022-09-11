@@ -61,6 +61,7 @@ inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::st
 }
 
 struct ExecutionContext {
+  // TODO(gitbuda): Add CoordinatorClient and/or Io and/or ShardRequestManager to ExecutionContext.
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
