@@ -46,8 +46,8 @@ struct EdgeType {
 };
 
 struct EdgeId {
-  VertexId src;
-  VertexId dst;
+  std::vector<Value> src;
+  std::vector<Value> dst;
   Gid gid;
 };
 

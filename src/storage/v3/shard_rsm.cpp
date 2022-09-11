@@ -398,11 +398,11 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       break;
     }
 
-    auto vertex_acc_from_primary_key = edge.id.src.second;
-    auto vertex_from_acc = acc.FindVertex(vertex_acc_from_primary_key, View::OLD);
+    auto vertex_acc_from_primary_key = edge.id.src;
+    auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(vertex_acc_from_primary_key), View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.id.dst.second;
-    auto vertex_to_acc = acc.FindVertex(vertex_acc_to_primary_key, View::OLD);
+    auto vertex_acc_to_primary_key = edge.id.dst;
+    auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(vertex_acc_to_primary_key), View::OLD);
 
     if (!vertex_from_acc || !vertex_to_acc) {
       action_successful = false;
@@ -487,7 +487,7 @@ WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
       break;
     }
 
-    auto vertex_acc = acc.FindVertex(edge.edge.id.src.second, View::OLD);
+    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(edge.edge.id.src), View::OLD);
     if (!vertex_acc) {
       action_successful = false;
       // TODO(gvolfing) add debug error msg

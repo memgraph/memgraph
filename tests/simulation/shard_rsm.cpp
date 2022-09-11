@@ -69,7 +69,7 @@ uint64_t GetTransactionId() {
   return transaction_id++;
 }
 
-uint64_t GetUniquePropertyValueValue() {
+uint64_t GetUniqueInteger() {
   static uint64_t prop_val_val = 1001;
   return prop_val_val++;
 }
@@ -184,27 +184,68 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
   }
 }
 
+bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2) {
+  auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+  auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+
+  auto id = EdgeId{};
+  id.src = {src};
+  id.dst = {dst};
+  id.gid = GetUniqueInteger();
+
+  auto type = EdgeType{};
+  type.id = GetUniqueInteger();
+
+  auto edge = Edge{};
+  edge.id = id;
+  edge.type = type;
+
+  CreateEdgesRequest create_req{};
+  create_req.edges = {edge};
+  create_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(create_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<CreateEdgesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
 }  // namespace
 
 // tests
 namespace {
 
-void TestCreateVertices(ShardClient &client) {
-  MG_ASSERT(AttemtpToCreateVertex(client, GetUniquePropertyValueValue()));
-}
+void TestCreateVertices(ShardClient &client) { MG_ASSERT(AttemtpToCreateVertex(client, GetUniqueInteger())); }
 
 void TestCreateAndDeleteVertices(ShardClient &client) {
-  auto unique_prop_val = GetUniquePropertyValueValue();
+  auto unique_prop_val = GetUniqueInteger();
 
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
   MG_ASSERT(AttemptToDeleteVertex(client, unique_prop_val));
 }
 
 void TestCreateAndUpdateVertices(ShardClient &client) {
-  auto unique_prop_val = GetUniquePropertyValueValue();
+  auto unique_prop_val = GetUniqueInteger();
 
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
   MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val));
+}
+
+void TestAddEdge(ShardClient &client) {
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2));
 }
 
 }  // namespace
@@ -229,7 +270,7 @@ int main() {
   PropertyValue min_pk(static_cast<int64_t>(0));
   std::vector<PropertyValue> min_prim_key = {min_pk};
 
-  PropertyValue max_pk(static_cast<int64_t>(100000));
+  PropertyValue max_pk(static_cast<int64_t>(10000000));
   std::vector<PropertyValue> max_prim_key = {max_pk};
 
   auto shard_ptr1 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
@@ -268,6 +309,7 @@ int main() {
   TestCreateVertices(client);
   TestCreateAndDeleteVertices(client);
   TestCreateAndUpdateVertices(client);
+  TestAddEdge(client);
 
   simulator.ShutDown();
 
