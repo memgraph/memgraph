@@ -2915,12 +2915,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast()) {
-        if (context.auth_checker &&
-            !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
-                                          memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-          throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
-        }
+      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
