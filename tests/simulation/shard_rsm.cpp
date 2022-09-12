@@ -25,6 +25,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/result.hpp"
 
 using memgraph::io::Address;
@@ -80,8 +81,9 @@ SchemaProperty get_schema_property() {
   return {.property_id = PropertyId::FromUint(0), .type = memgraph::common::SchemaType::INT};
 }
 
-PrimaryKey GetPrimaryKey() {
-  PropertyValue prop_val(50);
+PrimaryKey GetPrimaryKey(int64_t value) {
+  // PropertyValue prop_val(50);
+  Value prop_val(static_cast<int64_t>(value));
   PrimaryKey primary_key = {prop_val};
   return primary_key;
 }
@@ -92,7 +94,7 @@ NewVertex get_new_vertex(int64_t value) {
   std::vector<Label> label_ids = {label1};
 
   // Specify primary key.
-  PrimaryKey primary_key = GetPrimaryKey();
+  PrimaryKey primary_key = GetPrimaryKey(value);
 
   // Specify properties
   auto val1 = Value(static_cast<int64_t>(value));
@@ -186,12 +188,18 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
                       int64_t edge_type_id) {
-  auto src = Value(static_cast<int64_t>(value_of_vertex_1));
-  auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+  // auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+  // auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+
+  // // using PrimaryKey = std::vector<Value>;
+  // // using VertexId = std::pair<Label, PrimaryKey>;
+  // std::make_pair(get_primary_label(), GetPrimaryKey());
 
   auto id = EdgeId{};
-  id.src = {src};
-  id.dst = {dst};
+  Label label = {.id = get_primary_label()};
+
+  id.src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
+  id.dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
   id.gid = edge_gid;
 
   auto type = EdgeType{};
@@ -255,6 +263,35 @@ bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
   return false;
 }
 
+bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+                         int64_t edge_type_id) {
+  // struct UpdateEdgeProp {
+  //   Edge edge;
+  //   std::vector<std::pair<PropertyId, Value>> property_updates;
+  // };
+
+  auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+  auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+
+  auto id = EdgeId{};
+  // id.src = {src};
+  // id.dst = {dst};
+  id.gid = edge_gid;
+
+  auto type = EdgeType{};
+  type.id = edge_type_id;
+
+  auto edge = Edge{};
+  edge.id = id;
+  edge.type = type;
+
+  UpdateEdgesRequest update_req{};
+  update_req.transaction_id.logical_id = GetTransactionId();
+  update_req.new_properties;
+
+  return false;
+}
+
 }  // namespace
 
 // tests
@@ -289,6 +326,47 @@ void TestAddEdge(ShardClient &client) {
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 }
 
+void TestScanAll(ShardClient &client) {
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+  auto unique_prop_val_3 = GetUniqueInteger();
+  auto unique_prop_val_4 = GetUniqueInteger();
+  auto unique_prop_val_5 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_3));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_4));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_5));
+
+  // VertexId start_id;
+  // std::optional<std::vector<PropertyId>> props_to_return;
+
+  // std::vector<PropertyId> props_to_return = {PropertyId::FromUint(1)};
+  // std::optional<std::vector<PropertyId>> props_to_return_opt = props_to_return;
+
+  // Test ScanAll
+  ScanVerticesRequest scan_req{};
+  scan_req.batch_limit = std::nullopt;
+  scan_req.filter_expressions = std::nullopt;
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = {Value(static_cast<int64_t>(unique_prop_val_1))};
+  scan_req.storage_view = StorageView::OLD;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+  }
+}
+
 void TestDeleteEdge(ShardClient &client) {
   // Add the Edge
   auto unique_prop_val_1 = GetUniqueInteger();
@@ -320,11 +398,6 @@ void TestUpdateEdge(ShardClient &client) {
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 
   // Update the Edge
-
-  // struct UpdateEdgeProp {
-  //   Edge edge;
-  //   std::vector<std::pair<PropertyId, Value>> property_updates;
-  // };
 }
 
 }  // namespace
@@ -386,11 +459,12 @@ int main() {
   ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), server_addrs);
 
   TestCreateVertices(client);
-  TestCreateAndDeleteVertices(client);
-  TestCreateAndUpdateVertices(client);
+  // TestCreateAndDeleteVertices(client);
+  // TestCreateAndUpdateVertices(client);
   TestAddEdge(client);
-  // TestDeleteEdge(client); -> Not yet implemented.
-  TestUpdateEdge(client);
+  // // TestDeleteEdge(client); -> Not yet implemented.
+  // // TestUpdateEdge(client); -> Message type insufficent.
+  TestScanAll(client);
 
   simulator.ShutDown();
 

@@ -34,9 +34,7 @@ struct Label {
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
-// i don't think PrimaryKey is ever needed like this.
-using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
-// what does Label do here? it is never called. and primKey should be composed of Values.
+using PrimaryKey = std::vector<Value>;
 using VertexId = std::pair<Label, PrimaryKey>;
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
@@ -46,8 +44,10 @@ struct EdgeType {
 };
 
 struct EdgeId {
-  std::vector<Value> src;
-  std::vector<Value> dst;
+  VertexId src;
+  VertexId dst;
+  // std::vector<Value> src;
+  // std::vector<Value> dst;
   Gid gid;
 };
 
@@ -98,12 +98,6 @@ struct Value {
     new (&map_v) std::map<std::string, Value>(std::move(val));
   }
 
-  // Value(Value &&other) noexcept;
-
-  // Value &operator=(const Value &other);
-
-  // Value &operator=(Value &&other) noexcept;
-
   ~Value() { DestroyValue(); }
 
   void DestroyValue() noexcept {
@@ -126,12 +120,13 @@ struct Value {
         std::destroy_at(&map_v);
         return;
 
-      // are these neede to be defined?
+      // are these needed to be defined?
       case VERTEX:
-        std::destroy_at(&vertex_v.labels);
+        std::destroy_at(&vertex_v);
       case PATH:
-        std::destroy_at(&path_v.parts);
+        std::destroy_at(&path_v);
       case EDGE:
+        std::destroy_at(&edge_v);
       default:
         return;
     }
@@ -278,13 +273,13 @@ struct Value {
         new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
         break;
       case VERTEX:
-        this->vertex_v = other.vertex_v;
+        this->vertex_v = std::move(other.vertex_v);
         break;
       case EDGE:
-        this->edge_v = other.edge_v;
+        this->edge_v = std::move(other.edge_v);
         break;
       case PATH:
-        this->path_v = other.path_v;
+        this->path_v = std::move(other.path_v);
         break;
     }
 
@@ -344,7 +339,8 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
-  VertexId start_id;
+  // VertexId start_id;
+  std::vector<Value> start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
@@ -444,8 +440,7 @@ struct UpdateEdgeProp {
  */
 struct NewVertex {
   std::vector<Label> label_ids;
-  PrimaryKey
-      primary_key;  // why? its never used. it is only defined here as part of NewVertex and not needed in the handle
+  PrimaryKey primary_key;
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 

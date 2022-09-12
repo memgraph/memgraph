@@ -244,6 +244,11 @@ class Shard final {
         LabelId primary_label, const std::vector<LabelId> &labels,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
+    /// @throw std::bad_alloc
+    ResultSchema<VertexAccessor> CreateVertexAndValidate(
+        LabelId primary_label, const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
+        const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
+
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
