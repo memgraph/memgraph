@@ -1,22 +1,25 @@
-template_cluster: &template_cluster
+read_query_modules_cluster: &read_query_modules_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "lba-e2e.log"
       setup_queries:
-        - "Create (:Label1 {id: 1}) ;"
-        - "Create (:Label1 {id: 2}) ;"
-        - "Create (:Label1 {id: 3}) ;"
-        - "Create (:Label1 {id: 4}) ;"
-        - "Create (:Label1 {id: 5}) ;"
-        - "Create (:Label1 {id: 6}) ;"
-        - "Create (:Label2 {id: 1}) ;"
-        - "Create (:Label2 {id: 2}) ;"
-        - "Create (:Label2 {id: 3}) ;"
-        - "Create (:Label2 {id: 4}) ;"
-        - "Create User Josip ;"
-        - "Create User Boris ;"
-        - "Grant Read On Labels :Label1 to Boris;"
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
+      validation_queries: []
+
+update_query_modules_cluster: &update_query_modules_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
       validation_queries: []
 
 show_privileges_cluster: &show_privileges_cluster
@@ -54,8 +57,21 @@ show_privileges_cluster: &show_privileges_cluster
         - "Create User Bruno;"
         - "Grant Auth to Bruno;"
         - "Deny Create_Delete On Labels * to Bruno"
+      validation_queries: []
 
 read_permission_queries: &read_permission_queries
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "lba-e2e.log"
+      setup_queries:
+        - "CREATE USER admin IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO admin"
+        - "CREATE USER user IDENTIFIED BY 'test';"
+        - "GRANT ALL PRIVILEGES TO user"
+      validation_queries: []
+
+create_delete_query_modules_cluster: &create_delete_query_modules_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
@@ -77,15 +93,26 @@ update_permission_queries_cluster: &update_permission_queries_cluster
         - "GRANT ALL PRIVILEGES TO admin;"
         - "CREATE USER user IDENTIFIED BY 'test'"
         - "GRANT ALL PRIVILEGES TO user;"
-
       validation_queries: []
 
 workloads:
-  - name: "Label-based auth"
+  - name: "read-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/lba_procedures.py"]
-    <<: *template_cluster
+    args: ["lba_procedures/read_query_modules.py"]
+    <<: *read_query_modules_cluster
+
+  - name: "update-query-modules"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/update_query_modules.py"]
+    <<: *update_query_modules_cluster
+
+  - name: "create-delete-query-modules"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/create_delete_query_modules.py"]
+    <<: *create_delete_query_modules_cluster
 
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"
