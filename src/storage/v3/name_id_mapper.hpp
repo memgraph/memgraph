@@ -24,17 +24,18 @@ namespace memgraph::storage::v3 {
 
 class NameIdMapper final {
  public:
+  static constexpr uint64_t kUnmappedId{0};
   NameIdMapper() = default;
 
   explicit NameIdMapper(std::unordered_map<uint64_t, std::string> id_to_name) : id_to_name_{std::move(id_to_name)} {}
 
   void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) { id_to_name_ = std::move(id_to_name); }
 
-  std::optional<uint64_t> NameToId(std::string_view name) const {
+  uint64_t NameToId(std::string_view name) const {
     auto it =
         std::ranges::find_if(id_to_name_, [name](const auto &name_id_pair) { return name_id_pair.second == name; });
     if (it == id_to_name_.end()) {
-      return std::nullopt;
+      return kUnmappedId;
     }
     return it->first;
   }

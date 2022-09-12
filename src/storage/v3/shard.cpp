@@ -778,15 +778,11 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
                                           &shard_->constraints_, config_, shard_->schema_validator_, true);
 }
 
-std::optional<LabelId> Shard::Accessor::NameToLabel(std::string_view name) const { return shard_->NameToLabel(name); }
+LabelId Shard::Accessor::NameToLabel(std::string_view name) const { return shard_->NameToLabel(name); }
 
-std::optional<PropertyId> Shard::Accessor::NameToProperty(std::string_view name) const {
-  return shard_->NameToProperty(name);
-}
+PropertyId Shard::Accessor::NameToProperty(std::string_view name) const { return shard_->NameToProperty(name); }
 
-std::optional<EdgeTypeId> Shard::Accessor::NameToEdgeType(std::string_view name) const {
-  return shard_->NameToEdgeType(name);
-}
+EdgeTypeId Shard::Accessor::NameToEdgeType(std::string_view name) const { return shard_->NameToEdgeType(name); }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
 
@@ -1064,25 +1060,14 @@ void Shard::Accessor::FinalizeTransaction() {
   }
 }
 
-std::optional<LabelId> Shard::NameToLabel(std::string_view name) const {
-  if (auto maybe_label_id = name_id_mapper_.NameToId(name); maybe_label_id) [[likely]] {
-    return LabelId::FromUint(*maybe_label_id);
-  }
-  return std::nullopt;
+LabelId Shard::NameToLabel(std::string_view name) const { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+
+PropertyId Shard::NameToProperty(std::string_view name) const {
+  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
 }
 
-std::optional<PropertyId> Shard::NameToProperty(std::string_view name) const {
-  if (auto maybe_property_id = name_id_mapper_.NameToId(name); maybe_property_id) [[likely]] {
-    return PropertyId::FromUint(*maybe_property_id);
-  }
-  return std::nullopt;
-}
-
-std::optional<EdgeTypeId> Shard::NameToEdgeType(std::string_view name) const {
-  if (auto maybe_edge_id = name_id_mapper_.NameToId(name); maybe_edge_id) [[likely]] {
-    return EdgeTypeId::FromUint(*maybe_edge_id);
-  }
-  return std::nullopt;
+EdgeTypeId Shard::NameToEdgeType(std::string_view name) const {
+  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 const std::string &Shard::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }

@@ -152,16 +152,12 @@ class DbAccessor final {
     return {std::make_optional<VertexAccessor>(*value)};
   }
 
-  std::optional<storage::v3::LabelId> NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
+  storage::v3::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
-  std::optional<storage::v3::PropertyId> NameToProperty(const std::string_view name) {
-    return accessor_->NameToProperty(name);
-  }
+  storage::v3::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  std::optional<storage::v3::EdgeTypeId> NameToEdgeType(const std::string_view name) {
-    return accessor_->NameToEdgeType(name);
-  }
+  storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
 
   const std::string &PropertyToName(storage::v3::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 

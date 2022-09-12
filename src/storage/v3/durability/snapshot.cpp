@@ -204,10 +204,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
       if (!id) throw RecoveryFailure("Invalid snapshot data!");
       auto name = snapshot.ReadString();
       if (!name) throw RecoveryFailure("Invalid snapshot data!");
-      if (const auto maybe_id = name_id_mapper->NameToId(*name); maybe_id) {
-        snapshot_id_map.emplace(*id, *maybe_id);
-        SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, *maybe_id);
-      }
+      auto my_id = name_id_mapper->NameToId(*name);
+      snapshot_id_map.emplace(*id, my_id);
+      SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
   }
   auto get_label_from_id = [&snapshot_id_map](uint64_t snapshot_id) {

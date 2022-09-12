@@ -307,11 +307,11 @@ class Shard final {
     /// @throw std::bad_alloc
     Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
-    std::optional<LabelId> NameToLabel(std::string_view name) const;
+    LabelId NameToLabel(std::string_view name) const;
 
-    std::optional<PropertyId> NameToProperty(std::string_view name) const;
+    PropertyId NameToProperty(std::string_view name) const;
 
-    std::optional<EdgeTypeId> NameToEdgeType(std::string_view name) const;
+    EdgeTypeId NameToEdgeType(std::string_view name) const;
 
     const std::string &LabelToName(LabelId label) const;
 
@@ -369,11 +369,11 @@ class Shard final {
     return Accessor{this, override_isolation_level.value_or(isolation_level_)};
   }
 
-  std::optional<LabelId> NameToLabel(std::string_view name) const;
+  LabelId NameToLabel(std::string_view name) const;
 
-  std::optional<PropertyId> NameToProperty(std::string_view name) const;
+  PropertyId NameToProperty(std::string_view name) const;
 
-  std::optional<EdgeTypeId> NameToEdgeType(std::string_view name) const;
+  EdgeTypeId NameToEdgeType(std::string_view name) const;
 
   const std::string &LabelToName(LabelId label) const;
 

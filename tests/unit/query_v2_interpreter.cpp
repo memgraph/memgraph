@@ -116,11 +116,11 @@ class InterpreterTest : public ::testing::Test {
   }
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
-    return storage::v3::LabelId::FromUint(*id_mapper.NameToId(label_name));
+    return storage::v3::LabelId::FromUint(id_mapper.NameToId(label_name));
   }
 
   storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
-    return storage::v3::PropertyId::FromUint(*id_mapper.NameToId(property_name));
+    return storage::v3::PropertyId::FromUint(id_mapper.NameToId(property_name));
   }
 
   storage::v3::PrimaryKey pk{storage::v3::PropertyValue(0)};

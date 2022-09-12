@@ -35,11 +35,9 @@ using testing::UnorderedElementsAre;
 namespace memgraph::storage::v3::test {
 
 class ExpressionEvaluatorTest : public ::testing::Test {
-  NameIdMapper global_id_mapper{{{0, "label"}, {1, "property"}}};
-
  protected:
-  LabelId primary_label{LabelId::FromInt(global_id_mapper.NameToId("label"))};
-  PropertyId primary_property{PropertyId::FromInt(global_id_mapper.NameToId("property"))};
+  LabelId primary_label{LabelId::FromInt(0)};
+  PropertyId primary_property{PropertyId::FromInt(1)};
   PrimaryKey min_pk{PropertyValue(0)};
 
   Shard db{primary_label, min_pk, std::nullopt};
@@ -55,6 +53,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
 
   void SetUp() override {
+    db.StoreMapping({{0, "label"}, {1, "property"}});
     ASSERT_TRUE(
         db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }

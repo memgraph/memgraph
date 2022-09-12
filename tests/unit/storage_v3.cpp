@@ -50,11 +50,11 @@ class StorageV3 : public ::testing::Test {
   LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
 
   PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(*id_mapper.NameToId(property_name));
+    return PropertyId::FromUint(id_mapper.NameToId(property_name));
   }
 
   EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return EdgeTypeId::FromUint(*id_mapper.NameToId(edge_type_name));
+    return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
   }
 
   NameIdMapper id_mapper;
