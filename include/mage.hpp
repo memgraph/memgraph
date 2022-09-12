@@ -18,8 +18,6 @@
 #include <string>
 #include <vector>
 
-#include <mg_utils.hpp>
-
 #include "mg_procedure.h"
 #include "mgp.hpp"
 
