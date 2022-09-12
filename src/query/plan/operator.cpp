@@ -2799,7 +2799,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
   if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
       !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
@@ -2963,7 +2963,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 #ifdef MG_ENTERPRISE
   if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
       !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
