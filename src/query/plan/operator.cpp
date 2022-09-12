@@ -49,6 +49,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/list.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
@@ -242,8 +243,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   if (context.auth_checker &&
       !context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    spdlog::info("Vertex will not be created due to not having enough permission!");
-    return false;
+    throw QueryRuntimeException("Vertex not created due to not having enough permission!");
   }
 
   if (input_cursor_->Pull(frame, context)) {
@@ -337,8 +337,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
       !(context.auth_checker->Accept(*context.db_accessor, self_.edge_info_.edge_type,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
         context.auth_checker->Accept(*context.db_accessor, self_.node_info_.labels, fine_grained_permission))) {
-    spdlog::info("Edge will not be created due to not having enough permission!");
-    return false;
+    throw QueryRuntimeException("Edge not created due to not having enough permission!");
   }
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -839,9 +838,9 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       weight_lambda_(weight_lambda),
       total_weight_(total_weight) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
-                 type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-             "ExpandVariable can only be used with breadth first, depth first or "
-             "weighted shortest path type");
+                 type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS,
+             "ExpandVariable can only be used with breadth first, depth first, "
+             "weighted shortest path or all shortest paths type");
   DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
 }
 
@@ -1527,6 +1526,28 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
+namespace {
+
+void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
+  if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
+    throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
+  }
+
+  const auto is_valid_numeric = [&] {
+    return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
+  };
+
+  const auto is_valid_duration = [&] {
+    return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
+  };
+
+  if (!is_valid_numeric() && !is_valid_duration()) {
+    throw QueryRuntimeException("Calculated weight must be non-negative!");
+  }
+}
+
+}  // namespace
+
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
@@ -1573,21 +1594,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
       TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
 
-      if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
-        throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
-      }
-
-      const auto is_valid_numeric = [&] {
-        return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
-      };
-
-      const auto is_valid_duration = [&] {
-        return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
-      };
-
-      if (!is_valid_numeric() && !is_valid_duration()) {
-        throw QueryRuntimeException("Calculated weight must be non-negative!");
-      }
+      CheckWeightType(current_weight, memory);
 
       auto next_state = create_state(vertex, depth);
 
@@ -1797,6 +1804,316 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   }
 };
 
+class ExpandAllShortestPathsCursor : public query::plan::Cursor {
+ public:
+  ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self_.input_->MakeCursor(mem)),
+        visited_cost_(mem),
+        expanded_(mem),
+        next_edges_(mem),
+        traversal_stack_(mem),
+        pq_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("ExpandAllShortestPathsCursor");
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+
+    // For the given (edge, direction, weight, depth) tuple checks if they
+    // satisfy the "where" condition. if so, places them in the priority
+    // queue.
+    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
+                                                    const TypedValue &total_weight, int64_t depth) {
+      auto *memory = evaluator.GetMemoryResource();
+
+      auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
+
+      // If filter expression exists, evaluate filter
+      if (self_.filter_lambda_.expression) {
+        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+        frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
+
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+      }
+
+      // Evaluate current weight
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
+
+      TypedValue current_weight = self_.weight_lambda_->expression->Accept(evaluator);
+
+      CheckWeightType(current_weight, memory);
+
+      TypedValue next_weight = std::invoke([&] {
+        if (total_weight.IsNull()) {
+          return current_weight;
+        }
+
+        ValidateWeightTypes(current_weight, total_weight);
+
+        return TypedValue(current_weight, memory) + total_weight;
+      });
+
+      auto found_it = visited_cost_.find(next_vertex);
+      // Check if the vertex has already been processed.
+      if (found_it != visited_cost_.end()) {
+        auto weight = found_it->second;
+
+        if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
+          // Has been visited, but now found a shorter path
+          visited_cost_[next_vertex] = next_weight;
+        } else {
+          // Continue and do not expand if current weight is larger
+          return;
+        }
+      } else {
+        visited_cost_[next_vertex] = next_weight;
+      }
+
+      DirectedEdge directed_edge = {edge, direction, next_weight};
+      pq_.push({next_weight, depth + 1, next_vertex, directed_edge});
+    };
+
+    // Populates the priority queue structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
+    auto expand_from_vertex = [this, &expand_vertex, &context](const VertexAccessor &vertex, const TypedValue &weight,
+                                                               int64_t depth) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : out_edges) {
+          if (context.auth_checker &&
+              !(context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Accept(*context.db_accessor, edge,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+          expand_vertex(edge, EdgeAtom::Direction::OUT, weight, depth);
+        }
+      }
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        for (const auto &edge : in_edges) {
+          if (context.auth_checker &&
+              !(context.auth_checker->Accept(*context.db_accessor, edge.From(), storage::View::OLD,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Accept(*context.db_accessor, edge,
+                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+          expand_vertex(edge, EdgeAtom::Direction::IN, weight, depth);
+        }
+      }
+    };
+
+    // Check if upper bound exists
+    upper_bound_ = self_.upper_bound_
+                       ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest paths expansion")
+                       : std::numeric_limits<int64_t>::max();
+
+    // Check if upper bound is valid
+    if (upper_bound_ < 1) {
+      throw QueryRuntimeException("Maximum depth in all shortest paths expansion must be at least 1.");
+    }
+
+    std::optional<VertexAccessor> start_vertex;
+    auto *memory = context.evaluation_context.memory;
+
+    while (true) {
+      // Check if there is an external error.
+      if (MustAbort(context)) throw HintedAbortError();
+
+      // If traversal stack if filled, the DFS traversal tree is created. Traverse the tree iteratively by preserving
+      // the traversal state on stack.
+      while (!traversal_stack_.empty()) {
+        auto &current_level = traversal_stack_.back();
+        auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+
+        // Clean out the current stack
+        if (current_level.empty()) {
+          if (!edges_on_frame.empty()) {
+            if (!self_.is_reverse_)
+              edges_on_frame.erase(edges_on_frame.end());
+            else
+              edges_on_frame.erase(edges_on_frame.begin());
+          }
+          traversal_stack_.pop_back();
+          continue;
+        }
+
+        auto [current_edge, current_edge_direction, current_weight] = current_level.back();
+        current_level.pop_back();
+
+        // Edges order depends on direction of expansion
+        if (!self_.is_reverse_)
+          edges_on_frame.emplace_back(current_edge);
+        else
+          edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+
+        auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
+        frame[self_.common_.node_symbol] = next_vertex;
+        frame[self_.total_weight_.value()] = current_weight;
+
+        if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
+          auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
+          traversal_stack_.emplace_back(std::move(next_vertex_edges));
+        } else {
+          // Signal the end of iteration
+          utils::pmr::list<DirectedEdge> empty(memory);
+          traversal_stack_.emplace_back(std::move(empty));
+        }
+
+        if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) continue;
+        return true;
+      }
+
+      // If priority queue is empty start new pulling stream.
+      if (pq_.empty()) {
+        // Finish if there is nothing to pull
+        if (!input_cursor_->Pull(frame, context)) return false;
+
+        const auto &vertex_value = frame[self_.input_symbol_];
+        if (vertex_value.IsNull()) continue;
+
+        start_vertex = vertex_value.ValueVertex();
+        if (self_.common_.existing_node) {
+          const auto &node = frame[self_.common_.node_symbol];
+          // Due to optional matching the existing node could be null.
+          // Skip expansion for such nodes.
+          if (node.IsNull()) continue;
+        }
+
+        // Clear existing data structures.
+        visited_cost_.clear();
+        expanded_.clear();
+        next_edges_.clear();
+        traversal_stack_.clear();
+
+        pq_.push({TypedValue(), 0, *start_vertex, std::nullopt});
+        visited_cost_.emplace(*start_vertex, 0);
+        frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
+      }
+
+      // Create a DFS traversal tree from the start node
+      while (!pq_.empty()) {
+        if (MustAbort(context)) throw HintedAbortError();
+
+        auto [current_weight, current_depth, current_vertex, maybe_directed_edge] = pq_.top();
+        pq_.pop();
+
+        // Expand only if what we've just expanded is less than max depth.
+        if (current_depth < upper_bound_) {
+          if (maybe_directed_edge) {
+            auto &[current_edge, direction, weight] = *maybe_directed_edge;
+            if (expanded_.find(current_edge) != expanded_.end()) continue;
+            expanded_.emplace(current_edge);
+          }
+          expand_from_vertex(current_vertex, current_weight, current_depth);
+        }
+
+        // if current vertex is not starting vertex, maybe_directed_edge will not be nullopt
+        if (maybe_directed_edge) {
+          auto &[current_edge, direction, weight] = *maybe_directed_edge;
+          // Searching for a previous vertex in the expansion
+          auto prev_vertex = direction == EdgeAtom::Direction::IN ? current_edge.To() : current_edge.From();
+
+          // Update the parent
+          if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
+            utils::pmr::list<DirectedEdge> empty(memory);
+            next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
+          }
+
+          next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(*maybe_directed_edge);
+        }
+      }
+
+      if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
+        auto start_vertex_edges = next_edges_[{*start_vertex, 0}];
+        traversal_stack_.emplace_back(std::move(start_vertex_edges));
+      }
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    visited_cost_.clear();
+    expanded_.clear();
+    next_edges_.clear();
+    traversal_stack_.clear();
+    ClearQueue();
+  }
+
+ private:
+  const ExpandVariable &self_;
+  const UniqueCursorPtr input_cursor_;
+
+  // Upper bound on the path length.
+  int64_t upper_bound_{-1};
+
+  struct AspStateHash {
+    size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
+      return utils::HashCombine<VertexAccessor, int64_t>{}(key.first, key.second);
+    }
+  };
+
+  using DirectedEdge = std::tuple<EdgeAccessor, EdgeAtom::Direction, TypedValue>;
+  using NextEdgesState = std::pair<VertexAccessor, int64_t>;
+  // Maps vertices to minimum weights they got in expansion.
+  utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
+  // Marking the expanded edges to prevent multiple visits.
+  utils::pmr::unordered_set<EdgeAccessor> expanded_;
+  // Maps the vertex with the potential expansion edge.
+  utils::pmr::unordered_map<NextEdgesState, utils::pmr::list<DirectedEdge>, AspStateHash> next_edges_;
+  // Stack indicating the traversal level.
+  utils::pmr::list<utils::pmr::list<DirectedEdge>> traversal_stack_;
+
+  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
+    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
+      throw QueryRuntimeException(utils::MessageWithLink(
+          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
+          "expression or the filter expression.",
+          "https://memgr.ph/wsp"));
+    }
+  }
+
+  // Priority queue comparator. Keep lowest weight on top of the queue.
+  class PriorityQueueComparator {
+   public:
+    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &lhs,
+                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>> &rhs) {
+      const auto &lhs_weight = std::get<0>(lhs);
+      const auto &rhs_weight = std::get<0>(rhs);
+      // Null defines minimum value for all types
+      if (lhs_weight.IsNull()) {
+        return false;
+      }
+
+      if (rhs_weight.IsNull()) {
+        return true;
+      }
+
+      ValidateWeightTypes(lhs_weight, rhs_weight);
+      return (lhs_weight > rhs_weight).ValueBool();
+    }
+  };
+
+  // Priority queue - core element of the algorithm.
+  // Stores: {weight, depth, next vertex, edge and direction}
+  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>,
+                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<DirectedEdge>>>,
+                      PriorityQueueComparator>
+      pq_;
+
+  void ClearQueue() {
+    while (!pq_.empty()) pq_.pop();
+  }
+};
+
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
 
@@ -1811,6 +2128,8 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
       return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
+    case EdgeAtom::Type::ALL_SHORTEST_PATHS:
+      return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
     case EdgeAtom::Type::SINGLE:
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
   }
@@ -2034,8 +2353,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
                                          query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
             context.auth_checker->Accept(*context.db_accessor, ea.From(), storage::View::NEW,
                                          query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-        spdlog::info("Edge will not be deleted due to not having enough permission!");
-        continue;
+        throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
       }
       auto maybe_value = dba.RemoveEdge(&ea);
       if (maybe_value.HasError()) {
@@ -2065,8 +2383,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         if (context.auth_checker &&
             !context.auth_checker->Accept(*context.db_accessor, va, storage::View::NEW,
                                           query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          spdlog::info("Vertex will not be deleted due to not having enough permission!");
-          break;
+          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
         if (self_.detach_) {
           auto res = dba.DetachRemoveVertex(&va);
@@ -2174,8 +2491,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex property will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
@@ -2191,8 +2507,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge property will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
@@ -2390,8 +2705,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex properties will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
@@ -2400,8 +2714,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge properties will not be set due to not having enough permission!");
-        break;
+        throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
@@ -2441,6 +2754,12 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
 
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
+  }
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2448,6 +2767,12 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
+
+  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
+  }
+
   for (auto label : self_.labels_) {
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
@@ -2533,8 +2858,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex property will not be removed due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
       }
 
       remove_prop(&lhs.ValueVertex());
@@ -2543,8 +2867,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (context.auth_checker &&
           !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
                                         memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge property will not be removed due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
       }
 
       remove_prop(&lhs.ValueEdge());
@@ -2584,6 +2907,12 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
 
+  if (context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
+  }
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2591,6 +2920,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
+  if (context.auth_checker && !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                                            memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
+  }
+
   for (auto label : self_.labels_) {
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {

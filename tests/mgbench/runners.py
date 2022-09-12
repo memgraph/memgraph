@@ -130,7 +130,7 @@ class Client:
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
 
-    def execute(self, queries=None, file_path=None, num_workers=1, max_retries=50):
+    def execute(self, queries=None, file_path=None, num_workers=1):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
 
@@ -152,7 +152,6 @@ class Client:
             queries_json=queries_json,
             username=self._username,
             password=self._password,
-            max_retries=max_retries,
         )
         ret = subprocess.run(args, stdout=subprocess.PIPE, check=True)
         data = ret.stdout.decode("utf-8").strip().split("\n")
