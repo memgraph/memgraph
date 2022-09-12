@@ -443,6 +443,7 @@ class ScanAllCursor : public Cursor {
     return true;
   }
 
+#ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_.value().end()) {
       if (context.auth_checker->Accept(*context.db_accessor, *vertices_it_.value(), memgraph::storage::View::OLD,
@@ -453,6 +454,7 @@ class ScanAllCursor : public Cursor {
     }
     return false;
   }
+#endif
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
