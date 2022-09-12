@@ -1261,10 +1261,10 @@ class STShortestPathCursor : public query::plan::Cursor {
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
-                context.auth_checker->Accept(*context.db_accessor, edge,
-                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
-                                             memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+                !(context.auth_checker->Accept(*context.db_accessor, edge,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Accept(*context.db_accessor, edge.To(), storage::View::OLD,
+                                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
               continue;
             }
 #endif
@@ -2738,12 +2738,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast()) {
-        if (context.auth_checker &&
-            !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
-                                          memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-          throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
-        }
+      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 #endif
 
@@ -2751,12 +2749,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast()) {
-        if (context.auth_checker &&
-            !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
-                                          memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-          throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
-        }
+      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueEdge(),
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
@@ -2903,12 +2899,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
 #ifdef MG_ENTERPRISE
-      if (utils::license::global_license_checker.IsValidLicenseFast()) {
-        if (context.auth_checker &&
-            !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
-                                          memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-          throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
-        }
+      if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+          !context.auth_checker->Accept(*context.db_accessor, lhs.ValueVertex(), storage::View::NEW,
+                                        memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
