@@ -74,27 +74,29 @@ struct Path {
 struct Null {};
 
 struct Value {
-  Value() : type(NILL), null_v{} {}
+  Value() : type(Type::NILL), null_v{} {}
 
-  explicit Value(const bool val) : type(BOOL), bool_v(val) {}
-  explicit Value(const int64_t val) : type(INT64), int_v(val) {}
-  explicit Value(const double val) : type(DOUBLE), double_v(val) {}
+  explicit Value(const bool val) : type(Type::BOOL), bool_v(val) {}
+  explicit Value(const int64_t val) : type(Type::INT64), int_v(val) {}
+  explicit Value(const double val) : type(Type::DOUBLE), double_v(val) {}
 
-  explicit Value(const Vertex val) : type(VERTEX), vertex_v(val) {}
+  explicit Value(const Vertex val) : type(Type::VERTEX), vertex_v(val) {}
 
-  explicit Value(const std::string &val) : type(STRING) { new (&string_v) std::string(val); }
-  explicit Value(const char *val) : type(STRING) { new (&string_v) std::string(val); }
+  explicit Value(const std::string &val) : type(Type::STRING) { new (&string_v) std::string(val); }
+  explicit Value(const char *val) : type(Type::STRING) { new (&string_v) std::string(val); }
 
-  explicit Value(const std::vector<Value> &val) : type(LIST) { new (&list_v) std::vector<Value>(val); }
+  explicit Value(const std::vector<Value> &val) : type(Type::LIST) { new (&list_v) std::vector<Value>(val); }
 
-  explicit Value(const std::map<std::string, Value> &val) : type(MAP) {
+  explicit Value(const std::map<std::string, Value> &val) : type(Type::MAP) {
     new (&map_v) std::map<std::string, Value>(val);
   }
 
-  explicit Value(std::string &&val) noexcept : type(STRING) { new (&string_v) std::string(std::move(val)); }
+  explicit Value(std::string &&val) noexcept : type(Type::STRING) { new (&string_v) std::string(std::move(val)); }
 
-  explicit Value(std::vector<Value> &&val) noexcept : type(LIST) { new (&list_v) std::vector<Value>(std::move(val)); }
-  explicit Value(std::map<std::string, Value> &&val) noexcept : type(MAP) {
+  explicit Value(std::vector<Value> &&val) noexcept : type(Type::LIST) {
+    new (&list_v) std::vector<Value>(std::move(val));
+  }
+  explicit Value(std::map<std::string, Value> &&val) noexcept : type(Type::MAP) {
     new (&map_v) std::map<std::string, Value>(std::move(val));
   }
 
@@ -103,29 +105,31 @@ struct Value {
   void DestroyValue() noexcept {
     switch (type) {
       // destructor for primitive types does nothing
-      case NILL:
-      case BOOL:
-      case INT64:
-      case DOUBLE:
+      case Type::NILL:
+      case Type::BOOL:
+      case Type::INT64:
+      case Type::DOUBLE:
         return;
 
       // destructor for non primitive types since we used placement new
-      case STRING:
+      case Type::STRING:
         std::destroy_at(&string_v);
         return;
-      case LIST:
+      case Type::LIST:
         std::destroy_at(&list_v);
         return;
-      case MAP:
+      case Type::MAP:
         std::destroy_at(&map_v);
         return;
 
       // are these needed to be defined?
-      case VERTEX:
+      case Type::VERTEX:
         std::destroy_at(&vertex_v);
-      case PATH:
+        return;
+      case Type::PATH:
         std::destroy_at(&path_v);
-      case EDGE:
+        return;
+      case Type::EDGE:
         std::destroy_at(&edge_v);
       default:
         return;
@@ -134,74 +138,74 @@ struct Value {
 
   Value(const Value &other) : type(other.type) {
     switch (other.type) {
-      case NULL:
+      case Type::NILL:
         return;
-      case BOOL:
+      case Type::BOOL:
         this->bool_v = other.bool_v;
         return;
-      case INT64:
+      case Type::INT64:
         this->int_v = other.int_v;
         return;
-      case DOUBLE:
+      case Type::DOUBLE:
         this->double_v = other.double_v;
         return;
-      case STRING:
+      case Type::STRING:
         new (&string_v) std::string(other.string_v);
         return;
-      case LIST:
+      case Type::LIST:
         new (&list_v) std::vector<Value>(other.list_v);
         return;
-      case MAP:
+      case Type::MAP:
         new (&map_v) std::map<std::string, Value>(other.map_v);
         return;
-      case VERTEX:
-        this->vertex_v = other.vertex_v;
+      case Type::VERTEX:
+        new (&vertex_v) Vertex(other.vertex_v);
         return;
-      case EDGE:
-        this->edge_v = other.edge_v;
+      case Type::EDGE:
+        new (&edge_v) Edge(other.edge_v);
         return;
-      case PATH:
-        this->path_v = other.path_v;
+      case Type::PATH:
+        new (&path_v) Path(other.path_v);
         return;
     }
   }
 
   Value(Value &&other) noexcept : type(other.type) {
     switch (other.type) {
-      case NULL:
+      case Type::NILL:
         break;
-      case BOOL:
+      case Type::BOOL:
         this->bool_v = other.bool_v;
         break;
-      case INT64:
+      case Type::INT64:
         this->int_v = other.int_v;
         break;
-      case DOUBLE:
+      case Type::DOUBLE:
         this->double_v = other.double_v;
         break;
-      case STRING:
+      case Type::STRING:
         new (&string_v) std::string(std::move(other.string_v));
         break;
-      case LIST:
+      case Type::LIST:
         new (&list_v) std::vector<Value>(std::move(other.list_v));
         break;
-      case MAP:
+      case Type::MAP:
         new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
         break;
-      case VERTEX:
-        this->vertex_v = other.vertex_v;
+      case Type::VERTEX:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
         break;
-      case EDGE:
-        this->edge_v = other.edge_v;
+      case Type::EDGE:
+        new (&edge_v) Edge(std::move(other.edge_v));
         break;
-      case PATH:
-        this->path_v = other.path_v;
+      case Type::PATH:
+        new (&path_v) Path(std::move(other.path_v));
         break;
     }
 
     // reset the type of other
     other.DestroyValue();
-    other.type = NILL;
+    other.type = Type::NILL;
   }
 
   Value &operator=(const Value &other) {
@@ -211,34 +215,34 @@ struct Value {
     type = other.type;
 
     switch (other.type) {
-      case NULL:
+      case Type::NILL:
         break;
-      case BOOL:
+      case Type::BOOL:
         this->bool_v = other.bool_v;
         break;
-      case INT64:
+      case Type::INT64:
         this->int_v = other.int_v;
         break;
-      case DOUBLE:
+      case Type::DOUBLE:
         this->double_v = other.double_v;
         break;
-      case STRING:
+      case Type::STRING:
         new (&string_v) std::string(other.string_v);
         break;
-      case LIST:
+      case Type::LIST:
         new (&list_v) std::vector<Value>(other.list_v);
         break;
-      case MAP:
+      case Type::MAP:
         new (&map_v) std::map<std::string, Value>(other.map_v);
         break;
-      case VERTEX:
-        this->vertex_v = other.vertex_v;
+      case Type::VERTEX:
+        new (&vertex_v) Vertex(other.vertex_v);
         break;
-      case EDGE:
-        this->edge_v = other.edge_v;
+      case Type::EDGE:
+        new (&edge_v) Edge(other.edge_v);
         break;
-      case PATH:
-        this->path_v = other.path_v;
+      case Type::PATH:
+        new (&path_v) Path(other.path_v);
         break;
     }
 
@@ -252,45 +256,45 @@ struct Value {
     type = other.type;
 
     switch (other.type) {
-      case NULL:
+      case Type::NILL:
         break;
-      case BOOL:
+      case Type::BOOL:
         this->bool_v = other.bool_v;
         break;
-      case INT64:
+      case Type::INT64:
         this->int_v = other.int_v;
         break;
-      case DOUBLE:
+      case Type::DOUBLE:
         this->double_v = other.double_v;
         break;
-      case STRING:
+      case Type::STRING:
         new (&string_v) std::string(std::move(other.string_v));
         break;
-      case LIST:
+      case Type::LIST:
         new (&list_v) std::vector<Value>(std::move(other.list_v));
         break;
-      case MAP:
+      case Type::MAP:
         new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
         break;
-      case VERTEX:
-        this->vertex_v = std::move(other.vertex_v);
+      case Type::VERTEX:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
         break;
-      case EDGE:
-        this->edge_v = std::move(other.edge_v);
+      case Type::EDGE:
+        new (&edge_v) Edge(std::move(other.edge_v));
         break;
-      case PATH:
-        this->path_v = std::move(other.path_v);
+      case Type::PATH:
+        new (&path_v) Path(std::move(other.path_v));
         break;
     }
 
     // reset the type of other
     other.DestroyValue();
-    other.type = NILL;
+    other.type = Type::NILL;
 
     return *this;
   }
-  enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
-  Type type;
+  enum class Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
+  Type type{Type::NILL};
   union {
     Null null_v;
     bool bool_v;

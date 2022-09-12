@@ -626,7 +626,6 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
       //   .props = found_props.value()
       // };
       ScanResultRow row{};
-      row.vertex.type;
       row.props = found_props.value();
       row.vertex = ConstructValueVertex(vertex, view);  // itt
       results.emplace_back(row);
