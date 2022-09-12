@@ -11,6 +11,9 @@
 
 import sys
 import pytest
+
+from mgclient import DatabaseError
+
 from common import connect, execute_and_fetch_all, reset_update_permissions
 
 update_property_query = "MATCH (n:update_label) SET n.prop = 2 RETURN n.prop;"
@@ -52,28 +55,14 @@ def test_can_not_update_node_when_given_deny():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_property_query)
 
-    assert update_property_actual[0][0] == 1
-    assert update_properties_actual[0][0] == 1
-    assert remove_property_actual[0][0] == 1
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_properties_query)
 
-
-def test_can_not_update_node_when_given_nothing():
-    admin_cursor = connect(username="admin", password="test").cursor()
-    reset_update_permissions(admin_cursor)
-
-    test_cursor = connect(username="user", password="test").cursor()
-
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
-
-    assert len(update_property_actual) == 0
-    assert len(update_properties_actual) == 0
-    assert len(remove_property_actual) == 0
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, remove_property_query)
 
 
 def test_can_not_update_node_when_given_read():
@@ -83,13 +72,14 @@ def test_can_not_update_node_when_given_read():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_property_query)
 
-    assert update_property_actual[0][0] == 1
-    assert update_properties_actual[0][0] == 1
-    assert remove_property_actual[0][0] == 1
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_properties_query)
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, remove_property_query)
 
 
 def test_can_not_update_node_when_given_read_globally():
@@ -99,13 +89,14 @@ def test_can_not_update_node_when_given_read_globally():
 
     test_cursor = connect(username="user", password="test").cursor()
 
-    update_property_actual = execute_and_fetch_all(test_cursor, update_property_query)
-    update_properties_actual = execute_and_fetch_all(test_cursor, update_properties_query)
-    remove_property_actual = execute_and_fetch_all(test_cursor, remove_property_query)
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_property_query)
 
-    assert update_property_actual[0][0] == 1
-    assert update_properties_actual[0][0] == 1
-    assert remove_property_actual[0][0] == 1
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, update_properties_query)
+
+    with pytest.raises(DatabaseError):
+        execute_and_fetch_all(test_cursor, remove_property_query)
 
 
 def test_can_update_node_when_given_update_globally():
