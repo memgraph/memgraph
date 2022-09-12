@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/v2/accessors.hpp"
+#include "query/v2/requests.hpp"
 
 namespace memgraph::query::v2::accessors {
 EdgeAccessor::EdgeAccessor(Edge edge, std::map<std::string, Value> props)
@@ -35,7 +36,7 @@ VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}
 
 VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.src}, {}); }
 
-VertexAccessor::VertexAccessor(Vertex v, std::map<std::string, Value> props)
+VertexAccessor::VertexAccessor(Vertex v, std::map<requests::PropertyId, Value> props)
     : vertex(std::move(v)), properties(std::move(props)) {}
 
 std::vector<Label> VertexAccessor::Labels() const { return vertex.labels; }
@@ -45,7 +46,7 @@ bool VertexAccessor::HasLabel(Label &label) const {
                       [label](const auto &l) { return l.id == label.id; }) != vertex.labels.end();
 }
 
-std::map<std::string, Value> VertexAccessor::Properties() const {
+std::map<requests::PropertyId, Value> VertexAccessor::Properties() const {
   //    std::map<std::string, TypedValue> res;
   //    for (const auto &[name, value] : *properties) {
   //      res[name] = ValueToTypedValue(value);
@@ -54,9 +55,17 @@ std::map<std::string, Value> VertexAccessor::Properties() const {
   return properties;
 }
 
+Value VertexAccessor::GetProperty(requests::PropertyId prop_id) const {
+  MG_ASSERT(properties.contains(prop_id));
+  return Value(properties[prop_id]);
+  //    return ValueToTypedValue(properties[prop_name]);
+}
+
 Value VertexAccessor::GetProperty(const std::string &prop_name) const {
-  MG_ASSERT(properties.contains(prop_name));
-  return Value(properties[prop_name]);
+  // TODO(kostasrim) Add string mapping
+  auto prop_id = requests::PropertyId::FromUint(0);
+  MG_ASSERT(properties.contains(prop_id));
+  return Value(properties[prop_id]);
   //    return ValueToTypedValue(properties[prop_name]);
 }
 

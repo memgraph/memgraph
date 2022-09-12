@@ -33,6 +33,7 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "query/v2/accessors.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
 #include "utils/result.hpp"
@@ -89,26 +90,34 @@ struct ExecutionState {
 
 class ShardRequestManagerInterface {
  public:
+  using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
   ShardRequestManagerInterface() = default;
   virtual void StartTransaction() = 0;
-  virtual std::vector<ScanVerticesResponse> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
+  virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
+  virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
+                                                      std::vector<requests::NewVertexLabel> new_vertices) = 0;
+  virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
   virtual ~ShardRequestManagerInterface() {}
   ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
   ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
 };
 
 // TODO(kostasrim)rename this class template
-template <typename TTransport, typename... Rest>
+template <typename TTransport>
 class ShardRequestManager : public ShardRequestManagerInterface {
  public:
   using WriteRequests = CreateVerticesRequest;
   using WriteResponses = CreateVerticesResponse;
-  using StorageClient = memgraph::coordinator::RsmClient<TTransport, WriteRequests, WriteResponses, Rest...>;
+  using ReadRequests = std::variant<ScanVerticesRequest, ExpandOneRequest>;
+  using ReadResponses = std::variant<ScanVerticesResponse, ExpandOneResponse>;
+  using StorageClient =
+      memgraph::coordinator::RsmClient<TTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
   using CoordinatorClient = memgraph::coordinator::CoordinatorClient<TTransport>;
   using Address = memgraph::io::Address;
   using Shard = memgraph::coordinator::Shard;
   using ShardMap = memgraph::coordinator::ShardMap;
   using CompoundKey = memgraph::coordinator::CompoundKey;
+  using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
   ShardRequestManager(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
       : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
@@ -136,12 +145,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   // TODO(kostasrim) Simplify return result
-  std::vector<ScanVerticesResponse> Request(ExecutionState<ScanVerticesRequest> &state) override {
+  std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
-    auto &shard_cacheref = state.shard_cache;
+    auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
-    for (auto shard_it = shard_cacheref.begin(); shard_it != shard_cacheref.end(); ++id) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       auto &storage_client = GetStorageClientForShard(*state.label, state.requests[id].start_id.primary_key);
       // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture instead.
       auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
@@ -150,26 +159,27 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       if (read_response_result.HasError()) {
         throw std::runtime_error("ScanAll request timedout");
       }
-      if (read_response_result.GetValue().success == false) {
+      auto &response = std::get<ScanVerticesResponse>(read_response_result.GetValue());
+      if (response.success == false) {
         throw std::runtime_error("ScanAll request did not succeed");
       }
-      responses.push_back(read_response_result.GetValue());
-      if (!read_response_result.GetValue().next_start_id) {
-        shard_it = shard_cacheref.erase(shard_it);
+      if (!response.next_start_id) {
+        shard_it = shard_cache_ref.erase(shard_it);
       } else {
-        state.requests[id].start_id.primary_key = read_response_result.GetValue().next_start_id->primary_key;
+        state.requests[id].start_id.primary_key = response.next_start_id->primary_key;
         ++shard_it;
       }
+      responses.push_back(std::move(response));
     }
     // We are done with this state
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
-    return responses;
+    return PostProcess(std::move(responses));
   }
 
   std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                              std::vector<NewVertexLabel> new_vertices) {
+                                              std::vector<NewVertexLabel> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<CreateVerticesResponse> responses;
@@ -199,7 +209,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
-  std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) {
+  std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
@@ -219,15 +229,23 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       if (read_response_result.HasError()) {
         throw std::runtime_error("ExpandOne request timedout");
       }
-      if (read_response_result.GetValue().success == false) {
-        throw std::runtime_error("ExpandOne request did not succeed");
-      }
-      responses.push_back(read_response_result.GetValue());
+      auto &response = std::get<ExpandOneResponse>(read_response_result.GetValue());
+      responses.push_back(std::move(response));
     }
     return responses;
   }
 
  private:
+  std::vector<VertexAccessor> PostProcess(std::vector<ScanVerticesResponse> &&responses) const {
+    std::vector<VertexAccessor> accessors;
+    for (auto &response : responses) {
+      for (auto result_row : response.results) {
+        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props)));
+      }
+    }
+    return accessors;
+  }
+
   template <typename ExecutionState>
   void ThrowIfStateCompleted(ExecutionState &state) const {
     if (state.state == ExecutionState::COMPLETED) [[unlikely]] {

@@ -14,6 +14,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <variant>
@@ -140,7 +141,41 @@ struct Value {
         break;
     }
   }
-  //  Value(Value &&other) noexcept {};
+
+  Value(Value &&other) noexcept : type(other.type) {
+    switch (other.type) {
+      case Type::NILL:
+        break;
+      case Type::BOOL:
+        this->bool_v = other.bool_v;
+        break;
+      case Type::INT64:
+        this->int_v = other.int_v;
+        break;
+      case Type::DOUBLE:
+        this->double_v = other.double_v;
+        break;
+      case Type::STRING:
+        new (&string_v) std::string(std::move(other.string_v));
+        break;
+      case Type::LIST:
+        new (&list_v) std::vector<Value>(std::move(other.list_v));
+        break;
+      case Type::MAP:
+        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        break;
+      case Type::VERTEX:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
+        break;
+      case Type::EDGE:
+        new (&edge_v) Edge(std::move(other.edge_v));
+        break;
+      case Type::PATH:
+        new (&path_v) Path(std::move(other.path_v));
+        break;
+    }
+    other.type = Type::NILL;
+  }
 
   explicit Value(const bool val) : bool_v(val), type(BOOL){};
   explicit Value(const int64_t val) : int_v(val), type(INT64){};
@@ -222,7 +257,39 @@ struct Value {
     }
   }
 
-  ~Value(){};
+  ~Value() {
+    switch (type) {
+      // destructor for primitive types does nothing
+      case Type::NILL:
+      case Type::BOOL:
+      case Type::INT64:
+      case Type::DOUBLE:
+        return;
+
+      // destructor for non primitive types since we used placement new
+      case Type::STRING:
+        std::destroy_at(&string_v);
+        return;
+      case Type::LIST:
+        std::destroy_at(&list_v);
+        return;
+      case Type::MAP:
+        std::destroy_at(&map_v);
+        return;
+
+      // are these needed to be defined?
+      case Type::VERTEX:
+        std::destroy_at(&vertex_v);
+        return;
+      case Type::PATH:
+        std::destroy_at(&path_v);
+        return;
+      case Type::EDGE:
+        std::destroy_at(&edge_v);
+      default:
+        return;
+    }
+  }
 };
 
 struct ValuesMap {
@@ -265,10 +332,16 @@ struct ScanVerticesRequest {
   StorageView storage_view;
 };
 
+struct ScanResultRow {
+  Vertex vertex;
+  // empty is no properties returned
+  std::map<PropertyId, Value> props;
+};
+
 struct ScanVerticesResponse {
   bool success;
-  Values values;
   std::optional<VertexId> next_start_id;
+  std::vector<ScanResultRow> results;
 };
 
 using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;

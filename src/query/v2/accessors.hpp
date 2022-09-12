@@ -62,14 +62,16 @@ class EdgeAccessor final {
 
 class VertexAccessor final {
  public:
-  VertexAccessor(Vertex v, std::map<std::string, Value> props);
+  using PropertyId = requests::PropertyId;
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> props);
 
   std::vector<Label> Labels() const;
 
   bool HasLabel(Label &label) const;
 
-  std::map<std::string, Value> Properties() const;
+  std::map<PropertyId, Value> Properties() const;
 
+  Value GetProperty(PropertyId prop_name) const;
   Value GetProperty(const std::string &prop_name) const;
 
   // Dummy function
@@ -122,7 +124,7 @@ class VertexAccessor final {
 
  private:
   Vertex vertex;
-  mutable std::map<std::string, Value> properties;
+  mutable std::map<PropertyId, Value> properties;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

@@ -29,10 +29,10 @@
 #include "io/rsm/shard_rsm.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "query/v2/accessors.hpp"
 #include "query/v2/conversions.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/result.hpp"
 
@@ -134,14 +134,17 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
 
 }  // namespace
 
+using WriteRequests = CreateVerticesRequest;
+using WriteResponses = CreateVerticesResponse;
+using ReadRequests = std::variant<ScanVerticesRequest, ExpandOneRequest>;
+using ReadResponses = std::variant<ScanVerticesResponse, ExpandOneResponse>;
+
 using ConcreteCoordinatorRsm = CoordinatorRsm<SimulatorTransport>;
-using ConcreteStorageRsm = Raft<SimulatorTransport, MockedShardRsm, CreateVerticesRequest, CreateVerticesResponse,
-                                ScanVerticesRequest, ScanVerticesResponse>;
+using ConcreteStorageRsm =
+    Raft<SimulatorTransport, MockedShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 template <typename IoImpl>
-void RunStorageRaft(Raft<IoImpl, MockedShardRsm, CreateVerticesRequest, CreateVerticesResponse, ScanVerticesRequest,
-                         ScanVerticesResponse>
-                        server) {
+void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses> server) {
   server.Run();
 }
 
@@ -149,20 +152,22 @@ template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &io) {
   requests::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
+  std::cout << "Testing ScanALl" << std::endl;
   auto result = io.Request(state);
+  std::cout << "Testing ScanALl" << std::endl;
   MG_ASSERT(result.size() == 2);
   {
-    auto &list_of_values_1 = std::get<ListedValues>(result[0].values);
-    MG_ASSERT(list_of_values_1.properties[0][0].int_v == 0);
-    auto &list_of_values_2 = std::get<ListedValues>(result[1].values);
-    MG_ASSERT(list_of_values_2.properties[0][0].int_v == 444);
+    auto prop = result[0].GetProperty(requests::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 0);
+    prop = result[1].GetProperty(requests::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 444);
   }
 
   result = io.Request(state);
   {
     MG_ASSERT(result.size() == 1);
-    auto &list_of_values_1 = std::get<ListedValues>(result[0].values);
-    MG_ASSERT(list_of_values_1.properties[0][0].int_v == 1);
+    auto prop = result[0].GetProperty(requests::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 1);
   }
 
   // Exhaust it, request should be empty
@@ -172,6 +177,7 @@ void TestScanAll(ShardRequestManager &io) {
 
 template <typename ShardRequestManager>
 void TestCreateVertices(ShardRequestManager &io) {
+  std::cout << "Testing Create" << std::endl;
   using PropVal = memgraph::storage::v3::PropertyValue;
   requests::ExecutionState<CreateVerticesRequest> state;
   std::vector<NewVertexLabel> new_vertices;
@@ -292,8 +298,7 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  requests::ShardRequestManager<SimulatorTransport, ScanVerticesRequest, ScanVerticesResponse> io(
-      std::move(coordinator_client), std::move(cli_io));
+  requests::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
 
   io.StartTransaction();
   TestScanAll(io);

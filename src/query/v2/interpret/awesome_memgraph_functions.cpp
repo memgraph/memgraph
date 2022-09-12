@@ -391,34 +391,36 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor) {
-    TypedValue::TMap properties(ctx.memory);
-    auto props = record_accessor.Properties();
-    // add error handling
-    //    if (maybe_props.HasError()) {
-    //      switch (maybe_props.GetError()) {
-    //        case storage::v3::Error::DELETED_OBJECT:
-    //          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-    //        case storage::v3::Error::NONEXISTENT_OBJECT:
-    //          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-    //        case storage::v3::Error::SERIALIZATION_ERROR:
-    //        case storage::v3::Error::VERTEX_HAS_EDGES:
-    //        case storage::v3::Error::PROPERTIES_DISABLED:
-    //          throw QueryRuntimeException("Unexpected error when getting properties.");
-    //      }
-    for (const auto &property : props) {
-      properties.emplace(property.first, ValueToTypedValue(property.second));
-    }
-    return TypedValue(std::move(properties));
-  };
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
-  }
+  //  auto get_properties = [&](const auto &record_accessor) {
+  //    TypedValue::TMap properties(ctx.memory);
+  //    auto props = record_accessor.Properties();
+  //    // add error handling
+  //    //    if (maybe_props.HasError()) {
+  //    //      switch (maybe_props.GetError()) {
+  //    //        case storage::v3::Error::DELETED_OBJECT:
+  //    //          throw QueryRuntimeException("Trying to get properties from a deleted object.");
+  //    //        case storage::v3::Error::NONEXISTENT_OBJECT:
+  //    //          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't
+  //    exist.");
+  //    //        case storage::v3::Error::SERIALIZATION_ERROR:
+  //    //        case storage::v3::Error::VERTEX_HAS_EDGES:
+  //    //        case storage::v3::Error::PROPERTIES_DISABLED:
+  //    //          throw QueryRuntimeException("Unexpected error when getting properties.");
+  //    //      }
+  //    for (const auto &property : props) {
+  //      properties.emplace(property.first, ValueToTypedValue(property.second));
+  //    }
+  //    return TypedValue(std::move(properties));
+  //  };
+  //  const auto &value = args[0];
+  //  if (value.IsNull()) {
+  //    return TypedValue(ctx.memory);
+  //  } else if (value.IsVertex()) {
+  //    return get_properties(value.ValueVertex());
+  //  } else {
+  //    return get_properties(value.ValueEdge());
+  //  }
+  return {};
 }
 
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -598,34 +600,35 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
-    TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties();
-    //    if (maybe_props.HasError()) {
-    //      switch (maybe_props.GetError()) {
-    //        case storage::v3::Error::DELETED_OBJECT:
-    //          throw QueryRuntimeException("Trying to get keys from a deleted object.");
-    //        case storage::v3::Error::NONEXISTENT_OBJECT:
-    //          throw query::v2::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
-    //        case storage::v3::Error::SERIALIZATION_ERROR:
-    //        case storage::v3::Error::VERTEX_HAS_EDGES:
-    //        case storage::v3::Error::PROPERTIES_DISABLED:
-    //          throw QueryRuntimeException("Unexpected error when getting keys.");
-    //      }
-    //    }
-    for (const auto &property : maybe_props) {
-      keys.emplace_back(property.first);
-    }
-    return TypedValue(std::move(keys));
-  };
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
-  } else {
-    return get_keys(value.ValueEdge());
-  }
+  //  auto get_keys = [&](const auto &record_accessor) {
+  //    TypedValue::TVector keys(ctx.memory);
+  //    auto maybe_props = record_accessor.Properties();
+  //    //    if (maybe_props.HasError()) {
+  //    //      switch (maybe_props.GetError()) {
+  //    //        case storage::v3::Error::DELETED_OBJECT:
+  //    //          throw QueryRuntimeException("Trying to get keys from a deleted object.");
+  //    //        case storage::v3::Error::NONEXISTENT_OBJECT:
+  //    //          throw query::v2::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+  //    //        case storage::v3::Error::SERIALIZATION_ERROR:
+  //    //        case storage::v3::Error::VERTEX_HAS_EDGES:
+  //    //        case storage::v3::Error::PROPERTIES_DISABLED:
+  //    //          throw QueryRuntimeException("Unexpected error when getting keys.");
+  //    //      }
+  //    //    }
+  //    for (const auto &property : maybe_props) {
+  //      keys.emplace_back(property.first);
+  //    }
+  //    return TypedValue(std::move(keys));
+  //  };
+  //  const auto &value = args[0];
+  //  if (value.IsNull()) {
+  //    return TypedValue(ctx.memory);
+  //  } else if (value.IsVertex()) {
+  //    return get_keys(value.ValueVertex());
+  //  } else {
+  //    return get_keys(value.ValueEdge());
+  //  }
+  return TypedValue{};
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

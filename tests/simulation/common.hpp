@@ -53,6 +53,8 @@ using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
 using requests::CreateVerticesRequest;
 using requests::CreateVerticesResponse;
+using requests::ExpandOneRequest;
+using requests::ExpandOneResponse;
 using requests::ListedValues;
 using requests::ScanVerticesRequest;
 using requests::ScanVerticesResponse;
@@ -78,34 +80,43 @@ class MockedShardRsm {
  public:
   //  ExpandOneResponse Read(ExpandOneRequest rqst);
   //  GetPropertiesResponse Read(GetPropertiesRequest rqst);
-  ScanVerticesResponse Read(ScanVerticesRequest rqst) {
+  ScanVerticesResponse ReadImpl(ScanVerticesRequest rqst) {
     ScanVerticesResponse ret;
     if (!IsKeyInRange(rqst.start_id.primary_key)) {
       ret.success = false;
     } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
       Value val(int64_t(0));
-      ListedValues listed_values;
-      listed_values.properties.push_back(std::vector<Value>{val});
       ret.next_start_id = std::make_optional<VertexId>();
       ret.next_start_id->primary_key = ShardRsmKey{PropertyValue(1), PropertyValue(0)};
-      ret.values = std::move(listed_values);
+      requests::ScanResultRow result;
+      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      ret.results.push_back(std::move(result));
       ret.success = true;
     } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
+      requests::ScanResultRow result;
       Value val(int64_t(1));
-      ListedValues listed_values;
-      listed_values.properties.push_back(std::vector<Value>{val});
-      ret.values = std::move(listed_values);
+      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      ret.results.push_back(std::move(result));
       ret.success = true;
     } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
+      requests::ScanResultRow result;
       Value val(int64_t(444));
-      ListedValues listed_values;
-      listed_values.properties.push_back(std::vector<Value>{val});
-      ret.values = std::move(listed_values);
+      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      ret.results.push_back(std::move(result));
       ret.success = true;
     } else {
       ret.success = false;
     }
     return ret;
+  }
+
+  ExpandOneResponse ReadImpl(ExpandOneRequest rqst) { return {}; }
+  using ReadRequests = std::variant<ScanVerticesRequest, ExpandOneRequest>;
+  using ReadResponses = std::variant<ScanVerticesResponse, ExpandOneResponse>;
+
+  ReadResponses Read(ReadRequests read_requests) {
+    return {std::visit([this](auto &&request) { return ReadResponses{ReadImpl(std::move(request))}; },
+                       std::move(read_requests))};
   }
 
   CreateVerticesResponse Apply(CreateVerticesRequest request) { return CreateVerticesResponse{.success = true}; }

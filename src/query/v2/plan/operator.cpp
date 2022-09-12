@@ -38,6 +38,8 @@
 #include "query/v2/procedure/cypher_types.hpp"
 //#include "query/v2/procedure/mg_procedure_impl.hpp"
 //#include "query/v2/procedure/module.hpp"
+#include "query/v2/requests.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/algorithm.hpp"
@@ -408,9 +410,11 @@ class ScanAllCursor : public Cursor {
         op_name_(op_name) {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(op_name_);
     return false;
+    //    SCOPED_PROFILE_OP(op_name_);
+    //    auto &shard_manager = *context.shard_request_manager;
     //    if (MustAbort(context)) throw HintedAbortError();
+
     //
     //    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
     //      if (!input_cursor_->Pull(frame, context)) return false;
@@ -445,6 +449,8 @@ class ScanAllCursor : public Cursor {
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
+  std::vector<requests::ScanVerticesResponse> current_batch;
+  requests::ExecutionState<requests::ScanVerticesRequest> request_state;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
@@ -4137,4 +4143,93 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
+class DistributedScanAllCursor : public Cursor {
+ public:
+  explicit DistributedScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name)
+      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)), op_name_(op_name) {}
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  bool MakeRequest(requests::ShardRequestManagerInterface &shard_manager) {
+    current_batch = shard_manager.Request(request_state_);
+    current_vertex_it = current_batch.begin();
+    return !current_batch.empty();
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+    auto &shard_manager = *context.shard_request_manager;
+    if (MustAbort(context)) throw HintedAbortError();
+    using State = requests::ExecutionState<requests::ScanVerticesRequest>;
+
+    if (request_state_.state == State::INITIALIZING) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+    }
+
+    if (current_vertex_it == current_batch.end()) {
+      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
+        ResetExecutionState();
+        return Pull(frame, context);
+      }
+    }
+
+    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+    ++current_vertex_it;
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void ResetExecutionState() {
+    current_batch.clear();
+    current_vertex_it = current_batch.end();
+    request_state_ = requests::ExecutionState<requests::ScanVerticesRequest>{};
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  std::vector<VertexAccessor> current_batch;
+  decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
+  requests::ExecutionState<requests::ScanVerticesRequest> request_state_;
+};
+
+class DistributedCreateNodeCursor : public Cursor {
+ public:
+  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
+  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem,
+                              std::vector<NodeCreationInfo> nodes_info)
+      : input_cursor_(op->MakeCursor(mem)), nodes_info_(std::move(nodes_info)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateNode");
+    if (input_cursor_->Pull(frame, context)) {
+      auto &shard_manager = context.shard_request_manager;
+      shard_manager->Request(state_, NodeCreationInfoToRequest());
+      return true;
+    }
+
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { state_ = {}; }
+
+  std::vector<requests::NewVertexLabel> NodeCreationInfoToRequest() const {
+    // TODO(kostasrim) Add the conversion
+    return {};
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  std::vector<NodeCreationInfo> nodes_info_;
+  requests::ExecutionState<requests::CreateVerticesRequest> state_;
+};
 }  // namespace memgraph::query::v2::plan
