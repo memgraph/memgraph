@@ -28,6 +28,18 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
   });
 }
 
+bool IsUserAuthorizedGloballyLabels(const memgraph::auth::User &user,
+                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) {
+  return user.GetFineGrainedAccessLabelPermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
+         memgraph::auth::PermissionLevel::GRANT;
+}
+
+bool IsUserAuthorizedGloballyEdges(const memgraph::auth::User &user,
+                                   const memgraph::auth::FineGrainedPermission fine_grained_permission) {
+  return user.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
+         memgraph::auth::PermissionLevel::GRANT;
+}
+
 bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
                               const memgraph::storage::EdgeTypeId &edgeType,
                               const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_permission) {
@@ -125,4 +137,13 @@ bool FineGrainedAuthChecker::Accept(
   return IsUserAuthorizedEdgeType(user_, dba, edge_type, fine_grained_permission);
 }
 
+bool FineGrainedAuthChecker::HasGlobalPermissionOnVertices(
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  return IsUserAuthorizedGloballyLabels(user_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+}
+
+bool FineGrainedAuthChecker::HasGlobalPermissionOnEdges(
+    const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
+  return IsUserAuthorizedGloballyEdges(user_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+};
 }  // namespace memgraph::glue

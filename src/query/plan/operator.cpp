@@ -25,7 +25,6 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
-#include "auth/models.hpp"
 #include "spdlog/spdlog.h"
 
 #include "query/auth_checker.hpp"
@@ -2794,13 +2793,12 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
+
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast()) {
-    if (context.auth_checker &&
-        !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
-    }
+  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
 
@@ -2811,6 +2809,15 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
+
+#ifdef MG_ENTERPRISE
+  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
+  }
+#endif
+
   for (auto label : self_.labels_) {
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
@@ -2950,15 +2957,15 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
+
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast()) {
-    if (context.auth_checker &&
-        !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-      throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
-    }
+  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, self_.labels_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2966,6 +2973,15 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   if (vertex_value.IsNull()) return true;
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.ValueVertex();
+
+#ifdef MG_ENTERPRISE
+  if (utils::license::global_license_checker.IsValidLicenseFast() && context.auth_checker &&
+      !context.auth_checker->Accept(*context.db_accessor, vertex, storage::View::OLD,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+    throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
+  }
+#endif
+
   for (auto label : self_.labels_) {
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {

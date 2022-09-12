@@ -1275,7 +1275,8 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
   // All labels granted
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
@@ -1293,24 +1294,27 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
   // All labels denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
-    EXPECT_THROW(set_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
+    ASSERT_THROW(set_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
                  QueryRuntimeException);
   }
 
   // label2 denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("label3",
-                                                                 memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("label1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().label_permissions().Deny("label2",
-                                                                memgraph::auth::FineGrainedPermission::UPDATE);
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("label3",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
@@ -1318,7 +1322,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
-    EXPECT_THROW(set_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
+    ASSERT_THROW(set_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
                  QueryRuntimeException);
   }
 }
@@ -1450,7 +1454,8 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   // All labels granted
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
@@ -1468,24 +1473,27 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   // All labels denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Deny("*",
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
-    EXPECT_THROW(remove_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
+    ASSERT_THROW(remove_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
                  QueryRuntimeException);
   }
 
   // label2 denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("label3",
-                                                                 memgraph::auth::FineGrainedPermission::UPDATE);
+    user.fine_grained_access_handler().label_permissions().Grant("label1",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
     user.fine_grained_access_handler().label_permissions().Deny("label2",
-                                                                memgraph::auth::FineGrainedPermission::UPDATE);
+                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("label3",
+                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
@@ -1493,7 +1501,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     auto label1 = dba.NameToLabel("label1");
     auto label2 = dba.NameToLabel("label2");
     auto label3 = dba.NameToLabel("label3");
-    EXPECT_THROW(remove_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
+    ASSERT_THROW(remove_labels(user, dba, std::vector<memgraph::storage::LabelId>{label1, label2, label3}),
                  QueryRuntimeException);
   }
 }

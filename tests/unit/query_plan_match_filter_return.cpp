@@ -2042,8 +2042,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
-#ifdef MG_ENTERPRISE
-TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
+<<<<<<< HEAD
+#ifdef MG_ENTERPRISE TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
@@ -2144,6 +2144,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
 }
 #endif
 
+=======
+>>>>>>> T1041-MG-add-auth-setLabels-removeLabels-allshortestpath
 /** A test fixture for all shortest paths expansion */
 class QueryPlanExpandAllShortestPaths : public testing::Test {
  public:
