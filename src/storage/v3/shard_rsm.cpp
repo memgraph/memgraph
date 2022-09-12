@@ -601,7 +601,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (ConvertPropertyVector(req.start_id) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (ConvertPropertyVector(req.start_id.second) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -627,7 +627,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
       // };
       ScanResultRow row{};
       row.props = found_props.value();
-      row.vertex = ConstructValueVertex(vertex, view);  // itt
+      row.vertex = ConstructValueVertex(vertex, view);
       results.emplace_back(row);
 
       ++sample_counter;
@@ -653,7 +653,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   return resp;
 }
 
-// QUESTION do I have to commit on reads?
+// QUESTION do I have to commit on reads? -> nöm.
 // QUESTION is there a way to call std::next on VerticesIterable
 
 ReadResponses ShardRsm::HandleRead(ExpandOneRequest &&req) { return ExpandOneResponse{}; }

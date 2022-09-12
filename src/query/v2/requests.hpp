@@ -46,8 +46,6 @@ struct EdgeType {
 struct EdgeId {
   VertexId src;
   VertexId dst;
-  // std::vector<Value> src;
-  // std::vector<Value> dst;
   Gid gid;
 };
 
@@ -104,14 +102,12 @@ struct Value {
 
   void DestroyValue() noexcept {
     switch (type) {
-      // destructor for primitive types does nothing
       case Type::NILL:
       case Type::BOOL:
       case Type::INT64:
       case Type::DOUBLE:
         return;
 
-      // destructor for non primitive types since we used placement new
       case Type::STRING:
         std::destroy_at(&string_v);
         return;
@@ -122,7 +118,6 @@ struct Value {
         std::destroy_at(&map_v);
         return;
 
-      // are these needed to be defined?
       case Type::VERTEX:
         std::destroy_at(&vertex_v);
         return;
@@ -203,7 +198,6 @@ struct Value {
         break;
     }
 
-    // reset the type of other
     other.DestroyValue();
     other.type = Type::NILL;
   }
@@ -287,7 +281,6 @@ struct Value {
         break;
     }
 
-    // reset the type of other
     other.DestroyValue();
     other.type = Type::NILL;
 
@@ -309,7 +302,6 @@ struct Value {
   };
 };
 
-// this one
 struct ValuesMap {
   std::unordered_map<PropertyId, Value> values_map;
 };
@@ -343,8 +335,7 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
-  // VertexId start_id;
-  std::vector<Value> start_id;
+  VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
@@ -353,7 +344,7 @@ struct ScanVerticesRequest {
 
 struct ScanResultRow {
   Value vertex;
-  // empty is no properties returned
+  // empty() is no properties returned
   std::map<PropertyId, Value> props;
 };
 
@@ -429,8 +420,7 @@ struct ExpandOneResponse {
 
 // Update related messages
 struct UpdateVertexProp {
-  VertexId primary_key;  // This will very likely be deleted
-  std::vector<Value> vertex;
+  VertexId primary_key;
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 

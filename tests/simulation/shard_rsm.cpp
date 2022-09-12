@@ -188,13 +188,6 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
                       int64_t edge_type_id) {
-  // auto src = Value(static_cast<int64_t>(value_of_vertex_1));
-  // auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
-
-  // // using PrimaryKey = std::vector<Value>;
-  // // using VertexId = std::pair<Label, PrimaryKey>;
-  // std::make_pair(get_primary_label(), GetPrimaryKey());
-
   auto id = EdgeId{};
   Label label = {.id = get_primary_label()};
 
@@ -226,70 +219,104 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   }
 }
 
-bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
-                         int64_t edge_type_id) {
-  // TODO(gvolfing) uncomment this once the handle is implemented
+// bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+//                          int64_t edge_type_id) {
+//   // TODO(gvolfing) uncomment this once the handle is implemented
 
-  // auto src = Value(static_cast<int64_t>(value_of_vertex_1));
-  // auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+//   // auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+//   // auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
 
-  // auto id = EdgeId{};
-  // id.src = {src};
-  // id.dst = {dst};
-  // id.gid = edge_gid;
+//   // auto id = EdgeId{};
+//   // id.src = {src};
+//   // id.dst = {dst};
+//   // id.gid = edge_gid;
 
-  // auto type = EdgeType{};
-  // type.id = edge_type_id;
+//   // auto type = EdgeType{};
+//   // type.id = edge_type_id;
 
-  // auto edge = Edge{};
-  // edge.id = id;
-  // edge.type = type;
+//   // auto edge = Edge{};
+//   // edge.id = id;
+//   // edge.type = type;
 
-  // UpdateEdgesRequest delete_req{};
-  // delete_req.edges = {edge};
-  // delete_req.transaction_id.logical_id = GetTransactionId();
+//   // UpdateEdgesRequest delete_req{};
+//   // delete_req.edges = {edge};
+//   // delete_req.transaction_id.logical_id = GetTransactionId();
 
-  // while (true) {
-  //   auto write_res = client.SendWriteRequest(delete_req);
-  //   if (write_res.HasError()) {
-  //     continue;
-  //   }
+//   // while (true) {
+//   //   auto write_res = client.SendWriteRequest(delete_req);
+//   //   if (write_res.HasError()) {
+//   //     continue;
+//   //   }
 
-  //   auto write_response_result = write_res.GetValue();
-  //   auto write_response = std::get<UpdateEdgesResponse>(write_response_result);
+//   //   auto write_response_result = write_res.GetValue();
+//   //   auto write_response = std::get<UpdateEdgesResponse>(write_response_result);
 
-  //   return write_response.success;
-  // }
-  return false;
-}
+//   //   return write_response.success;
+//   // }
+//   return false;
+// }
 
-bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
-                         int64_t edge_type_id) {
-  // struct UpdateEdgeProp {
-  //   Edge edge;
-  //   std::vector<std::pair<PropertyId, Value>> property_updates;
-  // };
+// bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+//                          int64_t edge_type_id) {
+//   // struct UpdateEdgeProp {
+//   //   Edge edge;
+//   //   std::vector<std::pair<PropertyId, Value>> property_updates;
+//   // };
 
-  auto src = Value(static_cast<int64_t>(value_of_vertex_1));
-  auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
+//   auto src = Value(static_cast<int64_t>(value_of_vertex_1));
+//   auto dst = Value(static_cast<int64_t>(value_of_vertex_2));
 
-  auto id = EdgeId{};
-  // id.src = {src};
-  // id.dst = {dst};
-  id.gid = edge_gid;
+//   auto id = EdgeId{};
+//   // id.src = {src};
+//   // id.dst = {dst};
+//   id.gid = edge_gid;
 
-  auto type = EdgeType{};
-  type.id = edge_type_id;
+//   auto type = EdgeType{};
+//   type.id = edge_type_id;
 
-  auto edge = Edge{};
-  edge.id = id;
-  edge.type = type;
+//   auto edge = Edge{};
+//   edge.id = id;
+//   edge.type = type;
 
-  UpdateEdgesRequest update_req{};
-  update_req.transaction_id.logical_id = GetTransactionId();
-  update_req.new_properties;
+//   UpdateEdgesRequest update_req{};
+//   update_req.transaction_id.logical_id = GetTransactionId();
+//   update_req.new_properties;
 
-  return false;
+//   return false;
+// }
+
+std::tuple<size_t, std::optional<VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client, VertexId start_id,
+                                                                           uint64_t batch_limit) {
+  // Label prim_label = {.id = get_primary_label()};
+  // PrimaryKey prim_key = {Value(static_cast<int64_t>(start_id))};
+
+  ScanVerticesRequest scan_req{};
+  scan_req.batch_limit = batch_limit;
+  scan_req.filter_expressions = std::nullopt;
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = StorageView::OLD;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+
+    // std::optional<int64_t> next_id = {};
+    // if(write_response.next_start_id)
+    // {
+    //   next_id = write_response.next_start_id->second[0].int_v;
+    // }
+
+    return {write_response.results.size(), write_response.next_start_id};
+  }
 }
 
 }  // namespace
@@ -326,7 +353,7 @@ void TestAddEdge(ShardClient &client) {
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 }
 
-void TestScanAll(ShardClient &client) {
+void TestScanAllOneGo(ShardClient &client) {
   auto unique_prop_val_1 = GetUniqueInteger();
   auto unique_prop_val_2 = GetUniqueInteger();
   auto unique_prop_val_3 = GetUniqueInteger();
@@ -339,66 +366,89 @@ void TestScanAll(ShardClient &client) {
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_4));
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_5));
 
-  // VertexId start_id;
-  // std::optional<std::vector<PropertyId>> props_to_return;
+  Label prim_label = {.id = get_primary_label()};
+  PrimaryKey prim_key = {Value(static_cast<int64_t>(unique_prop_val_1))};
 
-  // std::vector<PropertyId> props_to_return = {PropertyId::FromUint(1)};
-  // std::optional<std::vector<PropertyId>> props_to_return_opt = props_to_return;
+  VertexId v_id = {prim_label, prim_key};
 
-  // Test ScanAll
-  ScanVerticesRequest scan_req{};
-  scan_req.batch_limit = std::nullopt;
-  scan_req.filter_expressions = std::nullopt;
-  scan_req.props_to_return = std::nullopt;
-  scan_req.start_id = {Value(static_cast<int64_t>(unique_prop_val_1))};
-  scan_req.storage_view = StorageView::OLD;
-  scan_req.transaction_id.logical_id = GetTransactionId();
-
-  while (true) {
-    auto read_res = client.SendReadRequest(scan_req);
-    if (read_res.HasError()) {
-      continue;
-    }
-
-    auto write_response_result = read_res.GetValue();
-    auto write_response = std::get<ScanVerticesResponse>(write_response_result);
-
-    MG_ASSERT(write_response.success);
-  }
+  auto [result_size, next_id] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
+  MG_ASSERT(result_size == 5);
 }
 
-void TestDeleteEdge(ShardClient &client) {
-  // Add the Edge
+void TestScanAllWithSmallBatchSize(ShardClient &client) {
   auto unique_prop_val_1 = GetUniqueInteger();
   auto unique_prop_val_2 = GetUniqueInteger();
+  auto unique_prop_val_3 = GetUniqueInteger();
+  auto unique_prop_val_4 = GetUniqueInteger();
+  auto unique_prop_val_5 = GetUniqueInteger();
+  auto unique_prop_val_6 = GetUniqueInteger();
+  auto unique_prop_val_7 = GetUniqueInteger();
+  auto unique_prop_val_8 = GetUniqueInteger();
+  auto unique_prop_val_9 = GetUniqueInteger();
+  auto unique_prop_val_10 = GetUniqueInteger();
 
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_3));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_4));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_5));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_6));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_7));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_8));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_9));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_10));
 
-  auto edge_gid = GetUniqueInteger();
-  auto edge_type_id = GetUniqueInteger();
+  Label prim_label = {.id = get_primary_label()};
+  PrimaryKey prim_key1 = {Value(static_cast<int64_t>(unique_prop_val_1))};
 
-  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+  VertexId v_id_1 = {prim_label, prim_key1};
 
-  // Delete the Edge
-  MG_ASSERT(AttemptToDeleteEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+  auto [result_size1, next_id1] = AttemptToScanAllWithBatchLimit(client, v_id_1, 3);
+  MG_ASSERT(result_size1 == 3);
+
+  auto [result_size2, next_id2] = AttemptToScanAllWithBatchLimit(client, next_id1.value(), 3);
+  MG_ASSERT(result_size2 == 3);
+
+  auto [result_size3, next_id3] = AttemptToScanAllWithBatchLimit(client, next_id2.value(), 3);
+  MG_ASSERT(result_size3 == 3);
+
+  auto [result_size4, next_id4] = AttemptToScanAllWithBatchLimit(client, next_id3.value(), 3);
+  MG_ASSERT(result_size4 == 1);
+  MG_ASSERT(!next_id4);
 }
 
-void TestUpdateEdge(ShardClient &client) {
-  // Add the Edge
-  auto unique_prop_val_1 = GetUniqueInteger();
-  auto unique_prop_val_2 = GetUniqueInteger();
+// void TestDeleteEdge(ShardClient &client) {
+//   // Add the Edge
+//   auto unique_prop_val_1 = GetUniqueInteger();
+//   auto unique_prop_val_2 = GetUniqueInteger();
 
-  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
-  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+//   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+//   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
 
-  auto edge_gid = GetUniqueInteger();
-  auto edge_type_id = GetUniqueInteger();
+//   auto edge_gid = GetUniqueInteger();
+//   auto edge_type_id = GetUniqueInteger();
 
-  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+//   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 
-  // Update the Edge
-}
+//   // Delete the Edge
+//   MG_ASSERT(AttemptToDeleteEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+// }
+
+// void TestUpdateEdge(ShardClient &client) {
+//   // Add the Edge
+//   auto unique_prop_val_1 = GetUniqueInteger();
+//   auto unique_prop_val_2 = GetUniqueInteger();
+
+//   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+//   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+//   auto edge_gid = GetUniqueInteger();
+//   auto edge_type_id = GetUniqueInteger();
+
+//   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+
+//   // Update the Edge
+// }
 
 }  // namespace
 
@@ -459,12 +509,13 @@ int main() {
   ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), server_addrs);
 
   TestCreateVertices(client);
-  // TestCreateAndDeleteVertices(client);
-  // TestCreateAndUpdateVertices(client);
+  // TestCreateAndDeleteVertices(client); -> Not priority.
+  // TestCreateAndUpdateVertices(client); -> Not Priority.
   TestAddEdge(client);
-  // // TestDeleteEdge(client); -> Not yet implemented.
-  // // TestUpdateEdge(client); -> Message type insufficent.
-  TestScanAll(client);
+  // TestDeleteEdge(client); -> Not yet implemented.
+  // TestUpdateEdge(client); -> Message type insufficent.
+  TestScanAllOneGo(client);
+  TestScanAllWithSmallBatchSize(client);
 
   simulator.ShutDown();
 
