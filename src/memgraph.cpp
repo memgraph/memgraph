@@ -36,6 +36,7 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "helpers.hpp"
+#include "kvstore/kvstore.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -933,6 +934,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return FLAGS_bolt_server_name_for_init;
   }
 
+  std::optional<std::string> GetRunIdForInit() override {
+    memgraph::kvstore::KVStore storage(std::move(std::filesystem::path(FLAGS_data_directory) / "run_id"));
+
+    return storage.Get("run_id");
+  }
+
  private:
   template <typename TStream>
   std::map<std::string, memgraph::communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
@@ -1275,7 +1282,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
+                      data_directory / "telemetry", data_directory / "run_id", std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};

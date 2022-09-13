@@ -15,6 +15,7 @@
 
 #include <fmt/format.h>
 
+#include "kvstore/kvstore.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "telemetry/system_info.hpp"
@@ -41,13 +42,17 @@ std::string GetMachineId() {
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
+Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::filesystem::path run_id_directory,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
       uuid_(utils::GenerateUUID()),
       machine_id_(GetMachineId()),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
+  memgraph::kvstore::KVStore run_id_storage(run_id_directory);
+  run_id_storage.Put("run_id", uuid_);
+  run_id_storage.~KVStore();
+
   StoreData("startup", GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });

@@ -127,6 +127,10 @@ State SendSuccessMessage(TSession &session) {
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", *server_name});
   }
+  if (auto run_id = session.GetRunIdForInit(); run_id) {
+    metadata.insert({"run_id", *run_id});
+  }
+
   bool success_sent = session.encoder_.MessageSuccess(metadata);
   if (!success_sent) {
     spdlog::trace("Couldn't send success message to the client!");

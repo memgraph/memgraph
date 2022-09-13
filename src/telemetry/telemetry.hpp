@@ -34,7 +34,7 @@ namespace memgraph::telemetry {
  */
 class Telemetry final {
  public:
-  Telemetry(std::string url, std::filesystem::path storage_directory,
+  Telemetry(std::string url, std::filesystem::path storage_directory, std::filesystem::path run_id_directory,
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
