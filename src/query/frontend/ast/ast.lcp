@@ -464,7 +464,7 @@ cpp<#
                :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
   (:public
     (lcp:define-enum op
-      (count min max sum avg collect-list collect-map)
+      (count min max sum avg collect-list collect-map project)
       (:serialize))
     #>cpp
     Aggregation() = default;
@@ -475,10 +475,11 @@ cpp<#
     static const constexpr char *const kSum = "SUM";
     static const constexpr char *const kAvg = "AVG";
     static const constexpr char *const kCollect = "COLLECT";
+    static const constexpr char *const kProject = "PROJECT";
 
     static std::string OpToString(Op op) {
       const char *op_strings[] = {kCount, kMin,     kMax,    kSum,
-                                  kAvg,   kCollect, kCollect};
+                                  kAvg,   kCollect, kCollect, kProject};
       return op_strings[static_cast<int>(op)];
     }
 
@@ -1380,7 +1381,7 @@ cpp<#
                  :documentation "Variable where the total weight for weighted shortest path will be stored."))
   (:public
     (lcp:define-enum type
-                     (single depth-first breadth-first weighted-shortest-path)
+                     (single depth-first breadth-first weighted-shortest-path all-shortest-paths)
                      (:serialize))
     (lcp:define-enum direction
                      (in out both)
@@ -1432,6 +1433,7 @@ cpp<#
         case Type::DEPTH_FIRST:
         case Type::BREADTH_FIRST:
         case Type::WEIGHTED_SHORTEST_PATH:
+        case Type::ALL_SHORTEST_PATHS:
           return true;
         case Type::SINGLE:
           return false;

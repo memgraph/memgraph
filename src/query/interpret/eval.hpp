@@ -313,6 +313,25 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
+    auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "nodes") {
+        utils::pmr::vector<TypedValue> vertices(ctx_->memory);
+        vertices.reserve(graph.vertices().size());
+        for (const auto &v : graph.vertices()) {
+          vertices.emplace_back(TypedValue(v, ctx_->memory));
+        }
+        return TypedValue(vertices, ctx_->memory);
+      }
+      if (prop_name == "edges") {
+        utils::pmr::vector<TypedValue> edges(ctx_->memory);
+        edges.reserve(graph.edges().size());
+        for (const auto &e : graph.edges()) {
+          edges.emplace_back(TypedValue(e, ctx_->memory));
+        }
+        return TypedValue(edges, ctx_->memory);
+      }
+      return std::nullopt;
+    };
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
@@ -364,6 +383,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return std::move(*lt_field);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
+      }
+      case TypedValue::Type::Graph: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &graph = expression_result.ValueGraph();
+        if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
+          return std::move(*graph_field);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
       default:
         throw QueryRuntimeException("Only nodes, edges, maps and temporal types have properties to be looked-up.");

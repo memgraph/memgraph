@@ -1,3 +1,14 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
 #include "mg_procedure.h"
 
 int *gVal = NULL;
@@ -6,7 +17,7 @@ void set_error(struct mgp_result *result) { mgp_result_set_error_msg(result, "So
 
 void set_out_of_memory_error(struct mgp_result *result) { mgp_result_set_error_msg(result, "Out of memory"); }
 
-static void error(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
+static void error(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
                   struct mgp_memory *memory) {
   const size_t one_gb = 1 << 30;
   if (gVal) {
@@ -14,7 +25,7 @@ static void error(const struct mgp_list *args, const struct mgp_graph *graph, st
     gVal = NULL;
   }
   if (!gVal) {
-    const enum mgp_error err = mgp_global_alloc(one_gb, &gVal);
+    const enum mgp_error err = mgp_global_alloc(one_gb, (void **)(&gVal));
     if (err == MGP_ERROR_UNABLE_TO_ALLOCATE) return set_out_of_memory_error(result);
     if (err != MGP_ERROR_NO_ERROR) return set_error(result);
   }
@@ -29,11 +40,11 @@ static void error(const struct mgp_list *args, const struct mgp_graph *graph, st
   if (result_inserted != MGP_ERROR_NO_ERROR) return set_error(result);
 }
 
-static void success(const struct mgp_list *args, const struct mgp_graph *graph, struct mgp_result *result,
+static void success(struct mgp_list *args, struct mgp_graph *graph, struct mgp_result *result,
                     struct mgp_memory *memory) {
   const size_t bytes = 1024;
   if (!gVal) {
-    const enum mgp_error err = mgp_global_alloc(bytes, &gVal);
+    const enum mgp_error err = mgp_global_alloc(bytes, (void **)(&gVal));
     if (err == MGP_ERROR_UNABLE_TO_ALLOCATE) return set_out_of_memory_error(result);
     if (err != MGP_ERROR_NO_ERROR) return set_error(result);
   }

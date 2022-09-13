@@ -32,6 +32,12 @@ class Path {
   using allocator_type = utils::Allocator<char>;
 
   /**
+   * Create the path with no elements
+   * Allocations are done using the given MemoryResource.
+   */
+  explicit Path(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
+
+  /**
    * Create the path starting with the given vertex.
    * Allocations are done using the given MemoryResource.
    */

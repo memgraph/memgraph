@@ -418,7 +418,7 @@ class RuleBasedPlanner {
           std::optional<ExpansionLambda> weight_lambda;
           std::optional<Symbol> total_weight;
 
-          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+          if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
             weight_lambda.emplace(ExpansionLambda{symbol_table.at(*edge->weight_lambda_.inner_edge),
                                                   symbol_table.at(*edge->weight_lambda_.inner_node),
                                                   edge->weight_lambda_.expression});
