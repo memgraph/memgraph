@@ -15,7 +15,6 @@
 
 #include <fmt/format.h>
 
-#include "kvstore/kvstore.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "telemetry/system_info.hpp"
