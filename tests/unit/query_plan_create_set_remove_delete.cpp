@@ -24,6 +24,7 @@
 #include "query/exceptions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/license.hpp"
 
 #include "query_plan_common.hpp"
 #include "storage/v2/id_types.hpp"
@@ -77,7 +78,9 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   EXPECT_EQ(vertex_count, 1);
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   memgraph::storage::Storage db;
@@ -117,6 +120,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
     ASSERT_THROW(test_create(user), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
@@ -158,7 +162,10 @@ TEST(QueryPlan, CreateReturn) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateReturn) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
+
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -215,6 +222,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateExpand) {
   memgraph::storage::Storage db;
@@ -293,6 +301,7 @@ TEST(QueryPlan, CreateExpand) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class CreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -300,6 +309,8 @@ class CreateExpandWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void ExecuteCreateExpand(bool cycle, memgraph::auth::User &user) {
     const auto label_node_1 = dba.NameToLabel("Node1");
@@ -465,6 +476,8 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+
   void InitGraph() {
     // add three nodes we'll match and expand-create from
     memgraph::query::VertexAccessor v1{dba.InsertVertex()};
@@ -536,6 +549,7 @@ TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
 
   ASSERT_THROW(ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
+#endif
 
 TEST(QueryPlan, MatchCreateExpand) {
   memgraph::storage::Storage db;
@@ -585,6 +599,7 @@ TEST(QueryPlan, MatchCreateExpand) {
   test_create_path(true, 0, 6);
 }
 
+#ifdef MG_ENTERPRISE
 class MatchCreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -592,6 +607,8 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     // add three nodes we'll match and expand-create from
@@ -730,6 +747,7 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
 
   ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
 }
+#endif
 
 TEST(QueryPlan, Delete) {
   memgraph::storage::Storage db;
@@ -802,6 +820,7 @@ TEST(QueryPlan, Delete) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class DeleteOperatorWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -809,6 +828,8 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     std::vector<memgraph::query::VertexAccessor> vertices;
@@ -949,6 +970,7 @@ TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted)
   TestDeleteNodesHypothesis(0);
   TestDeleteEdgesHypothesis(0);
 }
+#endif
 
 TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // test deleting the same vertex and edge multiple times
@@ -1242,7 +1264,9 @@ TEST(QueryPlan, SetLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, SetLabelsWithFineGrained) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
@@ -1315,6 +1339,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, RemoveProperty) {
   memgraph::storage::Storage db;
@@ -1413,7 +1438,9 @@ TEST(QueryPlan, RemoveLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
     auto v1 = dba.InsertVertex();
@@ -1492,6 +1519,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, NodeFilterSet) {
   memgraph::storage::Storage db;
@@ -1858,6 +1886,7 @@ TEST(QueryPlan, DeleteRemoveProperty) {
 //////////////////////////////////////////////
 ////     FINE GRAINED AUTHORIZATION      /////
 //////////////////////////////////////////////
+#ifdef MG_ENTERPRISE
 class UpdatePropertiesWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -1881,6 +1910,8 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
   const std::string edge_prop_name = "prop";
   const memgraph::storage::PropertyId edge_prop{dba.NameToProperty(edge_prop_name)};
   const memgraph::storage::PropertyValue edge_prop_value{1};
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void SetVertexProperty(memgraph::query::VertexAccessor vertex) {
     static_cast<void>(vertex.SetProperty(entity_prop, entity_prop_value));
@@ -2484,3 +2515,4 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     test_remove_hypothesis(1);
   }
 }
+#endif

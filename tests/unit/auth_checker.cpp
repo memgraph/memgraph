@@ -17,7 +17,9 @@
 
 #include "query_plan_common.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/license.hpp"
 
+#ifdef MG_ENTERPRISE
 class FineGrainedAuthCheckerFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -37,6 +39,7 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
   memgraph::query::EdgeAccessor r4{*dba.InsertEdge(&v1, &v3, edge_type_two)};
 
   void SetUp() override {
+    memgraph::utils::license::global_license_checker.EnableTesting();
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
@@ -205,3 +208,4 @@ TEST_F(FineGrainedAuthCheckerFixture, GrantAndDenySpecificEdgeTypes) {
   ASSERT_FALSE(auth_checker.Has(r3, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
   ASSERT_FALSE(auth_checker.Has(r4, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 }
+#endif

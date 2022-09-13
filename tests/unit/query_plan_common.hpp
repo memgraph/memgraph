@@ -41,7 +41,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   return context;
 }
-
+#ifdef MG_ENTERPRISE
 ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, const SymbolTable &symbol_table,
                                                    memgraph::query::DbAccessor *dba,
                                                    memgraph::glue::FineGrainedAuthChecker *auth_checker) {
@@ -53,6 +53,7 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
 
   return context;
 }
+#endif
 
 /** Helper function that collects all the results from the given Produce. */
 std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, ExecutionContext *context) {

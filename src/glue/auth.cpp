@@ -61,6 +61,7 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
     const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   switch (fine_grained_privilege) {
@@ -72,4 +73,5 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::CREATE_DELETE;
   }
 }
+#endif
 }  // namespace memgraph::glue

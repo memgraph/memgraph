@@ -44,6 +44,7 @@ enum class Permission : uint64_t {
 };
 // clang-format on
 
+#ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
   NO_PERMISSION = 0,
@@ -70,6 +71,7 @@ constexpr uint64_t kLabelPermissionAll = memgraph::auth::FineGrainedPermission::
                                          memgraph::auth::FineGrainedPermission::READ;
 constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ);
+#endif
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -80,11 +82,13 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
 
+#ifdef MG_ENTERPRISE
 // Function that converts a label permission level to its string representation.
 std::string FineGrainedPermissionToString(FineGrainedPermission level);
 
 // Constructs a label permission from a permission
 FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission);
+#endif
 
 class Permissions final {
  public:
@@ -125,6 +129,7 @@ bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
 
+#ifdef MG_ENTERPRISE
 class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
@@ -192,14 +197,16 @@ class FineGrainedAccessHandler final {
 };
 
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+#endif
 
 class Role final {
  public:
   explicit Role(const std::string &rolename);
-
+  Role(const std::string &rolename, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
-
+#endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
   Role(Role &&) noexcept = default;
@@ -209,11 +216,12 @@ class Role final {
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+#ifdef MG_ENTERPRISE
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
   const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
   const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
-
+#endif
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -224,7 +232,9 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
+#ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+#endif
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -235,10 +245,11 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-
+  User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
-
+#endif
   User(const User &) = default;
   User &operator=(const User &) = default;
   User(User &&) noexcept = default;
@@ -256,15 +267,17 @@ class User final {
   void ClearRole();
 
   Permissions GetPermissions() const;
+
+#ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
-
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
+#endif
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
 
   const Role *role() const;
 
@@ -279,12 +292,16 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
+#ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+#endif
   std::optional<Role> role_;
 };
 
 bool operator==(const User &first, const User &second);
 
+#ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
+#endif
 }  // namespace memgraph::auth

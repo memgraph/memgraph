@@ -26,10 +26,12 @@ class AuthChecker {
   [[nodiscard]] virtual bool IsUserAuthorized(const std::optional<std::string> &username,
                                               const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
 
+#ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username, const memgraph::query::DbAccessor *db_accessor) const = 0;
+#endif
 };
-
+#ifdef MG_ENTERPRISE
 class FineGrainedAuthChecker {
  public:
   virtual ~FineGrainedAuthChecker() = default;
@@ -85,6 +87,7 @@ class AllowEverythingFineGrainedAuthChecker final : public query::FineGrainedAut
     return true;
   }
 };  // namespace memgraph::query
+#endif
 
 class AllowEverythingAuthChecker final : public query::AuthChecker {
  public:
@@ -93,10 +96,12 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
     return true;
   }
 
+#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/,
                                                                     const query::DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
-};
+#endif
+};  // namespace memgraph::query
 
 }  // namespace memgraph::query
