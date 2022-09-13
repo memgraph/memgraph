@@ -62,10 +62,8 @@ function(add_simulation_test test_cpp)
   add_dependencies(memgraph__simulation ${target_name})
 endfunction(add_simulation_test)
 
+add_simulation_test(basic_request.cpp)
+add_simulation_test(raft.cpp)
+add_simulation_test(trial_query_storage/query_storage_test.cpp)
+add_simulation_test(sharded_map.cpp)
 add_simulation_test(shard_rsm.cpp)
-
-# TODO(gvolfing) Make these available once the Raft bug is gone!
-# add_simulation_test(basic_request.cpp)
-# add_simulation_test(raft.cpp)
-# add_simulation_test(trial_query_storage/query_storage_test.cpp)
-# add_simulation_test(sharded_map.cpp)
