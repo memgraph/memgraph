@@ -454,12 +454,11 @@ Role Role::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
-  if (!data["fine_grained_access_handler"].is_object()) {
-    throw AuthException("Couldn't load user data!");
-  }
   if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    if (!data["fine_grained_access_handler"].is_object()) {
+      throw AuthException("Couldn't load user data!");
+    }
     auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
-
     return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
   }
 #endif
@@ -605,12 +604,11 @@ User User::Deserialize(const nlohmann::json &data) {
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
 #ifdef MG_ENTERPRISE
-  if (!data["fine_grained_access_handler"].is_object()) {
-    throw AuthException("Couldn't load user data!");
-  }
   if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    if (!data["fine_grained_access_handler"].is_object()) {
+      throw AuthException("Couldn't load user data!");
+    }
     auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
-
     return {data["username"], data["password_hash"], permissions, fine_grained_access_handler};
   }
 #endif
