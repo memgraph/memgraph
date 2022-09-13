@@ -14,6 +14,8 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+
+#include "io/time.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/transaction.hpp"
@@ -24,11 +26,8 @@ namespace memgraph::storage::v3 {
 /// the storage. This class also defines the default behavior.
 struct Config {
   struct Gc {
-    // TODO(antaljanosbenjamin): How to handle garbage collection?
-    enum class Type { NONE };
-
-    Type type{Type::NONE};
-    std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
+    // Interval after which the committed deltas are cleaned up
+    io::Duration reclamation_interval{};
   } gc;
 
   struct Items {

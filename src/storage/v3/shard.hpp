@@ -21,7 +21,9 @@
 #include <variant>
 #include <vector>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "io/network/endpoint.hpp"
+#include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/constraints.hpp"
@@ -214,19 +216,9 @@ class Shard final {
    private:
     friend class Shard;
 
-    explicit Accessor(Shard *shard, IsolationLevel isolation_level);
+    explicit Accessor(Shard *shard, coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
    public:
-    Accessor(const Accessor &) = delete;
-    Accessor &operator=(const Accessor &) = delete;
-    Accessor &operator=(Accessor &&other) = delete;
-
-    // NOTE: After the accessor is moved, all objects derived from it (accessors
-    // and iterators) are *invalid*. You have to get all derived objects again.
-    Accessor(Accessor &&other) noexcept;
-
-    ~Accessor();
-
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         LabelId primary_label, const std::vector<LabelId> &labels,
@@ -235,7 +227,7 @@ class Shard final {
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), &transaction_, view, &shard_->indices_,
+      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), transaction_, view, &shard_->indices_,
                                                   &shard_->constraints_, shard_->config_.items,
                                                   shard_->vertex_validator_));
     }
@@ -327,7 +319,7 @@ class Shard final {
     /// transaction violate an existence or unique constraint. In that case the
     /// transaction is automatically aborted. Otherwise, void is returned.
     /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    utils::BasicResult<ConstraintViolation, void> Commit(coordinator::Hlc commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort();
@@ -339,14 +331,12 @@ class Shard final {
     VertexAccessor CreateVertex(Gid gid, LabelId primary_label);
 
     Shard *shard_;
-    Transaction transaction_;
-    std::optional<uint64_t> commit_timestamp_;
-    bool is_transaction_active_;
+    Transaction *transaction_;
     Config::Items config_;
   };
 
-  Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+  Accessor Access(coordinator::Hlc start_timestamp, std::optional<IsolationLevel> override_isolation_level = {}) {
+    return Accessor{this, start_timestamp, override_isolation_level.value_or(isolation_level_)};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -428,13 +418,10 @@ class Shard final {
 
   void SetIsolationLevel(IsolationLevel isolation_level);
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
-
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  bool CreateSnapshot();
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
-
+  Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
   /// be part of a transaction, and no other transaction can be active at the same time.
@@ -446,8 +433,7 @@ class Shard final {
   /// that no object in use can be deleted.
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  template <bool force>
-  void CollectGarbage();
+  void CollectGarbage(io::Time current_time);
 
   bool InitializeWalFile();
   void FinalizeWalFile();
@@ -479,16 +465,10 @@ class Shard final {
   Indices indices_;
   Schemas schemas_;
 
-  // Transaction engine
-  uint64_t timestamp_{kTimestampInitialId};
-
-  std::list<Transaction> committed_transactions_;
+  std::list<Transaction *> committed_transactions_;
   IsolationLevel isolation_level_;
 
   Config config_;
-
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  std::list<std::pair<uint64_t, std::list<Delta>>> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
@@ -540,6 +520,8 @@ class Shard final {
 
   // Global locker that is used for clients file locking
   utils::FileRetainer::FileLocker global_locker_;
+
+  std::unordered_map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction{};
 };
 
 }  // namespace memgraph::storage::v3

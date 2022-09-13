@@ -352,17 +352,17 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = std::optional<durability::RecoveryInfo>{};
+    // auto info = std::optional<durability::RecoveryInfo>{};
 
     // durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
     //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
     //                         &wal_seq_num_);
-    if (info) {
-      timestamp_ = std::max(timestamp_, info->next_timestamp);
-      if (info->last_commit_timestamp) {
-        last_commit_timestamp_ = *info->last_commit_timestamp;
-      }
-    }
+    // if (info) {
+    //   timestamp_ = std::max(timestamp_, info->next_timestamp);
+    //   if (info->last_commit_timestamp) {
+    //     last_commit_timestamp_ = *info->last_commit_timestamp;
+    //   }
+    // }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
     bool files_moved = false;
@@ -408,11 +408,6 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
 }
 
 Shard::~Shard() {
-  {
-    // Clear replication data
-    replication_server_.reset();
-    replication_clients_.WithLock([&](auto &clients) { clients.clear(); });
-  }
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_ = std::nullopt;
@@ -421,40 +416,14 @@ Shard::~Shard() {
     // TODO(antaljanosbenjamin): stop snapshot creation
   }
   if (config_.durability.snapshot_on_exit) {
-    if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
-      switch (maybe_error.GetError()) {
-        case CreateSnapshotError::DisabledForReplica:
-          spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-          break;
-      }
-    }
+    MG_ASSERT(CreateSnapshot(), "Cannot create snapshot!");
   }
 }
 
-Shard::Accessor::Accessor(Shard *shard, IsolationLevel isolation_level)
+Shard::Accessor::Accessor(Shard *shard, coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
     : shard_(shard),
-      transaction_(shard->CreateTransaction(isolation_level)),
-      is_transaction_active_(true),
+      transaction_(&shard->GetTransaction(start_timestamp, isolation_level)),
       config_(shard->config_.items) {}
-
-Shard::Accessor::Accessor(Accessor &&other) noexcept
-    : shard_(other.shard_),
-      transaction_(std::move(other.transaction_)),
-      commit_timestamp_(other.commit_timestamp_),
-      is_transaction_active_(other.is_transaction_active_),
-      config_(other.config_) {
-  // Don't allow the other accessor to abort our transaction in destructor.
-  other.is_transaction_active_ = false;
-  other.commit_timestamp_.reset();
-}
-
-Shard::Accessor::~Accessor() {
-  if (is_transaction_active_) {
-    Abort();
-  }
-
-  FinalizeTransaction();
-}
 
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
@@ -477,11 +446,11 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
         })->second);
   }
   auto acc = shard_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto *delta = CreateDeleteObjectDelta(transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
 
-  VertexAccessor vertex_acc{&it->vertex,           &transaction_, &shard_->indices_,
-                            &shard_->constraints_, config_,       shard_->vertex_validator_};
+  VertexAccessor vertex_acc{&it->vertex,           transaction_, &shard_->indices_,
+                            &shard_->constraints_, config_,      shard_->vertex_validator_};
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
@@ -510,17 +479,17 @@ std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyVa
   if (it == acc.end()) {
     return std::nullopt;
   }
-  return VertexAccessor::Create(&it->vertex, &transaction_, &shard_->indices_, &shard_->constraints_, config_,
+  return VertexAccessor::Create(&it->vertex, transaction_, &shard_->indices_, &shard_->constraints_, config_,
                                 shard_->vertex_validator_, view);
 }
 
 Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
-  MG_ASSERT(vertex->transaction_ == &transaction_,
+  MG_ASSERT(vertex->transaction_ == transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_ptr->deleted) {
     return std::optional<VertexAccessor>{};
@@ -528,18 +497,18 @@ Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccess
 
   if (!vertex_ptr->in_edges.empty() || !vertex_ptr->out_edges.empty()) return Error::VERTEX_HAS_EDGES;
 
-  CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+  CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, &transaction_, &shard_->indices_, &shard_->constraints_,
-                                            config_, shard_->vertex_validator_, true);
+  return std::make_optional<VertexAccessor>(vertex_ptr, transaction_, &shard_->indices_, &shard_->constraints_, config_,
+                                            shard_->vertex_validator_, true);
 }
 
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shard::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
 
-  MG_ASSERT(vertex->transaction_ == &transaction_,
+  MG_ASSERT(vertex->transaction_ == transaction_,
             "VertexAccessor must be from the same transaction as the storage "
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
@@ -548,7 +517,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   std::vector<Vertex::EdgeLink> out_edges;
 
   {
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
     if (vertex_ptr->deleted) return std::optional<ReturnType>{};
 
@@ -560,7 +529,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys.Keys()};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, &transaction_, &shard_->indices_, &shard_->constraints_,
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, &shard_->constraints_,
                    config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
@@ -574,7 +543,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
+    EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, &shard_->constraints_,
                    config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
@@ -591,14 +560,14 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   // vertex. Some other transaction could have modified the vertex in the
   // meantime if we didn't have any edges to delete.
 
-  if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+  if (!PrepareForWrite(transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
 
   MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
-  CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+  CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<ReturnType>(VertexAccessor{vertex_ptr, &transaction_, &shard_->indices_,
+  return std::make_optional<ReturnType>(VertexAccessor{vertex_ptr, transaction_, &shard_->indices_,
                                                        &shard_->constraints_, config_, shard_->vertex_validator_, true},
                                         std::move(deleted_edges));
 }
@@ -628,18 +597,18 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
   }
 
   if (from_is_local) {
-    if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
     if (from_vertex->deleted) return Error::DELETED_OBJECT;
   }
   if (to_is_local && to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWrite(transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = shard_->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
+    auto *delta = CreateDeleteObjectDelta(transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
@@ -648,17 +617,17 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
   }
 
   if (from_is_local) {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
+    CreateAndLinkDelta(transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex_id, edge);
   }
   if (to_is_local) {
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
+    CreateAndLinkDelta(transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex_id, edge);
   }
   // Increment edge count.
   ++shard_->edge_count_;
 
-  return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), &transaction_,
+  return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), transaction_,
                       &shard_->indices_, &shard_->constraints_, config_);
 }
 
@@ -687,13 +656,13 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
   MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edge without having a local vertex");
 
   if (from_is_local) {
-    if (!PrepareForWrite(&transaction_, from_vertex)) {
+    if (!PrepareForWrite(transaction_, from_vertex)) {
       return Error::SERIALIZATION_ERROR;
     }
     MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
   }
   if (to_is_local && to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) {
+    if (!PrepareForWrite(transaction_, to_vertex)) {
       return Error::SERIALIZATION_ERROR;
     }
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
@@ -744,24 +713,24 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
 
   if (config_.properties_on_edges) {
     auto *edge_ptr = edge_ref.ptr;
-    CreateAndLinkDelta(&transaction_, edge_ptr, Delta::RecreateObjectTag());
+    CreateAndLinkDelta(transaction_, edge_ptr, Delta::RecreateObjectTag());
     edge_ptr->deleted = true;
   }
 
   MG_ASSERT(edge_type.has_value(), "Edge type is not determined");
 
   if (from_is_local) {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), *edge_type, to_vertex_id, edge_ref);
+    CreateAndLinkDelta(transaction_, from_vertex, Delta::AddOutEdgeTag(), *edge_type, to_vertex_id, edge_ref);
   }
   if (to_is_local) {
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), *edge_type, from_vertex_id, edge_ref);
+    CreateAndLinkDelta(transaction_, to_vertex, Delta::AddInEdgeTag(), *edge_type, from_vertex_id, edge_ref);
   }
 
   // Decrement edge count.
   --shard_->edge_count_;
 
   return std::make_optional<EdgeAccessor>(edge_ref, *edge_type, std::move(from_vertex_id), std::move(to_vertex_id),
-                                          &transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
+                                          transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
 }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
@@ -774,118 +743,33 @@ const std::string &Shard::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
   return shard_->EdgeTypeToName(edge_type);
 }
 
-void Shard::Accessor::AdvanceCommand() { ++transaction_.command_id; }
+void Shard::Accessor::AdvanceCommand() { ++transaction_->command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(
-    const std::optional<uint64_t> desired_commit_timestamp) {
-  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(coordinator::Hlc commit_timestamp) {
+  MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
+  MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
+  MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
+            "Commit timestamp must be older than start timestamp!");
+  MG_ASSERT(transaction_->commit_info != nullptr, "Invalid database state!");
+  MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
+  transaction_->commit_info->timestamp = commit_timestamp;
+  transaction_->commit_info->is_locally_committed = true;
 
-  if (!transaction_.deltas.empty()) {
-    // Validate that existence constraints are satisfied for all modified
-    // vertices.
-    for (const auto &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      auto validation_result = ValidateExistenceConstraints(*prev.vertex, shard_->constraints_);
-      if (validation_result) {
-        Abort();
-        return {*validation_result};
-      }
-    }
-
-    // Result of validating the vertex against unique constraints. It has to be
-    // declared outside of the critical section scope because its value is
-    // tested for Abort call which has to be done out of the scope.
-    std::optional<ConstraintViolation> unique_constraint_violation;
-
-    commit_timestamp_.emplace(shard_->CommitTimestamp(desired_commit_timestamp));
-
-    // Before committing and validating vertices against unique constraints,
-    // we have to update unique constraints with the vertices that are going
-    // to be validated/committed.
-    for (const auto &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-      shard_->constraints_.unique_constraints.UpdateBeforeCommit(prev.vertex, transaction_);
-    }
-
-    // Validate that unique constraints are satisfied for all modified
-    // vertices.
-    for (const auto &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::VERTEX) {
-        continue;
-      }
-
-      // No need to take any locks here because we modified this vertex and no
-      // one else can touch it until we commit.
-      unique_constraint_violation =
-          shard_->constraints_.unique_constraints.Validate(*prev.vertex, transaction_, *commit_timestamp_);
-      if (unique_constraint_violation) {
-        break;
-      }
-    }
-
-    if (!unique_constraint_violation) {
-      // Write transaction to WAL while holding the engine lock to make sure
-      // that committed transactions are sorted by the commit timestamp in the
-      // WAL files. We supply the new commit timestamp to the function so that
-      // it knows what will be the final commit timestamp. The WAL must be
-      // written before actually committing the transaction (before setting
-      // the commit timestamp) so that no other transaction can see the
-      // modifications before they are written to disk.
-      // Replica can log only the write transaction received from Main
-      // so the Wal files are consistent
-      if (shard_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-        shard_->AppendToWal(transaction_, *commit_timestamp_);
-      }
-
-      // TODO(antaljanosbenjamin): Figure out:
-      //   1. How the committed transactions are sorted in `committed_transactions_`
-      //   2. Why it was necessary to lock `committed_transactions_` when it was not accessed at all
-      // TODO: Update all deltas to have a local copy of the commit timestamp
-      MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
-      // TODO(antaljanosbenjamin): Fix before merge, handle the commit timestamp, receive it as a parameter
-      transaction_.commit_info->timestamp.logical_id = *commit_timestamp_;
-      transaction_.commit_info->is_locally_committed = true;
-      // Replica can only update the last commit timestamp with
-      // the commits received from main.
-      if (shard_->replication_role_ == ReplicationRole::MAIN || desired_commit_timestamp.has_value()) {
-        // Update the last commit timestamp
-        shard_->last_commit_timestamp_ = *commit_timestamp_;
-      }
-    }
-
-    if (unique_constraint_violation) {
-      Abort();
-      return {*unique_constraint_violation};
-    }
-  }
-  is_transaction_active_ = false;
-
+  shard_->committed_transactions_.emplace_back(transaction_);
   return {};
 }
 
 void Shard::Accessor::Abort() {
-  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
+  MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
 
-  for (const auto &delta : transaction_.deltas) {
+  for (const auto &delta : transaction_->deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr && current->commit_info->timestamp == transaction_.start_timestamp) {
+        while (current != nullptr && current->commit_info->timestamp == transaction_->start_timestamp) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -970,7 +854,7 @@ void Shard::Accessor::Abort() {
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
         Delta *current = edge->delta;
-        while (current != nullptr && current->commit_info->timestamp == transaction_.start_timestamp) {
+        while (current != nullptr && current->commit_info->timestamp == transaction_->start_timestamp) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1011,21 +895,15 @@ void Shard::Accessor::Abort() {
     }
   }
 
-  {
-    uint64_t mark_timestamp = shard_->timestamp_;
+  transaction_->deltas.clear();
 
-    // Release engine lock because we don't have to hold it anymore and
-    // emplace back could take a long time.
-    shard_->garbage_undo_buffers_.emplace_back(mark_timestamp, std::move(transaction_.deltas));
-  }
-
-  is_transaction_active_ = false;
+  transaction_->is_aborted = true;
 }
 
 void Shard::Accessor::FinalizeTransaction() {
-  if (commit_timestamp_) {
-    shard_->committed_transactions_.emplace_back(std::move(transaction_));
-    commit_timestamp_.reset();
+  MG_ASSERT(transaction_->is_aborted || transaction_->commit_info->is_locally_committed,
+            "Cannot finalize active transaction!");
+  if (transaction_->commit_info->is_locally_committed) {
   }
 }
 
@@ -1170,55 +1048,30 @@ StorageInfo Shard::GetInfo() const {
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
-  return VerticesIterable(shard_->indices_.label_index.Vertices(label, view, &transaction_));
+  return VerticesIterable(shard_->indices_.label_index.Vertices(label, view, transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, View view) {
   return VerticesIterable(
-      shard_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
+      shard_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt, view, transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
+      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
   return VerticesIterable(
-      shard_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
+      shard_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, transaction_));
 }
 
-Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
-  uint64_t start_timestamp{0};
-
-  // Replica should have only read queries and the write queries
-  // can come from main instance with any past timestamp.
-  // To preserve snapshot isolation we set the start timestamp
-  // of any query on replica to the last commited transaction
-  // which is timestamp_ as only commit of transaction with writes
-  // can change the value of it.
-  if (replication_role_ == ReplicationRole::REPLICA) {
-    start_timestamp = timestamp_;
-  } else {
-    start_timestamp = timestamp_++;
-  }
-
-  return {start_timestamp, isolation_level};
-}
-
-// `force` means there are no active transactions, so everything can be deleted without worrying about removing some
-// data that is used by an active transaction
-template <bool force>
-void Shard::CollectGarbage() {
-  if constexpr (force) {
-    // TODO(antaljanosbenjamin): figure out whether is there any active transaction or not (probably accessors should
-    // increment/decrement a counter). If there are no transactions, then garbage collection can be forced
-    CollectGarbage<false>();
-    return;
-  }
-
+void Shard::CollectGarbage(const io::Time current_time) {
+  const auto cleanup_transaction_from_before = current_time - config_.gc.reclamation_interval;
+  // TODO(antaljanosbenjamin) Fix before merge, get the correct logical is from start_logical_id_to_transaction
+  const uint64_t oldest_might_active_transaction{0};
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
   // the version chains. They cannot be deleted immediately, because there
@@ -1226,13 +1079,6 @@ void Shard::CollectGarbage() {
   // chain traversal. They are instead marked for deletion and will be deleted
   // in the second GC phase in this GC iteration or some of the following
   // ones.
-
-  // TODO(antaljanosbenjamin): Fix before merge, make garbage collection work in some way
-  uint64_t oldest_active_start_timestamp = 0;
-  // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
-  // list immediately, because we would have to repeatedly take
-  // garbage_undo_buffers lock.
-  std::list<std::pair<uint64_t, std::list<Delta>>> unlinked_undo_buffers;
 
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
@@ -1242,7 +1088,9 @@ void Shard::CollectGarbage() {
   // should be run when there were any items that were cleaned up (there were
   // updates between this run of the GC and the previous run of the GC). This
   // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !committed_transactions_.empty() || !garbage_undo_buffers_.empty();
+
+  // TODO(antaljanosbenjamin): Fix before merge, run index cleanup when a transaction aborted
+  bool run_index_cleanup = !committed_transactions_.empty();  // || has_transaction_aborted_after_last_gc;
 
   while (true) {
     // We don't want to hold the lock on commited transactions for too long,
@@ -1252,12 +1100,12 @@ void Shard::CollectGarbage() {
       if (committed_transactions_.empty()) {
         break;
       }
-      transaction = &committed_transactions_.front();
+      transaction = committed_transactions_.front();
     }
 
     // TODO(antaljanosbenjamin): use HLC here
     auto commit_timestamp = transaction->commit_info->timestamp;
-    if (commit_timestamp >= oldest_active_start_timestamp) {
+    if (commit_timestamp.coordinator_wall_clock < cleanup_transaction_from_before) {
       break;
     }
 
@@ -1298,11 +1146,6 @@ void Shard::CollectGarbage() {
         switch (prev.type) {
           case PreviousPtr::Type::VERTEX: {
             Vertex *vertex = prev.vertex;
-            if (vertex->delta != &delta) {
-              // Something changed, we're not the first delta in the chain
-              // anymore.
-              continue;
-            }
             vertex->delta = nullptr;
             if (vertex->deleted) {
               InsertVertexPKIntoList(deleted_vertices_, vertex->keys.Keys());
@@ -1311,11 +1154,7 @@ void Shard::CollectGarbage() {
           }
           case PreviousPtr::Type::EDGE: {
             Edge *edge = prev.edge;
-            if (edge->delta != &delta) {
-              // Something changed, we're not the first delta in the chain
-              // anymore.
-              continue;
-            }
+
             edge->delta = nullptr;
             if (edge->deleted) {
               deleted_edges_.push_back(edge->gid);
@@ -1329,22 +1168,6 @@ void Shard::CollectGarbage() {
               // part of the suffix later.
               break;
             }
-            {
-              // We need to find the parent object in order to be able to use
-              // its lock.
-              auto parent = prev;
-              while (parent.type == PreviousPtr::Type::DELTA) {
-                parent = parent.delta->prev.Get();
-              }
-              switch (parent.type) {
-                case PreviousPtr::Type::VERTEX:
-                case PreviousPtr::Type::EDGE:
-                  break;
-                case PreviousPtr::Type::DELTA:
-                case PreviousPtr::Type::NULLPTR:
-                  LOG_FATAL("Invalid database state!");
-              }
-            }
             Delta *prev_delta = prev.delta;
             prev_delta->next.store(nullptr, std::memory_order_release);
             break;
@@ -1356,9 +1179,8 @@ void Shard::CollectGarbage() {
         break;
       }
     }
-
-    unlinked_undo_buffers.emplace_back(0, std::move(transaction->deltas));
     committed_transactions_.pop_front();
+    MG_ASSERT(start_logical_id_to_transaction.erase(transaction->start_timestamp.logical_id));
   }
 
   // After unlinking deltas from vertices, we refresh the indices. That way
@@ -1368,46 +1190,24 @@ void Shard::CollectGarbage() {
   if (run_index_cleanup) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    RemoveObsoleteEntries(&indices_, oldest_active_start_timestamp);
-    constraints_.unique_constraints.RemoveObsoleteEntries(oldest_active_start_timestamp);
+    RemoveObsoleteEntries(&indices_, oldest_might_active_transaction);
   }
 
   {
-    uint64_t mark_timestamp = timestamp_;
-    for (auto &[timestamp, undo_buffer] : unlinked_undo_buffers) {
-      timestamp = mark_timestamp;
-    }
-    garbage_undo_buffers_.splice(garbage_undo_buffers_.end(), unlinked_undo_buffers);
-
     for (const auto &vertex : deleted_vertices_) {
-      garbage_vertices_.emplace_back(mark_timestamp, vertex);
+      garbage_vertices_.emplace_back(oldest_might_active_transaction, vertex);
     }
   }
 
   // if force is set to true we can simply delete all the leftover undos because
   // no transaction is active
-  if constexpr (force) {
-    garbage_undo_buffers_.clear();
-  } else {
-    while (!garbage_undo_buffers_.empty() && garbage_undo_buffers_.front().first <= oldest_active_start_timestamp) {
-      garbage_undo_buffers_.pop_front();
-    }
-  }
 
   {
     auto vertex_acc = vertices_.access();
-    if constexpr (force) {
-      // if force is set to true, then we have unique_lock and no transactions are active
-      // so we can clean all of the deleted vertices
-      while (!garbage_vertices_.empty()) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
-    } else {
-      while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_active_start_timestamp) {
-        MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-        garbage_vertices_.pop_front();
-      }
+
+    while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_might_active_transaction) {
+      MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
+      garbage_vertices_.pop_front();
     }
   }
   {
@@ -1417,10 +1217,6 @@ void Shard::CollectGarbage() {
     }
   }
 }
-
-// tell the linker he can find the CollectGarbage definitions here
-template void Shard::CollectGarbage<true>();
-template void Shard::CollectGarbage<false>();
 
 bool Shard::InitializeWalFile() {
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
@@ -1617,20 +1413,32 @@ void Shard::AppendToWal(durability::StorageGlobalOperation operation, LabelId la
   FinalizeWalFile();
 }
 
-utils::BasicResult<Shard::CreateSnapshotError> Shard::CreateSnapshot() {
-  if (replication_role_ != ReplicationRole::MAIN) {
-    return CreateSnapshotError::DisabledForReplica;
-  }
-
+bool Shard::CreateSnapshot() {
   // Create the transaction used to create the snapshot.
-  auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
+  // auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
 
   // Create snapshot.
   // durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
   //                            config_.durability.snapshot_retention_count, &vertices_, &edges_,
   //                            &name_id_mapper_, &indices_, &constraints_, config_.items, schema_validator_,
   //                            uuid_, epoch_id_, epoch_history_, &file_retainer_);
-  return {};
+  return true;
+}
+
+Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, IsolationLevel isolation_level) {
+  // TODO(antaljanosbenjamin)
+  if (const auto it = start_logical_id_to_transaction.find(start_timestamp.logical_id);
+      it != start_logical_id_to_transaction.end()) {
+    MG_ASSERT(it->second->start_timestamp.coordinator_wall_clock == start_timestamp.coordinator_wall_clock,
+              "Logical id and wall clock don't match in already seen hybrid logical clock!");
+    MG_ASSERT(it->second->isolation_level == isolation_level,
+              "Isolation level doesn't match in already existing transaction!");
+    return *it->second;
+  }
+  const auto insert_result = start_logical_id_to_transaction.emplace(
+      start_timestamp.logical_id, std::make_unique<Transaction>(start_timestamp, isolation_level));
+  MG_ASSERT(insert_result.second, "Transaction creation failed!");
+  return *insert_result.first->second;
 }
 
 bool Shard::LockPath() {
@@ -1650,24 +1458,6 @@ bool Shard::UnlockPath() {
   // after we call clean queue.
   file_retainer_.CleanQueue();
   return true;
-}
-
-void Shard::FreeMemory() {
-  CollectGarbage<true>();
-
-  // SkipList is already threadsafe
-  vertices_.run_gc();
-  edges_.run_gc();
-  indices_.label_index.RunGC();
-  indices_.label_property_index.RunGC();
-}
-
-uint64_t Shard::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  if (!desired_commit_timestamp) {
-    return timestamp_++;
-  }
-  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-  return *desired_commit_timestamp;
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

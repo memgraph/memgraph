@@ -26,19 +26,18 @@
 
 namespace memgraph::storage::v3 {
 
-const uint64_t kTimestampInitialId = 0;
-
 struct CommitInfo {
   bool is_locally_committed{false};
   coordinator::Hlc timestamp;
 };
 
 struct Transaction {
-  Transaction(uint64_t start_timestamp, IsolationLevel isolation_level)
-      : start_timestamp(coordinator::Hlc{start_timestamp, {}}),
+  Transaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
+      : start_timestamp(start_timestamp),
         commit_info(std::make_unique<CommitInfo>(CommitInfo{false, {start_timestamp}})),
         command_id(0),
         must_abort(false),
+        is_aborted(false),
         isolation_level(isolation_level) {}
 
   Transaction(Transaction &&other) noexcept
@@ -47,6 +46,7 @@ struct Transaction {
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
+        is_aborted(other.is_aborted),
         isolation_level(other.isolation_level) {}
 
   Transaction(const Transaction &) = delete;
@@ -64,6 +64,7 @@ struct Transaction {
   uint64_t command_id;
   std::list<Delta> deltas;
   bool must_abort;
+  bool is_aborted;
   IsolationLevel isolation_level;
 };
 

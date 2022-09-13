@@ -129,135 +129,25 @@ std::optional<std::string> GetOptionalStringValue(query::v2::Expression *express
 
 class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::v3::Shard *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::v3::Shard * /*db*/) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
-    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!db_->SetMainReplicationRole()) {
-        throw QueryRuntimeException("Couldn't set role to main!");
-      }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
-      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
-        throw QueryRuntimeException("Port number invalid!");
-      }
-      if (!db_->SetReplicaRole(
-              io::network::Endpoint(query::v2::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
-        throw QueryRuntimeException("Couldn't set role to replica!");
-      }
-    }
-  }
+  void SetReplicationRole(ReplicationQuery::ReplicationRole /*replication_role*/,
+                          std::optional<int64_t> /*port*/) override {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (db_->GetReplicationRole()) {
-      case storage::v3::ReplicationRole::MAIN:
-        return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::v3::ReplicationRole::REPLICA:
-        return ReplicationQuery::ReplicationRole::REPLICA;
-    }
-    throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
-  }
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override { return {}; }
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
-                       const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't register another replica
-      throw QueryRuntimeException("Replica can't register another replica!");
-    }
-
-    storage::v3::replication::ReplicationMode repl_mode;
-    switch (sync_mode) {
-      case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::v3::replication::ReplicationMode::ASYNC;
-        break;
-      }
-      case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::v3::replication::ReplicationMode::SYNC;
-        break;
-      }
-    }
-
-    auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::v2::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          name, {std::move(ip), port}, repl_mode,
-          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
-      if (ret.HasError()) {
-        throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
-      }
-    } else {
-      throw QueryRuntimeException("Invalid socket address!");
-    }
-  }
+  void RegisterReplica(const std::string & /*name*/, const std::string & /*socket_address*/,
+                       const ReplicationQuery::SyncMode /*sync_mode*/, const std::optional<double> /*timeout*/,
+                       const std::chrono::seconds /*replica_check_frequency*/) override {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't unregister a replica
-      throw QueryRuntimeException("Replica can't unregister a replica!");
-    }
-    if (!db_->UnregisterReplica(replica_name)) {
-      throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
-    }
-  }
+  void DropReplica(const std::string & /*replica_name*/) override {}
 
   using Replica = ReplicationQueryHandler::Replica;
-  std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't show registered replicas (it shouldn't have any)
-      throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
-    }
-
-    auto repl_infos = db_->ReplicasInfo();
-    std::vector<Replica> replicas;
-    replicas.reserve(repl_infos.size());
-
-    const auto from_info = [](const auto &repl_info) -> Replica {
-      Replica replica;
-      replica.name = repl_info.name;
-      replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode) {
-        case storage::v3::replication::ReplicationMode::SYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
-          break;
-        case storage::v3::replication::ReplicationMode::ASYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
-          break;
-      }
-      if (repl_info.timeout) {
-        replica.timeout = *repl_info.timeout;
-      }
-
-      switch (repl_info.state) {
-        case storage::v3::replication::ReplicaState::READY:
-          replica.state = ReplicationQuery::ReplicaState::READY;
-          break;
-        case storage::v3::replication::ReplicaState::REPLICATING:
-          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
-          break;
-        case storage::v3::replication::ReplicaState::RECOVERY:
-          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
-          break;
-        case storage::v3::replication::ReplicaState::INVALID:
-          replica.state = ReplicationQuery::ReplicaState::INVALID;
-          break;
-      }
-
-      return replica;
-    };
-
-    std::transform(repl_infos.begin(), repl_infos.end(), std::back_inserter(replicas), from_info);
-    return replicas;
-  }
-
- private:
-  storage::v3::Shard *db_;
+  std::vector<Replica> ShowReplicas() const override { return {}; }
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -1159,8 +1049,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ =
-          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
+          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
@@ -1610,20 +1500,18 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_expli
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext * /*interpreter_context*/) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        interpreter_context->db->FreeMemory();
-        memory::PurgeUnusedMemory();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         memory::PurgeUnusedMemory();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
@@ -1844,12 +1732,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       {},
       std::move(parsed_query.required_privileges),
       [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::v3::Shard::CreateSnapshotError::DisabledForReplica:
-              throw utils::BasicException(
-                  "Failed to create a snapshot. Replica instances are not allowed to create them.");
-          }
+        if (!interpreter_context->db->CreateSnapshot()) {
+          throw utils::BasicException("Failed to create a snapshot. Replica instances are not allowed to create them.");
         }
         return QueryHandlerResult::COMMIT;
       },
@@ -2263,8 +2147,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ =
-          std::make_unique<storage::v3::Shard::Accessor>(interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
+          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
@@ -2346,13 +2230,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (const auto query_type = query_execution->prepared_query->rw_type;
-        interpreter_context_->db->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA &&
-        (query_type == RWType::W || query_type == RWType::RW)) {
-      query_execution = nullptr;
-      throw QueryException("Write query forbidden on the replica!");
-    }
-
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
     EventCounter::IncrementCounter(EventCounter::FailedQuery);
@@ -2379,7 +2256,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
-    auto storage_acc = interpreter_context->db->Access();
+    auto storage_acc = interpreter_context->db->Access(coordinator::Hlc{});
     DbAccessor db_accessor{&storage_acc};
 
     trigger_context.AdaptForAccessor(&db_accessor);
@@ -2455,7 +2332,7 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
+  auto maybe_constraint_violation = db_accessor_->Commit(coordinator::Hlc{});
   if (maybe_constraint_violation.HasError()) {
     const auto &constraint_violation = maybe_constraint_violation.GetError();
     switch (constraint_violation.type) {

@@ -302,20 +302,20 @@ std::vector<LabelId> LabelIndex::ListIndices() const {
   return ret;
 }
 
-void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void LabelIndex::RemoveObsoleteEntries(const uint64_t cleanup_before_timestamp) {
   for (auto &label_storage : index_) {
     auto vertices_acc = label_storage.second.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (it->timestamp >= cleanup_before_timestamp) {
         it = next_it;
         continue;
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
+          !AnyVersionHasLabel(*it->vertex, label_storage.first, cleanup_before_timestamp)) {
         vertices_acc.remove(*it);
       }
 
@@ -455,21 +455,21 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices() co
   return ret;
 }
 
-void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t cleanup_before_timestamp) {
   for (auto &[label_property, index] : index_) {
     auto index_acc = index.access();
     for (auto it = index_acc.begin(); it != index_acc.end();) {
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (it->timestamp >= cleanup_before_timestamp) {
         it = next_it;
         continue;
       }
 
       if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
           !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
-                                      oldest_active_start_timestamp)) {
+                                      cleanup_before_timestamp)) {
         index_acc.remove(*it);
       }
       it = next_it;
@@ -698,9 +698,9 @@ void LabelPropertyIndex::RunGC() {
   }
 }
 
-void RemoveObsoleteEntries(Indices *indices, uint64_t oldest_active_start_timestamp) {
-  indices->label_index.RemoveObsoleteEntries(oldest_active_start_timestamp);
-  indices->label_property_index.RemoveObsoleteEntries(oldest_active_start_timestamp);
+void RemoveObsoleteEntries(Indices *indices, const uint64_t cleanup_before_timestamp) {
+  indices->label_index.RemoveObsoleteEntries(cleanup_before_timestamp);
+  indices->label_property_index.RemoveObsoleteEntries(cleanup_before_timestamp);
 }
 
 void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Transaction &tx) {

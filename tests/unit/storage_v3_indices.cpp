@@ -50,6 +50,7 @@ class IndexTest : public testing::Test {
   const LabelId label2{NameToLabelId("label2")};
   int primary_key_id{0};
   int vertex_id{0};
+  coordinator::Hlc last_hlc{0, io::Time{}};
 
   LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
 
@@ -84,35 +85,41 @@ class IndexTest : public testing::Test {
     }
     return ret;
   }
+
+  coordinator::Hlc GetNextHlc() {
+    ++last_hlc.logical_id;
+    last_hlc.coordinator_wall_clock += std::chrono::seconds(10);
+    return last_hlc;
+  }
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexCreate) {
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelIndexExists(label1));
   }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
@@ -133,7 +140,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
@@ -150,11 +157,11 @@ TEST_F(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
@@ -167,67 +174,67 @@ TEST_F(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(IndexTest, LabelIndexDrop) {
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelIndexExists(label1));
   }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   EXPECT_TRUE(storage.DropIndex(label1));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelIndexExists(label1));
   }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   EXPECT_FALSE(storage.DropIndex(label1));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelIndexExists(label1));
   }
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 10; i < 20; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(acc.LabelIndexExists(label1));
   }
   EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1));
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
 
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -255,7 +262,7 @@ TEST_F(IndexTest, LabelIndexBasic) {
   EXPECT_TRUE(storage.CreateIndex(label1));
   EXPECT_TRUE(storage.CreateIndex(label2));
 
-  auto acc = storage.Access();
+  auto acc = storage.Access(GetNextHlc());
   EXPECT_THAT(storage.ListAllIndices().label, UnorderedElementsAre(label1, label2));
   EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc.Vertices(label2, View::OLD), View::OLD), IsEmpty());
@@ -321,7 +328,7 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
   EXPECT_TRUE(storage.CreateIndex(label2));
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 0; i < 5; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(label1));
@@ -329,11 +336,11 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
 
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc.Vertices(View::OLD)) {
@@ -357,9 +364,9 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   EXPECT_TRUE(storage.CreateIndex(label1));
   EXPECT_TRUE(storage.CreateIndex(label2));
 
-  auto acc_before = storage.Access();
-  auto acc = storage.Access();
-  auto acc_after = storage.Access();
+  auto acc_before = storage.Access(GetNextHlc());
+  auto acc = storage.Access(GetNextHlc());
+  auto acc_after = storage.Access(GetNextHlc());
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = CreateVertex(&acc);
@@ -370,9 +377,9 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc.Commit());
+  ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
 
-  auto acc_after_commit = storage.Access();
+  auto acc_after_commit = storage.Access(GetNextHlc());
 
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW), IsEmpty());
@@ -384,7 +391,7 @@ TEST_F(IndexTest, LabelIndexCountEstimate) {
   EXPECT_TRUE(storage.CreateIndex(label1));
   EXPECT_TRUE(storage.CreateIndex(label2));
 
-  auto acc = storage.Access();
+  auto acc = storage.Access(GetNextHlc());
   for (int i = 0; i < 20; ++i) {
     auto vertex = CreateVertex(&acc);
     ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 3 ? label1 : label2));
@@ -399,12 +406,12 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label1, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label1, prop_id)));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
   EXPECT_FALSE(storage.CreateIndex(label1, prop_id));
@@ -412,7 +419,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   EXPECT_TRUE(storage.CreateIndex(label2, prop_id));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property,
@@ -420,7 +427,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   EXPECT_TRUE(storage.DropIndex(label1, prop_id));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(std::make_pair(label2, prop_id)));
@@ -428,7 +435,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateAndDrop) {
 
   EXPECT_TRUE(storage.DropIndex(label2, prop_id));
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_FALSE(acc.LabelPropertyIndexExists(label2, prop_id));
   }
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
@@ -444,7 +451,7 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
   storage.CreateIndex(label1, prop_val);
   storage.CreateIndex(label2, prop_val);
 
-  auto acc = storage.Access();
+  auto acc = storage.Access(GetNextHlc());
   EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
 
   for (int i = 0; i < 10; ++i) {
@@ -503,7 +510,7 @@ TEST_F(IndexTest, LabelPropertyIndexBasic) {
 TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
   storage.CreateIndex(label1, prop_val);
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 0; i < 5; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(label1));
@@ -512,11 +519,11 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
     EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc.Vertices(View::OLD)) {
@@ -538,9 +545,9 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
 TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   storage.CreateIndex(label1, prop_val);
 
-  auto acc_before = storage.Access();
-  auto acc = storage.Access();
-  auto acc_after = storage.Access();
+  auto acc_before = storage.Access(GetNextHlc());
+  auto acc = storage.Access(GetNextHlc());
+  auto acc_after = storage.Access(GetNextHlc());
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = CreateVertex(&acc);
@@ -552,9 +559,9 @@ TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc.Commit());
+  ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
 
-  auto acc_after_commit = storage.Access();
+  auto acc_after_commit = storage.Access(GetNextHlc());
 
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
@@ -573,17 +580,17 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
   storage.CreateIndex(label1, prop_val);
 
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
 
     for (int i = 0; i < 10; ++i) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(label1));
       ASSERT_NO_ERROR(vertex.SetPropertyAndValidate(prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (int i = 0; i < 5; ++i) {
       EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, PropertyValue(i), View::OLD)),
                   UnorderedElementsAre(2 * i, 2 * i + 1));
@@ -630,7 +637,7 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
 TEST_F(IndexTest, LabelPropertyIndexCountEstimate) {
   storage.CreateIndex(label1, prop_val);
 
-  auto acc = storage.Access();
+  auto acc = storage.Access(GetNextHlc());
   for (int i = 1; i <= 10; ++i) {
     for (int j = 0; j < i; ++j) {
       auto vertex = CreateVertex(&acc);
@@ -686,18 +693,18 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Create vertices, each with one of the values above.
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     for (const auto &value : values) {
       auto v = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(primary_key_id++)}});
       ASSERT_TRUE(v->AddLabelAndValidate(label1).HasValue());
       ASSERT_TRUE(v->SetPropertyAndValidate(prop_val, value).HasValue());
     }
-    ASSERT_FALSE(acc.Commit().HasError());
+    ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
   }
 
   // Verify that all nodes are in the index.
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     auto iterable = acc.Vertices(label1, prop_val, View::OLD);
     auto it = iterable.begin();
     for (const auto &value : values) {
@@ -714,7 +721,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
   auto verify = [&](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
                     const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
                     const std::vector<PropertyValue> &expected) {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     auto iterable = acc.Vertices(label1, prop_val, from, to, View::OLD);
     size_t i = 0;
     for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
@@ -868,7 +875,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateWithExistingPrimaryKey) {
   EXPECT_EQ(storage.ListAllIndices().label_property.size(), 1);
   EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(acc.LabelPropertyIndexExists(primary_label, prop_id));
   }
   EXPECT_THAT(storage.ListAllIndices().label_property, UnorderedElementsAre(Pair(primary_label, prop_id)));
@@ -886,12 +893,11 @@ TEST_F(IndexTest, LabelPropertyIndexCreateWithExistingPrimaryKey) {
 
 TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
   {
-    auto acc = storage.Access();
     EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
     EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   }
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
 
     // Create vertices with CreateVertexAndValidate
     for (int i = 0; i < 5; ++i) {
@@ -899,25 +905,25 @@ TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
           acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
   {
     EXPECT_TRUE(storage.CreateIndex(label1));
     {
-      auto acc = storage.Access();
+      auto acc = storage.Access(GetNextHlc());
       EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
     }
   }
   {
     EXPECT_TRUE(storage.DropIndex(label1));
     {
-      auto acc = storage.Access();
+      auto acc = storage.Access(GetNextHlc());
       EXPECT_FALSE(acc.LabelIndexExists(label1));
     }
     EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
   }
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(storage.CreateIndex(label1));
     EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
@@ -935,12 +941,11 @@ TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
 
 TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
   {
-    auto acc = storage.Access();
     EXPECT_EQ(storage.ListAllIndices().label.size(), 0);
     EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   }
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
 
     // Create vertices with CreateVertexAndValidate
     for (int i = 0; i < 5; ++i) {
@@ -949,12 +954,12 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
           {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
-    ASSERT_NO_ERROR(acc.Commit());
+    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
   }
   {
     EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
     {
-      auto acc = storage.Access();
+      auto acc = storage.Access(GetNextHlc());
       EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::OLD), View::OLD),
                   UnorderedElementsAre(0, 1, 2, 3, 4));
     }
@@ -962,13 +967,13 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
   {
     EXPECT_TRUE(storage.DropIndex(label1, prop_id));
     {
-      auto acc = storage.Access();
+      auto acc = storage.Access(GetNextHlc());
       EXPECT_FALSE(acc.LabelPropertyIndexExists(label1, prop_id));
     }
     EXPECT_EQ(storage.ListAllIndices().label_property.size(), 0);
   }
   {
-    auto acc = storage.Access();
+    auto acc = storage.Access(GetNextHlc());
     EXPECT_TRUE(storage.CreateIndex(label1, prop_id));
     EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, prop_id, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4));

@@ -69,7 +69,7 @@ class LabelIndex {
 
   std::vector<LabelId> ListIndices() const;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t cleanup_before_timestamp);
 
   class Iterable {
    public:
@@ -169,7 +169,7 @@ class LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp);
+  void RemoveObsoleteEntries(uint64_t cleanup_before_timestamp);
 
   class Iterable {
    public:
@@ -273,7 +273,7 @@ struct Indices {
 
 /// This function should be called from garbage collection to clean-up the
 /// index.
-void RemoveObsoleteEntries(Indices *indices, uint64_t oldest_active_start_timestamp);
+void RemoveObsoleteEntries(Indices *indices, uint64_t cleanup_before_timestamp);
 
 // Indices are updated whenever an update occurs, instead of only on commit or
 // advance command. This is necessary because we want indices to support `NEW`

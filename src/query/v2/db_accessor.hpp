@@ -380,7 +380,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::v3::ConstraintViolation, void> Commit() { return accessor_->Commit(); }
+  utils::BasicResult<storage::v3::ConstraintViolation, void> Commit() { return accessor_->Commit(coordinator::Hlc{}); }
 
   void Abort() { accessor_->Abort(); }
 

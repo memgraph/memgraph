@@ -53,11 +53,18 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<IsolationLevel
     return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
   }
 
+  [[nodiscard]] coordinator::Hlc GetNextHlc() {
+    ++last_hlc.logical_id;
+    last_hlc.coordinator_wall_clock += std::chrono::seconds(10);
+    return last_hlc;
+  }
+
   NameIdMapper id_mapper;
   static constexpr int64_t min_primary_key_value{0};
   static constexpr int64_t max_primary_key_value{10000};
   const LabelId primary_label{NameToLabelId("label")};
   const PropertyId primary_property{NameToPropertyId("property")};
+  coordinator::Hlc last_hlc{0, io::Time{}};
 
  public:
   struct PrintToStringParamName {
@@ -79,9 +86,9 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
     ASSERT_TRUE(
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
     const auto override_isolation_level = isolation_levels[override_isolation_level_index];
-    auto creator = store.Access();
-    auto default_isolation_level_reader = store.Access();
-    auto override_isolation_level_reader = store.Access(override_isolation_level);
+    auto creator = store.Access(GetNextHlc());
+    auto default_isolation_level_reader = store.Access(GetNextHlc());
+    auto override_isolation_level_reader = store.Access(GetNextHlc(), override_isolation_level);
 
     ASSERT_EQ(VerticesCount(default_isolation_level_reader), 0);
     ASSERT_EQ(VerticesCount(override_isolation_level_reader), 0);
@@ -105,7 +112,7 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
       }
     }
 
-    ASSERT_FALSE(creator.Commit().HasError());
+    ASSERT_FALSE(creator.Commit(GetNextHlc()).HasError());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -120,13 +127,13 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
       check_vertices_count(override_isolation_level_reader, override_isolation_level);
     }
 
-    ASSERT_FALSE(default_isolation_level_reader.Commit().HasError());
-    ASSERT_FALSE(override_isolation_level_reader.Commit().HasError());
+    ASSERT_FALSE(default_isolation_level_reader.Commit(GetNextHlc()).HasError());
+    ASSERT_FALSE(override_isolation_level_reader.Commit(GetNextHlc()).HasError());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
-    auto verifier = store.Access();
+    auto verifier = store.Access(GetNextHlc());
     ASSERT_EQ(VerticesCount(verifier), iteration_count);
-    ASSERT_FALSE(verifier.Commit().HasError());
+    ASSERT_FALSE(verifier.Commit(GetNextHlc()).HasError());
   }
 }
 
