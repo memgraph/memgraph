@@ -86,8 +86,8 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   bool Authenticate(const std::string &username, const std::string &password) override { return true; }
 
-  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
-  std::optional<std::string> GetRunIdForInit() override { return std::nullopt; }
+  const std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+  const std::optional<std::string> GetRunIdForInit() override { return std::nullopt; }
 
  private:
   std::string query_;
