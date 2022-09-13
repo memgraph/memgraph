@@ -200,7 +200,7 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 class Role final {
  public:
   explicit Role(const std::string &rolename);
-
+  Role(const std::string &rolename, const Permissions &permissions);
   Role(const std::string &rolename, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
 
@@ -242,6 +242,7 @@ class User final {
   User();
 
   explicit User(const std::string &username);
+  User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
 

@@ -42,7 +42,9 @@ class AuthQueryHandlerFixture : public testing::Test {
   virtual void TearDown() {
     std::filesystem::remove_all(test_folder_);
     perms = memgraph::auth::Permissions{};
+#ifdef MG_ENTERPRISE
     handler = memgraph::auth::FineGrainedAccessHandler{};
+#endif
   }
 };
 
@@ -286,6 +288,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   ASSERT_EQ(result[2].ValueString(), "DENIED TO USER, GRANTED TO ROLE");
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
@@ -722,3 +725,4 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
+#endif

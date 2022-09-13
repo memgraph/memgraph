@@ -18,6 +18,7 @@
 #include <gtest/internal/gtest-param-util-generated.h>
 
 #include "auth/models.hpp"
+#include "utils/license.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -78,7 +79,10 @@ class FineGrainedBfsTest
     : public ::testing::TestWithParam<
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
  public:
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb>(); }
+  static void SetUpTestCase() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb>();
+  }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:

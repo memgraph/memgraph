@@ -239,7 +239,7 @@ void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settin
   scheduler_.Run("licensechecker", std::chrono::minutes{5}, [&, this] { RevalidateLicense(settings); });
 }
 
-bool LicenseChecker::IsValidLicenseFast() const { return true; }
+bool LicenseChecker::IsValidLicenseFast() const { return is_valid_.load(std::memory_order_relaxed); }
 
 std::string Encode(const License &license) {
   std::vector<uint8_t> buffer;

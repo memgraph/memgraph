@@ -33,6 +33,7 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/license.hpp"
 #include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
@@ -49,6 +50,7 @@ class MatchReturnFixture : public testing::Test {
   void AddVertices(int count) {
     for (int i = 0; i < count; i++) dba.InsertVertex();
   }
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   std::vector<Path> PathResults(std::shared_ptr<Produce> &op) {
     std::vector<Path> res;
@@ -476,6 +478,8 @@ class ExpandFixture : public testing::Test {
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     dba.AdvanceCommand();
   }
 };
@@ -617,6 +621,8 @@ class QueryPlanExpandVariable : public testing::Test {
   std::nullopt_t nullopt = std::nullopt;
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     // create the graph
     int chain_length = 3;
     std::vector<memgraph::query::VertexAccessor> layer;
@@ -1755,6 +1761,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
@@ -2078,6 +2086,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
