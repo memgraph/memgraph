@@ -31,7 +31,7 @@ def test_create_node_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "CREATE (n:label1) RETURN n;")
@@ -51,7 +51,7 @@ def test_create_node_specific_label_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label1 TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "CREATE (n:label1) RETURN n;")
@@ -73,7 +73,7 @@ def test_delete_node_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n:test_delete) DELETE n")
@@ -95,7 +95,7 @@ def test_delete_node_specific_label_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :test_delete TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :test_delete TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n:test_delete) DELETE n;")
@@ -120,8 +120,8 @@ def test_create_edge_all_labels_all_edge_types_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -134,8 +134,8 @@ def test_create_edge_all_labels_denied_all_edge_types_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -149,7 +149,7 @@ def test_create_edge_all_labels_granted_all_edge_types_denied():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -165,7 +165,7 @@ def test_create_edge_all_labels_granted_specific_edge_types_denied():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "DENY CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
+        "GRANT UPDATE ON EDGE_TYPES :edge_type TO user;",
     )
 
     with pytest.raises(DatabaseError):
@@ -180,7 +180,7 @@ def test_create_edge_first_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label2 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
@@ -198,7 +198,7 @@ def test_create_edge_second_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :label2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
@@ -215,7 +215,7 @@ def test_delete_edge_all_labels_denied_all_edge_types_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY UPDATE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
@@ -230,7 +230,7 @@ def test_delete_edge_all_labels_granted_all_edge_types_denied():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -246,7 +246,7 @@ def test_delete_edge_all_labels_granted_specific_edge_types_denied():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "DENY CREATE_DELETE ON EDGE_TYPES :edge_type_delete TO user;",
+        "GRANT UPDATE ON EDGE_TYPES :edge_type_delete TO user;",
     )
 
     with pytest.raises(DatabaseError):
@@ -261,7 +261,7 @@ def test_delete_edge_first_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :test_delete_1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY UPDATE ON LABELS :test_delete_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete_2 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type_delete TO user;",
@@ -279,7 +279,7 @@ def test_delete_edge_second_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :test_delete_2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY UPDATE ON LABELS :test_delete_1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete_1 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type_delete TO user;",
@@ -298,7 +298,7 @@ def test_delete_node_with_edge_label_denied():
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "DENY CREATE_DELETE ON LABELS :test_delete_1 TO user;",
+        "GRANT UPDATE ON LABELS :test_delete_1 TO user;",
     )
 
     with pytest.raises(DatabaseError):
@@ -335,7 +335,7 @@ def test_merge_node_all_labels_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "MERGE (n:label1) RETURN n;")
@@ -355,7 +355,7 @@ def test_merge_node_specific_label_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label1 TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(user_connnection.cursor(), "MERGE (n:label1) RETURN n;")
@@ -379,8 +379,8 @@ def test_merge_edge_all_labels_all_edge_types_denied():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -393,7 +393,7 @@ def test_merge_edge_all_labels_denied_all_edge_types_granted():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS * TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
@@ -408,7 +408,7 @@ def test_merge_edge_all_labels_granted_all_edge_types_denied():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON EDGE_TYPES * TO user;")
 
     with pytest.raises(DatabaseError):
         common.execute_and_fetch_all(
@@ -424,7 +424,7 @@ def test_merge_edge_all_labels_granted_specific_edge_types_denied():
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS * TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
-        "DENY CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
+        "GRANT UPDATE ON EDGE_TYPES :edge_type TO user;",
     )
 
     with pytest.raises(DatabaseError):
@@ -439,7 +439,7 @@ def test_merge_edge_first_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :label1 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label2 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
@@ -457,7 +457,7 @@ def test_merge_edge_second_node_label_granted():
     user_connnection = common.connect(username="user", password="test")
     common.reset_and_prepare(admin_connection.cursor())
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :label2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :label1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :label1 TO user;")
     common.execute_and_fetch_all(
         admin_connection.cursor(),
         "GRANT CREATE_DELETE ON EDGE_TYPES :edge_type TO user;",
@@ -484,7 +484,7 @@ def test_set_label_when_label_denied():
     user_connection = common.connect(username="user", password="test")
 
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :update_label_2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
 
     with pytest.raises(DatabaseError):
@@ -506,7 +506,7 @@ def test_remove_label_when_label_denied():
     user_connection = common.connect(username="user", password="test")
 
     common.reset_and_prepare(admin_connection.cursor())
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT UPDATE ON LABELS :update_label_2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
 
     with pytest.raises(DatabaseError):

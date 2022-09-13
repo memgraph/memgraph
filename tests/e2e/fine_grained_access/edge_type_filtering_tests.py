@@ -17,8 +17,8 @@ def test_all_edge_types_all_labels_granted():
 def test_deny_all_edge_types_and_all_labels():
     admin_connection = common.connect(username="admin", password="test")
     user_connnection = common.connect(username="user", password="test")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS * TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS * TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES * TO user;")
 
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
@@ -41,7 +41,7 @@ def test_deny_edge_type():
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :label1, :label2, :label3 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edgeType2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON EDGE_TYPES :edgeType1 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON EDGE_TYPES :edgeType1 TO user;")
 
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
@@ -53,7 +53,7 @@ def test_denied_node_label():
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :label1,:label3 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edgeType1, :edgeType2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label2 TO user;")
 
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
@@ -65,7 +65,7 @@ def test_denied_one_of_node_label():
     user_connnection = common.connect(username="user", password="test")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :label1,:label2 TO user;")
     common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON EDGE_TYPES :edgeType1, :edgeType2 TO user;")
-    common.execute_and_fetch_all(admin_connection.cursor(), "DENY READ ON LABELS :label3 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT NOTHING ON LABELS :label3 TO user;")
 
     results = common.execute_and_fetch_all(user_connnection.cursor(), "MATCH (n)-[r]->(m) RETURN n,r,m;")
 
