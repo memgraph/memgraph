@@ -329,71 +329,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   return resp;
 }
 
-WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) {
-  /*
-  auto acc = shard_->Access();
-
-  bool action_successful = true;
-
-  for (auto &vertex : req.new_properties) {
-    if (!action_successful) {
-      break;
-    }
-
-    auto vertex_to_update = acc.FindVertex(ConvertPropertyVector(vertex.vertex), View::OLD);
-    if (!vertex_to_update) {
-      action_successful = false;
-      spdlog::debug(
-          &"Vertex could not be found while trying to update its properties. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
-      continue;
-    }
-
-    for (auto &update_prop : vertex.property_updates) {
-      // TODO(gvolfing) Maybe check if the setting is valid if SetPropertyAndValidate()
-      // does not do that alreaedy.
-      auto result_schema =
-          vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
-      if (result_schema.HasError()) {
-        auto &error = result_schema.GetError();
-
-        std::visit(
-            [&action_successful]<typename T>(T &&) {
-              using ErrorType = std::remove_cvref_t<T>;
-              if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-                action_successful = false;
-                spdlog::debug("Updating vertex failed with error: SchemaViolation");
-              } else if constexpr (std::is_same_v<ErrorType, Error>) {
-                action_successful = false;
-                spdlog::debug("Updating vertex failed with error: Error");
-              } else {
-                static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
-              }
-            },
-            error);
-
-        break;
-      }
-    }
-  }
-  */
-  UpdateVerticesResponse resp{};
-
-  // resp.success = action_successful;
-
-  // if (action_successful) {
-  //   auto result = acc.Commit(req.transaction_id.logical_id);
-  //   if (result.HasError()) {
-  //     resp.success = false;
-  //     spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id:
-  //     "[req.transaction_id
-  //                                                                                                         .logical_id]);
-  //   }
-  // }
-
-  return resp;
-}
-
 WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   auto acc = shard_->Access();
   bool action_successful = true;
@@ -439,114 +374,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
                                                                                                      .logical_id]);
     }
   }
-
-  return resp;
-}
-
-// TODO(gvolfing)
-// Uncomment this once the new overload for DeleteEdges() is in place.
-// DeleteEdges Will get a new signature -> DeleteEdges(FromVertex, ToVertex, Gid)
-WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) {
-  // bool action_successful = true;
-  // auto acc = shard_->Access();
-
-  // for(const auto& edge : req.edges)
-  // {
-  //   if (!action_successful) {
-  //     break;
-  //   }
-
-  //   auto edge_acc = acc.DeleteEdge(edge.id.src, edge.id.dst, edge.id.gid);
-  //   if(!edge_acc.HasError() || !edge_acc.HasValue())
-  //   {
-  //     spdlog::debug(&"Error while trying to delete edge. Transaction id: "[req.transaction_id.logical_id]);
-  //     action_successful = false;
-  //     continue;
-  //   }
-  // }
-
-  DeleteEdgesResponse resp{};
-
-  // resp.success = action_successful;
-
-  // if (action_successful) {
-  //   auto result = acc.Commit(req.transaction_id.logical_id);
-  //   if (result.HasError()) {
-  //     resp.success = false;
-  //     spdlog::debug(
-  //         &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
-  //                                                                                                    .logical_id]);
-  //   }
-
-  return resp;
-}
-
-// TODO(gvolfing) refactor this abomination
-WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) {
-  /*
-  auto acc = shard_->Access();
-
-  bool action_successful = true;
-
-  for (auto &edge : req.new_properties) {
-    if (!action_successful) {
-      break;
-    }
-
-    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(edge.edge.id.src), View::OLD);
-    if (!vertex_acc) {
-      action_successful = false;
-      // TODO(gvolfing) add debug error msg
-      continue;
-    }
-
-    // Since we are using the source vertex of the edge we are only intrested
-    // in the vertex's outgoind edges
-    auto edges_res = vertex_acc->OutEdges(View::OLD);
-    if (edges_res.HasError()) {
-      action_successful = false;
-      // TODO(gvolfing) add debug error msg
-      continue;
-    }
-
-    auto &edge_accessors = edges_res.GetValue();
-
-    // Look for the appropriate edge accessor
-    bool edge_accesspr_did_match = false;
-    for (auto &edge_accessor : edge_accessors) {
-      if (edge_accessor.Gid().AsUint() == edge.edge.id.gid) {  // Found the appropriate accessor
-        edge_accesspr_did_match = true;
-        for (auto &[key, value] : edge.property_updates) {
-          // TODO(gvolfing)
-          // Check if the property was set if SetProperty does not do that itself.
-          auto res = edge_accessor.SetProperty(key, ToPropertyValue(std::move(value)));
-          if (res.HasError()) {
-            //....
-          }
-        }
-      }
-    }
-
-    if (!edge_accesspr_did_match) {
-      action_successful = false;
-      // TODO(gvolfing) add debug error msg
-      continue;
-    }
-  }
-  */
-  UpdateEdgesResponse resp{};
-
-  // resp.success = action_successful;
-
-  // if (action_successful) {
-  //   auto result = acc.Commit(req.transaction_id.logical_id);
-  //   if (result.HasError()) {
-  //     resp.success = false;
-  //     spdlog::debug(
-  //         &"ConstraintViolation, commiting edge update was unsuccesfull with transaction id: "[req.transaction_id
-  //                                                                                                  .logical_id]);
-  //   }
-  // }
 
   return resp;
 }
@@ -608,6 +435,9 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   return resp;
 }
 
+WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) { return UpdateVerticesResponse{}; }
+WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) { return DeleteEdgesResponse{}; }
+WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) { return UpdateEdgesResponse{}; }
 ReadResponses ShardRsm::HandleRead(ExpandOneRequest &&req) { return ExpandOneResponse{}; }
 ReadResponses ShardRsm::HandleRead(GetPropertiesRequest &&req) { return GetPropertiesResponse{}; }
 
