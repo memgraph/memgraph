@@ -18,6 +18,7 @@
 #include <gtest/internal/gtest-param-util-generated.h>
 
 #include "auth/models.hpp"
+#include "utils/license.hpp"
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
@@ -73,11 +74,15 @@ class VertexDb : public Database {
   memgraph::storage::Storage db_;
 };
 
+#ifdef MG_ENTERPRISE
 class FineGrainedBfsTest
     : public ::testing::TestWithParam<
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
  public:
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb>(); }
+  static void SetUpTestCase() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb>();
+  }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
@@ -99,7 +104,6 @@ TEST_P(FineGrainedBfsTest, All) {
 }
 
 std::unique_ptr<VertexDb> FineGrainedBfsTest::db_{nullptr};
-
 INSTANTIATE_TEST_CASE_P(
     FineGrained, FineGrainedBfsTest,
     testing::Combine(testing::Values(3), testing::Values(-1),
@@ -108,3 +112,4 @@ INSTANTIATE_TEST_CASE_P(
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+#endif

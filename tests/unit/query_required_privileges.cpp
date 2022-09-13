@@ -17,6 +17,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "storage/v2/id_types.hpp"
+#include "utils/license.hpp"
 
 #include "query_common.hpp"
 
@@ -97,8 +98,9 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
   auto *query = CREATE_INDEX_ON(storage.GetLabelIx(LABEL_0), storage.GetPropertyIx(PROP_0));
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }
-
+#ifdef MG_ENTERPRISE
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
@@ -106,6 +108,7 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
                            label_privileges, edge_type_privileges);
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
+#endif
 
 TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
   auto *query = storage.Create<InfoQuery>();
