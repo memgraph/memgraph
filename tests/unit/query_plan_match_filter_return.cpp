@@ -2057,6 +2057,110 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
+  // All edge_types and labels allowed
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    EXPECT_EQ(results[0].path.size(), 1);
+    EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+    EXPECT_EQ(results[0].total_weight, 3);
+
+    EXPECT_EQ(results[1].path.size(), 1);
+    EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+    EXPECT_EQ(results[1].total_weight, 5);
+
+    EXPECT_EQ(results[2].path.size(), 2);
+    EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
+    EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+
+    EXPECT_EQ(results[3].path.size(), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+
+  // Denied all labels
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*",
+                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied all edge types
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "*", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied first vertex label
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l0",
+                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied vertex label 2
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l3", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l4", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 4);
+
+    user.fine_grained_access_handler().label_permissions().Grant("l2",
+                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(filtered_results.size(), 3);
+  }
+
+  // Deny edge type (created vertex 5 and edge vertex 4 to vertex 5)
+  {
+    v.push_back(dba.InsertVertex());
+    ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(v.back().AddLabel(db.NameToLabel("l5")).HasValue());
+    dba.AdvanceCommand();
+    memgraph::storage::EdgeTypeId edge_type_filter = dba.NameToEdgeType("edge_type_filter");
+    auto edge = dba.InsertEdge(&v[4], &v[5], edge_type_filter);
+    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    e.emplace(std::make_pair(4, 5), *edge);
+    dba.AdvanceCommand();
+
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 5);
+
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(
+        "edge_type_filter", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(filtered_results.size(), 4);
+  }
+}
+
 /** A test fixture for all shortest paths expansion */
 class QueryPlanExpandAllShortestPaths : public testing::Test {
  public:
@@ -2096,6 +2200,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
+      auto label = fmt::format("l{}", i);
+      ASSERT_TRUE(v.back().AddLabel(db.NameToLabel(label)).HasValue());
     }
 
     auto add_edge = [&](int from, int to, double weight) {
@@ -2118,7 +2224,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   // params returns a vector of pairs. each pair is (vector-of-edges,
   // vertex)
   auto ExpandAllShortest(EdgeAtom::Direction direction, std::optional<int> max_depth, Expression *where,
-                         std::optional<int> node_id = 0, ScanAllTuple *existing_node_input = nullptr) {
+                         std::optional<int> node_id = 0, ScanAllTuple *existing_node_input = nullptr,
+                         const memgraph::auth::User *user = nullptr) {
     // scan the nodes optionally filtering on property value
     auto n = MakeScanAll(storage, symbol_table, "n", existing_node_input ? existing_node_input->op_ : nullptr);
     auto last_op = n.op_;
@@ -2141,7 +2248,13 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
     std::vector<ResultType> results;
-    auto context = MakeContext(storage, symbol_table, &dba);
+    ExecutionContext context;
+    if (user) {
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
+      context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+    } else {
+      context = MakeContext(storage, symbol_table, &dba);
+    }
     while (cursor->Pull(frame, context)) {
       results.push_back(ResultType{std::vector<memgraph::query::EdgeAccessor>(), frame[node_sym].ValueVertex(),
                                    frame[total_weight].ValueDouble()});
@@ -2410,50 +2523,28 @@ TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
   EXPECT_EQ(results[5].total_weight, 9);
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
+TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+    sort(results.begin(), results.end(), compareResultType);
+
     EXPECT_EQ(results[0].path.size(), 1);
-    EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
-    EXPECT_EQ(results[0].total_weight, 3);
-
     EXPECT_EQ(results[1].path.size(), 1);
-    EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
-    EXPECT_EQ(results[1].total_weight, 5);
-
     EXPECT_EQ(results[2].path.size(), 2);
-    EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
-    EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
-    EXPECT_EQ(results[2].total_weight, 6);
 
-    EXPECT_EQ(results[3].path.size(), 3);
-    EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
-    EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
     EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
-    EXPECT_EQ(results[3].total_weight, 9);
   }
-
   // Denied all labels
-  {
-    memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
-    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
-    ASSERT_EQ(results.size(), 0);
-  }
-
-  // Denied all edge types
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2463,8 +2554,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("l0",
                                                                  memgraph::auth::FineGrainedPermission::NO_PERMISSION);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
 
@@ -2478,12 +2569,12 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     user.fine_grained_access_handler().label_permissions().Grant("l4", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 4);
-
     user.fine_grained_access_handler().label_permissions().Grant("l2",
                                                                  memgraph::auth::FineGrainedPermission::NO_PERMISSION);
-    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+
     ASSERT_EQ(filtered_results.size(), 3);
   }
 
@@ -2502,14 +2593,15 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 5);
 
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "edge_type_filter", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
-    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+
     ASSERT_EQ(filtered_results.size(), 4);
   }
 }
