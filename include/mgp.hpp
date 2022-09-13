@@ -24,27 +24,27 @@ namespace mgp {
 namespace {
 void MgExceptionHandle(mgp_error result_code) {
   switch (result_code) {
-    case MGP_ERROR_UNKNOWN_ERROR:
+    case mgp_error::MGP_ERROR_UNKNOWN_ERROR:
       throw mg_exception::UnknownException();
-    case MGP_ERROR_UNABLE_TO_ALLOCATE:
+    case mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE:
       throw mg_exception::AllocationException();
-    case MGP_ERROR_INSUFFICIENT_BUFFER:
+    case mgp_error::MGP_ERROR_INSUFFICIENT_BUFFER:
       throw mg_exception::InsufficientBufferException();
-    case MGP_ERROR_OUT_OF_RANGE:
+    case mgp_error::MGP_ERROR_OUT_OF_RANGE:
       throw mg_exception::OutOfRangeException();
-    case MGP_ERROR_LOGIC_ERROR:
+    case mgp_error::MGP_ERROR_LOGIC_ERROR:
       throw mg_exception::LogicException();
-    case MGP_ERROR_DELETED_OBJECT:
+    case mgp_error::MGP_ERROR_DELETED_OBJECT:
       throw mg_exception::DeletedObjectException();
-    case MGP_ERROR_INVALID_ARGUMENT:
+    case mgp_error::MGP_ERROR_INVALID_ARGUMENT:
       throw mg_exception::InvalidArgumentException();
-    case MGP_ERROR_KEY_ALREADY_EXISTS:
+    case mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS:
       throw mg_exception::KeyAlreadyExistsException();
-    case MGP_ERROR_IMMUTABLE_OBJECT:
+    case mgp_error::MGP_ERROR_IMMUTABLE_OBJECT:
       throw mg_exception::ImmutableObjectException();
-    case MGP_ERROR_VALUE_CONVERSION:
+    case mgp_error::MGP_ERROR_VALUE_CONVERSION:
       throw mg_exception::ValueConversionException();
-    case MGP_ERROR_SERIALIZATION_ERROR:
+    case mgp_error::MGP_ERROR_SERIALIZATION_ERROR:
       throw mg_exception::SerializationException();
     default:
       return;

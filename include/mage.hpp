@@ -824,6 +824,8 @@ class Node {
   Relationships InRelationships() const;
   /// @brief Returns an iterable structure of the node’s outbound relationships.
   Relationships OutRelationships() const;
+  /// @brief Adds a label to the node.
+  void AddLabel(const std::string_view label);
 
   bool operator<(const Node &other) const { return Id() < other.Id(); }
 
@@ -2107,6 +2109,10 @@ inline Relationships Node::OutRelationships() const {
     throw NotEnoughMemoryException();
   }
   return Relationships(relationship_iterator);
+}
+
+inline void Node::AddLabel(const std::string_view label) {
+  mgp::vertex_add_label(this->ptr_, mgp_label{.name = label.data()});
 }
 
 inline bool Node::operator==(const Node &other) const { return util::NodesEqual(ptr_, other.ptr_); }

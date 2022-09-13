@@ -1,0 +1,358 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <queue>
+#include <unordered_map>
+#include <unordered_set>
+
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
+
+#include "mage.hpp"
+#include "mg_exceptions.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "storage/v2/view.hpp"
+
+struct CppApiTestFixture : public ::testing::Test {
+ protected:
+  mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
+    // the execution context can be null as it shouldn't be used in these tests
+    return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
+  }
+
+  memgraph::query::DbAccessor &CreateDbAccessor(const memgraph::storage::IsolationLevel isolationLevel) {
+    accessors_.push_back(storage.Access(isolationLevel));
+    db_accessors_.emplace_back(&accessors_.back());
+    return db_accessors_.back();
+  }
+
+  memgraph::storage::Storage storage;
+  mgp_memory memory{memgraph::utils::NewDeleteResource()};
+
+ private:
+  std::list<memgraph::storage::Storage::Accessor> accessors_;
+  std::list<memgraph::query::DbAccessor> db_accessors_;
+  std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
+};
+
+void PrintList(mage::List &list) {
+  auto first = true;
+  std::cout << "[";
+  for (const auto &element : list) {
+    if (!first) std::cout << ", ";
+    std::cout << element.ValueString();
+    first = false;
+  }
+  std::cout << "]\n";
+}
+
+void PrintMap(mage::Map &map) {
+  auto first = true;
+  std::cout << "{";
+  for (const auto &item : map) {
+    if (!first) std::cout << ", ";
+    std::cout << item.key << ": " << item.value.ValueString();
+    first = false;
+  }
+  std::cout << "}\n";
+}
+
+TEST_F(CppApiTestFixture, TestGraph) {
+  mage::memory = &memory;
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mage::Graph(&raw_graph);
+
+  graph.CreateNode();
+
+  ASSERT_EQ(graph.Order(), 1);
+  ASSERT_EQ(graph.Size(), 0);
+
+  graph.CreateNode();
+
+  ASSERT_EQ(graph.Order(), 2);
+  ASSERT_EQ(graph.Size(), 0);
+
+  std::vector<mage::Node> nodes;
+  for (const auto &node : graph.Nodes()) {
+    nodes.emplace_back(node);
+  }
+
+  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+
+  ASSERT_EQ(graph.Order(), 2);
+  ASSERT_EQ(graph.Size(), 1);
+
+  ASSERT_EQ(graph.ContainsNode(nodes[0]), true);
+  ASSERT_EQ(graph.ContainsNode(nodes[1]), true);
+
+  const auto relationship = *graph.Relationships().begin();
+
+  ASSERT_EQ(graph.ContainsRelationship(relationship), true);
+}
+
+TEST_F(CppApiTestFixture, TestId) {
+  int64_t int_1 = 8;
+  uint64_t int_2 = 8;
+  int64_t int_3 = 7;
+  uint64_t int_4 = 7;
+
+  auto id_1 = mage::Id::FromInt(int_1);
+  auto id_2 = mage::Id::FromUint(int_2);
+  auto id_3 = mage::Id::FromInt(int_3);
+  auto id_4 = mage::Id::FromUint(int_4);
+
+  ASSERT_EQ(id_1.AsInt(), 8);
+  ASSERT_EQ(id_1.AsUint(), 8);
+  ASSERT_EQ(id_2.AsInt(), 8);
+  ASSERT_EQ(id_2.AsUint(), 8);
+
+  ASSERT_EQ(id_1, id_2);
+
+  ASSERT_EQ(id_1 != id_2, false);
+
+  ASSERT_EQ(id_1 == id_3, false);
+  ASSERT_EQ(id_1 == id_4, false);
+  ASSERT_EQ(id_2 == id_3, false);
+  ASSERT_EQ(id_2 == id_4, false);
+
+  ASSERT_NE(id_1, id_3);
+  ASSERT_NE(id_1, id_4);
+  ASSERT_NE(id_2, id_3);
+  ASSERT_NE(id_2, id_4);
+}
+
+TEST_F(CppApiTestFixture, TestList) {
+  auto list_1 = mage::List();
+
+  ASSERT_EQ(list_1.Size(), 0);
+
+  auto list_2 = mage::List(10);
+
+  ASSERT_EQ(list_2.Size(), 0);
+  ASSERT_EQ(list_1, list_2);
+
+  auto a = mage::Value("a");
+  list_2.Append(a);
+  list_2.AppendExtend(a);
+
+  ASSERT_EQ(list_2.Size(), 2);
+
+  std::vector<mage::Value> values{mage::Value("a"), mage::Value("b"), mage::Value("c")};
+  auto list_3 = mage::List(values);
+
+  ASSERT_EQ(list_3.Size(), 3);
+
+  auto list_4 = mage::List({mage::Value("d"), mage::Value("e"), mage::Value("f")});
+  ASSERT_EQ(list_4.Size(), 3);
+}
+
+TEST_F(CppApiTestFixture, TestMap) {
+  auto map_1 = mage::Map();
+
+  std::map<std::string_view, mage::Value> map_1a;
+  for (const auto &e : map_1) {
+    map_1a.insert(std::pair<std::string_view, mage::Value>(e.key, e.value));
+  }
+
+  ASSERT_EQ(map_1.Size(), 0);
+  ASSERT_EQ(map_1a.size(), 0);
+
+  auto map_2 = mage::Map();
+
+  auto y = mage::Value("y");
+  map_2.Insert("x", y);
+
+  ASSERT_EQ(map_2.Size(), 1);
+  ASSERT_NE(map_1, map_2);
+
+  auto v_1 = mage::Value("1");
+  auto v_2 = mage::Value("2");
+  auto p_1 = std::pair{"a", v_1};
+  auto p_2 = std::pair{"b", v_2};
+  auto map_3 = mage::Map({p_1, p_2});
+
+  ASSERT_EQ(map_3.Size(), 2);
+}
+
+TEST_F(CppApiTestFixture, TestNode) {
+  mage::memory = &memory;
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mage::Graph(&raw_graph);
+
+  graph.CreateNode();
+
+  auto node_1 = *graph.Nodes().begin();
+  ASSERT_EQ(node_1.HasLabel("L1"), false);
+
+  node_1.AddLabel("L1");
+  ASSERT_EQ(node_1.HasLabel("L1"), true);
+
+  node_1.AddLabel("L2");
+  ASSERT_EQ(node_1.HasLabel("L1"), true);
+  ASSERT_EQ(node_1.HasLabel("L2"), true);
+
+  ASSERT_EQ(node_1.Properties().Size(), 0);
+
+  auto node_2 = graph.GetNodeById(node_1.Id());
+
+  ASSERT_EQ(node_1, node_2);
+
+  int count_out_relationships = 0;
+  for (const auto &neighbor : node_1.OutRelationships()) {
+    count_out_relationships++;
+  }
+  ASSERT_EQ(count_out_relationships, 0);
+
+  int count_in_relationships = 0;
+  for (const auto &neighbor : node_1.InRelationships()) {
+    count_in_relationships++;
+  }
+
+  ASSERT_EQ(count_in_relationships, 0);
+}
+
+TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
+  mage::memory = &memory;
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mage::Graph(&raw_graph);
+
+  graph.CreateNode();
+  graph.CreateNode();
+
+  std::vector<mage::Node> nodes;
+  for (const auto &node : graph.Nodes()) {
+    nodes.emplace_back(node);
+  }
+
+  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+
+  int count_out_relationships = 0;
+  int count_in_relationships = 0;
+  for (const auto &node : graph.Nodes()) {
+    for (const auto &neighbor : node.OutRelationships()) {
+      count_out_relationships++;
+    }
+
+    for (const auto &neighbor : node.OutRelationships()) {
+      count_in_relationships++;
+    }
+  }
+
+  ASSERT_EQ(count_out_relationships, 1);
+  ASSERT_EQ(count_in_relationships, 1);
+}
+
+TEST_F(CppApiTestFixture, TestRelationship) {
+  mage::memory = &memory;
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mage::Graph(&raw_graph);
+
+  graph.CreateNode();
+  graph.CreateNode();
+
+  std::vector<mage::Node> nodes;
+  for (const auto &node : graph.Nodes()) {
+    nodes.emplace_back(node);
+  }
+
+  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+
+  auto relationship = *graph.Relationships().begin();
+
+  ASSERT_EQ(relationship.Type(), "edge_type");
+  ASSERT_EQ(relationship.Properties().Size(), 0);
+  ASSERT_EQ(relationship.From().Id(), nodes[0].Id());
+  ASSERT_EQ(relationship.To().Id(), nodes[1].Id());
+}
+
+TEST_F(CppApiTestFixture, TestPath) {
+  mage::memory = &memory;
+  mgp_graph raw_graph = CreateGraph();
+  auto graph = mage::Graph(&raw_graph);
+
+  graph.CreateNode();
+  graph.CreateNode();
+
+  std::vector<mage::Node> nodes;
+  for (const auto &node : graph.Nodes()) {
+    nodes.emplace_back(node);
+  }
+
+  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+
+  auto node_0 = graph.GetNodeById(mage::Id::FromInt(0));
+  auto relationship = *graph.Relationships().begin();
+  auto path = mage::Path(node_0);
+
+  ASSERT_EQ(path.Length(), 2);
+  ASSERT_EQ(path.GetNodeAt(0).Id(), node_0.Id());
+  ASSERT_EQ(path.GetRelationshipAt(0).Id(), relationship.Id());
+}
+
+TEST_F(CppApiTestFixture, TestDate) {
+  auto date_1 = mage::Date("2022-04-09");
+  auto date_2 = mage::Date(2022, 4, 9);
+
+  auto date_3 = mage::Date::Now();
+
+  ASSERT_EQ(date_1.Year(), 2022);
+  ASSERT_EQ(date_1.Month(), 4);
+  ASSERT_EQ(date_1.Day(), 9);
+  ASSERT_EQ(date_1.Timestamp() >= 0, true);
+
+  ASSERT_EQ(date_1, date_2);
+  ASSERT_NE(date_2, date_3);
+}
+
+TEST_F(CppApiTestFixture, TestLocalTime) {
+  auto lt_1 = mage::LocalTime("09:15:00");
+  auto lt_2 = mage::LocalTime(9, 15, 0, 0, 0);
+  auto lt_3 = mage::LocalTime::Now();
+
+  ASSERT_EQ(lt_1.Hour(), 9);
+  ASSERT_EQ(lt_1.Minute(), 15);
+  ASSERT_EQ(lt_1.Second(), 0);
+  ASSERT_EQ(lt_1.Millisecond() >= 0, true);
+  ASSERT_EQ(lt_1.Microsecond() >= 0, true);
+  ASSERT_EQ(lt_1.Timestamp() >= 0, true);
+
+  ASSERT_EQ(lt_1, lt_2);
+  ASSERT_NE(lt_2, lt_3);
+}
+
+TEST_F(CppApiTestFixture, TestLocalDateTime) {
+  auto ldt_1 = mage::LocalDateTime("2021-10-05T14:15:00");
+  auto ldt_2 = mage::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
+  auto ldt_3 = mage::LocalTime::Now();
+
+  ASSERT_EQ(ldt_1.Year(), 2021);
+  ASSERT_EQ(ldt_1.Month(), 10);
+  ASSERT_EQ(ldt_1.Day(), 5);
+  ASSERT_EQ(ldt_1.Hour(), 14);
+  ASSERT_EQ(ldt_1.Minute(), 15);
+  ASSERT_EQ(ldt_1.Second(), 0);
+  ASSERT_EQ(ldt_1.Millisecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Microsecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Timestamp() >= 0, true);
+
+  ASSERT_EQ(ldt_1, ldt_2);
+  ASSERT_NE(ldt_2, ldt_3);
+}
+
+TEST_F(CppApiTestFixture, TestDuration) {
+  auto duration_2 = mage::Duration("PT2M2.33S");
+  auto duration_3 = mage::Duration(1465355);
+  auto duration_4 = mage::Duration(5, 14, 15, 0, 0, 0);
+
+  ASSERT_EQ(duration_3.Microseconds(), 1465355);
+  ASSERT_NE(duration_2, duration_3);
+  ASSERT_NE(duration_3, duration_4);
+}
