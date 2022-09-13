@@ -639,7 +639,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Deny(label_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -668,7 +668,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Deny(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -692,33 +692,4 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
-}
-
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
-  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Deny(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
-
-  handler = memgraph::auth::FineGrainedAccessHandler{
-      memgraph::auth::FineGrainedAccessPermissions{},
-      memgraph::auth::FineGrainedAccessPermissions{read_permission},
-  };
-
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
-  auth->SaveUser(user);
-
-  auto privileges = auth_handler.GetPrivileges(user_name);
-  ASSERT_EQ(privileges.size(), 1);
-
-  auto result = *privileges.begin();
-  ASSERT_EQ(result.size(), 3);
-
-  ASSERT_TRUE(result[0].IsString());
-  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
-
-  ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "READ");
-
-  ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
