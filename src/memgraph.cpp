@@ -36,7 +36,6 @@
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "helpers.hpp"
-#include "kvstore/kvstore.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -438,8 +437,8 @@ DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-#if MG_ENTERPRISE
 
+#if MG_ENTERPRISE
   SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
@@ -448,17 +447,16 @@ struct SessionData {
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
-
 #else
-
   SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
   memgraph::storage::Storage *db;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-
 #endif
+
+  std::optional<std::string> run_id;
 };
 
 inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
@@ -861,7 +859,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #if MG_ENTERPRISE
         audit_log_(data->audit_log),
 #endif
-        endpoint_(endpoint) {
+        endpoint_(endpoint),
+        run_id_(data->run_id) {
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -934,11 +933,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return FLAGS_bolt_server_name_for_init;
   }
 
-  std::optional<std::string> GetRunIdForInit() override {
-    memgraph::kvstore::KVStore storage(std::move(std::filesystem::path(FLAGS_data_directory) / "run_id"));
-
-    return storage.Get("run_id");
-  }
+  std::optional<std::string> GetRunIdForInit() override { return run_id_; }
 
  private:
   template <typename TStream>
@@ -1012,6 +1007,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   memgraph::audit::Log *audit_log_;
 #endif
   memgraph::communication::v2::ServerEndpoint endpoint_;
+  std::optional<std::string> run_id_;
 };
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
@@ -1282,7 +1278,8 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", data_directory / "run_id", std::chrono::minutes(10));
+                      data_directory / "telemetry", std::chrono::minutes(10));
+    session_data.run_id = telemetry->GetRunId();
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};

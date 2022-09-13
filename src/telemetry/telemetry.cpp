@@ -42,17 +42,13 @@ std::string GetMachineId() {
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::filesystem::path run_id_directory,
+Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
       uuid_(utils::GenerateUUID()),
       machine_id_(GetMachineId()),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  memgraph::kvstore::KVStore run_id_storage(run_id_directory);
-  run_id_storage.Put("run_id", uuid_);
-  run_id_storage.~KVStore();
-
   StoreData("startup", GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
@@ -63,6 +59,8 @@ void Telemetry::AddCollector(const std::string &name, const std::function<const 
   std::lock_guard<std::mutex> guard(lock_);
   collectors_.emplace_back(name, func);
 }
+
+std::string Telemetry::GetRunId() const { return uuid_; }
 
 Telemetry::~Telemetry() {
   scheduler_.Stop();
