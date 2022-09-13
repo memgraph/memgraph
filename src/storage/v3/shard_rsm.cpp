@@ -579,7 +579,6 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
-      // if this is nullopt that is not necessarily an error.
       if (!found_props) {
         continue;
       }

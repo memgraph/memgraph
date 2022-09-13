@@ -287,9 +287,6 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
 
 std::tuple<size_t, std::optional<VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client, VertexId start_id,
                                                                            uint64_t batch_limit) {
-  // Label prim_label = {.id = get_primary_label()};
-  // PrimaryKey prim_key = {Value(static_cast<int64_t>(start_id))};
-
   ScanVerticesRequest scan_req{};
   scan_req.batch_limit = batch_limit;
   scan_req.filter_expressions = std::nullopt;
@@ -308,13 +305,6 @@ std::tuple<size_t, std::optional<VertexId>> AttemptToScanAllWithBatchLimit(Shard
     auto write_response = std::get<ScanVerticesResponse>(write_response_result);
 
     MG_ASSERT(write_response.success);
-
-    // std::optional<int64_t> next_id = {};
-    // if(write_response.next_start_id)
-    // {
-    //   next_id = write_response.next_start_id->second[0].int_v;
-    // }
-
     return {write_response.results.size(), write_response.next_start_id};
   }
 }
