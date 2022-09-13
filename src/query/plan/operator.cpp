@@ -243,8 +243,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
   if (context.auth_checker &&
       !context.auth_checker->Has(self_.node_info_.labels,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    spdlog::info("Vertex will not be created due to not having enough permission!");
-    return false;
+    throw QueryRuntimeException("Vertex not created due to not having enough permission!");
   }
 
   if (input_cursor_->Pull(frame, context)) {
@@ -338,8 +337,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
       !(context.auth_checker->Has(self_.edge_info_.edge_type,
                                   memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
         context.auth_checker->Has(self_.node_info_.labels, fine_grained_permission))) {
-    spdlog::info("Edge will not be created due to not having enough permission!");
-    return false;
+    throw QueryRuntimeException("Edge not created due to not having enough permission!");
   }
   // get the origin vertex
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2329,8 +2327,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
           !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
             context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
             context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE))) {
-        spdlog::info("Edge will not be deleted due to not having enough permission!");
-        continue;
+        throw QueryRuntimeException("Edge not deleted due to not having enough permission!");
       }
       auto maybe_value = dba.RemoveEdge(&ea);
       if (maybe_value.HasError()) {
@@ -2359,8 +2356,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
         auto &va = expression_result.ValueVertex();
         if (context.auth_checker &&
             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-          spdlog::info("Vertex will not be deleted due to not having enough permission!");
-          break;
+          throw QueryRuntimeException("Vertex not deleted due to not having enough permission!");
         }
         if (self_.detach_) {
           auto res = dba.DetachRemoveVertex(&va);
@@ -2468,8 +2464,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex property will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex property not set due to not having enough permission!");
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs);
@@ -2484,8 +2479,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
     case TypedValue::Type::Edge: {
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge property will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Edge property not set due to not having enough permission!");
       }
 
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs);
@@ -2683,8 +2677,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex properties will not be set due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex properties not set due to not having enough permission!");
       }
 
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context);
@@ -2692,8 +2685,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge properties will not be set due to not having enough permission!");
-        break;
+        throw QueryRuntimeException("Edge properties not set due to not having enough permission!");
       }
 
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context);
@@ -2825,8 +2817,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Vertex property will not be removed due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
       }
 
       remove_prop(&lhs.ValueVertex());
@@ -2834,8 +2825,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
     case TypedValue::Type::Edge:
       if (context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        spdlog::info("Edge property will not be removed due to not having enough permission.");
-        break;
+        throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
       }
 
       remove_prop(&lhs.ValueEdge());
