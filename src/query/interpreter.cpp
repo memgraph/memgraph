@@ -307,8 +307,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
-        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication
-        features"));
+        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
   }
 
   switch (auth_query->action_) {
