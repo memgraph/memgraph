@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <memory>
 
 #include "storage/v3/edge_ref.hpp"
@@ -64,31 +63,30 @@ class PreviousPtr {
     Edge *edge{nullptr};
   };
 
-  PreviousPtr() : storage_(0) {}
+  PreviousPtr() {}
 
-  PreviousPtr(const PreviousPtr &other) noexcept : storage_(other.storage_.load(std::memory_order_acquire)) {}
+  PreviousPtr(const PreviousPtr &other) noexcept : storage_(other.storage_) {}
   PreviousPtr(PreviousPtr &&) = delete;
   PreviousPtr &operator=(const PreviousPtr &) = delete;
   PreviousPtr &operator=(PreviousPtr &&) = delete;
   ~PreviousPtr() = default;
 
   Pointer Get() const {
-    uintptr_t value = storage_.load(std::memory_order_acquire);
-    if (value == 0) {
+    if (storage_ == 0) {
       return {};
     }
-    uintptr_t type = value & kMask;
+    uintptr_t type = storage_ & kMask;
     if (type == kDelta) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Delta *>(storage_ & ~kMask)};
     }
     if (type == kVertex) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Vertex *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Vertex *>(storage_ & ~kMask)};
     }
     if (type == kEdge) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Edge *>(storage_ & ~kMask)};
     }
     LOG_FATAL("Invalid pointer type!");
   }
@@ -96,23 +94,23 @@ class PreviousPtr {
   void Set(Delta *delta) {
     auto value = reinterpret_cast<uintptr_t>(delta);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kDelta, std::memory_order_release);
+    storage_ = value | kDelta;
   }
 
   void Set(Vertex *vertex) {
     auto value = reinterpret_cast<uintptr_t>(vertex);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kVertex, std::memory_order_release);
+    storage_ = value | kVertex;
   }
 
   void Set(Edge *edge) {
     auto value = reinterpret_cast<uintptr_t>(edge);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kEdge, std::memory_order_release);
+    storage_ = value | kEdge;
   }
 
  private:
-  std::atomic<uintptr_t> storage_;
+  uintptr_t storage_{0};
 };
 
 inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) {
@@ -233,7 +231,7 @@ struct Delta {
   CommitInfo *commit_info;
   uint64_t command_id;
   PreviousPtr prev;
-  std::atomic<Delta *> next{nullptr};
+  Delta *next{nullptr};
 
   union {
     LabelId label;

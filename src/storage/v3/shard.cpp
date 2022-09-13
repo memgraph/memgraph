@@ -12,7 +12,6 @@
 #include "storage/v3/shard.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -842,7 +841,7 @@ void Shard::Accessor::Abort() {
               break;
             }
           }
-          current = current->next.load(std::memory_order_acquire);
+          current = current->next;
         }
         vertex->delta = current;
         if (current != nullptr) {
@@ -879,7 +878,7 @@ void Shard::Accessor::Abort() {
               break;
             }
           }
-          current = current->next.load(std::memory_order_acquire);
+          current = current->next;
         }
         edge->delta = current;
         if (current != nullptr) {
@@ -1169,7 +1168,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
               break;
             }
             Delta *prev_delta = prev.delta;
-            prev_delta->next.store(nullptr, std::memory_order_release);
+            prev_delta->next = nullptr;
             break;
           }
           case PreviousPtr::Type::NULLPTR: {
@@ -1257,7 +1256,7 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
-      auto *older = delta->next.load(std::memory_order_acquire);
+      auto *older = delta->next;
       if (older == nullptr || older->commit_info->timestamp != current_commit_timestamp) {
         break;
       }

@@ -41,7 +41,7 @@ bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const 
       return true;
     }
     // Move to the next delta.
-    delta = delta->next.load(std::memory_order_acquire);
+    delta = delta->next;
   }
   return false;
 }

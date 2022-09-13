@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <limits>
 #include <list>
 #include <memory>

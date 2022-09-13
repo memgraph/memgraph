@@ -66,7 +66,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     callback(*delta);
 
     // Move to the next delta.
-    delta = delta->next.load(std::memory_order_acquire);
+    delta = delta->next;
   }
 }
 
@@ -116,7 +116,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // TODO(antaljanosbenjamin): clang-tidy detects (in my opinion a false positive) issue in
   // `Shard::Accessor::CreateEdge`.
   // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-  delta->next.store(object->delta, std::memory_order_release);
+  delta->next = object->delta;
   // 2. We need to set the previous delta of the new delta to the object.
   delta->prev.Set(object);
   // 3. We need to set the previous delta of the existing delta to the new

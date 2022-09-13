@@ -114,7 +114,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         break;
     }
 
-    delta = delta->next.load(std::memory_order_acquire);
+    delta = delta->next;
   }
 
   for (size_t i = 0; i < properties.size(); ++i) {
@@ -218,7 +218,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
     if (!deleted && has_label && all_values_match) {
       return true;
     }
-    delta = delta->next.load(std::memory_order_acquire);
+    delta = delta->next;
   }
   return false;
 }
