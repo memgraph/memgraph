@@ -40,7 +40,7 @@ class Telemetry final {
   void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
 
   /// Required to expose run_id to Bolt server.
-  std::string GetRunId() const;
+  const std::string GetRunId() const;
 
   ~Telemetry();
 
