@@ -54,13 +54,6 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
-/// REPLICATION ///
-#include "rpc/server.hpp"
-#include "storage/v3/replication/config.hpp"
-#include "storage/v3/replication/enums.hpp"
-#include "storage/v3/replication/rpc.hpp"
-#include "storage/v3/replication/serialization.hpp"
-
 namespace memgraph::storage::v3 {
 
 // The storage is based on this paper:
@@ -203,8 +196,6 @@ struct StorageInfo {
   uint64_t memory_usage;
   uint64_t disk_usage;
 };
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 class Shard final {
  public:
@@ -435,41 +426,6 @@ class Shard final {
   bool LockPath();
   bool UnlockPath();
 
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
-
-  bool SetMainReplicationRole();
-
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      const replication::ReplicationClientConfig &config = {});
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(std::string_view name);
-
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
-
-  ReplicationRole GetReplicationRole() const;
-
-  struct ReplicaInfo {
-    std::string name;
-    replication::ReplicationMode mode;
-    std::optional<double> timeout;
-    io::network::Endpoint endpoint;
-    replication::ReplicaState state;
-  };
-
-  std::vector<ReplicaInfo> ReplicasInfo();
-
-  void FreeMemory();
-
   void SetIsolationLevel(IsolationLevel isolation_level);
 
   enum class CreateSnapshotError : uint8_t { DisabledForReplica };
@@ -584,28 +540,6 @@ class Shard final {
 
   // Global locker that is used for clients file locking
   utils::FileRetainer::FileLocker global_locker_;
-
-  // Last commited timestamp
-  uint64_t last_commit_timestamp_{kTimestampInitialId};
-
-  class ReplicationServer;
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-  class ReplicationClient;
-  // We create ReplicationClient using unique_ptr so we can move
-  // newly created client into the vector.
-  // We cannot move the client directly because it contains ThreadPool
-  // which cannot be moved. Also, the move is necessary because
-  // we don't want to create the client directly inside the vector
-  // because that would require the lock on the list putting all
-  // commits (they iterate list of clients) to halt.
-  // This way we can initialize client in main thread which means
-  // that we can immediately notify the user if the initialization
-  // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
-
-  ReplicationRole replication_role_{ReplicationRole::MAIN};
 };
 
 }  // namespace memgraph::storage::v3

@@ -37,10 +37,6 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/replication/config.hpp"
-#include "storage/v3/replication/replication_client.hpp"
-#include "storage/v3/replication/replication_server.hpp"
-#include "storage/v3/replication/rpc.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
@@ -63,7 +59,6 @@ namespace memgraph::storage::v3 {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
-inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 void InsertVertexPKIntoList(auto &container, const PrimaryKey &primary_key) { container.push_back(primary_key); }
 }  // namespace
@@ -331,13 +326,6 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       uuid_{utils::GenerateUUID()},
       epoch_id_{utils::GenerateUUID()},
       global_locker_{file_retainer_.AddLocker()} {
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED &&
-      replication_role_ == ReplicationRole::MAIN) {
-    spdlog::warn(
-        "The instance has the MAIN replication role, but durability logs and snapshots are disabled. Please consider "
-        "enabling durability by using --storage-snapshot-interval-sec and --storage-wal-enabled flags because "
-        "without write-ahead logs this instance is not replicating any data.");
-  }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
       config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
     // Create the directory initially to crash the database in case of
@@ -1469,14 +1457,6 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_info->timestamp;
 
-  if (replication_role_ == ReplicationRole::MAIN) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &client : clients) {
-        client->StartTransactionReplication(wal_file_->SequenceNumber());
-      }
-    });
-  }
-
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
@@ -1490,12 +1470,6 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
     while (true) {
       if (filter(delta->action)) {
         wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-        replication_clients_.WithLock([&](auto &clients) {
-          for (auto &client : clients) {
-            client->IfStreamingTransaction(
-                [&](auto &stream) { stream.AppendDelta(*delta, parent, final_commit_timestamp); });
-          }
-        });
       }
       auto prev = delta->prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
@@ -1634,31 +1608,12 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   wal_file_->AppendTransactionEnd(final_commit_timestamp);
 
   FinalizeWalFile();
-
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(final_commit_timestamp); });
-      client->FinalizeTransactionReplication();
-    }
-  });
 }
 
 void Shard::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
                         const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
   if (!InitializeWalFile()) return;
   wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  {
-    if (replication_role_ == ReplicationRole::MAIN) {
-      replication_clients_.WithLock([&](auto &clients) {
-        for (auto &client : clients) {
-          client->StartTransactionReplication(wal_file_->SequenceNumber());
-          client->IfStreamingTransaction(
-              [&](auto &stream) { stream.AppendOperation(operation, label, properties, final_commit_timestamp); });
-          client->FinalizeTransactionReplication();
-        }
-      });
-    }
-  }
   FinalizeWalFile();
 }
 
@@ -1718,125 +1673,6 @@ uint64_t Shard::CommitTimestamp(const std::optional<uint64_t> desired_commit_tim
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {
   return vertex_id.primary_label == primary_label_ && vertex_id.primary_key >= min_primary_key_ &&
          (!max_primary_key_.has_value() || vertex_id.primary_key < *max_primary_key_);
-}
-
-bool Shard::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {
-  // We don't want to restart the server if we're already a REPLICA
-  if (replication_role_ == ReplicationRole::REPLICA) {
-    return false;
-  }
-
-  replication_server_ = std::make_unique<ReplicationServer>(this, std::move(endpoint), config);
-
-  replication_role_ = ReplicationRole::REPLICA;
-  return true;
-}
-
-bool Shard::SetMainReplicationRole() {
-  // We don't want to generate new epoch_id and do the
-  // cleanup if we're already a MAIN
-  if (replication_role_ == ReplicationRole::MAIN) {
-    return false;
-  }
-
-  // Main instance does not need replication server
-  // This should be always called first so we finalize everything
-  replication_server_.reset(nullptr);
-
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_.reset();
-  }
-
-  // Generate new epoch id and save the last one to the history.
-  if (epoch_history_.size() == kEpochHistoryRetention) {
-    epoch_history_.pop_front();
-  }
-  epoch_history_.emplace_back(std::move(epoch_id_), last_commit_timestamp_);
-  epoch_id_ = utils::GenerateUUID();
-
-  replication_role_ = ReplicationRole::MAIN;
-  return true;
-}
-
-utils::BasicResult<Shard::RegisterReplicaError> Shard::RegisterReplica(
-    std::string name, io::network::Endpoint endpoint, const replication::ReplicationMode replication_mode,
-    const replication::ReplicationClientConfig &config) {
-  MG_ASSERT(replication_role_ == ReplicationRole::MAIN, "Only main instance can register a replica!");
-
-  const bool name_exists = replication_clients_.WithLock([&](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(), [&name](const auto &client) { return client->Name() == name; });
-  });
-
-  if (name_exists) {
-    return RegisterReplicaError::NAME_EXISTS;
-  }
-
-  const auto end_point_exists = replication_clients_.WithLock([&endpoint](auto &clients) {
-    return std::any_of(clients.begin(), clients.end(),
-                       [&endpoint](const auto &client) { return client->Endpoint() == endpoint; });
-  });
-
-  if (end_point_exists) {
-    return RegisterReplicaError::END_POINT_EXISTS;
-  }
-
-  MG_ASSERT(replication_mode == replication::ReplicationMode::SYNC || !config.timeout,
-            "Only SYNC mode can have a timeout set");
-
-  auto client = std::make_unique<ReplicationClient>(std::move(name), this, endpoint, replication_mode, config);
-  if (client->State() == replication::ReplicaState::INVALID) {
-    return RegisterReplicaError::CONNECTION_FAILED;
-  }
-
-  return replication_clients_.WithLock([&](auto &clients) -> utils::BasicResult<Shard::RegisterReplicaError> {
-    // Another thread could have added a client with same name while
-    // we were connecting to this client.
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&](const auto &other_client) { return client->Name() == other_client->Name(); })) {
-      return RegisterReplicaError::NAME_EXISTS;
-    }
-
-    if (std::any_of(clients.begin(), clients.end(),
-                    [&client](const auto &other_client) { return client->Endpoint() == other_client->Endpoint(); })) {
-      return RegisterReplicaError::END_POINT_EXISTS;
-    }
-
-    clients.push_back(std::move(client));
-    return {};
-  });
-}
-
-bool Shard::UnregisterReplica(const std::string_view name) {
-  MG_ASSERT(replication_role_ == ReplicationRole::MAIN, "Only main instance can unregister a replica!");
-  return replication_clients_.WithLock([&](auto &clients) {
-    return std::erase_if(clients, [&](const auto &client) { return client->Name() == name; });
-  });
-}
-
-std::optional<replication::ReplicaState> Shard::GetReplicaState(const std::string_view name) {
-  return replication_clients_.WithLock([&](auto &clients) -> std::optional<replication::ReplicaState> {
-    const auto client_it =
-        std::find_if(clients.cbegin(), clients.cend(), [name](auto &client) { return client->Name() == name; });
-    if (client_it == clients.cend()) {
-      return std::nullopt;
-    }
-    return (*client_it)->State();
-  });
-}
-
-ReplicationRole Shard::GetReplicationRole() const { return replication_role_; }
-
-std::vector<Shard::ReplicaInfo> Shard::ReplicasInfo() {
-  return replication_clients_.WithLock([](auto &clients) {
-    std::vector<Shard::ReplicaInfo> replica_info;
-    replica_info.reserve(clients.size());
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_info),
-                   [](const auto &client) -> ReplicaInfo {
-                     return {client->Name(), client->Mode(), client->Timeout(), client->Endpoint(), client->State()};
-                   });
-    return replica_info;
-  });
 }
 
 void Shard::SetIsolationLevel(IsolationLevel isolation_level) { isolation_level_ = isolation_level; }
