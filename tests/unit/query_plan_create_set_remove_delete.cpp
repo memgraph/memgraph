@@ -1270,8 +1270,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
   // All labels denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
@@ -1287,8 +1286,8 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("label1",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny("label2",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("label2",
+                                                                 memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
@@ -1447,8 +1446,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
   // All labels denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
     memgraph::storage::Storage db;
     auto storage_dba = db.Access();
     memgraph::query::DbAccessor dba(&storage_dba);
@@ -1464,8 +1462,8 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("label1",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny("label2",
-                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+    user.fine_grained_access_handler().label_permissions().Grant("label2",
+                                                                 memgraph::auth::FineGrainedPermission::UPDATE);
     user.fine_grained_access_handler().label_permissions().Grant("label3",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
