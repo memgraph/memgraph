@@ -437,8 +437,8 @@ DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-
 #if MG_ENTERPRISE
+
   SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
               memgraph::audit::Log *audit_log)
@@ -447,15 +447,18 @@ struct SessionData {
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
   memgraph::audit::Log *audit_log;
+
 #else
+
   SessionData(memgraph::storage::Storage *db, memgraph::query::InterpreterContext *interpreter_context,
               memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth)
       : db(db), interpreter_context(interpreter_context), auth(auth) {}
   memgraph::storage::Storage *db;
   memgraph::query::InterpreterContext *interpreter_context;
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
-#endif
 
+#endif
+  // NOTE: run_id should be const but that complicates code a lot.
   std::optional<std::string> run_id;
 };
 
