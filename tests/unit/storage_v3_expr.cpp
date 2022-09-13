@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "common/types.hpp"
+#include "exceptions.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/bindings/bindings.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
@@ -28,9 +29,101 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
+#include "utils/string.hpp"
 
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
+
+#define NODE(...) test_common::GetNode(storage, __VA_ARGS__)
+#define EDGE(...) test_common::GetEdge(storage, __VA_ARGS__)
+#define EDGE_VARIABLE(...) test_common::GetEdgeVariable(storage, __VA_ARGS__)
+#define PATTERN(...) test_common::GetPattern(storage, {__VA_ARGS__})
+#define NAMED_PATTERN(name, ...) test_common::GetPattern(storage, name, {__VA_ARGS__})
+#define OPTIONAL_MATCH(...) test_common::GetWithPatterns(storage.Create<Match>(true), {__VA_ARGS__})
+#define MATCH(...) test_common::GetWithPatterns(storage.Create<Match>(), {__VA_ARGS__})
+#define WHERE(expr) storage.Create<Where>((expr))
+#define CREATE(...) test_common::GetWithPatterns(storage.Create<Create>(), {__VA_ARGS__})
+#define IDENT(...) storage.Create<Identifier>(__VA_ARGS__)
+#define LITERAL(val) storage.Create<PrimitiveLiteral>((val))
+#define LIST(...) storage.Create<ListLiteral>(std::vector<Expression *>{__VA_ARGS__})
+#define MAP(...) storage.Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{__VA_ARGS__})
+#define PROPERTY_PAIR(property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
+#define PROPERTY_LOOKUP(...) test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+#define PARAMETER_LOOKUP(token_position) storage.Create<ParameterLookup>((token_position))
+#define NEXPR(name, expr) storage.Create<NamedExpression>((name), (expr))
+// AS is alternative to NEXPR which does not initialize NamedExpression with
+// Expression. It should be used with RETURN or WITH. For example:
+// RETURN(IDENT("n"), AS("n")) vs. RETURN(NEXPR("n", IDENT("n"))).
+#define AS(name) storage.Create<NamedExpression>((name))
+#define RETURN(...) test_common::GetReturn(storage, false, __VA_ARGS__)
+#define WITH(...) test_common::GetWith(storage, false, __VA_ARGS__)
+#define RETURN_DISTINCT(...) test_common::GetReturn(storage, true, __VA_ARGS__)
+#define WITH_DISTINCT(...) test_common::GetWith(storage, true, __VA_ARGS__)
+#define UNWIND(...) test_common::GetUnwind(storage, __VA_ARGS__)
+#define ORDER_BY(...) test_common::GetOrderBy(__VA_ARGS__)
+#define SKIP(expr) \
+  test_common::Skip { (expr) }
+#define LIMIT(expr) \
+  test_common::Limit { (expr) }
+#define DELETE(...) test_common::GetDelete(storage, {__VA_ARGS__})
+#define DETACH_DELETE(...) test_common::GetDelete(storage, {__VA_ARGS__}, true)
+#define SET(...) test_common::GetSet(storage, __VA_ARGS__)
+#define REMOVE(...) test_common::GetRemove(storage, __VA_ARGS__)
+#define MERGE(...) test_common::GetMerge(storage, __VA_ARGS__)
+#define ON_MATCH(...)                     \
+  test_common::OnMatch {                  \
+    std::vector<Clause *> { __VA_ARGS__ } \
+  }
+#define ON_CREATE(...)                    \
+  test_common::OnCreate {                 \
+    std::vector<Clause *> { __VA_ARGS__ } \
+  }
+#define CREATE_INDEX_ON(label, property) \
+  storage.Create<IndexQuery>(IndexQuery::Action::CREATE, (label), std::vector<PropertyIx>{(property)})
+#define QUERY(...) test_common::GetQuery(storage, __VA_ARGS__)
+#define SINGLE_QUERY(...) test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
+#define UNION(...) test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
+#define UNION_ALL(...) test_common::GetCypherUnion(storage.Create<CypherUnion>(false), __VA_ARGS__)
+#define FOREACH(...) test_common::GetForeach(storage, __VA_ARGS__)
+// Various operators
+#define NOT(expr) storage.Create<NotOperator>((expr))
+#define UPLUS(expr) storage.Create<UnaryPlusOperator>((expr))
+#define UMINUS(expr) storage.Create<UnaryMinusOperator>((expr))
+#define IS_NULL(expr) storage.Create<IsNullOperator>((expr))
+#define ADD(expr1, expr2) storage.Create<AdditionOperator>((expr1), (expr2))
+#define LESS(expr1, expr2) storage.Create<LessOperator>((expr1), (expr2))
+#define LESS_EQ(expr1, expr2) storage.Create<LessEqualOperator>((expr1), (expr2))
+#define GREATER(expr1, expr2) storage.Create<GreaterOperator>((expr1), (expr2))
+#define GREATER_EQ(expr1, expr2) storage.Create<GreaterEqualOperator>((expr1), (expr2))
+#define SUM(expr) storage.Create<Aggregation>((expr), nullptr, Aggregation::Op::SUM)
+#define COUNT(expr) storage.Create<Aggregation>((expr), nullptr, Aggregation::Op::COUNT)
+#define AVG(expr) storage.Create<Aggregation>((expr), nullptr, Aggregation::Op::AVG)
+#define COLLECT_LIST(expr) storage.Create<Aggregation>((expr), nullptr, Aggregation::Op::COLLECT_LIST)
+#define EQ(expr1, expr2) storage.Create<EqualOperator>((expr1), (expr2))
+#define NEQ(expr1, expr2) storage.Create<NotEqualOperator>((expr1), (expr2))
+#define AND(expr1, expr2) storage.Create<AndOperator>((expr1), (expr2))
+#define OR(expr1, expr2) storage.Create<OrOperator>((expr1), (expr2))
+#define IN_LIST(expr1, expr2) storage.Create<InListOperator>((expr1), (expr2))
+#define IF(cond, then, else) storage.Create<IfOperator>((cond), (then), (else))
+// Function call
+#define FN(function_name, ...) \
+  storage.Create<Function>(memgraph::utils::ToUpperCase(function_name), std::vector<Expression *>{__VA_ARGS__})
+// List slicing
+#define SLICE(list, lower_bound, upper_bound) storage.Create<ListSlicingOperator>(list, lower_bound, upper_bound)
+// all(variable IN list WHERE predicate)
+#define ALL(variable, list, where) storage.Create<All>(storage.Create<Identifier>(variable), list, where)
+#define SINGLE(variable, list, where) storage.Create<Single>(storage.Create<Identifier>(variable), list, where)
+#define ANY(variable, list, where) storage.Create<Any>(storage.Create<Identifier>(variable), list, where)
+#define NONE(variable, list, where) storage.Create<None>(storage.Create<Identifier>(variable), list, where)
+#define REDUCE(accumulator, initializer, variable, list, expr)                                                       \
+  storage.Create<Reduce>(storage.Create<Identifier>(accumulator), initializer, storage.Create<Identifier>(variable), \
+                         list, expr)
+#define COALESCE(...) storage.Create<Coalesce>(std::vector<Expression *>{__VA_ARGS__})
+#define EXTRACT(variable, list, expr) storage.Create<Extract>(storage.Create<Identifier>(variable), list, expr)
+#define AUTH_QUERY(action, user, role, user_or_role, password, privileges) \
+  storage.Create<AuthQuery>((action), (user), (role), (user_or_role), password, (privileges))
+#define DROP_USER(usernames) storage.Create<DropUser>((usernames))
+#define CALL_PROCEDURE(...) test_common::GetCallProcedure(storage, __VA_ARGS__)
 
 namespace memgraph::storage::v3::test {
 
@@ -95,328 +188,307 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   }
 };
 
-// TEST(Test, TestTesting) {
-//   LabelId l;
-//   PropertyId property_id = PropertyId::FromUint(0);
+TEST_F(ExpressionEvaluatorTest, OrOperator) {
+  auto *op =
+      storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), true);
+}
 
-//   PrimaryKey pk{PropertyValue(0)};
-//   Shard shard(l, pk, std::nullopt);
-//   auto acc = shard.Access();
-//   Frame frame(1);
-//   SymbolTable symbol_table;
-//   EvaluationContext evaluation_context;
-//   DbAccessor db_accessor(&acc);
-//   auto t1 = TypedValue(1);
-//   auto t2 = TypedValue("sasas");
-//   auto t3 = TypedValue();
-//   shard.CreateSchema(l, {SchemaProperty{property_id, common::SchemaType::INT}});
-//   auto v1 = *acc.CreateVertexAndValidate(l, {}, {{property_id, PropertyValue(0)}});
-//   auto t4 = TypedValue(v1);
+TEST_F(ExpressionEvaluatorTest, XorOperator) {
+  auto *op =
+      storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), false);
+}
 
-//   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, &db_accessor, View::OLD);
-//   ASSERT_TRUE(true);
-// }
+TEST_F(ExpressionEvaluatorTest, AndOperator) {
+  auto *op =
+      storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false), storage.Create<PrimitiveLiteral>(true));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), false);
+}
 
-// TEST_F(ExpressionEvaluatorTest, OrOperator) {
-//   auto *op =
-//       storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), true);
-//   op = storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), true);
-// }
+TEST_F(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
+  {
+    auto *op =
+        storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false), storage.Create<PrimitiveLiteral>(5));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+  {
+    auto *op =
+        storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(5), storage.Create<PrimitiveLiteral>(false));
+    // We are evaluating left to right, so we don't short circuit here and
+    // raise due to `5`. This differs from neo4j, where they evaluate both
+    // sides and return `false` without checking for type of the first
+    // expression.
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+}
 
-// TEST_F(ExpressionEvaluatorTest, XorOperator) {
-//   auto *op =
-//       storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(false));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), true);
-//   op = storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), false);
-// }
+TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
+  storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue(1));
+  {
+    // Null doesn't short circuit
+    auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                           storage.Create<PrimitiveLiteral>(5));
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+  {
+    auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                           storage.Create<PrimitiveLiteral>(true));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                           storage.Create<PrimitiveLiteral>(false));
+    auto value = Eval(op);
+    ASSERT_TRUE(value.IsBool());
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+}
 
-// TEST_F(ExpressionEvaluatorTest, AndOperator) {
-//   auto *op =
-//       storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(true));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), true);
-//   op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false), storage.Create<PrimitiveLiteral>(true));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), false);
-// }
+TEST_F(ExpressionEvaluatorTest, AdditionOperator) {
+  auto *op = storage.Create<AdditionOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), 5);
+}
 
-// TEST_F(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
-//   {
-//     auto *op =
-//         storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false), storage.Create<PrimitiveLiteral>(5));
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueBool(), false);
-//   }
-//   {
-//     auto *op =
-//         storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(5), storage.Create<PrimitiveLiteral>(false));
-//     // We are evaluating left to right, so we don't short circuit here and
-//     // raise due to `5`. This differs from neo4j, where they evaluate both
-//     // sides and return `false` without checking for type of the first
-//     // expression.
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-// }
+TEST_F(ExpressionEvaluatorTest, SubtractionOperator) {
+  auto *op =
+      storage.Create<SubtractionOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), -1);
+}
 
-// TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
-//   storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue(1));
-//   {
-//     // Null doesn't short circuit
-//     auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                            storage.Create<PrimitiveLiteral>(5));
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-//   {
-//     auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                            storage.Create<PrimitiveLiteral>(true));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     auto *op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                            storage.Create<PrimitiveLiteral>(false));
-//     auto value = Eval(op);
-//     ASSERT_TRUE(value.IsBool());
-//     EXPECT_EQ(value.ValueBool(), false);
-//   }
-// }
+TEST_F(ExpressionEvaluatorTest, MultiplicationOperator) {
+  auto *op =
+      storage.Create<MultiplicationOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), 6);
+}
 
-// TEST_F(ExpressionEvaluatorTest, AdditionOperator) {
-//   auto *op = storage.Create<AdditionOperator>(storage.Create<PrimitiveLiteral>(2),
-//   storage.Create<PrimitiveLiteral>(3)); auto value = Eval(op); ASSERT_EQ(value.ValueInt(), 5);
-// }
+TEST_F(ExpressionEvaluatorTest, DivisionOperator) {
+  auto *op =
+      storage.Create<DivisionOperator>(storage.Create<PrimitiveLiteral>(50), storage.Create<PrimitiveLiteral>(10));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), 5);
+}
 
-// TEST_F(ExpressionEvaluatorTest, SubtractionOperator) {
-//   auto *op =
-//       storage.Create<SubtractionOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), -1);
-// }
+TEST_F(ExpressionEvaluatorTest, ModOperator) {
+  auto *op = storage.Create<ModOperator>(storage.Create<PrimitiveLiteral>(65), storage.Create<PrimitiveLiteral>(10));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), 5);
+}
 
-// TEST_F(ExpressionEvaluatorTest, MultiplicationOperator) {
-//   auto *op =
-//       storage.Create<MultiplicationOperator>(storage.Create<PrimitiveLiteral>(2),
-//       storage.Create<PrimitiveLiteral>(3));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), 6);
-// }
+TEST_F(ExpressionEvaluatorTest, EqualOperator) {
+  auto *op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), false);
+  op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), true);
+  op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), false);
+}
 
-// TEST_F(ExpressionEvaluatorTest, DivisionOperator) {
-//   auto *op =
-//       storage.Create<DivisionOperator>(storage.Create<PrimitiveLiteral>(50), storage.Create<PrimitiveLiteral>(10));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), 5);
-// }
+TEST_F(ExpressionEvaluatorTest, NotEqualOperator) {
+  auto *op =
+      storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), false);
+  op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), true);
+}
 
-// TEST_F(ExpressionEvaluatorTest, ModOperator) {
-//   auto *op = storage.Create<ModOperator>(storage.Create<PrimitiveLiteral>(65), storage.Create<PrimitiveLiteral>(10));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), 5);
-// }
+TEST_F(ExpressionEvaluatorTest, LessOperator) {
+  auto *op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), false);
+  op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), false);
+}
 
-// TEST_F(ExpressionEvaluatorTest, EqualOperator) {
-//   auto *op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(10),
-//   storage.Create<PrimitiveLiteral>(15)); auto val1 = Eval(op); ASSERT_EQ(val1.ValueBool(), false); op =
-//   storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15)); auto
-//   val2 = Eval(op); ASSERT_EQ(val2.ValueBool(), true); op =
-//   storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15)); auto
-//   val3 = Eval(op); ASSERT_EQ(val3.ValueBool(), false);
-// }
+TEST_F(ExpressionEvaluatorTest, GreaterOperator) {
+  auto *op =
+      storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), false);
+  op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), false);
+  op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), true);
+}
 
-// TEST_F(ExpressionEvaluatorTest, NotEqualOperator) {
-//   auto *op =
-//       storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), true);
-//   op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), false);
-//   op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
-//   auto val3 = Eval(op);
-//   ASSERT_EQ(val3.ValueBool(), true);
-// }
+TEST_F(ExpressionEvaluatorTest, LessEqualOperator) {
+  auto *op =
+      storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), true);
+  op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), true);
+  op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), false);
+}
 
-// TEST_F(ExpressionEvaluatorTest, LessOperator) {
-//   auto *op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(10),
-//   storage.Create<PrimitiveLiteral>(15)); auto val1 = Eval(op); ASSERT_EQ(val1.ValueBool(), true); op =
-//   storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15)); auto val2
-//   = Eval(op); ASSERT_EQ(val2.ValueBool(), false); op =
-//   storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15)); auto val3
-//   = Eval(op); ASSERT_EQ(val3.ValueBool(), false);
-// }
+TEST_F(ExpressionEvaluatorTest, GreaterEqualOperator) {
+  auto *op =
+      storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), false);
+  op = storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), true);
+  op = storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
+  auto val3 = Eval(op);
+  ASSERT_EQ(val3.ValueBool(), true);
+}
 
-// TEST_F(ExpressionEvaluatorTest, GreaterOperator) {
-//   auto *op =
-//       storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), false);
-//   op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), false);
-//   op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
-//   auto val3 = Eval(op);
-//   ASSERT_EQ(val3.ValueBool(), true);
-// }
+TEST_F(ExpressionEvaluatorTest, InListOperator) {
+  auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
+      storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>("a")});
+  {
+    // Element exists in list.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(2), list_literal);
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueBool(), true);
+  }
+  {
+    // Element doesn't exist in list.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"), list_literal);
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+  {
+    const auto p1 = PropertyToTypedValue<TypedValue>(memgraph::storage::v3::PropertyValue());
+    storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue());
+    auto *list_literal = storage.Create<ListLiteral>(
+        std::vector<Expression *>{storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                  storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>("a")});
+    // Element doesn't exist in list with null element.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"), list_literal);
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Null list.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"),
+                                              storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Null literal.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                              list_literal);
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Null literal, empty list.
+    auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                              storage.Create<ListLiteral>(std::vector<Expression *>()));
+    auto value = Eval(op);
+    EXPECT_FALSE(value.ValueBool());
+  }
+}
 
-// TEST_F(ExpressionEvaluatorTest, LessEqualOperator) {
-//   auto *op =
-//       storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(10), storage.Create<PrimitiveLiteral>(15));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), true);
-//   op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(15), storage.Create<PrimitiveLiteral>(15));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), true);
-//   op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
-//   auto val3 = Eval(op);
-//   ASSERT_EQ(val3.ValueBool(), false);
-// }
+TEST_F(ExpressionEvaluatorTest, ListIndexing) {
+  auto *list_literal = storage.Create<ListLiteral>(
+      std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
+                                storage.Create<PrimitiveLiteral>(3), storage.Create<PrimitiveLiteral>(4)});
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(2));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 3);
+  }
+  {
+    // Out of bounds indexing.
+    auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(4));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Out of bounds indexing with negative bound.
+    auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(-100));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Legal indexing with negative index.
+    auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 3);
+  }
+  {
+    // Indexing with one operator being null.
+    auto *op = storage.Create<SubscriptOperator>(
+        storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()), storage.Create<PrimitiveLiteral>(-2));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Indexing with incompatible type.
+    auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>("bla"));
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+}
 
-// TEST_F(ExpressionEvaluatorTest, GreaterEqualOperator) {
-//   auto *op =
-//       storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(10),
-//       storage.Create<PrimitiveLiteral>(15));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), false);
-//   op = storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(15),
-//   storage.Create<PrimitiveLiteral>(15)); auto val2 = Eval(op); ASSERT_EQ(val2.ValueBool(), true); op =
-//   storage.Create<GreaterEqualOperator>(storage.Create<PrimitiveLiteral>(20), storage.Create<PrimitiveLiteral>(15));
-//   auto val3 = Eval(op);
-//   ASSERT_EQ(val3.ValueBool(), true);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, InListOperator) {
-//   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
-//       storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
-//       storage.Create<PrimitiveLiteral>("a")});
-//   {
-//     // Element exists in list.
-//     auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(2), list_literal);
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueBool(), true);
-//   }
-//   {
-//     // Element doesn't exist in list.
-//     auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"), list_literal);
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueBool(), false);
-//   }
-//   {
-//     const auto p1 = PropertyToTypedValue<TypedValue>(memgraph::storage::v3::PropertyValue());
-//     storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue());
-//     auto *list_literal = storage.Create<ListLiteral>(
-//         std::vector<Expression *>{storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                   storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>("a")});
-//     // Element doesn't exist in list with null element.
-//     auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"), list_literal);
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Null list.
-//     auto *op = storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>("x"),
-//                                               storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Null literal.
-//     auto *op =
-//     storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                               list_literal);
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Null literal, empty list.
-//     auto *op =
-//     storage.Create<InListOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                               storage.Create<ListLiteral>(std::vector<Expression *>()));
-//     auto value = Eval(op);
-//     EXPECT_FALSE(value.ValueBool());
-//   }
-// }
-
-// TEST_F(ExpressionEvaluatorTest, ListIndexing) {
-//   auto *list_literal = storage.Create<ListLiteral>(
-//       std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
-//                                 storage.Create<PrimitiveLiteral>(3), storage.Create<PrimitiveLiteral>(4)});
-//   {
-//     // Legal indexing.
-//     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(2));
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueInt(), 3);
-//   }
-//   {
-//     // Out of bounds indexing.
-//     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(4));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Out of bounds indexing with negative bound.
-//     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(-100));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Legal indexing with negative index.
-//     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2));
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueInt(), 3);
-//   }
-//   {
-//     // Indexing with one operator being null.
-//     auto *op = storage.Create<SubscriptOperator>(
-//         storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//         storage.Create<PrimitiveLiteral>(-2));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Indexing with incompatible type.
-//     auto *op = storage.Create<SubscriptOperator>(list_literal, storage.Create<PrimitiveLiteral>("bla"));
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-// }
-
-// TEST_F(ExpressionEvaluatorTest, MapIndexing) {
-//   auto *map_literal = storage.Create<MapLiteral>(
-//       std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)},
-//                                                    {storage.GetPropertyIx("b"), storage.Create<PrimitiveLiteral>(2)},
-//                                                    {storage.GetPropertyIx("c"),
-//                                                    storage.Create<PrimitiveLiteral>(3)}});
-//   {
-//     // Legal indexing.
-//     auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>("b"));
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueInt(), 2);
-//   }
-//   {
-//     // Legal indexing, non-existing key.
-//     auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>("z"));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Wrong key type.
-//     auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>(42));
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-//   {
-//     // Indexing with Null.
-//     auto *op = storage.Create<SubscriptOperator>(
-//         map_literal, storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-// }
+TEST_F(ExpressionEvaluatorTest, MapIndexing) {
+  auto *map_literal = storage.Create<MapLiteral>(
+      std::unordered_map<PropertyIx, Expression *>{{storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)},
+                                                   {storage.GetPropertyIx("b"), storage.Create<PrimitiveLiteral>(2)},
+                                                   {storage.GetPropertyIx("c"), storage.Create<PrimitiveLiteral>(3)}});
+  {
+    // Legal indexing.
+    auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>("b"));
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueInt(), 2);
+  }
+  {
+    // Legal indexing, non-existing key.
+    auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>("z"));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op = storage.Create<SubscriptOperator>(map_literal, storage.Create<PrimitiveLiteral>(42));
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op = storage.Create<SubscriptOperator>(
+        map_literal, storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   db.StoreMapping({{0, "label"}, {1, "property"}, {2, "edge_type"}, {3, "prop"}});
@@ -473,741 +545,763 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   }
 }
 
-// TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
-//   auto *list_literal = storage.Create<ListLiteral>(
-//       std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
-//                                 storage.Create<PrimitiveLiteral>(3), storage.Create<PrimitiveLiteral>(4)});
+TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
+  auto *list_literal = storage.Create<ListLiteral>(
+      std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
+                                storage.Create<PrimitiveLiteral>(3), storage.Create<PrimitiveLiteral>(4)});
 
-//   auto extract_ints = [](TypedValue list) {
-//     std::vector<int64_t> int_list;
-//     for (auto x : list.ValueList()) {
-//       int_list.push_back(x.ValueInt());
-//     }
-//     return int_list;
-//   };
-//   {
-//     // Legal slicing with both bounds defined.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
-//                                                    storage.Create<PrimitiveLiteral>(4));
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
-//   }
-//   {
-//     // Legal slicing with negative bound.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
-//                                                    storage.Create<PrimitiveLiteral>(-1));
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre(3));
-//   }
-//   {
-//     // Lower bound larger than upper bound.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
-//                                                    storage.Create<PrimitiveLiteral>(-4));
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre());
-//   }
-//   {
-//     // Bounds ouf or range.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-100),
-//                                                    storage.Create<PrimitiveLiteral>(10));
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3, 4));
-//   }
-//   {
-//     // Lower bound undefined.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, nullptr, storage.Create<PrimitiveLiteral>(3));
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3));
-//   }
-//   {
-//     // Upper bound undefined.
-//     auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2), nullptr);
-//     auto value = Eval(op);
-//     EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
-//   }
-//   {
-//     // Bound of illegal type and null value bound.
-//     auto *op = storage.Create<ListSlicingOperator>(
-//         list_literal, storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//         storage.Create<PrimitiveLiteral>("mirko"));
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-//   {
-//     // List of illegal type.
-//     auto *op = storage.Create<ListSlicingOperator>(storage.Create<PrimitiveLiteral>("a"),
-//                                                    storage.Create<PrimitiveLiteral>(-2), nullptr);
-//     EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
-//   }
-//   {
-//     // Null value list with undefined upper bound.
-//     auto *op =
-//         storage.Create<ListSlicingOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
-//                                             storage.Create<PrimitiveLiteral>(-2), nullptr);
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-//   {
-//     // Null value index.
-//     auto *op =
-//         storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2),
-//                                             storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
+  auto extract_ints = [](TypedValue list) {
+    std::vector<int64_t> int_list;
+    for (auto x : list.ValueList()) {
+      int_list.push_back(x.ValueInt());
+    }
+    return int_list;
+  };
+  {
+    // Legal slicing with both bounds defined.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
+                                                   storage.Create<PrimitiveLiteral>(4));
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
+  }
+  {
+    // Legal slicing with negative bound.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
+                                                   storage.Create<PrimitiveLiteral>(-1));
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre(3));
+  }
+  {
+    // Lower bound larger than upper bound.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(2),
+                                                   storage.Create<PrimitiveLiteral>(-4));
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre());
+  }
+  {
+    // Bounds ouf or range.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-100),
+                                                   storage.Create<PrimitiveLiteral>(10));
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3, 4));
+  }
+  {
+    // Lower bound undefined.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, nullptr, storage.Create<PrimitiveLiteral>(3));
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3));
+  }
+  {
+    // Upper bound undefined.
+    auto *op = storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2), nullptr);
+    auto value = Eval(op);
+    EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
+  }
+  {
+    // Bound of illegal type and null value bound.
+    auto *op = storage.Create<ListSlicingOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+        storage.Create<PrimitiveLiteral>("mirko"));
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+  {
+    // List of illegal type.
+    auto *op = storage.Create<ListSlicingOperator>(storage.Create<PrimitiveLiteral>("a"),
+                                                   storage.Create<PrimitiveLiteral>(-2), nullptr);
+    EXPECT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+  {
+    // Null value list with undefined upper bound.
+    auto *op =
+        storage.Create<ListSlicingOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()),
+                                            storage.Create<PrimitiveLiteral>(-2), nullptr);
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+  {
+    // Null value index.
+    auto *op =
+        storage.Create<ListSlicingOperator>(list_literal, storage.Create<PrimitiveLiteral>(-2),
+                                            storage.Create<PrimitiveLiteral>(memgraph::storage::v3::PropertyValue()));
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TEST_F(ExpressionEvaluatorTest, IfOperator) {
+  auto *then_expression = storage.Create<PrimitiveLiteral>(10);
+  auto *else_expression = storage.Create<PrimitiveLiteral>(20);
+  {
+    auto *condition_true =
+        storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(2));
+    auto *op = storage.Create<IfOperator>(condition_true, then_expression, else_expression);
+    auto value = Eval(op);
+    ASSERT_EQ(value.ValueInt(), 10);
+  }
+  {
+    auto *condition_false =
+        storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
+    auto *op = storage.Create<IfOperator>(condition_false, then_expression, else_expression);
+    auto value = Eval(op);
+    ASSERT_EQ(value.ValueInt(), 20);
+  }
+  {
+    auto *condition_exception =
+        storage.Create<AdditionOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
+    auto *op = storage.Create<IfOperator>(condition_exception, then_expression, else_expression);
+    ASSERT_THROW(Eval(op), expr::ExpressionRuntimeException);
+  }
+}
+
+TEST_F(ExpressionEvaluatorTest, NotOperator) {
+  auto *op = storage.Create<NotOperator>(storage.Create<PrimitiveLiteral>(false));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueBool(), true);
+}
+
+TEST_F(ExpressionEvaluatorTest, UnaryPlusOperator) {
+  auto *op = storage.Create<UnaryPlusOperator>(storage.Create<PrimitiveLiteral>(5));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), 5);
+}
+
+TEST_F(ExpressionEvaluatorTest, UnaryMinusOperator) {
+  auto *op = storage.Create<UnaryMinusOperator>(storage.Create<PrimitiveLiteral>(5));
+  auto value = Eval(op);
+  ASSERT_EQ(value.ValueInt(), -5);
+}
+
+TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
+  auto *op = storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(1));
+  auto val1 = Eval(op);
+  ASSERT_EQ(val1.ValueBool(), false);
+  op = storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(PropertyValue()));
+  auto val2 = Eval(op);
+  ASSERT_EQ(val2.ValueBool(), true);
+}
+
+TEST_F(ExpressionEvaluatorTest, LabelsTest) {
+  db.StoreMapping({{0, "label"}, {1, "property"}, {2, "ANIMAL"}, {3, "DOG"}, {4, "NICE_DOG"}});
+  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
+  ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("ANIMAL")).HasValue());
+  ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("DOG")).HasValue());
+  ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("NICE_DOG")).HasValue());
+  dba.AdvanceCommand();
+  auto *identifier = storage.Create<Identifier>("n");
+  auto node_symbol = symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+  frame[node_symbol] = TypedValue(v1);
+  {
+    auto *op = storage.Create<LabelsTest>(
+        identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueBool(), true);
+  }
+  {
+    auto *op = storage.Create<LabelsTest>(
+        identifier,
+        std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("BAD_DOG"), storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
+    EXPECT_EQ(value.ValueBool(), false);
+  }
+  {
+    frame[node_symbol] = TypedValue();
+    auto *op = storage.Create<LabelsTest>(
+        identifier,
+        std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("BAD_DOG"), storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
+    EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TEST_F(ExpressionEvaluatorTest, Aggregation) {
+  auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT);
+  auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
+  aggr->MapTo(aggr_sym);
+  frame[aggr_sym] = TypedValue(1);
+  auto value = Eval(aggr);
+  EXPECT_EQ(value.ValueInt(), 1);
+}
+
+TEST_F(ExpressionEvaluatorTest, ListLiteral) {
+  auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1),
+                                                                             storage.Create<PrimitiveLiteral>("bla"),
+                                                                             storage.Create<PrimitiveLiteral>(true)});
+  TypedValue result = Eval(list_literal);
+  ASSERT_TRUE(result.IsList());
+  auto &result_elems = result.ValueList();
+  ASSERT_EQ(3, result_elems.size());
+  EXPECT_TRUE(result_elems[0].IsInt());
+  EXPECT_TRUE(result_elems[1].IsString());
+  EXPECT_TRUE(result_elems[2].IsBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
+  ctx.parameters.Add(0, PropertyValue(42));
+  auto *param_lookup = storage.Create<ParameterLookup>(0);
+  auto value = Eval(param_lookup);
+  ASSERT_TRUE(value.IsInt());
+  EXPECT_EQ(value.ValueInt(), 42);
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAll1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(1)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAll2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
+  AstStorage storage;
+  auto *all = ALL("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  auto value = Eval(all);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(LITERAL(2), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
+  AstStorage storage;
+  auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  EXPECT_THROW(Eval(all), expr::ExpressionRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingle1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(GREATER(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
+  AstStorage storage;
+  auto *single = SINGLE("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  auto value = Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(2), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAny1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAny2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullList) {
+  AstStorage storage;
+  auto *any = ANY("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(0), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
+  AstStorage storage;
+  auto *any = ANY("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  EXPECT_THROW(Eval(any), expr::ExpressionRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNone1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNone2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullList) {
+  AstStorage storage;
+  auto *none = NONE("x", LITERAL(PropertyValue()), WHERE(LITERAL(true)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  auto value = Eval(none);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = NONE("x", LIST(LITERAL(1), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(any);
+  EXPECT_TRUE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(LITERAL(0), LITERAL(PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(none);
+  EXPECT_FALSE(value.ValueBool());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
+  AstStorage storage;
+  auto *none = NONE("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  EXPECT_THROW(Eval(none), expr::ExpressionRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
+  AstStorage storage;
+  auto *ident_sum = IDENT("sum");
+  auto *ident_x = IDENT("x");
+  auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)), ADD(ident_sum, ident_x));
+  const auto sum_sym = symbol_table.CreateSymbol("sum", true);
+  reduce->accumulator_->MapTo(sum_sym);
+  ident_sum->MapTo(sum_sym);
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  reduce->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(reduce);
+  ASSERT_TRUE(value.IsInt());
+  EXPECT_EQ(value.ValueInt(), 3);
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract = EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(PropertyValue())), ADD(ident_x, LITERAL(1)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(extract);
+  EXPECT_TRUE(value.IsList());
+  ;
+  auto result = value.ValueList();
+  EXPECT_EQ(result[0].ValueInt(), 2);
+  EXPECT_EQ(result[1].ValueInt(), 3);
+  EXPECT_TRUE(result[2].IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract = EXTRACT("x", LITERAL(PropertyValue()), ADD(ident_x, LITERAL(1)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = Eval(extract);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST_F(ExpressionEvaluatorTest, FunctionExtractExceptions) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract = EXTRACT("x", LITERAL("bla"), ADD(ident_x, LITERAL(1)));
+  const auto x_sym = symbol_table.CreateSymbol("x", true);
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  EXPECT_THROW(Eval(extract), expr::ExpressionRuntimeException);
+}
+
+// TEST_F(ExpressionEvaluatorTest, Coalesce) {
+//   // coalesce()
+//   EXPECT_THROW(Eval(COALESCE()), expr::ExpressionRuntimeException);
+
+//   // coalesce(null, null)
+//   EXPECT_TRUE(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))).IsNull());
+
+//   // coalesce(null, 2, 3)
+//   EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))).ValueInt(), 2);
+
+//   // coalesce(null, 2, assert(false), 3)
+//   EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), FN("ASSERT", LITERAL(false)), LITERAL(3))).ValueInt(),
+//   2);
+
+//   // (null, assert(false))
+//   EXPECT_THROW(Eval(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))),
+//   expr::ExpressionRuntimeException);
+
+//   // coalesce([null, null])
+//   EXPECT_FALSE(Eval(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue()})))).IsNull());
 // }
 
-// TEST_F(ExpressionEvaluatorTest, IfOperator) {
-//   auto *then_expression = storage.Create<PrimitiveLiteral>(10);
-//   auto *else_expression = storage.Create<PrimitiveLiteral>(20);
-//   {
-//     auto *condition_true =
-//         storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(2));
-//     auto *op = storage.Create<IfOperator>(condition_true, then_expression, else_expression);
-//     auto value = Eval(op);
-//     ASSERT_EQ(value.ValueInt(), 10);
-//   }
-//   {
-//     auto *condition_false =
-//         storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-//     auto *op = storage.Create<IfOperator>(condition_false, then_expression, else_expression);
-//     auto value = Eval(op);
-//     ASSERT_EQ(value.ValueInt(), 20);
-//   }
-//   {
-//     auto *condition_exception =
-//         storage.Create<AdditionOperator>(storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-//     auto *op = storage.Create<IfOperator>(condition_exception, then_expression, else_expression);
-//     ASSERT_THROW(Eval(op), QueryRuntimeException);
-//   }
-// }
-
-// TEST_F(ExpressionEvaluatorTest, NotOperator) {
-//   auto *op = storage.Create<NotOperator>(storage.Create<PrimitiveLiteral>(false));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueBool(), true);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, UnaryPlusOperator) {
-//   auto *op = storage.Create<UnaryPlusOperator>(storage.Create<PrimitiveLiteral>(5));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), 5);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, UnaryMinusOperator) {
-//   auto *op = storage.Create<UnaryMinusOperator>(storage.Create<PrimitiveLiteral>(5));
-//   auto value = Eval(op);
-//   ASSERT_EQ(value.ValueInt(), -5);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
-//   auto *op = storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(1));
-//   auto val1 = Eval(op);
-//   ASSERT_EQ(val1.ValueBool(), false);
-//   op = storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(memgraph::storage::PropertyValue()));
-//   auto val2 = Eval(op);
-//   ASSERT_EQ(val2.ValueBool(), true);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, LabelsTest) {
-//   auto v1 = dba.InsertVertex();
-//   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("ANIMAL")).HasValue());
-//   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("DOG")).HasValue());
-//   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("NICE_DOG")).HasValue());
-//   dba.AdvanceCommand();
-//   auto *identifier = storage.Create<Identifier>("n");
-//   auto node_symbol = symbol_table.CreateSymbol("n", true);
-//   identifier->MapTo(node_symbol);
-//   frame[node_symbol] = TypedValue(v1);
-//   {
-//     auto *op = storage.Create<LabelsTest>(
-//         identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("ANIMAL")});
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueBool(), true);
-//   }
-//   {
-//     auto *op = storage.Create<LabelsTest>(
-//         identifier,
-//         std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("BAD_DOG"),
-//         storage.GetLabelIx("ANIMAL")});
-//     auto value = Eval(op);
-//     EXPECT_EQ(value.ValueBool(), false);
-//   }
-//   {
-//     frame[node_symbol] = TypedValue();
-//     auto *op = storage.Create<LabelsTest>(
-//         identifier,
-//         std::vector<LabelIx>{storage.GetLabelIx("DOG"), storage.GetLabelIx("BAD_DOG"),
-//         storage.GetLabelIx("ANIMAL")});
-//     auto value = Eval(op);
-//     EXPECT_TRUE(value.IsNull());
-//   }
-// }
-
-// TEST_F(ExpressionEvaluatorTest, Aggregation) {
-//   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42), nullptr, Aggregation::Op::COUNT);
-//   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
-//   aggr->MapTo(aggr_sym);
-//   frame[aggr_sym] = TypedValue(1);
-//   auto value = Eval(aggr);
-//   EXPECT_EQ(value.ValueInt(), 1);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, ListLiteral) {
-//   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1),
-//                                                                              storage.Create<PrimitiveLiteral>("bla"),
-//                                                                              storage.Create<PrimitiveLiteral>(true)});
-//   TypedValue result = Eval(list_literal);
-//   ASSERT_TRUE(result.IsList());
-//   auto &result_elems = result.ValueList();
-//   ASSERT_EQ(3, result_elems.size());
-//   EXPECT_TRUE(result_elems[0].IsInt());
-//   ;
-//   EXPECT_TRUE(result_elems[1].IsString());
-//   ;
-//   EXPECT_TRUE(result_elems[2].IsBool());
-//   ;
-// }
-
-// TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
-//   ctx.parameters.Add(0, memgraph::storage::PropertyValue(42));
-//   auto *param_lookup = storage.Create<ParameterLookup>(0);
-//   auto value = Eval(param_lookup);
-//   ASSERT_TRUE(value.IsInt());
-//   EXPECT_EQ(value.ValueInt(), 42);
-// }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAll1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *all = ALL("x", LIST(LITERAL(1), LITERAL(1)), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   all->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(all);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAll2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *all = ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   all->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(all);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
-// //   AstStorage storage;
-// //   auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   all->identifier_->MapTo(x_sym);
-// //   auto value = Eval(all);
-// //   EXPECT_TRUE(value.IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *all = ALL("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(1)))); const auto x_sym = symbol_table.CreateSymbol("x", true); all->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(all);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *all = ALL("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(1)))); const auto x_sym = symbol_table.CreateSymbol("x", true); all->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(all);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
-// //   AstStorage storage;
-// //   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   all->identifier_->MapTo(x_sym);
-// //   EXPECT_THROW(Eval(all), QueryRuntimeException);
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionSingle1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   single->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(single);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(GREATER(ident_x, LITERAL(0))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   single->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(single);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
-// //   AstStorage storage;
-// //   auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   single->identifier_->MapTo(x_sym);
-// //   auto value = Eval(single);
-// //   EXPECT_TRUE(value.IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *single =
-// //       SINGLE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   single->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(single);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *single =
-// //       SINGLE("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   single->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(single);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAny1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   any->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAny2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *any = ANY("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   any->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAnyNullList) {
-// //   AstStorage storage;
-// //   auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   any->identifier_->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   EXPECT_TRUE(value.IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *any = ANY("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(0)))); const auto x_sym = symbol_table.CreateSymbol("x", true); any->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *any = ANY("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(0)))); const auto x_sym = symbol_table.CreateSymbol("x", true); any->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
-// //   AstStorage storage;
-// //   auto *any = ANY("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   any->identifier_->MapTo(x_sym);
-// //   EXPECT_THROW(Eval(any), QueryRuntimeException);
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNone1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(0))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   none->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(none);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNone2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *none = NONE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   none->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(none);
-// //   ASSERT_TRUE(value.IsBool());
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNoneNullList) {
-// //   AstStorage storage;
-// //   auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   none->identifier_->MapTo(x_sym);
-// //   auto value = Eval(none);
-// //   EXPECT_TRUE(value.IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *any = NONE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(0)))); const auto x_sym = symbol_table.CreateSymbol("x", true); any->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(any);
-// //   EXPECT_TRUE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *none = NONE("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x,
-// //   LITERAL(0)))); const auto x_sym = symbol_table.CreateSymbol("x", true); none->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(none);
-// //   EXPECT_FALSE(value.ValueBool());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionNoneWhereWrongType) {
-// //   AstStorage storage;
-// //   auto *none = NONE("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   none->identifier_->MapTo(x_sym);
-// //   EXPECT_THROW(Eval(none), QueryRuntimeException);
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
-// //   AstStorage storage;
-// //   auto *ident_sum = IDENT("sum");
-// //   auto *ident_x = IDENT("x");
-// //   auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)), ADD(ident_sum, ident_x));
-// //   const auto sum_sym = symbol_table.CreateSymbol("sum", true);
-// //   reduce->accumulator_->MapTo(sum_sym);
-// //   ident_sum->MapTo(sum_sym);
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   reduce->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(reduce);
-// //   ASSERT_TRUE(value.IsInt());
-// //   EXPECT_EQ(value.ValueInt(), 3);
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *extract =
-// //       EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), ADD(ident_x,
-// //       LITERAL(1)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   extract->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(extract);
-// //   EXPECT_TRUE(value.IsList());
-// //   ;
-// //   auto result = value.ValueList();
-// //   EXPECT_EQ(result[0].ValueInt(), 2);
-// //   EXPECT_EQ(result[1].ValueInt(), 3);
-// //   EXPECT_TRUE(result[2].IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *extract = EXTRACT("x", LITERAL(memgraph::storage::PropertyValue()), ADD(ident_x, LITERAL(1)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   extract->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   auto value = Eval(extract);
-// //   EXPECT_TRUE(value.IsNull());
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, FunctionExtractExceptions) {
-// //   AstStorage storage;
-// //   auto *ident_x = IDENT("x");
-// //   auto *extract = EXTRACT("x", LITERAL("bla"), ADD(ident_x, LITERAL(1)));
-// //   const auto x_sym = symbol_table.CreateSymbol("x", true);
-// //   extract->identifier_->MapTo(x_sym);
-// //   ident_x->MapTo(x_sym);
-// //   EXPECT_THROW(Eval(extract), QueryRuntimeException);
-// // }
-
-// // TEST_F(ExpressionEvaluatorTest, Coalesce) {
-// //   // coalesce()
-// //   EXPECT_THROW(Eval(COALESCE()), QueryRuntimeException);
-
-// //   // coalesce(null, null)
-// //   EXPECT_TRUE(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(TypedValue()))).IsNull());
-
-// //   // coalesce(null, 2, 3)
-// //   EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), LITERAL(3))).ValueInt(), 2);
-
-// //   // coalesce(null, 2, assert(false), 3)
-// //   EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue()), LITERAL(2), FN("ASSERT", LITERAL(false)),
-// LITERAL(3))).ValueInt(),
-// //   2);
-
-// //   // (null, assert(false))
-// //   EXPECT_THROW(Eval(COALESCE(LITERAL(TypedValue()), FN("ASSERT", LITERAL(false)))), QueryRuntimeException);
-
-// //   // coalesce([null, null])
-// //   EXPECT_FALSE(Eval(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{TypedValue(), TypedValue()})))).IsNull());
-// // }
-
-// TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(TypedValue()), LITERAL("regex"))).IsNull());
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(3), LITERAL("regex"))).IsNull());
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LIST(LITERAL("string")), LITERAL("regex"))).IsNull());
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(TypedValue()))).IsNull());
-//   EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(42))), QueryRuntimeException);
-//   EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LIST(LITERAL("regex")))), QueryRuntimeException);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidRegex) {
-//   EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("*ext"))), QueryRuntimeException);
-//   EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext"))), QueryRuntimeException);
-// }
-
-// TEST_F(ExpressionEvaluatorTest, RegexMatch) {
-//   EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ex"))).ValueBool());
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ext"))).ValueBool());
-//   EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]"))).ValueBool());
-//   EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]"))).ValueBool());
-// }
-
-// class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
-//  protected:
-//   std::pair<std::string, memgraph::storage::PropertyId> prop_age = std::make_pair("age", dba.NameToProperty("age"));
-//   std::pair<std::string, memgraph::storage::PropertyId> prop_height =
-//       std::make_pair("height", dba.NameToProperty("height"));
-//   Identifier *identifier = storage.Create<Identifier>("element");
-//   Symbol symbol = symbol_table.CreateSymbol("element", true);
-
-//   void SetUp() { identifier->MapTo(symbol); }
-
-//   auto Value(std::pair<std::string, memgraph::storage::PropertyId> property) {
-//     auto *op = storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx(property.first));
-//     return Eval(op);
-//   }
-// };
-
-// TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-//   auto v1 = dba.InsertVertex();
-//   ASSERT_TRUE(v1.SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
-//   dba.AdvanceCommand();
-//   frame[symbol] = TypedValue(v1);
-//   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
-//   EXPECT_TRUE(Value(prop_height).IsNull());
-// }
-
-// TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
-//   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
-//   frame[symbol] = TypedValue(dur);
-
-//   const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
-//   const auto total_days = Value(day);
-//   EXPECT_TRUE(total_days.IsInt());
-//   EXPECT_EQ(total_days.ValueInt(), 10);
-
-//   const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
-//   const auto total_hours = Value(hour);
-//   EXPECT_TRUE(total_hours.IsInt());
-//   EXPECT_EQ(total_hours.ValueInt(), 1);
-
-//   const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
-//   const auto total_mins = Value(minute);
-//   EXPECT_TRUE(total_mins.IsInt());
-
-//   EXPECT_EQ(total_mins.ValueInt(), 1 * 60 + 30);
-
-//   const std::pair sec = std::make_pair("second", dba.NameToProperty("second"));
-//   const auto total_secs = Value(sec);
-//   EXPECT_TRUE(total_secs.IsInt());
-//   const auto expected_secs = total_mins.ValueInt() * 60 + 2;
-//   EXPECT_EQ(total_secs.ValueInt(), expected_secs);
-
-//   const std::pair milli = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
-//   const auto total_milli = Value(milli);
-//   EXPECT_TRUE(total_milli.IsInt());
-//   const auto expected_milli = total_secs.ValueInt() * 1000 + 22;
-//   EXPECT_EQ(total_milli.ValueInt(), expected_milli);
-
-//   const std::pair micro = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
-//   const auto total_micros = Value(micro);
-//   EXPECT_TRUE(total_micros.IsInt());
-//   const auto expected_micros = expected_milli * 1000 + 45;
-//   EXPECT_EQ(total_micros.ValueInt(), expected_micros);
-
-//   const std::pair nano = std::make_pair("nanosecond", dba.NameToProperty("nanosecond"));
-//   const auto total_nano = Value(nano);
-//   EXPECT_TRUE(total_nano.IsInt());
-//   const auto expected_nano = expected_micros * 1000;
-//   EXPECT_EQ(total_nano.ValueInt(), expected_nano);
-// }
-
-// TEST_F(ExpressionEvaluatorPropertyLookup, Date) {
-//   const memgraph::utils::Date date({1996, 11, 22});
-//   frame[symbol] = TypedValue(date);
-
-//   const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
-//   const auto y = Value(year);
-//   EXPECT_TRUE(y.IsInt());
-//   EXPECT_EQ(y.ValueInt(), 1996);
-
-//   const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
-//   const auto m = Value(month);
-//   EXPECT_TRUE(m.IsInt());
-//   EXPECT_EQ(m.ValueInt(), 11);
-
-//   const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
-//   const auto d = Value(day);
-//   EXPECT_TRUE(d.IsInt());
-//   EXPECT_EQ(d.ValueInt(), 22);
-// }
-
-// TEST_F(ExpressionEvaluatorPropertyLookup, LocalTime) {
-//   const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
-//   frame[symbol] = TypedValue(lt);
-
-//   const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
-//   const auto h = Value(hour);
-//   EXPECT_TRUE(h.IsInt());
-//   EXPECT_EQ(h.ValueInt(), 1);
-
-//   const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
-//   const auto min = Value(minute);
-//   EXPECT_TRUE(min.IsInt());
-//   EXPECT_EQ(min.ValueInt(), 2);
-
-//   const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
-//   const auto sec = Value(second);
-//   EXPECT_TRUE(sec.IsInt());
-//   EXPECT_EQ(sec.ValueInt(), 3);
-
-//   const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
-//   const auto mil = Value(millis);
-//   EXPECT_TRUE(mil.IsInt());
-//   EXPECT_EQ(mil.ValueInt(), 11);
-
-//   const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
-//   const auto mic = Value(micros);
-//   EXPECT_TRUE(mic.IsInt());
-//   EXPECT_EQ(mic.ValueInt(), 22);
-// }
-
-// TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
-//   const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
-//   frame[symbol] = TypedValue(ldt);
-
-//   const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
-//   const auto y = Value(year);
-//   EXPECT_TRUE(y.IsInt());
-//   EXPECT_EQ(y.ValueInt(), 1993);
-
-//   const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
-//   const auto m = Value(month);
-//   EXPECT_TRUE(m.IsInt());
-//   EXPECT_EQ(m.ValueInt(), 8);
-
-//   const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
-//   const auto d = Value(day);
-//   EXPECT_TRUE(d.IsInt());
-//   EXPECT_EQ(d.ValueInt(), 6);
-
-//   const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
-//   const auto h = Value(hour);
-//   EXPECT_TRUE(h.IsInt());
-//   EXPECT_EQ(h.ValueInt(), 2);
-
-//   const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
-//   const auto min = Value(minute);
-//   EXPECT_TRUE(min.IsInt());
-//   EXPECT_EQ(min.ValueInt(), 3);
-
-//   const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
-//   const auto sec = Value(second);
-//   EXPECT_TRUE(sec.IsInt());
-//   EXPECT_EQ(sec.ValueInt(), 4);
-
-//   const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
-//   const auto mil = Value(millis);
-//   EXPECT_TRUE(mil.IsInt());
-//   EXPECT_EQ(mil.ValueInt(), 55);
-
-//   const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
-//   const auto mic = Value(micros);
-//   EXPECT_TRUE(mic.IsInt());
-//   EXPECT_EQ(mic.ValueInt(), 40);
-// }
-
+TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(TypedValue()), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(3), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LIST(LITERAL("string")), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(TypedValue()))).IsNull());
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(42))), expr::ExpressionRuntimeException);
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LIST(LITERAL("regex")))),
+               expr::ExpressionRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidRegex) {
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("*ext"))), expr::ExpressionRuntimeException);
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext"))), expr::ExpressionRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, RegexMatch) {
+  EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ex"))).ValueBool());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ext"))).ValueBool());
+  EXPECT_FALSE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]"))).ValueBool());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]"))).ValueBool());
+}
+
+class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
+ protected:
+  std::pair<std::string, PropertyId> prop_age = std::make_pair("age", PropertyId::FromUint(2));
+  std::pair<std::string, PropertyId> prop_height = std::make_pair("height", PropertyId::FromUint(3));
+  Identifier *identifier = storage.Create<Identifier>("element");
+  Symbol symbol = symbol_table.CreateSymbol("element", true);
+
+  void SetUp() override {
+    identifier->MapTo(symbol);
+    db.StoreMapping({{0, "label"}, {1, "property"}, {2, "age"}, {3, "height"}});
+    ASSERT_TRUE(
+        db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+  }
+
+  auto Value(std::pair<std::string, PropertyId> property) {
+    auto *op = storage.Create<PropertyLookup>(identifier, storage.GetPropertyIx(property.first));
+    return Eval(op);
+  }
+};
+
+// TODO Fix Vertex
+TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
+  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
+  ASSERT_TRUE(v1.SetPropertyAndValidate(prop_age.second, PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(v1);
+  EXPECT_EQ(Value(prop_age).ValueInt(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
+  db.StoreMapping({{0, "label"},
+                   {1, "property"},
+                   {2, "day"},
+                   {3, "hour"},
+                   {4, "minute"},
+                   {5, "second"},
+                   {6, "millisecond"},
+                   {7, "microsecond"},
+                   {8, "nanosecond"}});
+  const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
+  frame[symbol] = TypedValue(dur);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto total_days = Value(day);
+  EXPECT_TRUE(total_days.IsInt());
+  EXPECT_EQ(total_days.ValueInt(), 10);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto total_hours = Value(hour);
+  EXPECT_TRUE(total_hours.IsInt());
+  EXPECT_EQ(total_hours.ValueInt(), 1);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto total_mins = Value(minute);
+  EXPECT_TRUE(total_mins.IsInt());
+
+  EXPECT_EQ(total_mins.ValueInt(), 1 * 60 + 30);
+
+  const std::pair sec = std::make_pair("second", dba.NameToProperty("second"));
+  const auto total_secs = Value(sec);
+  EXPECT_TRUE(total_secs.IsInt());
+  const auto expected_secs = total_mins.ValueInt() * 60 + 2;
+  EXPECT_EQ(total_secs.ValueInt(), expected_secs);
+
+  const std::pair milli = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto total_milli = Value(milli);
+  EXPECT_TRUE(total_milli.IsInt());
+  const auto expected_milli = total_secs.ValueInt() * 1000 + 22;
+  EXPECT_EQ(total_milli.ValueInt(), expected_milli);
+
+  const std::pair micro = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto total_micros = Value(micro);
+  EXPECT_TRUE(total_micros.IsInt());
+  const auto expected_micros = expected_milli * 1000 + 45;
+  EXPECT_EQ(total_micros.ValueInt(), expected_micros);
+
+  const std::pair nano = std::make_pair("nanosecond", dba.NameToProperty("nanosecond"));
+  const auto total_nano = Value(nano);
+  EXPECT_TRUE(total_nano.IsInt());
+  const auto expected_nano = expected_micros * 1000;
+  EXPECT_EQ(total_nano.ValueInt(), expected_nano);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, Date) {
+  db.StoreMapping({{0, "label"}, {1, "property"}, {2, "year"}, {3, "month"}, {4, "day"}});
+  const memgraph::utils::Date date({1996, 11, 22});
+  frame[symbol] = TypedValue(date);
+
+  const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1996);
+
+  const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 11);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalTime) {
+  const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
+  frame[symbol] = TypedValue(lt);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 1);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 2);
+
+  const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 3);
+
+  const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 11);
+
+  const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 22);
+}
+
+TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
+  const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
+  frame[symbol] = TypedValue(ldt);
+
+  const std::pair year = std::make_pair("year", dba.NameToProperty("year"));
+  const auto y = Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 1993);
+
+  const std::pair month = std::make_pair("month", dba.NameToProperty("month"));
+  const auto m = Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 8);
+
+  const std::pair day = std::make_pair("day", dba.NameToProperty("day"));
+  const auto d = Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 6);
+
+  const std::pair hour = std::make_pair("hour", dba.NameToProperty("hour"));
+  const auto h = Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 2);
+
+  const std::pair minute = std::make_pair("minute", dba.NameToProperty("minute"));
+  const auto min = Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 3);
+
+  const std::pair second = std::make_pair("second", dba.NameToProperty("second"));
+  const auto sec = Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 4);
+
+  const std::pair millis = std::make_pair("millisecond", dba.NameToProperty("millisecond"));
+  const auto mil = Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 55);
+
+  const std::pair micros = std::make_pair("microsecond", dba.NameToProperty("microsecond"));
+  const auto mic = Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 40);
+}
+
+// TODO Fix Edge
 // TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
-//   auto v1 = dba.InsertVertex();
-//   auto v2 = dba.InsertVertex();
+//   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
+//   auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(2)}});
 //   auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
 //   ASSERT_TRUE(e12.HasValue());
-//   ASSERT_TRUE(e12->SetProperty(prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
+//   ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());
 //   dba.AdvanceCommand();
 //   frame[symbol] = TypedValue(*e12);
 //   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
 //   EXPECT_TRUE(Value(prop_height).IsNull());
 // }
 
-// TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
-//   frame[symbol] = TypedValue();
-//   EXPECT_TRUE(Value(prop_age).IsNull());
-// }
+TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
+  frame[symbol] = TypedValue();
+  EXPECT_TRUE(Value(prop_age).IsNull());
+}
 
-// TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
-//   frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
-//   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
-//   EXPECT_TRUE(Value(prop_height).IsNull());
-// }
+TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
+  frame[symbol] = TypedValue(std::map<std::string, TypedValue>{{prop_age.first, TypedValue(10)}});
+  EXPECT_EQ(Value(prop_age).ValueInt(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
 
+// TODO(jbajic) Fix Function calls after enabling memgraph functions
 // class FunctionTest : public ExpressionEvaluatorTest {
 //  protected:
+//   void SetUp() override {
+//     db.StoreMapping({{0, "label"}, {1, "property"}});
+//     ASSERT_TRUE(
+//         db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+//   }
+
 //   std::vector<Expression *> ExpressionsFromTypedValues(const std::vector<TypedValue> &tvs) {
 //     std::vector<Expression *> expressions;
 //     expressions.reserve(tvs.size());
@@ -1250,41 +1344,40 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, EndNode) {
-//   ASSERT_THROW(EvaluateFunction("ENDNODE"), QueryRuntimeException);
+//   db.StoreMapping({{0, "label"}, {1, "property"}, {2, "label1"}, {3, "label2"}});
+//   ASSERT_THROW(EvaluateFunction("ENDNODE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("ENDNODE", TypedValue()).IsNull());
-//   auto v1 = dba.InsertVertex();
-//   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("label1")).HasValue());
-//   auto v2 = dba.InsertVertex();
-//   ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("label2")).HasValue());
+//   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
+//   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("label1")).HasValue());
+//   auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
+//   ASSERT_TRUE(v2.AddLabelAndValidate(dba.NameToLabel("label2")).HasValue());
 //   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("t"));
 //   ASSERT_TRUE(e.HasValue());
-//   ASSERT_TRUE(
-//       *EvaluateFunction("ENDNODE", *e).ValueVertex().HasLabel(memgraph::storage::View::NEW,
-//       dba.NameToLabel("label2")));
-//   ASSERT_THROW(EvaluateFunction("ENDNODE", 2), QueryRuntimeException);
+//   ASSERT_TRUE(*EvaluateFunction("ENDNODE", *e).ValueVertex().HasLabel(View::NEW, dba.NameToLabel("label2")));
+//   ASSERT_THROW(EvaluateFunction("ENDNODE", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Head) {
-//   ASSERT_THROW(EvaluateFunction("HEAD"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("HEAD"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("HEAD", TypedValue()).IsNull());
 //   auto argument = MakeTypedValueList(3, 4, 5);
 //   ASSERT_EQ(EvaluateFunction("HEAD", argument).ValueInt(), 3);
 //   argument.ValueList().clear();
 //   ASSERT_TRUE(EvaluateFunction("HEAD", argument).IsNull());
-//   ASSERT_THROW(EvaluateFunction("HEAD", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("HEAD", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Properties) {
-//   ASSERT_THROW(EvaluateFunction("PROPERTIES"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("PROPERTIES"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("PROPERTIES", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
-//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).HasValue());
-//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).HasValue());
+//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), PropertyValue(5)).HasValue());
+//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("age"), PropertyValue(10)).HasValue());
 //   auto v2 = dba.InsertVertex();
 //   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
 //   ASSERT_TRUE(e.HasValue());
-//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("height"), memgraph::storage::PropertyValue(3)).HasValue());
-//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).HasValue());
+//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("height"), PropertyValue(3)).HasValue());
+//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("age"), PropertyValue(15)).HasValue());
 //   dba.AdvanceCommand();
 
 //   auto prop_values_to_int = [](TypedValue t) {
@@ -1299,21 +1392,21 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //               UnorderedElementsAre(testing::Pair("height", 5), testing::Pair("age", 10)));
 //   ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", *e)),
 //               UnorderedElementsAre(testing::Pair("height", 3), testing::Pair("age", 15)));
-//   ASSERT_THROW(EvaluateFunction("PROPERTIES", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("PROPERTIES", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Last) {
-//   ASSERT_THROW(EvaluateFunction("LAST"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LAST"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("LAST", TypedValue()).IsNull());
 //   auto argument = MakeTypedValueList(3, 4, 5);
 //   ASSERT_EQ(EvaluateFunction("LAST", argument).ValueInt(), 5);
 //   argument.ValueList().clear();
 //   ASSERT_TRUE(EvaluateFunction("LAST", argument).IsNull());
-//   ASSERT_THROW(EvaluateFunction("LAST", 5), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LAST", 5), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Size) {
-//   ASSERT_THROW(EvaluateFunction("SIZE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("SIZE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("SIZE", TypedValue()).IsNull());
 //   auto argument = MakeTypedValueList(3, 4, 5);
 //   ASSERT_EQ(EvaluateFunction("SIZE", argument).ValueInt(), 3);
@@ -1323,7 +1416,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //                                  {"a", TypedValue(5)}, {"b", TypedValue(true)}, {"c", TypedValue("123")}})
 //                 .ValueInt(),
 //             3);
-//   ASSERT_THROW(EvaluateFunction("SIZE", 5), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("SIZE", 5), expr::ExpressionRuntimeException);
 
 //   auto v0 = dba.InsertVertex();
 //   memgraph::query::Path path(v0);
@@ -1337,7 +1430,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, StartNode) {
-//   ASSERT_THROW(EvaluateFunction("STARTNODE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("STARTNODE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("STARTNODE", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
 //   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("label1")).HasValue());
@@ -1348,11 +1441,11 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_TRUE(*EvaluateFunction("STARTNODE", *e)
 //                    .ValueVertex()
 //                    .HasLabel(memgraph::storage::View::NEW, dba.NameToLabel("label1")));
-//   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("STARTNODE", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Degree) {
-//   ASSERT_THROW(EvaluateFunction("DEGREE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("DEGREE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("DEGREE", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
 //   auto v2 = dba.InsertVertex();
@@ -1364,12 +1457,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_EQ(EvaluateFunction("DEGREE", v1).ValueInt(), 1);
 //   ASSERT_EQ(EvaluateFunction("DEGREE", v2).ValueInt(), 2);
 //   ASSERT_EQ(EvaluateFunction("DEGREE", v3).ValueInt(), 1);
-//   ASSERT_THROW(EvaluateFunction("DEGREE", 2), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("DEGREE", *e12), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("DEGREE", 2), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("DEGREE", *e12), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, InDegree) {
-//   ASSERT_THROW(EvaluateFunction("INDEGREE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("INDEGREE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("INDEGREE", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
 //   auto v2 = dba.InsertVertex();
@@ -1381,12 +1474,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_EQ(EvaluateFunction("INDEGREE", v1).ValueInt(), 0);
 //   ASSERT_EQ(EvaluateFunction("INDEGREE", v2).ValueInt(), 2);
 //   ASSERT_EQ(EvaluateFunction("INDEGREE", v3).ValueInt(), 0);
-//   ASSERT_THROW(EvaluateFunction("INDEGREE", 2), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("INDEGREE", *e12), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("INDEGREE", 2), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("INDEGREE", *e12), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, OutDegree) {
-//   ASSERT_THROW(EvaluateFunction("OUTDEGREE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("OUTDEGREE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("OUTDEGREE", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
 //   auto v2 = dba.InsertVertex();
@@ -1398,12 +1491,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v1).ValueInt(), 1);
 //   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v2).ValueInt(), 0);
 //   ASSERT_EQ(EvaluateFunction("OUTDEGREE", v3).ValueInt(), 1);
-//   ASSERT_THROW(EvaluateFunction("OUTDEGREE", 2), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("OUTDEGREE", *e12), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("OUTDEGREE", 2), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("OUTDEGREE", *e12), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, ToBoolean) {
-//   ASSERT_THROW(EvaluateFunction("TOBOOLEAN"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TOBOOLEAN"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("TOBOOLEAN", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", 123).ValueBool(), true);
 //   ASSERT_EQ(EvaluateFunction("TOBOOLEAN", -213).ValueBool(), true);
@@ -1416,18 +1509,18 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, ToFloat) {
-//   ASSERT_THROW(EvaluateFunction("TOFLOAT"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TOFLOAT"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("TOFLOAT", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("TOFLOAT", " -3.5 \n\t").ValueDouble(), -3.5);
 //   ASSERT_EQ(EvaluateFunction("TOFLOAT", "\n\t0.5e-1").ValueDouble(), 0.05);
 //   ASSERT_TRUE(EvaluateFunction("TOFLOAT", "\n\t3.4e-3X ").IsNull());
 //   ASSERT_EQ(EvaluateFunction("TOFLOAT", -3.5).ValueDouble(), -3.5);
 //   ASSERT_EQ(EvaluateFunction("TOFLOAT", -3).ValueDouble(), -3.0);
-//   ASSERT_THROW(EvaluateFunction("TOFLOAT", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TOFLOAT", true), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, ToInteger) {
-//   ASSERT_THROW(EvaluateFunction("TOINTEGER"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TOINTEGER"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("TOINTEGER", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("TOINTEGER", false).ValueInt(), 0);
 //   ASSERT_EQ(EvaluateFunction("TOINTEGER", true).ValueInt(), 1);
@@ -1439,7 +1532,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Type) {
-//   ASSERT_THROW(EvaluateFunction("TYPE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TYPE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("TYPE", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
 //   ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("label1")).HasValue());
@@ -1448,12 +1541,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
 //   ASSERT_TRUE(e.HasValue());
 //   ASSERT_EQ(EvaluateFunction("TYPE", *e).ValueString(), "type1");
-//   ASSERT_THROW(EvaluateFunction("TYPE", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TYPE", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, ValueType) {
-//   ASSERT_THROW(EvaluateFunction("VALUETYPE"), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("VALUETYPE", TypedValue(), TypedValue()), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("VALUETYPE"), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("VALUETYPE", TypedValue(), TypedValue()), expr::ExpressionRuntimeException);
 //   ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue()).ValueString(), "NULL");
 //   ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(true)).ValueString(), "BOOLEAN");
 //   ASSERT_EQ(EvaluateFunction("VALUETYPE", TypedValue(1)).ValueString(), "INTEGER");
@@ -1476,7 +1569,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Labels) {
-//   ASSERT_THROW(EvaluateFunction("LABELS"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LABELS"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("LABELS", TypedValue()).IsNull());
 //   auto v = dba.InsertVertex();
 //   ASSERT_TRUE(v.AddLabel(dba.NameToLabel("label1")).HasValue());
@@ -1489,12 +1582,12 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //     labels.emplace_back(label.ValueString());
 //   }
 //   ASSERT_THAT(labels, UnorderedElementsAre("label1", "label2"));
-//   ASSERT_THROW(EvaluateFunction("LABELS", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LABELS", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, NodesRelationships) {
-//   EXPECT_THROW(EvaluateFunction("NODES"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("RELATIONSHIPS"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("NODES"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RELATIONSHIPS"), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction("NODES", TypedValue()).IsNull());
 //   EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", TypedValue()).IsNull());
 
@@ -1524,15 +1617,15 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //     EXPECT_THAT(edges, ElementsAre(*e1, *e2));
 //   }
 
-//   EXPECT_THROW(EvaluateFunction("NODES", 2), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("RELATIONSHIPS", 2), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("NODES", 2), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RELATIONSHIPS", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Range) {
-//   EXPECT_THROW(EvaluateFunction("RANGE"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RANGE"), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction("RANGE", 1, 2, TypedValue()).IsNull());
-//   EXPECT_THROW(EvaluateFunction("RANGE", 1, TypedValue(), 1.3), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("RANGE", 1, 2, 0), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RANGE", 1, TypedValue(), 1.3), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RANGE", 1, 2, 0), expr::ExpressionRuntimeException);
 //   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 1, 3)), ElementsAre(1, 2, 3));
 //   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", -1, 5, 2)), ElementsAre(-1, 1, 3, 5));
 //   EXPECT_THAT(ToIntList(EvaluateFunction("RANGE", 2, 10, 3)), ElementsAre(2, 5, 8));
@@ -1545,16 +1638,16 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Keys) {
-//   ASSERT_THROW(EvaluateFunction("KEYS"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("KEYS"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("KEYS", TypedValue()).IsNull());
 //   auto v1 = dba.InsertVertex();
-//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), memgraph::storage::PropertyValue(5)).HasValue());
-//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("age"), memgraph::storage::PropertyValue(10)).HasValue());
+//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("height"), PropertyValue(5)).HasValue());
+//   ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("age"), PropertyValue(10)).HasValue());
 //   auto v2 = dba.InsertVertex();
 //   auto e = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("type1"));
 //   ASSERT_TRUE(e.HasValue());
-//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("width"), memgraph::storage::PropertyValue(3)).HasValue());
-//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("age"), memgraph::storage::PropertyValue(15)).HasValue());
+//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("width"), PropertyValue(3)).HasValue());
+//   ASSERT_TRUE(e->SetProperty(dba.NameToProperty("age"), PropertyValue(15)).HasValue());
 //   dba.AdvanceCommand();
 
 //   auto prop_keys_to_string = [](TypedValue t) {
@@ -1566,11 +1659,11 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   };
 //   ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", v1)), UnorderedElementsAre("height", "age"));
 //   ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", *e)), UnorderedElementsAre("width", "age"));
-//   ASSERT_THROW(EvaluateFunction("KEYS", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("KEYS", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Tail) {
-//   ASSERT_THROW(EvaluateFunction("TAIL"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TAIL"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("TAIL", TypedValue()).IsNull());
 //   auto argument = MakeTypedValueList();
 //   ASSERT_EQ(EvaluateFunction("TAIL", argument).ValueList().size(), 0U);
@@ -1580,16 +1673,16 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_EQ(list[0].ValueInt(), 4);
 //   ASSERT_EQ(list[1].ValueBool(), true);
 //   ASSERT_EQ(list[2].ValueString(), "john");
-//   ASSERT_THROW(EvaluateFunction("TAIL", 2), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("TAIL", 2), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, UniformSample) {
-//   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", TypedValue(), TypedValue()).IsNull());
 //   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", TypedValue(), 1).IsNull());
 //   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(), TypedValue()).IsNull());
 //   ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(), 1).IsNull());
-//   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(1, 2, 3), -1), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(1, 2, 3), -1), expr::ExpressionRuntimeException);
 //   ASSERT_EQ(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(1, 2, 3), 0).ValueList().size(), 0);
 //   ASSERT_EQ(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(1, 2, 3), 2).ValueList().size(), 2);
 //   ASSERT_EQ(EvaluateFunction("UNIFORMSAMPLE", MakeTypedValueList(1, 2, 3), 3).ValueList().size(), 3);
@@ -1597,31 +1690,31 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Abs) {
-//   ASSERT_THROW(EvaluateFunction("ABS"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ABS"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("ABS", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("ABS", -2).ValueInt(), 2);
 //   ASSERT_EQ(EvaluateFunction("ABS", -2.5).ValueDouble(), 2.5);
-//   ASSERT_THROW(EvaluateFunction("ABS", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ABS", true), expr::ExpressionRuntimeException);
 // }
 
 // // Test if log works. If it does then all functions wrapped with
 // // WRAP_CMATH_FLOAT_FUNCTION macro should work and are not gonna be tested for
 // // correctnes..
 // TEST_F(FunctionTest, Log) {
-//   ASSERT_THROW(EvaluateFunction("LOG"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LOG"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("LOG", TypedValue()).IsNull());
 //   ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", 2).ValueDouble(), log(2));
 //   ASSERT_DOUBLE_EQ(EvaluateFunction("LOG", 1.5).ValueDouble(), log(1.5));
 //   // Not portable, but should work on most platforms.
 //   ASSERT_TRUE(std::isnan(EvaluateFunction("LOG", -1.5).ValueDouble()));
-//   ASSERT_THROW(EvaluateFunction("LOG", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("LOG", true), expr::ExpressionRuntimeException);
 // }
 
 // // Function Round wraps round from cmath and will work if FunctionTest.Log test
 // // passes. This test is used to show behavior of round since it differs from
 // // neo4j's round.
 // TEST_F(FunctionTest, Round) {
-//   ASSERT_THROW(EvaluateFunction("ROUND"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ROUND"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("ROUND", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("ROUND", -2).ValueDouble(), -2);
 //   ASSERT_EQ(EvaluateFunction("ROUND", -2.4).ValueDouble(), -2);
@@ -1630,7 +1723,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   ASSERT_EQ(EvaluateFunction("ROUND", 2.4).ValueDouble(), 2);
 //   ASSERT_EQ(EvaluateFunction("ROUND", 2.5).ValueDouble(), 3);
 //   ASSERT_EQ(EvaluateFunction("ROUND", 2.6).ValueDouble(), 3);
-//   ASSERT_THROW(EvaluateFunction("ROUND", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ROUND", true), expr::ExpressionRuntimeException);
 // }
 
 // // Check if wrapped functions are callable (check if everything was spelled
@@ -1644,43 +1737,43 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Atan2) {
-//   ASSERT_THROW(EvaluateFunction("ATAN2"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ATAN2"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("ATAN2", TypedValue(), 1).IsNull());
 //   ASSERT_TRUE(EvaluateFunction("ATAN2", 1, TypedValue()).IsNull());
 //   ASSERT_DOUBLE_EQ(EvaluateFunction("ATAN2", 2, -1.0).ValueDouble(), atan2(2, -1));
-//   ASSERT_THROW(EvaluateFunction("ATAN2", 3.0, true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ATAN2", 3.0, true), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Sign) {
-//   ASSERT_THROW(EvaluateFunction("SIGN"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("SIGN"), expr::ExpressionRuntimeException);
 //   ASSERT_TRUE(EvaluateFunction("SIGN", TypedValue()).IsNull());
 //   ASSERT_EQ(EvaluateFunction("SIGN", -2).ValueInt(), -1);
 //   ASSERT_EQ(EvaluateFunction("SIGN", -0.2).ValueInt(), -1);
 //   ASSERT_EQ(EvaluateFunction("SIGN", 0.0).ValueInt(), 0);
 //   ASSERT_EQ(EvaluateFunction("SIGN", 2.5).ValueInt(), 1);
-//   ASSERT_THROW(EvaluateFunction("SIGN", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("SIGN", true), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, E) {
-//   ASSERT_THROW(EvaluateFunction("E", 1), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("E", 1), expr::ExpressionRuntimeException);
 //   ASSERT_DOUBLE_EQ(EvaluateFunction("E").ValueDouble(), M_E);
 // }
 
 // TEST_F(FunctionTest, Pi) {
-//   ASSERT_THROW(EvaluateFunction("PI", 1), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("PI", 1), expr::ExpressionRuntimeException);
 //   ASSERT_DOUBLE_EQ(EvaluateFunction("PI").ValueDouble(), M_PI);
 // }
 
 // TEST_F(FunctionTest, Rand) {
-//   ASSERT_THROW(EvaluateFunction("RAND", 1), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("RAND", 1), expr::ExpressionRuntimeException);
 //   ASSERT_GE(EvaluateFunction("RAND").ValueDouble(), 0.0);
 //   ASSERT_LT(EvaluateFunction("RAND").ValueDouble(), 1.0);
 // }
 
 // TEST_F(FunctionTest, StartsWith) {
-//   EXPECT_THROW(EvaluateFunction(kStartsWith), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kStartsWith), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kStartsWith, "a", TypedValue()).IsNull());
-//   EXPECT_THROW(EvaluateFunction(kStartsWith, TypedValue(), 1.3), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kStartsWith, TypedValue(), 1.3), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kStartsWith, "abc", "abc").ValueBool());
 //   EXPECT_TRUE(EvaluateFunction(kStartsWith, "abcdef", "abc").ValueBool());
 //   EXPECT_FALSE(EvaluateFunction(kStartsWith, "abcdef", "aBc").ValueBool());
@@ -1688,9 +1781,9 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, EndsWith) {
-//   EXPECT_THROW(EvaluateFunction(kEndsWith), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kEndsWith), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kEndsWith, "a", TypedValue()).IsNull());
-//   EXPECT_THROW(EvaluateFunction(kEndsWith, TypedValue(), 1.3), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kEndsWith, TypedValue(), 1.3), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kEndsWith, "abc", "abc").ValueBool());
 //   EXPECT_TRUE(EvaluateFunction(kEndsWith, "abcdef", "def").ValueBool());
 //   EXPECT_FALSE(EvaluateFunction(kEndsWith, "abcdef", "dEf").ValueBool());
@@ -1698,9 +1791,9 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Contains) {
-//   EXPECT_THROW(EvaluateFunction(kContains), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kContains), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kContains, "a", TypedValue()).IsNull());
-//   EXPECT_THROW(EvaluateFunction(kContains, TypedValue(), 1.3), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction(kContains, TypedValue(), 1.3), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction(kContains, "abc", "abc").ValueBool());
 //   EXPECT_TRUE(EvaluateFunction(kContains, "abcde", "bcd").ValueBool());
 //   EXPECT_FALSE(EvaluateFunction(kContains, "cde", "abcdef").ValueBool());
@@ -1709,17 +1802,17 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 
 // TEST_F(FunctionTest, Assert) {
 //   // Invalid calls.
-//   ASSERT_THROW(EvaluateFunction("ASSERT"), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("ASSERT", false, false), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("ASSERT", "string", false), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("ASSERT", false, "reason", true), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT"), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT", false, false), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT", "string", false), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT", false, "reason", true), expr::ExpressionRuntimeException);
 
 //   // Valid calls, assertion fails.
-//   ASSERT_THROW(EvaluateFunction("ASSERT", false), QueryRuntimeException);
-//   ASSERT_THROW(EvaluateFunction("ASSERT", false, "message"), QueryRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT", false), expr::ExpressionRuntimeException);
+//   ASSERT_THROW(EvaluateFunction("ASSERT", false, "message"), expr::ExpressionRuntimeException);
 //   try {
 //     EvaluateFunction("ASSERT", false, "bbgba");
-//   } catch (QueryRuntimeException &e) {
+//   } catch (expr::ExpressionRuntimeException &e) {
 //     ASSERT_TRUE(std::string(e.what()).find("bbgba") != std::string::npos);
 //   }
 
@@ -1729,10 +1822,10 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Counter) {
-//   EXPECT_THROW(EvaluateFunction("COUNTER"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("COUNTER", "a"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("COUNTER", "a", "b"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("COUNTER", "a", "b", "c"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("COUNTER"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("COUNTER", "a"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("COUNTER", "a", "b"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("COUNTER", "a", "b", "c"), expr::ExpressionRuntimeException);
 
 //   EXPECT_EQ(EvaluateFunction("COUNTER", "c1", 0).ValueInt(), 0);
 //   EXPECT_EQ(EvaluateFunction("COUNTER", "c1", 0).ValueInt(), 1);
@@ -1752,7 +1845,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), -5);
 //   EXPECT_EQ(EvaluateFunction("COUNTER", "c5", 0, -5).ValueInt(), -10);
 
-//   EXPECT_THROW(EvaluateFunction("COUNTER", "c6", 0, 0), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("COUNTER", "c6", 0, 0), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Id) {
@@ -1765,9 +1858,9 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_EQ(EvaluateFunction("ID", va).ValueInt(), 0);
 //   EXPECT_EQ(EvaluateFunction("ID", *ea).ValueInt(), 0);
 //   EXPECT_EQ(EvaluateFunction("ID", vb).ValueInt(), 1);
-//   EXPECT_THROW(EvaluateFunction("ID"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("ID", 0), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("ID", va, *ea), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("ID"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("ID", 0), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("ID", va, *ea), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, ToStringNull) { EXPECT_TRUE(EvaluateFunction("TOSTRING", TypedValue()).IsNull()); }
@@ -1814,8 +1907,9 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_EQ(EvaluateFunction("TOSTRING", duration).ValueString(), "P0DT0H2M2.000033S");
 // }
 
-// TEST_F(FunctionTest, ToStringExceptions) { EXPECT_THROW(EvaluateFunction("TOSTRING", 1, 2, 3),
-// QueryRuntimeException); }
+// TEST_F(FunctionTest, ToStringExceptions) {
+//   EXPECT_THROW(EvaluateFunction("TOSTRING", 1, 2, 3), expr::ExpressionRuntimeException);
+// }
 
 // TEST_F(FunctionTest, TimestampVoid) {
 //   ctx.timestamp = 42;
@@ -1848,39 +1942,39 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 
 // TEST_F(FunctionTest, TimestampExceptions) {
 //   ctx.timestamp = 42;
-//   EXPECT_THROW(EvaluateFunction("TIMESTAMP", 1).ValueInt(), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TIMESTAMP", 1).ValueInt(), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Left) {
-//   EXPECT_THROW(EvaluateFunction("LEFT"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LEFT"), expr::ExpressionRuntimeException);
 
 //   EXPECT_TRUE(EvaluateFunction("LEFT", TypedValue(), TypedValue()).IsNull());
 //   EXPECT_TRUE(EvaluateFunction("LEFT", TypedValue(), 10).IsNull());
-//   EXPECT_THROW(EvaluateFunction("LEFT", TypedValue(), -10), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LEFT", TypedValue(), -10), expr::ExpressionRuntimeException);
 
 //   EXPECT_EQ(EvaluateFunction("LEFT", "memgraph", 0).ValueString(), "");
 //   EXPECT_EQ(EvaluateFunction("LEFT", "memgraph", 3).ValueString(), "mem");
 //   EXPECT_EQ(EvaluateFunction("LEFT", "memgraph", 1000).ValueString(), "memgraph");
-//   EXPECT_THROW(EvaluateFunction("LEFT", "memgraph", -10), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("LEFT", "memgraph", "graph"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LEFT", "memgraph", -10), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LEFT", "memgraph", "graph"), expr::ExpressionRuntimeException);
 
-//   EXPECT_THROW(EvaluateFunction("LEFT", 132, 10), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LEFT", 132, 10), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Right) {
-//   EXPECT_THROW(EvaluateFunction("RIGHT"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RIGHT"), expr::ExpressionRuntimeException);
 
 //   EXPECT_TRUE(EvaluateFunction("RIGHT", TypedValue(), TypedValue()).IsNull());
 //   EXPECT_TRUE(EvaluateFunction("RIGHT", TypedValue(), 10).IsNull());
-//   EXPECT_THROW(EvaluateFunction("RIGHT", TypedValue(), -10), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RIGHT", TypedValue(), -10), expr::ExpressionRuntimeException);
 
 //   EXPECT_EQ(EvaluateFunction("RIGHT", "memgraph", 0).ValueString(), "");
 //   EXPECT_EQ(EvaluateFunction("RIGHT", "memgraph", 3).ValueString(), "aph");
 //   EXPECT_EQ(EvaluateFunction("RIGHT", "memgraph", 1000).ValueString(), "memgraph");
-//   EXPECT_THROW(EvaluateFunction("RIGHT", "memgraph", -10), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("RIGHT", "memgraph", "graph"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RIGHT", "memgraph", -10), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RIGHT", "memgraph", "graph"), expr::ExpressionRuntimeException);
 
-//   EXPECT_THROW(EvaluateFunction("RIGHT", 132, 10), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RIGHT", 132, 10), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Trimming) {
@@ -1892,33 +1986,33 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_EQ(EvaluateFunction("RTRIM", " abc ").ValueString(), " abc");
 //   EXPECT_EQ(EvaluateFunction("TRIM", "abc").ValueString(), "abc");
 
-//   EXPECT_THROW(EvaluateFunction("LTRIM", "x", "y"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("RTRIM", "x", "y"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TRIM", "x", "y"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("LTRIM", "x", "y"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("RTRIM", "x", "y"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TRIM", "x", "y"), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Reverse) {
 //   EXPECT_TRUE(EvaluateFunction("REVERSE", TypedValue()).IsNull());
 //   EXPECT_EQ(EvaluateFunction("REVERSE", "abc").ValueString(), "cba");
-//   EXPECT_THROW(EvaluateFunction("REVERSE", "x", "y"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("REVERSE", "x", "y"), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Replace) {
-//   EXPECT_THROW(EvaluateFunction("REPLACE"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("REPLACE"), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction("REPLACE", TypedValue(), "l", "w").IsNull());
 //   EXPECT_TRUE(EvaluateFunction("REPLACE", "hello", TypedValue(), "w").IsNull());
 //   EXPECT_TRUE(EvaluateFunction("REPLACE", "hello", "l", TypedValue()).IsNull());
 //   EXPECT_EQ(EvaluateFunction("REPLACE", "hello", "l", "w").ValueString(), "hewwo");
 
-//   EXPECT_THROW(EvaluateFunction("REPLACE", 1, "l", "w"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("REPLACE", "hello", 1, "w"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("REPLACE", "hello", "l", 1), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("REPLACE", 1, "l", "w"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("REPLACE", "hello", 1, "w"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("REPLACE", "hello", "l", 1), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Split) {
-//   EXPECT_THROW(EvaluateFunction("SPLIT"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("SPLIT", "one,two", 1), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("SPLIT", 1, "one,two"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SPLIT"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SPLIT", "one,two", 1), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SPLIT", 1, "one,two"), expr::ExpressionRuntimeException);
 
 //   EXPECT_TRUE(EvaluateFunction("SPLIT", TypedValue(), TypedValue()).IsNull());
 //   EXPECT_TRUE(EvaluateFunction("SPLIT", "one,two", TypedValue()).IsNull());
@@ -1931,13 +2025,13 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, Substring) {
-//   EXPECT_THROW(EvaluateFunction("SUBSTRING"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SUBSTRING"), expr::ExpressionRuntimeException);
 
 //   EXPECT_TRUE(EvaluateFunction("SUBSTRING", TypedValue(), 0, 10).IsNull());
-//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), TypedValue()), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), -10), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), 0, TypedValue()), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), 0, -10), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), TypedValue()), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), -10), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), 0, TypedValue()), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("SUBSTRING", TypedValue(), 0, -10), expr::ExpressionRuntimeException);
 
 //   EXPECT_EQ(EvaluateFunction("SUBSTRING", "hello", 2).ValueString(), "llo");
 //   EXPECT_EQ(EvaluateFunction("SUBSTRING", "hello", 10).ValueString(), "");
@@ -1948,25 +2042,25 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, ToLower) {
-//   EXPECT_THROW(EvaluateFunction("TOLOWER"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOLOWER"), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction("TOLOWER", TypedValue()).IsNull());
 //   EXPECT_EQ(EvaluateFunction("TOLOWER", "Ab__C").ValueString(), "ab__c");
 // }
 
 // TEST_F(FunctionTest, ToUpper) {
-//   EXPECT_THROW(EvaluateFunction("TOUPPER"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOUPPER"), expr::ExpressionRuntimeException);
 //   EXPECT_TRUE(EvaluateFunction("TOUPPER", TypedValue()).IsNull());
 //   EXPECT_EQ(EvaluateFunction("TOUPPER", "Ab__C").ValueString(), "AB__C");
 // }
 
 // TEST_F(FunctionTest, ToByteString) {
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", 42), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", TypedValue()), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "", 42), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "ff"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "00"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "0xG"), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", 42), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", TypedValue()), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "", 42), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "ff"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "00"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("TOBYTESTRING", "0xG"), expr::ExpressionRuntimeException);
 //   EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "").ValueString(), "");
 //   EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0x").ValueString(), "");
 //   EXPECT_EQ(EvaluateFunction("TOBYTESTRING", "0X").ValueString(), "");
@@ -1978,9 +2072,9 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 // }
 
 // TEST_F(FunctionTest, FromByteString) {
-//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING"), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", 42), QueryRuntimeException);
-//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", TypedValue()), QueryRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING"), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", 42), expr::ExpressionRuntimeException);
+//   EXPECT_THROW(EvaluateFunction("FROMBYTESTRING", TypedValue()), expr::ExpressionRuntimeException);
 //   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", "").ValueString(), "");
 //   auto bytestring = EvaluateFunction("TOBYTESTRING", "0x123456789aAbBcCdDeEfF");
 //   EXPECT_EQ(EvaluateFunction("FROMBYTESTRING", bytestring).ValueString(), "0x0123456789aabbccddeeff");
@@ -1999,11 +2093,11 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 
 //   EXPECT_THROW(EvaluateFunction("DATE", "{}"), memgraph::utils::BasicException);
 //   EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"years", TypedValue(1970)}}),
-//                QueryRuntimeException);
+//                expr::ExpressionRuntimeException);
 //   EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"mnths", TypedValue(1970)}}),
-//                QueryRuntimeException);
+//                expr::ExpressionRuntimeException);
 //   EXPECT_THROW(EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
-//                QueryRuntimeException);
+//                expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, LocalTime) {
@@ -2024,13 +2118,13 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_THROW(EvaluateFunction("LOCALTIME", "{}"), memgraph::utils::BasicException);
 //   EXPECT_THROW(EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"hous",
 //   TypedValue(1970)}})),
-//                QueryRuntimeException);
+//                expr::ExpressionRuntimeException);
 //   EXPECT_THROW(
 //       EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"minut", TypedValue(1970)}})),
-//       QueryRuntimeException);
+//       expr::ExpressionRuntimeException);
 //   EXPECT_THROW(
 //       EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
-//       QueryRuntimeException);
+//       expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, LocalDateTime) {
@@ -2054,10 +2148,10 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_THROW(EvaluateFunction("LOCALDATETIME", "{}"), memgraph::utils::BasicException);
 //   EXPECT_THROW(
 //       EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
-//       QueryRuntimeException);
+//       expr::ExpressionRuntimeException);
 //   EXPECT_THROW(
 //       EvaluateFunction("LOCALDATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds",
-//       TypedValue(1970)}})), QueryRuntimeException);
+//       TypedValue(1970)}})), expr::ExpressionRuntimeException);
 // }
 
 // TEST_F(FunctionTest, Duration) {
@@ -2072,10 +2166,10 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
 //   EXPECT_THROW(EvaluateFunction("DURATION", "{}"), memgraph::utils::BasicException);
 //   EXPECT_THROW(EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"hours",
 //   TypedValue(1970)}})),
-//                QueryRuntimeException);
+//                expr::ExpressionRuntimeException);
 //   EXPECT_THROW(
 //       EvaluateFunction("DURATION", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
-//       QueryRuntimeException);
+//       expr::ExpressionRuntimeException);
 
 //   const auto map_param_negative = TypedValue(std::map<std::string, TypedValue>{{"day", TypedValue(-3)},
 //                                                                                {"hour", TypedValue(-4)},
