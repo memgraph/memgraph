@@ -66,6 +66,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MODE
                       | NEXT
                       | NO
+                      | NOTHING
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -231,7 +232,7 @@ setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
 denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
@@ -260,13 +261,13 @@ privilege : CREATE
           | WEBSOCKET
           ;
 
-granularPrivilege : READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 
 privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
-privilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
@@ -275,6 +276,8 @@ entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
 privilegeOrEntities : privilege | entityType entities=entitiesList ;
 
 revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
+
+privilegesList : privilege ( ',' privilege )* ;
 
 entitiesList : ASTERISK | listOfEntities ;
 

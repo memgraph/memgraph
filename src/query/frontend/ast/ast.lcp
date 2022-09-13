@@ -2260,7 +2260,7 @@ cpp<#
          websocket)
       (:serialize))
     (lcp:define-enum fine-grained-privilege
-        (read update create_delete)
+        (nothing read update create_delete)
       (:serialize))
     #>cpp
     AuthQuery() = default;

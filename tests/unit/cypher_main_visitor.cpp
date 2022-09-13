@@ -2310,53 +2310,6 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
                    {AuthQuery::Privilege::MODULE_READ}, {}, {});
   check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
-
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"*"}}}});
-  check_auth_query(&ast_generator, "DENY READ ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
-                   {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "DENY UPDATE ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
-                   {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "DENY CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "",
-                   "user", {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
-                   "", "", "user", {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "DENY UPDATE ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::DENY_PRIVILEGE,
-                   "", "", "user", {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "DENY CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}},
-                              {{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}}}});
-  check_auth_query(&ast_generator, "DENY READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
-                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
-  label_privileges.clear();
-
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
-  check_auth_query(&ast_generator,
-                   "DENY READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
-                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
-  label_privileges.clear();
-  edge_type_privileges.clear();
 }
 
 TEST_P(CypherMainVisitorTest, RevokePrivilege) {
