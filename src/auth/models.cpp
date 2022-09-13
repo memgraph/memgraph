@@ -136,9 +136,9 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
   std::optional<uint64_t> global_permission;
 
   if (second.GetGlobalPermission().has_value()) {
-    global_permission = second.GetGlobalPermission().value();
+    global_permission = *second.GetGlobalPermission();
   } else if (first.GetGlobalPermission().has_value()) {
-    global_permission = first.GetGlobalPermission().value();
+    global_permission = *first.GetGlobalPermission();
   }
 
   for (const auto &[label_name, permission] : second.GetPermissions()) {
@@ -261,7 +261,7 @@ void FineGrainedAccessPermissions::Grant(const std::string &permission,
   if (permission == kAsterisk) {
     global_permission_ = CalculateGrant(fine_grained_permission);
   } else {
-    permissions_[permission] |= CalculateGrant(fine_grained_permission);
+    permissions_[permission] = CalculateGrant(fine_grained_permission);
   }
 }
 
@@ -271,15 +271,6 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
     global_permission_ = std::nullopt;
   } else {
     permissions_.erase(permission);
-  }
-}
-
-void FineGrainedAccessPermissions::Deny(const std::string &permission,
-                                        const FineGrainedPermission fine_grained_permission) {
-  if (permission == kAsterisk) {
-    global_permission_ = CalculateDeny(fine_grained_permission);
-  } else {
-    permissions_[permission] = CalculateDeny(fine_grained_permission);
   }
 }
 
@@ -321,19 +312,6 @@ uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission fine
   }
 
   return result;
-}
-
-uint64_t FineGrainedAccessPermissions::CalculateDeny(FineGrainedPermission fine_grained_permission) {
-  uint64_t shift{1};
-  uint64_t result{0};
-  auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
-
-  while (uint_fine_grained_permission <= kLabelPermissionMax) {
-    result |= uint_fine_grained_permission;
-    uint_fine_grained_permission <<= shift;
-  }
-
-  return kLabelPermissionAll - result;
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {

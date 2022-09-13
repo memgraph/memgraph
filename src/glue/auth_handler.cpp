@@ -480,28 +480,17 @@ void AuthQueryHandler::GrantPrivilege(
       });
 }
 
-void AuthQueryHandler::DenyPrivilege(
-    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &edge_type_privileges) {
+void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
+                                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
   EditPermissions(
-      user_or_role, privileges, label_privileges, edge_type_privileges,
+      user_or_role, privileges, {}, {},
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
         permissions.Deny(permission);
       },
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {
-        for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
-          for (const auto &entity : entities) {
-            fine_grained_permissions.Deny(entity, permission);
-          }
-        }
-      });
+      [](auto &fine_grained_permissions, const auto &privilege_collection) {});
 }
 
 void AuthQueryHandler::RevokePrivilege(

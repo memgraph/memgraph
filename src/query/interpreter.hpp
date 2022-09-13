@@ -107,12 +107,7 @@ class AuthQueryHandler {
           &edge_type_privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DenyPrivilege(
-      const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges,
-      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-      const std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) = 0;
+  virtual void DenyPrivilege(const std::string &user_or_role, const std::vector<AuthQuery::Privilege> &privileges) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokePrivilege(
