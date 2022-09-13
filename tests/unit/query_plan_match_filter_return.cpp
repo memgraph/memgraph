@@ -61,7 +61,7 @@ class MatchReturnFixture : public testing::Test {
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
   }
@@ -515,7 +515,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
     auto output =
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
   };
@@ -703,7 +703,7 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -721,7 +721,7 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     } else {
       context = MakeContext(storage, symbol_table, &dba);
@@ -1796,7 +1796,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     } else {
       context = MakeContext(storage, symbol_table, &dba);

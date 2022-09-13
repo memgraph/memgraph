@@ -94,7 +94,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   node.labels.emplace_back(label);
 
   const auto test_create = [&](memgraph::auth::User &user) {
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &execution_dba};
     auto context = MakeContextWithFineGrainedChecker(ast, symbol_table, &execution_dba, &auth_checker);
     auto create = std::make_shared<CreateNode>(nullptr, node);
 
@@ -189,7 +189,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Grant("label",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(1, results.size());
@@ -210,7 +210,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Deny("label",
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
@@ -328,7 +328,7 @@ class CreateExpandWithAuthFixture : public testing::Test {
 
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
@@ -486,7 +486,7 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
     m.labels = labels;
     // creation op
     auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*create_node, &context);
@@ -622,7 +622,7 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
     ;
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_, n_scan_all.sym_, cycle);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
@@ -837,7 +837,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     Frame frame(symbol_table.max_position());
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     PullAll(*delete_op, &context);
@@ -861,7 +861,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
                           memgraph::storage::View::NEW);
     auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
@@ -1749,7 +1749,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_property, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1766,7 +1766,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
     auto n_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
     auto set_property = std::make_shared<plan::SetProperty>(expand.op_, entity_prop, n_p, literal);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*set_property, &context);
@@ -1788,7 +1788,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_properties, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1812,7 +1812,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_properties, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1831,7 +1831,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(remove_property, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1847,7 +1847,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
     auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(expand.edge_sym_), entity_prop);
     auto remove_property = std::make_shared<plan::RemoveProperty>(expand.op_, entity_prop, n_p);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*remove_property, &context);
