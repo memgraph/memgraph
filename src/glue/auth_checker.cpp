@@ -18,13 +18,13 @@
 #include "utils/synchronized.hpp"
 
 namespace {
-bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor *dba,
                             const std::vector<memgraph::storage::LabelId> &labels,
                             const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
-  return std::all_of(labels.begin(), labels.end(), [&dba, &user, fine_grained_privilege](const auto &label) {
+  return std::all_of(labels.begin(), labels.end(), [dba, &user, fine_grained_privilege](const auto &label) {
     return user.GetFineGrainedAccessLabelPermissions().Has(
-               dba.LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                           fine_grained_privilege)) == memgraph::auth::PermissionLevel::GRANT;
+               dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                                            fine_grained_privilege)) == memgraph::auth::PermissionLevel::GRANT;
   });
 }
 
@@ -40,12 +40,12 @@ bool IsUserAuthorizedGloballyEdges(const memgraph::auth::User &user,
          memgraph::auth::PermissionLevel::GRANT;
 }
 
-bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor &dba,
+bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor *dba,
                               const memgraph::storage::EdgeTypeId &edgeType,
                               const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   return user.GetFineGrainedAccessEdgeTypePermissions().Has(
-             dba.EdgeTypeToName(edgeType), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
-                                               fine_grained_privilege)) == memgraph::auth::PermissionLevel::GRANT;
+             dba->EdgeTypeToName(edgeType), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
+                                                fine_grained_privilege)) == memgraph::auth::PermissionLevel::GRANT;
 }
 }  // namespace
 
@@ -72,7 +72,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
 }
 
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
-    const std::string &username, const memgraph::query::DbAccessor &dba) const {
+    const std::string &username, const memgraph::query::DbAccessor *dba) const {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -96,7 +96,7 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
   });
 }
 
-FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor &dba)
+FineGrainedAuthChecker::FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba)
     : user_{std::move(user)}, dba_(dba){};
 
 bool FineGrainedAuthChecker::Has(const memgraph::query::VertexAccessor &vertex, const memgraph::storage::View view,

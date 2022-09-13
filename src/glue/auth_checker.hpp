@@ -28,7 +28,7 @@ class AuthChecker : public query::AuthChecker {
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override;
 
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const std::string &username, const memgraph::query::DbAccessor &dba) const override;
+      const std::string &username, const memgraph::query::DbAccessor *dba) const override;
 
   [[nodiscard]] static bool IsUserAuthorized(const memgraph::auth::User &user,
                                              const std::vector<memgraph::query::AuthQuery::Privilege> &privileges);
@@ -39,7 +39,7 @@ class AuthChecker : public query::AuthChecker {
 
 class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
  public:
-  explicit FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor &dba);
+  explicit FineGrainedAuthChecker(auth::User user, const memgraph::query::DbAccessor *dba);
 
   bool Has(const query::VertexAccessor &vertex, memgraph::storage::View view,
            query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
@@ -61,6 +61,6 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
  private:
   auth::User user_;
-  const memgraph::query::DbAccessor &dba_;
+  const memgraph::query::DbAccessor *dba_;
 };
 }  // namespace memgraph::glue

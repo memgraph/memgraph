@@ -27,7 +27,7 @@ class AuthChecker {
                                               const std::vector<query::AuthQuery::Privilege> &privileges) const = 0;
 
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
-      const std::string &username, const memgraph::query::DbAccessor &db_accessor) const = 0;
+      const std::string &username, const memgraph::query::DbAccessor *db_accessor) const = 0;
 };
 
 class FineGrainedAuthChecker {
@@ -94,7 +94,7 @@ class AllowEverythingAuthChecker final : public query::AuthChecker {
   }
 
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(const std::string & /*username*/,
-                                                                    const query::DbAccessor & /*dba*/) const override {
+                                                                    const query::DbAccessor * /*dba*/) const override {
     return std::make_unique<AllowEverythingFineGrainedAuthChecker>();
   }
 };
