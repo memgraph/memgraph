@@ -59,7 +59,7 @@ void Telemetry::AddCollector(const std::string &name, const std::function<const 
   collectors_.emplace_back(name, func);
 }
 
-const std::string Telemetry::GetRunId() const { return uuid_; }
+std::string Telemetry::GetRunId() const { return uuid_; }
 
 Telemetry::~Telemetry() {
   scheduler_.Stop();

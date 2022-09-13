@@ -97,10 +97,10 @@ class Session {
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
-  virtual const std::optional<std::string> GetServerNameForInit() = 0;
+  virtual std::optional<std::string> GetServerNameForInit() = 0;
 
   /** Return the instance identifier AKA run_id */
-  virtual const std::optional<std::string> GetRunIdForInit() = 0;
+  virtual std::optional<std::string> GetRunIdForInit() = 0;
 
   /**
    * Executes the session after data has been read into the buffer.

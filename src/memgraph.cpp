@@ -931,12 +931,12 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return user_.has_value();
   }
 
-  const std::optional<std::string> GetServerNameForInit() override {
+  std::optional<std::string> GetServerNameForInit() override {
     if (FLAGS_bolt_server_name_for_init.empty()) return std::nullopt;
     return FLAGS_bolt_server_name_for_init;
   }
 
-  const std::optional<std::string> GetRunIdForInit() override { return run_id_; }
+  std::optional<std::string> GetRunIdForInit() override { return run_id_; }
 
  private:
   template <typename TStream>
