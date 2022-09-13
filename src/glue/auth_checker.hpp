@@ -26,10 +26,10 @@ class AuthChecker : public query::AuthChecker {
 
   bool IsUserAuthorized(const std::optional<std::string> &username,
                         const std::vector<query::AuthQuery::Privilege> &privileges) const override;
-
+#ifdef MG_ENTERPRISE
   std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
       const std::string &username) const override;
-
+#endif
   [[nodiscard]] static bool IsUserAuthorized(const memgraph::auth::User &user,
                                              const std::vector<memgraph::query::AuthQuery::Privilege> &privileges);
 

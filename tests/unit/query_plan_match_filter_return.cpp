@@ -60,12 +60,15 @@ class MatchReturnFixture : public testing::Test {
   }
 
   int PullCountAuthorized(ScanAllTuple scan_all, memgraph::auth::User user) {
+#ifdef MG_ENTERPRISE
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
     memgraph::glue::FineGrainedAuthChecker auth_checker{user};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
+#endif
+    return 0;
   }
 };
 
@@ -713,8 +716,10 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
+#ifdef MG_ENTERPRISE
       memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -731,8 +736,10 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
+#ifdef MG_ENTERPRISE
       memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -1816,8 +1823,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
     if (user) {
+#ifdef MG_ENTERPRISE
       memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -2141,8 +2150,10 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     std::vector<ResultType> results;
     ExecutionContext context;
     if (user) {
+#ifdef MG_ENTERPRISE
       memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }

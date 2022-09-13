@@ -71,6 +71,7 @@ constexpr uint64_t kLabelPermissionAll = memgraph::auth::FineGrainedPermission::
                                          memgraph::auth::FineGrainedPermission::READ;
 constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ);
+#endif
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -81,6 +82,7 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
 
+#ifdef MG_ENTERPRISE
 // Function that converts a label permission level to its string representation.
 std::string FineGrainedPermissionToString(FineGrainedPermission level);
 
@@ -201,9 +203,10 @@ class Role final {
  public:
   explicit Role(const std::string &rolename);
   Role(const std::string &rolename, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
   Role(const std::string &rolename, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
-
+#endif
   Role(const Role &) = default;
   Role &operator=(const Role &) = default;
   Role(Role &&) noexcept = default;
@@ -243,9 +246,10 @@ class User final {
 
   explicit User(const std::string &username);
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
-
+#endif
   User(const User &) = default;
   User &operator=(const User &) = default;
   User(User &&) noexcept = default;
@@ -261,8 +265,10 @@ class User final {
   void SetRole(const Role &role);
 
   void ClearRole();
-#ifdef MG_ENTERPRISE
+
   Permissions GetPermissions() const;
+
+#ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;

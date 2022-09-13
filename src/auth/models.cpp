@@ -600,8 +600,7 @@ User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
     throw AuthException("Couldn't load user data!");
   }
-  if (!data["username"].is_string() || !data["password_hash"].is_string() || !data["permissions"].is_object() ||
-      !data["fine_grained_access_handler"].is_object()) {
+  if (!data["username"].is_string() || !data["password_hash"].is_string() || !data["permissions"].is_object()) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
