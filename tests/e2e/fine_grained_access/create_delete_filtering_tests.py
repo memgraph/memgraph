@@ -470,5 +470,48 @@ def test_merge_edge_second_node_label_granted():
         )
 
 
+def test_set_label_when_label_granted():
+    admin_connection = common.connect(username="admin", password="test")
+    user_connection = common.connect(username="user", password="test")
+    common.reset_and_prepare(admin_connection.cursor())
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :update_label_2 TO user;")
+
+    common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) SET p:update_label_2;")
+
+
+def test_set_label_when_label_denied():
+    admin_connection = common.connect(username="admin", password="test")
+    user_connection = common.connect(username="user", password="test")
+
+    common.reset_and_prepare(admin_connection.cursor())
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) SET p:update_label_2;")
+
+
+def test_remove_label_when_label_granted():
+    admin_connection = common.connect(username="admin", password="test")
+    user_connection = common.connect(username="user", password="test")
+
+    common.reset_and_prepare(admin_connection.cursor())
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT CREATE_DELETE ON LABELS :test_delete TO user;")
+
+    common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) REMOVE p:test_delete;")
+
+
+def test_remove_label_when_label_denied():
+    admin_connection = common.connect(username="admin", password="test")
+    user_connection = common.connect(username="user", password="test")
+
+    common.reset_and_prepare(admin_connection.cursor())
+    common.execute_and_fetch_all(admin_connection.cursor(), "DENY CREATE_DELETE ON LABELS :update_label_2 TO user;")
+    common.execute_and_fetch_all(admin_connection.cursor(), "GRANT READ ON LABELS :test_delete TO user;")
+
+    with pytest.raises(DatabaseError):
+        common.execute_and_fetch_all(user_connection.cursor(), "MATCH (p:test_delete) REMOVE p:test_delete;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
