@@ -17,6 +17,7 @@
 
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
+#include "utils/license.hpp"
 
 namespace {
 
@@ -117,10 +118,14 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
   return ConstructPrivilegesResult(privilege_results);
 }
 
+#ifdef MG_ENTERPRISE
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return fine_grained_permissions;
+  }
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
     const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
@@ -159,7 +164,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
 std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivilegesResult(
     const std::vector<FineGrainedPermissionForPrivilegeResult> &privileges) {
   std::vector<std::vector<memgraph::query::TypedValue>> grants;
-
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
     grants.push_back(
@@ -173,6 +180,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivileges(
     const std::optional<memgraph::auth::User> &user) {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   const auto &label_permissions = user->GetFineGrainedAccessLabelPermissions();
   const auto &edge_type_permissions = user->GetFineGrainedAccessEdgeTypePermissions();
 
@@ -189,6 +199,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
     const std::optional<memgraph::auth::Role> &role) {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions();
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions();
 
@@ -202,6 +215,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
+#endif
+
 }  // namespace
 
 namespace memgraph::glue {
@@ -433,7 +448,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
+#ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
+#endif
     auto user = locked_auth->GetUser(user_or_role);
     auto role = locked_auth->GetRole(user_or_role);
     if (!user && !role) {
@@ -442,14 +459,24 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 
     if (user) {
       grants = ShowUserPrivileges(user);
-      fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+      }
+#endif
     } else {
       grants = ShowRolePrivileges(role);
-      fine_grained_grants = ShowFineGrainedRolePrivileges(role);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        fine_grained_grants = ShowFineGrainedRolePrivileges(role);
+      }
+#endif
     }
-
-    grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
-
+#ifdef MG_ENTERPRISE
+    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+      grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
+    }
+#endif
     return grants;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -555,28 +582,34 @@ void AuthQueryHandler::EditPermissions(
       for (const auto &permission : permissions) {
         edit_permissions_fun(user->permissions(), permission);
       }
-      for (const auto &label_privilege_collection : label_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
-                                          label_privilege_collection);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        for (const auto &label_privilege_collection : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
+                                            label_privilege_collection);
+        }
+        for (const auto &edge_type_privilege_collection : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege_collection);
+        }
       }
-      for (const auto &edge_type_privilege_collection : edge_type_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
-                                          edge_type_privilege_collection);
-      }
-
+#endif
       locked_auth->SaveUser(*user);
     } else {
       for (const auto &permission : permissions) {
         edit_permissions_fun(role->permissions(), permission);
       }
-      for (const auto &label_privilege : label_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        for (const auto &label_privilege : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+        }
+        for (const auto &edge_type_privilege : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege);
+        }
       }
-      for (const auto &edge_type_privilege : edge_type_privileges) {
-        edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
-                                          edge_type_privilege);
-      }
-
+#endif
       locked_auth->SaveRole(*role);
     }
   } catch (const memgraph::auth::AuthException &e) {

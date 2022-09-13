@@ -101,6 +101,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permission) {
   if (permission & FineGrainedPermission::CREATE_DELETE) {
     return FineGrainedPermission::CREATE_DELETE;
@@ -147,6 +148,7 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
 
   return FineGrainedAccessPermissions(permissions, global_permission);
 }
+#endif
 
 Permissions::Permissions(uint64_t grants, uint64_t denies) {
   // The deny bitmask has higher priority than the grant bitmask.
@@ -233,12 +235,16 @@ bool operator==(const Permissions &first, const Permissions &second) {
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
 
+#ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions::FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions,
                                                            const std::optional<uint64_t> &global_permission)
     : permissions_(permissions), global_permission_(global_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const FineGrainedPermission fine_grained_permission) const {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return PermissionLevel::GRANT;
+  }
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
     if (permissions_.contains(permission)) {
       return permissions_.at(permission);
@@ -284,6 +290,9 @@ void FineGrainedAccessPermissions::Deny(const std::string &permission,
 }
 
 nlohmann::json FineGrainedAccessPermissions::Serialize() const {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   nlohmann::json data = nlohmann::json::object();
   data["permissions"] = permissions_;
   data["global_permission"] = global_permission_.has_value() ? global_permission_.value() : -1;
@@ -294,7 +303,9 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   if (!data.is_object()) {
     throw AuthException("Couldn't load permissions data!");
   }
-
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return FineGrainedAccessPermissions{};
+  }
   std::optional<uint64_t> global_permission;
 
   if (data["global_permission"].empty() || data["global_permission"] == -1) {
@@ -358,6 +369,9 @@ const FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissi
 FineGrainedAccessPermissions &FineGrainedAccessHandler::edge_type_permissions() { return edge_type_permissions_; }
 
 nlohmann::json FineGrainedAccessHandler::Serialize() const {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   nlohmann::json data = nlohmann::json::object();
   data["label_permissions"] = label_permissions_.Serialize();
   data["edge_type_permissions"] = edge_type_permissions_.Serialize();
@@ -370,6 +384,9 @@ FineGrainedAccessHandler FineGrainedAccessHandler::Deserialize(const nlohmann::j
   }
   if (!data["label_permissions"].is_object() || !data["edge_type_permissions"].is_object()) {
     throw AuthException("Couldn't load label_permissions or edge_type_permissions data!");
+  }
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return FineGrainedAccessHandler{};
   }
   auto label_permissions = FineGrainedAccessPermissions::Deserialize(data["label_permissions"]);
   auto edge_type_permissions = FineGrainedAccessPermissions::Deserialize(data["edge_type_permissions"]);
@@ -385,6 +402,7 @@ bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second) {
   return !(first == second);
 }
+#endif
 
 Role::Role(const std::string &rolename) : rolename_(utils::ToLowerCase(rolename)) {}
 
@@ -397,6 +415,7 @@ Role::Role(const std::string &rolename, const Permissions &permissions,
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
 Permissions &Role::permissions() { return permissions_; }
+#ifdef MG_ENTERPRISE
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
@@ -407,12 +426,19 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions()
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions() const {
   return fine_grained_access_handler_.edge_type_permissions();
 }
+#endif
 
 nlohmann::json Role::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["rolename"] = rolename_;
   data["permissions"] = permissions_.Serialize();
-  data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
+#ifdef MG_ENTERPRISE
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
+  } else {
+    data["fine_grained_access_handler"] = {};
+  }
+#endif
   return data;
 }
 
@@ -425,13 +451,22 @@ Role Role::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
-  return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
+#ifdef MG_ENTERPRISE
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
+
+    return {data["rolename"], permissions, std::move(fine_grained_access_handler)};
+  }
+#endif
+  return {data["rolename"], permissions, FineGrainedAccessHandler{}};
 }
 
 bool operator==(const Role &first, const Role &second) {
-  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
-         first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_ &&
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+  }
+  return first.rolename_ == second.rolename_ && first.permissions_ == second.permissions_;
 }
 
 User::User() {}
@@ -493,14 +528,22 @@ Permissions User::GetPermissions() const {
 }
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return FineGrainedAccessPermissions{};
+  }
+
   if (role_) {
     return Merge(role()->fine_grained_access_handler().label_permissions(),
                  fine_grained_access_handler_.label_permissions());
   }
+
   return fine_grained_access_handler_.label_permissions();
 }
 
 FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return FineGrainedAccessPermissions{};
+  }
   if (role_) {
     return Merge(role()->fine_grained_access_handler().edge_type_permissions(),
                  fine_grained_access_handler_.edge_type_permissions());
@@ -513,6 +556,7 @@ const std::string &User::username() const { return username_; }
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
 const FineGrainedAccessHandler &User::fine_grained_access_handler() const { return fine_grained_access_handler_; }
+
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
 const Role *User::role() const {
@@ -527,7 +571,11 @@ nlohmann::json User::Serialize() const {
   data["username"] = username_;
   data["password_hash"] = password_hash_;
   data["permissions"] = permissions_.Serialize();
-  data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    data["fine_grained_access_handler"] = fine_grained_access_handler_.Serialize();
+  } else {
+    data["fine_grained_access_handler"] = {};
+  }
   // The role shouldn't be serialized here, it is stored as a foreign key.
   return data;
 }
@@ -541,14 +589,24 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
-  auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
-  return {data["username"], data["password_hash"], permissions, fine_grained_access_handler};
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    auto fine_grained_access_handler = FineGrainedAccessHandler::Deserialize(data["fine_grained_access_handler"]);
+
+    return {data["username"], data["password_hash"], permissions, fine_grained_access_handler};
+  }
+
+  return {data["username"], data["password_hash"], permissions, FineGrainedAccessHandler{}};
 }
 
 bool operator==(const User &first, const User &second) {
+  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
+           first.permissions_ == second.permissions_ && first.role_ == second.role_ &&
+           first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+  }
+
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ && first.role_ == second.role_ &&
-         first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
+         first.permissions_ == second.permissions_ && first.role_ == second.role_;
 }
 
 }  // namespace memgraph::auth

@@ -44,6 +44,7 @@ enum class Permission : uint64_t {
 };
 // clang-format on
 
+#ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
   NO_PERMISSION = 0,
@@ -85,6 +86,7 @@ std::string FineGrainedPermissionToString(FineGrainedPermission level);
 
 // Constructs a label permission from a permission
 FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission);
+#endif
 
 class Permissions final {
  public:
@@ -125,6 +127,7 @@ bool operator==(const Permissions &first, const Permissions &second);
 
 bool operator!=(const Permissions &first, const Permissions &second);
 
+#ifdef MG_ENTERPRISE
 class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
@@ -192,6 +195,7 @@ class FineGrainedAccessHandler final {
 };
 
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
+#endif
 
 class Role final {
  public:
@@ -209,11 +213,12 @@ class Role final {
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
+#ifdef MG_ENTERPRISE
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
   const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
   const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
-
+#endif
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -224,7 +229,9 @@ class Role final {
  private:
   std::string rolename_;
   Permissions permissions_;
+#ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+#endif
 };
 
 bool operator==(const Role &first, const Role &second);
@@ -235,7 +242,6 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-
   User(const std::string &username, const std::string &password_hash, const Permissions &permissions,
        FineGrainedAccessHandler fine_grained_access_handler);
 
@@ -254,17 +260,17 @@ class User final {
   void SetRole(const Role &role);
 
   void ClearRole();
-
+#ifdef MG_ENTERPRISE
   Permissions GetPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
-
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
+#endif
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
 
   const Role *role() const;
 
@@ -279,12 +285,16 @@ class User final {
   std::string username_;
   std::string password_hash_;
   Permissions permissions_;
+#ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
+#endif
   std::optional<Role> role_;
 };
 
 bool operator==(const User &first, const User &second);
 
+#ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
+#endif
 }  // namespace memgraph::auth
