@@ -2119,7 +2119,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     std::vector<ResultType> results;
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     } else {
       context = MakeContext(storage, symbol_table, &dba);
