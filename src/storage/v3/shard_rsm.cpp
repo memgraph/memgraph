@@ -12,7 +12,6 @@
 #include <iterator>
 #include <utility>
 
-#include "query/v2/plan/operator.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 

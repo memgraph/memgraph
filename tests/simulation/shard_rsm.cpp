@@ -294,8 +294,11 @@ int main() {
   auto simulator = Simulator(config);
 
   Io<SimulatorTransport> shard_server_io_1 = simulator.RegisterNew();
+  const auto shard_server_1_address = shard_server_io_1.GetAddress();
   Io<SimulatorTransport> shard_server_io_2 = simulator.RegisterNew();
+  const auto shard_server_2_address = shard_server_io_2.GetAddress();
   Io<SimulatorTransport> shard_server_io_3 = simulator.RegisterNew();
+  const auto shard_server_3_address = shard_server_io_3.GetAddress();
   Io<SimulatorTransport> shard_client_io = simulator.RegisterNew();
 
   PropertyValue min_pk(static_cast<int64_t>(0));
@@ -312,30 +315,26 @@ int main() {
   shard_ptr2->CreateSchema(get_primary_label(), {get_schema_property()});
   shard_ptr3->CreateSchema(get_primary_label(), {get_schema_property()});
 
-  std::vector<Address> address_for_1{shard_server_io_2.GetAddress(), shard_server_io_3.GetAddress()};
-  std::vector<Address> address_for_2{shard_server_io_1.GetAddress(), shard_server_io_3.GetAddress()};
-  std::vector<Address> address_for_3{shard_server_io_1.GetAddress(), shard_server_io_2.GetAddress()};
+  std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
+  std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
+  std::vector<Address> address_for_3{shard_server_1_address, shard_server_2_address};
 
-  ConcreteShardRsm shard_server1(std::move(shard_server_io_1), address_for_1,
-                                 std::move(ShardRsm(std::move(shard_ptr1))));
-  ConcreteShardRsm shard_server2(std::move(shard_server_io_2), address_for_2,
-                                 std::move(ShardRsm(std::move(shard_ptr2))));
-  ConcreteShardRsm shard_server3(std::move(shard_server_io_3), address_for_3,
-                                 std::move(ShardRsm(std::move(shard_ptr3))));
+  ConcreteShardRsm shard_server1(std::move(shard_server_io_1), address_for_1, ShardRsm(std::move(shard_ptr1)));
+  ConcreteShardRsm shard_server2(std::move(shard_server_io_2), address_for_2, ShardRsm(std::move(shard_ptr2)));
+  ConcreteShardRsm shard_server3(std::move(shard_server_io_3), address_for_3, ShardRsm(std::move(shard_ptr3)));
 
   auto server_thread1 = std::jthread([&shard_server1]() { shard_server1.Run(); });
   auto server_thread2 = std::jthread([&shard_server2]() { shard_server2.Run(); });
   auto server_thread3 = std::jthread([&shard_server3]() { shard_server3.Run(); });
 
-  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_io_1.GetAddress());
-  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_io_2.GetAddress());
-  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_io_3.GetAddress());
+  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_1_address);
+  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_2_address);
+  simulator.IncrementServerCountAndWaitForQuiescentState(shard_server_3_address);
 
   std::cout << "Beginning test after servers have become quiescent." << std::endl;
 
-  std::vector server_addrs = {shard_server_io_1.GetAddress(), shard_server_io_2.GetAddress(),
-                              shard_server_io_3.GetAddress()};
-  ShardClient client(shard_client_io, shard_server_io_1.GetAddress(), server_addrs);
+  std::vector server_addrs = {shard_server_1_address, shard_server_2_address, shard_server_3_address};
+  ShardClient client(shard_client_io, shard_server_1_address, server_addrs);
 
   TestCreateVertices(client);
   TestAddEdge(client);
