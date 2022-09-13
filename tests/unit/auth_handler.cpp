@@ -241,7 +241,11 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
 
   memgraph::auth::Permissions user_perms{};
   user_perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", user_perms};
+  memgraph::auth::User user = memgraph::auth::User{
+      user_name,
+      "",
+      user_perms,
+  };
   user.SetRole(role);
   auth->SaveUser(user);
 
@@ -299,7 +303,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -328,7 +332,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -358,7 +362,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -386,7 +390,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -415,7 +419,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -445,7 +449,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -474,7 +478,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -503,7 +507,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -533,7 +537,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -561,7 +565,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -591,7 +595,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
 
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -621,7 +625,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -650,7 +654,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
       memgraph::auth::FineGrainedAccessPermissions{},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -679,7 +683,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -708,7 +712,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
   };
 
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);

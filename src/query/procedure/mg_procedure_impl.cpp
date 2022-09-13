@@ -2311,7 +2311,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       [=]() -> mgp_edge * {
         auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() ctx && ctx->auth_checker &&
+        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
             !ctx->auth_checker->Has(from->graph->impl->NameToEdgeType(type.name),
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw AuthorizationException{"Insufficient permissions for creating edges!"};

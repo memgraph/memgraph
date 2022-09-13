@@ -1279,7 +1279,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto label_set =
         std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[1], labels[2]});
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*label_set, &context);
@@ -1458,7 +1458,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto label_remove = std::make_shared<plan::RemoveLabels>(
         n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[0], labels[1]});
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
 
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
