@@ -33,7 +33,7 @@ const main = async () => {
   if (results.hasOwnProperty("run_id")) {
     console.log("run_id:", results["run_id"]);
   } else {
-    console.log("run_id not found in the summary");
+    process.exit(1);
   }
   await driver.close();
 };
