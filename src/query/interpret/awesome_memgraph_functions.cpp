@@ -587,6 +587,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("LOCAL_DATE_TIME", ctx.memory);
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
+    case TypedValue::Type::Graph:
+      throw QueryRuntimeException("Cannot fetch graph as it is not standardized openCypher type name");
   }
 }
 

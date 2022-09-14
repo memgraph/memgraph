@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "query/db_accessor.hpp"
+#include "query/graph.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -82,7 +83,8 @@ class TypedValue {
     Date,
     LocalTime,
     LocalDateTime,
-    Duration
+    Duration,
+    Graph
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -402,6 +404,22 @@ class TypedValue {
   }
 
   /**
+   * Construct with the value of graph.
+   * utils::MemoryResource is obtained from graph. After the move, graph will be
+   * left empty.
+   */
+  explicit TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+
+  /**
+   * Construct with the value of graph and use the given MemoryResource.
+   * If `*graph.GetMemoryResource() != *memory`, this call will perform an
+   * element-wise move and graph is not guaranteed to be empty.
+   */
+  TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
+    new (&graph_v) Graph(std::move(graph), memory_);
+  }
+
+  /**
    * Construct with the value of other.
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
@@ -486,6 +504,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
 
@@ -528,6 +547,7 @@ class TypedValue {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
+    Graph graph_v;
   };
 
   /**
