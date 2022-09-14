@@ -180,9 +180,10 @@ void TestCreateVertices(ShardRequestManager &io) {
   std::cout << "Testing Create" << std::endl;
   using PropVal = memgraph::storage::v3::PropertyValue;
   requests::ExecutionState<CreateVerticesRequest> state;
-  std::vector<NewVertexLabel> new_vertices;
-  NewVertexLabel a1{.label = "test_label", .primary_key = {PropVal(1), PropVal(0)}};
-  NewVertexLabel a2{.label = "test_label", .primary_key = {PropVal(13), PropVal(13)}};
+  std::vector<requests::NewVertex> new_vertices;
+  auto label_id = io.LabelNameToLabelId("test_label");
+  requests::NewVertex a1{.label_ids = label_id, .primary_key = {PropVal(1), PropVal(0)}};
+  requests::NewVertex a2{.label_ids = label_id, .primary_key = {PropVal(13), PropVal(13)}};
   new_vertices.push_back(std::move(a1));
   new_vertices.push_back(std::move(a2));
 

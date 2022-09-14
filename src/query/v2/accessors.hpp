@@ -40,6 +40,8 @@ class EdgeAccessor final {
 
   Value GetProperty(const std::string &prop_name) const;
 
+  requests::Edge GetEdge() const;
+
   // Dummy function
   inline size_t CypherId() const { return 10; }
 
@@ -73,6 +75,8 @@ class VertexAccessor final {
 
   Value GetProperty(PropertyId prop_name) const;
   Value GetProperty(const std::string &prop_name) const;
+
+  requests::Vertex GetVertex() const;
 
   // Dummy function
   inline size_t CypherId() const { return 10; }

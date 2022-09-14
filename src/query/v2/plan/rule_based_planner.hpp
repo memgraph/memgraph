@@ -272,6 +272,7 @@ class RuleBasedPlanner {
           PropertiesMapList vector_props;
           vector_props.reserve(node_properties->size());
           for (const auto &kv : *node_properties) {
+            // TODO(kostasrim) GetProperty should be implemented in terms of ShardRequestManager NameToProperty
             vector_props.push_back({GetProperty(kv.first), kv.second});
           }
           return std::move(vector_props);

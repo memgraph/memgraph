@@ -16,9 +16,8 @@
 
 namespace memgraph::query::v2 {
 
-using requests::Value;
-
-inline TypedValue ValueToTypedValue(const Value &value) {
+inline TypedValue ValueToTypedValue(const requests::Value &value) {
+  using Value = requests::Value;
   switch (value.type) {
     case Value::NILL:
       return {};
@@ -30,15 +29,69 @@ inline TypedValue ValueToTypedValue(const Value &value) {
       return TypedValue(value.double_v);
     case Value::STRING:
       return TypedValue(value.string_v);
-    case Value::LIST:
-      // return TypedValue(value.list_v);
-    case Value::MAP:
-      // return TypedValue(value.map_v);
+    case Value::LIST: {
+      const auto &lst = value.list_v;
+      std::vector<TypedValue> dst;
+      dst.reserve(lst.size());
+      for (const auto &elem : lst) {
+        dst.push_back(ValueToTypedValue(elem));
+      }
+      return TypedValue(std::move(dst));
+    }
+    case Value::MAP: {
+      const auto &value_map = value.map_v;
+      std::map<std::string, TypedValue> dst;
+      for (const auto &[key, val] : value_map) {
+        dst[key] = ValueToTypedValue(val);
+      }
+      return TypedValue(std::move(dst));
+    }
     case Value::VERTEX:
       return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
     case Value::EDGE:
       return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
     case Value::PATH:
+      break;
+  }
+  throw std::runtime_error("Incorrect type in conversion");
+}
+
+inline requests::Value TypedValueToValue(const TypedValue &value) {
+  using Value = requests::Value;
+  switch (value.type()) {
+    case TypedValue::Type::Null:
+      return {};
+    case TypedValue::Type::Bool:
+      return Value(value.ValueBool());
+    case TypedValue::Type::Int:
+      return Value(value.ValueInt());
+    case TypedValue::Type::Double:
+      return Value(value.ValueDouble());
+    case TypedValue::Type::String:
+      return Value(std::string(value.ValueString()));
+    case TypedValue::Type::List: {
+      const auto &lst = value.ValueList();
+      std::vector<Value> dst;
+      dst.reserve(lst.size());
+      for (const auto &elem : lst) {
+        dst.push_back(TypedValueToValue(elem));
+      }
+      return Value(std::move(dst));
+    }
+    case TypedValue::Type::Map: {
+      const auto &value_map = value.ValueMap();
+      std::map<std::string, Value> dst;
+      for (const auto &[key, val] : value_map) {
+        dst[std::string(key)] = TypedValueToValue(val);
+      }
+      return Value(std::move(dst));
+    }
+    case TypedValue::Type::Vertex:
+      return Value(value.ValueVertex().GetVertex());
+    case TypedValue::Type::Edge:
+      return Value(value.ValueEdge().GetEdge());
+    case TypedValue::Type::Path:
+    default:
       break;
   }
   throw std::runtime_error("Incorrect type in conversion");

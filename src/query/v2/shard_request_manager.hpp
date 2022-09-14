@@ -95,9 +95,12 @@ class ShardRequestManagerInterface {
   virtual void StartTransaction() = 0;
   virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                                      std::vector<requests::NewVertexLabel> new_vertices) = 0;
+                                                      std::vector<requests::NewVertex> new_vertices) = 0;
   virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
   virtual ~ShardRequestManagerInterface() {}
+  virtual memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
+  virtual memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const = 0;
+  virtual bool IsPrimaryKey(const PropertyId name) const = 0;
   ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
   ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
 };
@@ -144,6 +147,19 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     shards_map_ = hlc_response.fresher_shard_map.value();
   }
 
+  memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const override {
+    return *shards_map_.GetPropertyId(name);
+  }
+
+  memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const override {
+    return shards_map_.GetLabelId(name);
+  }
+
+  bool IsPrimaryKey(const PropertyId name) const override {
+    return std::find_if(shards_map_.properties.begin(), shards_map_.properties.end(),
+                        [name](auto &pr) { return pr.second == name; }) != shards_map_.properties.end();
+  }
+
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
@@ -152,7 +168,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     size_t id = 0;
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       auto &storage_client = GetStorageClientForShard(*state.label, state.requests[id].start_id.primary_key);
-      // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture instead.
+      // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
+      // instead.
       auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
@@ -179,7 +196,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-                                              std::vector<NewVertexLabel> new_vertices) override {
+                                              std::vector<NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<CreateVerticesResponse> responses;
@@ -266,7 +283,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   void MaybeInitializeExecutionState(ExecutionState<CreateVerticesRequest> &state,
-                                     std::vector<NewVertexLabel> new_vertices) {
+                                     std::vector<NewVertex> new_vertices) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
@@ -276,16 +293,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::map<Shard, CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
-      auto shard = shards_map_.GetShardForKey(new_vertex.label, new_vertex.primary_key);
+      auto shard = shards_map_.GetShardForKey(new_vertex.label_ids.id, new_vertex.primary_key);
       if (!per_shard_request_table.contains(shard)) {
         CreateVerticesRequest create_v_rqst{.transaction_id = transaction_id_};
         per_shard_request_table.insert(std::pair(shard, std::move(create_v_rqst)));
         state.shard_cache.push_back(shard);
       }
-      per_shard_request_table[shard].new_vertices.push_back(
-          NewVertex{.label_ids = {shards_map_.GetLabelId(new_vertex.label)},
-                    .primary_key = std::move(new_vertex.primary_key),
-                    .properties = std::move(new_vertex.properties)});
+      per_shard_request_table[shard].new_vertices.push_back(std::move(new_vertex));
     }
 
     for (auto &[shard, rqst] : per_shard_request_table) {

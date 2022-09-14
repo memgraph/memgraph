@@ -4211,7 +4211,7 @@ class DistributedCreateNodeCursor : public Cursor {
     SCOPED_PROFILE_OP("CreateNode");
     if (input_cursor_->Pull(frame, context)) {
       auto &shard_manager = context.shard_request_manager;
-      shard_manager->Request(state_, NodeCreationInfoToRequest());
+      shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
       return true;
     }
 
@@ -4222,9 +4222,41 @@ class DistributedCreateNodeCursor : public Cursor {
 
   void Reset() override { state_ = {}; }
 
-  std::vector<requests::NewVertexLabel> NodeCreationInfoToRequest() const {
-    // TODO(kostasrim) Add the conversion
-    return {};
+  std::vector<requests::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<requests::NewVertex> requests;
+    for (const auto &node_info : nodes_info_) {
+      requests::NewVertex rqst;
+      std::map<requests::PropertyId, requests::Value> properties;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
+        for (const auto &[key, value_expression] : *node_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          properties[key] = TypedValueToValue(val);
+          if (context.shard_request_manager->IsPrimaryKey(key)) {
+            rqst.primary_key.push_back(storage::v3::TypedToPropertyValue(val));
+          }
+        }
+      } else {
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties)).ValueMap();
+        for (const auto &[key, value] : property_map) {
+          auto key_str = std::string(key);
+          auto property_id = context.shard_request_manager->NameToProperty(key_str);
+          properties[property_id] = TypedValueToValue(value);
+          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+            rqst.primary_key.push_back(storage::v3::TypedToPropertyValue(value));
+          }
+        }
+      }
+
+      if (node_info.labels.empty()) {
+        throw QueryRuntimeException("Primary label must be defined!");
+      }
+      rqst.label_ids = requests::Label{node_info.labels[0]};
+      // std::vector<storage::v3::LabelId> secondary_labels(node_info.labels.begin() + 1, node_info.labels.end());
+      requests.push_back(std::move(rqst));
+    }
+    return requests;
   }
 
  private:

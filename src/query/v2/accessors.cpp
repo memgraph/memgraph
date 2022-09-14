@@ -32,6 +32,8 @@ Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
   return properties[prop_name];
 }
 
+requests::Edge EdgeAccessor::GetEdge() const { return edge; }
+
 VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}, {}); }
 
 VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.src}, {}); }
@@ -68,5 +70,7 @@ Value VertexAccessor::GetProperty(const std::string &prop_name) const {
   return Value(properties[prop_id]);
   //    return ValueToTypedValue(properties[prop_name]);
 }
+
+requests::Vertex VertexAccessor::GetVertex() const { return vertex; }
 
 }  // namespace memgraph::query::v2::accessors
