@@ -12,11 +12,6 @@ const parseNeo4jSummary = (summary, metadata) => {
 }
 
 const runQuery = async (driver, query) => {
-  const result = {
-    records: [],
-    summary: null,
-  };
-
   return new Promise((resolve, reject) => {
     const session = driver.session();
     const activeSession = session.run(query);
@@ -30,7 +25,7 @@ const runQuery = async (driver, query) => {
     activeSession.subscribe({
       onCompleted: async (summary) => {
         await session.close();
-        result.summary = summary;
+        const result = summary;
         resolve(result);
       },
       onError: async (error) => {
@@ -49,8 +44,8 @@ const main = async (queryPrefix = '') => {
   const newQuery = `${queryPrefix} ${query}`.trim();
   console.log('Query:', newQuery);
   const results = await runQuery(driver, newQuery);
-  if (results["summary"]["metadata"].hasOwnProperty("run_id")) {
-    console.log("run_id:", results["summary"]["metadata"]["run_id"])
+  if (results["metadata"].hasOwnProperty("run_id")) {
+    console.log("run_id:", results["metadata"]["run_id"])
   } else {
     console.log("run_id not found in the summary")
   }
