@@ -30,6 +30,7 @@
 #include "storage_test_utils.hpp"
 #include "test_utils.hpp"
 #include "utils/memory.hpp"
+#include "utils/variant_helpers.hpp"
 
 #define EXPECT_SUCCESS(...) EXPECT_EQ(__VA_ARGS__, mgp_error::MGP_ERROR_NO_ERROR)
 
@@ -90,11 +91,21 @@ size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable) {
   return std::distance(iterable.begin(), iterable.end());
 }
 
+;
+
 void CheckEdgeCountBetween(const MgpVertexPtr &from, const MgpVertexPtr &to, const size_t number_of_edges_between) {
-  EXPECT_EQ(CountMaybeIterables(from->impl.InEdges(memgraph::storage::View::NEW)), 0);
-  EXPECT_EQ(CountMaybeIterables(from->impl.OutEdges(memgraph::storage::View::NEW)), number_of_edges_between);
-  EXPECT_EQ(CountMaybeIterables(to->impl.InEdges(memgraph::storage::View::NEW)), number_of_edges_between);
-  EXPECT_EQ(CountMaybeIterables(to->impl.OutEdges(memgraph::storage::View::NEW)), 0);
+  EXPECT_EQ(
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, from->impl)),
+      0);
+  EXPECT_EQ(CountMaybeIterables(
+                std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, from->impl)),
+            number_of_edges_between);
+  EXPECT_EQ(
+      CountMaybeIterables(std::visit([](auto impl) { return impl.InEdges(memgraph::storage::View::NEW); }, to->impl)),
+      number_of_edges_between);
+  EXPECT_EQ(
+      CountMaybeIterables(std::visit([](auto impl) { return impl.OutEdges(memgraph::storage::View::NEW); }, to->impl)),
+      0);
 }
 }  // namespace
 
