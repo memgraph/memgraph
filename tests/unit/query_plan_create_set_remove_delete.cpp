@@ -1279,11 +1279,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto label_set =
         std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[1], labels[2]});
-<<<<<<< HEAD
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
-=======
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
->>>>>>> E129-MG-label-based-authorization
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*label_set, &context);
