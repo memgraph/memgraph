@@ -217,13 +217,13 @@ class LabelPropertyIndex {
   };
 
   Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-                    const VertexValidator &vertex_validator) {
+                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
+                    Transaction *transaction) {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return {it->second.access(), label,    property,     lower_bound, upper_bound,     view,
-            transaction,         indices_, constraints_, config_,     vertex_validator};
+    return {it->second.access(), label,    property,     lower_bound, upper_bound,       view,
+            transaction,         indices_, constraints_, config_,     *vertex_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {

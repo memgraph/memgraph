@@ -22,6 +22,7 @@
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -92,6 +93,10 @@ namespace memgraph::storage::v3::durability {
 //
 // IMPORTANT: When changing snapshot encoding/decoding bump the snapshot/WAL
 // version in `version.hpp`.
+
+namespace {
+constexpr auto kDummyLabelId = LabelId::FromUint(0);
+}  // namespace
 
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
@@ -444,7 +449,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
           // TODO Fix Gid
           SPDLOG_TRACE("Recovered inbound edge {} with label \"{}\" from vertex {}.", *edge_gid,
                        name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), 1);
-          vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &from_vertex->vertex, edge_ref);
+          vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), VertexId{kDummyLabelId, {}}, edge_ref);
         }
       }
 
@@ -482,7 +487,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipLi
           // TODO Fix Gid
           SPDLOG_TRACE("Recovered outbound edge {} with label \"{}\" to vertex {}.", *edge_gid,
                        name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), 1);
-          vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &to_vertex->vertex, edge_ref);
+          vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), VertexId{kDummyLabelId, {}}, edge_ref);
         }
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.
@@ -718,8 +723,14 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
       // but that isn't an issue because we won't use that part of the API
       // here.
       // TODO(jbajic) Fix snapshot with new schema rules
-      auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL), nullptr, nullptr, transaction, indices, constraints,
-                             items,    vertex_validator};
+      auto ea = EdgeAccessor{edge_ref,
+                             EdgeTypeId::FromUint(0UL),
+                             VertexId{kDummyLabelId, {}},
+                             VertexId{kDummyLabelId, {}},
+                             transaction,
+                             indices,
+                             constraints,
+                             items};
 
       // Get edge data.
       auto maybe_props = ea.Properties(View::OLD);
