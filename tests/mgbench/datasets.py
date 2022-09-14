@@ -292,6 +292,3 @@ class Pokec(Dataset):
 
     def benchmark__update__vertex_on_property(self):
         return ("MATCH (n {id: $id}) SET n.id = -1", {"id": self._get_random_vertex()})
-
-    def benchmark__delete__vertex(self):
-        return ("MATCH (n {id: $id}) DETACH DELETE n", {"id": self._get_random_vertex()})
