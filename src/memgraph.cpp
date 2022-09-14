@@ -458,6 +458,8 @@ struct SessionData {
   memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth;
 
 #endif
+  // NOTE: run_id should be const but that complicates code a lot.
+  std::optional<std::string> run_id;
 };
 
 inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
@@ -860,7 +862,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 #if MG_ENTERPRISE
         audit_log_(data->audit_log),
 #endif
-        endpoint_(endpoint) {
+        endpoint_(endpoint),
+        run_id_(data->run_id) {
   }
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -954,6 +957,14 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
       }
+      // Add this memgraph instance run_id, received from telemetry
+      // This is sent with every query, instead of only on bolt init inside
+      // communication/bolt/v1/states/init.hpp because neo4jdriver does not
+      // read the init message.
+      if (auto run_id = run_id_; run_id) {
+        decoded_summary.emplace("run_id", *run_id);
+      }
+
       return decoded_summary;
     } catch (const memgraph::query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
@@ -1005,6 +1016,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   memgraph::audit::Log *audit_log_;
 #endif
   memgraph::communication::v2::ServerEndpoint endpoint_;
+  // NOTE: run_id should be const but that complicates code a lot.
+  std::optional<std::string> run_id_;
 };
 
 using ServerT = memgraph::communication::v2::Server<BoltSession, SessionData>;
@@ -1276,6 +1289,7 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
                       data_directory / "telemetry", std::chrono::minutes(10));
+    session_data.run_id = telemetry->GetRunId();
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
