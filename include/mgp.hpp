@@ -143,7 +143,7 @@ class Graph {
   /// @brief Returns whether the graph is mutable.
   bool IsMutable() const { return mgp::graph_is_mutable(graph_); }
   /// @brief Creates a node and adds it to the graph.
-  void CreateNode() { mgp::graph_create_vertex(graph_, memory); }
+  void CreateNode();
   /// @brief Deletes a node from the graph.
   void DeleteNode(const Node &node);
   /// @brief Deletes a node and all its incident edges from the graph.
@@ -1897,12 +1897,18 @@ bool Graph::ContainsRelationship(const Relationship &relationship) const {
   return false;
 }
 
+void Graph::CreateNode() {
+  auto *vertex = mgp::graph_create_vertex(graph_, memory);
+  mgp::vertex_destroy(vertex);
+}
+
 void Graph::DeleteNode(const Node &node) { mgp::graph_delete_vertex(graph_, node.ptr_); }
 
 void Graph::DetachDeleteNode(const Node &node) { mgp::graph_detach_delete_vertex(graph_, node.ptr_); };
 
 void Graph::CreateRelationship(const Node &from, const Node &to, const std::string_view type) {
-  mgp::graph_create_edge(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()}, memory);
+  auto *edge = mgp::graph_create_edge(graph_, from.ptr_, to.ptr_, mgp_edge_type{.name = type.data()}, memory);
+  mgp::edge_destroy(edge);
 }
 
 void Graph::DeleteRelationship(const Relationship &relationship) { mgp::graph_delete_edge(graph_, relationship.ptr_); }
