@@ -1,25 +1,12 @@
 const neo4j = require('neo4j-driver');
 
-const fixNeo4jMetadata = (metadata) => {
-  return { ...metadata, profile: {} };
-};
-
-const parseNeo4jSummary = (summary, metadata) => {
-  return {
-    summary,
-    metadata,
-  };
-}
-
 const runQuery = async (driver, query) => {
   return new Promise((resolve, reject) => {
     const session = driver.session();
     const activeSession = session.run(query);
 
-    const originalCreateSummary = activeSession._createSummary.bind(activeSession);
     activeSession._createSummary = async (metadata) => {
-      const summary = await originalCreateSummary(fixNeo4jMetadata(metadata));
-      return parseNeo4jSummary(summary, metadata);
+      return metadata;
     };
 
     activeSession.subscribe({
@@ -36,21 +23,18 @@ const runQuery = async (driver, query) => {
   })
 };
 
-const main = async (queryPrefix = '') => {
+const main = async () => {
   const driver = neo4j.driver('bolt://localhost:7687');
 
   query = "MATCH (n) RETURN n LIMIT 1;"
 
-  const newQuery = `${queryPrefix} ${query}`.trim();
-  console.log('Query:', newQuery);
-  const results = await runQuery(driver, newQuery);
-  if (results["metadata"].hasOwnProperty("run_id")) {
-    console.log("run_id:", results["metadata"]["run_id"])
+  console.log('Query:', query);
+  const results = await runQuery(driver, query);
+  if (results.hasOwnProperty("run_id")) {
+    console.log("run_id:", results["run_id"]);
   } else {
-    console.log("run_id not found in the summary")
+    console.log("run_id not found in the summary");
   }
-  console.log('');
-
   await driver.close();
 };
 
