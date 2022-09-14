@@ -143,14 +143,12 @@ std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
       spdlog::debug("Encountered an Error while trying to get a vertex property.");
       continue;
     }
-    if (result.HasValue()) {
-      if (result.GetValue().IsNull()) {
-        spdlog::debug("The specified property does not exist but it should");
-        continue;
-      }
-
-      ret.emplace(prop, ToValue(result.GetValue()));
+    auto &value = result.GetValue();
+    if (value.IsNull()) {
+      spdlog::debug("The specified property does not exist but it should");
+      continue;
     }
+    ret.emplace(prop, ToValue(value));
   }
 
   return ret;
@@ -204,9 +202,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
-    if (!action_successful) {
-      break;
-    }
     /// TODO(gvolfing) Remove this. In the new implementation each shard
     /// should have a predetermined primary label, so there is no point in
     /// specifying it in the accessor functions. Their signature will
@@ -216,8 +211,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     /// signature of CreateVertexAndValidate.
     auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
 
-    // TODO(gvolfing) make sure you don't create vectors bigger than they actually should be, e.g.
-    // std::vector<memgraph::storage::v3::LabelId> converted_label_ids(new_vertex.label_ids.size());
     // TODO(gvolfing) make sure if this conversion is actually needed.
     std::vector<memgraph::storage::v3::LabelId> converted_label_ids;
     converted_label_ids.reserve(new_vertex.label_ids.size());
@@ -232,13 +225,11 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
       auto &error = result_schema.GetError();
 
       std::visit(
-          [&action_successful]<typename T>(T &&) {
+          []<typename T>(T &&) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, SchemaViolation>) {
-              action_successful = false;
               spdlog::debug("Creating vertex failed with error: SchemaViolation");
             } else if constexpr (std::is_same_v<ErrorType, Error>) {
-              action_successful = false;
               spdlog::debug("Creating vertex failed with error: Error");
             } else {
               static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
@@ -247,6 +238,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
           error);
 
       action_successful = false;
+      break;
     }
   }
 
@@ -328,10 +320,6 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   bool action_successful = true;
 
   for (const auto &edge : req.edges) {
-    if (!action_successful) {
-      break;
-    }
-
     auto vertex_acc_from_primary_key = edge.id.src.second;
     auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(vertex_acc_from_primary_key), View::OLD);
 
@@ -342,7 +330,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       action_successful = false;
       spdlog::debug(
           &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
-      continue;
+      break;
     }
 
     auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
@@ -351,7 +339,8 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
     if (edge_acc.HasError()) {
       action_successful = false;
       spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
-      continue;
+      break;
+      ;
     }
   }
 
