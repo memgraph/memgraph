@@ -1,4 +1,3 @@
-const _ = require('lodash');
 const neo4j = require('neo4j-driver');
 
 const GRAPH_TYPES = ['Node', 'Relationship', 'UnboundRelationship', 'Path', 'PathSegment'];
@@ -35,7 +34,6 @@ function parseField(field) {
   return field;
 }
 
-// keys: ['a'], _fields: [5, { ... }, [], ...]
 function parseRecord(record) {
   const newRecord = {};
   record.keys.forEach((key, index) => {
@@ -52,22 +50,6 @@ const parseNeo4jSummary = (summary, metadata) => {
   return {
     summary,
     metadata,
-  //   query: {
-  //     text: summary.query.text,
-  //     parameters: parseField(summary.query.parameters),
-  //   },
-  //   queryType: summary.queryType,
-  //   notifications: summary.notifications,
-  //   server: {
-  //     address: summary.server.address,
-  //   },
-  //   database: summary.database,
-  //   costEstimate: metadata.cost_estimate ?? 0,
-  //   parsingTime: metadata.parsing_time ?? 0,
-  //   planExecutionTime: metadata.plan_execution_time ?? 0,
-  //   planningTime: metadata.planning_time ?? 0,
-  //   runId: metadata.run_id
-  //   stats: summary.counters._stats,
   };
 }
 
