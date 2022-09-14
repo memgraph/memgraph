@@ -344,3 +344,61 @@ Feature: Aggregations
             | count(n) < n.property | count(n.property)     | count(n)              | avg(n.property)       | min(n.property)       | max(n.property)       | sum(n.property)       |
             | false                 | 1                     | 1                     | 1.0                   | 1                     | 1                     | 1                     |
             | null                  | 0                     | 1                     | null                  | null                  | null                  | 0                     |
+
+    Scenario: Graph projection test 01:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 1}), (b{x: 2}), (c{x: 3}), (d{x: 4}), (a)-[:X]->(b), (b)-[:X]->(c), (c)-[:X]->(a), (a)-[:B]->(d)
+            """
+        When executing query:
+            """
+            MATCH p=()-[:X]->() WITH project(p) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Graph projection test 02:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 1}), (b{x: 2}), (c{x: 3}), (d{x: 4}), (a)-[:X]->(b), (b)-[:X]->(c), (c)-[:X]->(a), (a)-[:B]->(d)
+            """
+        When executing query:
+            """
+            MATCH p=()-[:Z]->() WITH project(p) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+
+    Scenario: Graph projection test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 1}), (b{x: 2}), (c{x: 3}), (d{x: 4}), (a)-[:X {prop:1}]->(b), (b)-[:X {prop:2}]->(c), (c)-[:X {prop:3}]->(a), (a)-[:B {prop:4}]->(d)
+            """
+        When executing query:
+            """
+            MATCH p=()-[:X]->() WITH project(p) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.prop as y ORDER BY y DESC
+            """
+        Then the result should be:
+            | y |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Graph projection test 04:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a{x: 1}), (b{x: 2}), (c{x: 3}), (d{x: 4}), (a)-[:X {prop:1}]->(b), (b)-[:X {prop:2}]->(c), (c)-[:X {prop:3}]->(a), (a)-[:B {prop:4}]->(d)
+            """
+        When executing query:
+            """
+            MATCH p=()-[:Z]->() WITH project(p) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.prop as y ORDER BY y DESC
+            """
+        Then the result should be:
+            | y |
