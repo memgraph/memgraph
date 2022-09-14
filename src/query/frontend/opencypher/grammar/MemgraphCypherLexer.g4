@@ -77,6 +77,7 @@ MODULE_READ         : M O D U L E UNDERSCORE R E A D ;
 MODULE_WRITE        : M O D U L E UNDERSCORE W R I T E ;
 NEXT                : N E X T ;
 NO                  : N O ;
+NOTHING             : N O T H I N G ;
 PASSWORD            : P A S S W O R D ;
 PORT                : P O R T ;
 PRIVILEGES          : P R I V I L E G E S ;

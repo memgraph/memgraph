@@ -47,9 +47,9 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NO_PERMISSION = 0,
+  NOTHING       = 0,
   READ          = 1,
-  UPDATE          = 1U << 1U,
+  UPDATE        = 1U << 1U,
   CREATE_DELETE = 1U << 2U
 };
 // clang-format on
@@ -145,8 +145,6 @@ class FineGrainedAccessPermissions final {
 
   void Revoke(const std::string &permission);
 
-  void Deny(const std::string &permission, FineGrainedPermission fine_grained_permission);
-
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -160,7 +158,6 @@ class FineGrainedAccessPermissions final {
   std::optional<uint64_t> global_permission_;
 
   static uint64_t CalculateGrant(FineGrainedPermission fine_grained_permission);
-  static uint64_t CalculateDeny(FineGrainedPermission fine_grained_permission);
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);

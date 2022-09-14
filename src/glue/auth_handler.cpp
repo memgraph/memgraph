@@ -135,7 +135,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     std::stringstream permission_representation;
     permission_representation << "ALL " << permission_type << "S";
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
     const auto permission_description =
         fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
@@ -151,7 +151,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     permission_representation << permission_type << " :" << label;
 
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
     const auto permission_description =
         fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
@@ -531,20 +531,12 @@ void AuthQueryHandler::GrantPrivilege(
   );
 }  // namespace memgraph::glue
 
-void AuthQueryHandler::DenyPrivilege(
-    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-    ,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &label_privileges,
-    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &edge_type_privileges
-#endif
-) {
+void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
+                                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
   EditPermissions(
       user_or_role, privileges,
 #ifdef MG_ENTERPRISE
-      label_privileges, edge_type_privileges,
+      {}, {},
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -554,17 +546,10 @@ void AuthQueryHandler::DenyPrivilege(
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {
-        for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
-          for (const auto &entity : entities) {
-            fine_grained_permissions.Deny(entity, permission);
-          }
-        }
-      }
+      [](auto &fine_grained_permissions, const auto &privilege_collection) {}
 #endif
   );
-}  // namespace memgraph::glue
+}
 
 void AuthQueryHandler::RevokePrivilege(
     const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
