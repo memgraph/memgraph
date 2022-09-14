@@ -51,11 +51,12 @@ def _get_usage(pid):
 
 
 class Memgraph:
-    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges):
+    def __init__(self, memgraph_binary, temporary_dir, properties_on_edges, bolt_port):
         self._memgraph_binary = memgraph_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._properties_on_edges = properties_on_edges
         self._proc_mg = None
+        self._bolt_port = bolt_port
         atexit.register(self._cleanup)
 
         # Determine Memgraph version
@@ -69,6 +70,7 @@ class Memgraph:
 
     def _get_args(self, **kwargs):
         data_directory = os.path.join(self._directory.name, "memgraph")
+        kwargs["bolt_port"] = self._bolt_port
         if self._memgraph_version >= (0, 50, 0):
             kwargs["data_directory"] = data_directory
         else:
@@ -88,7 +90,7 @@ class Memgraph:
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
             raise Exception("The database process died prematurely!")
-        wait_for_server(7687)
+        wait_for_server(self._bolt_port)
         ret = self._proc_mg.poll()
         assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
@@ -121,11 +123,14 @@ class Memgraph:
 
 
 class Client:
-    def __init__(self, client_binary: str, temporary_directory: str, username: str = "", password: str = ""):
+    def __init__(
+        self, client_binary: str, temporary_directory: str, bolt_port: int, username: str = "", password: str = ""
+    ):
         self._client_binary = client_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_directory)
         self._username = username
         self._password = password
+        self._bolt_port = bolt_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -152,6 +157,7 @@ class Client:
             queries_json=queries_json,
             username=self._username,
             password=self._password,
+            port=self._bolt_port,
         )
         ret = subprocess.run(args, stdout=subprocess.PIPE, check=True)
         data = ret.stdout.decode("utf-8").strip().split("\n")

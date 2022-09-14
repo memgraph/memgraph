@@ -120,6 +120,7 @@ parser.add_argument(
     "--temporary-directory", default="/tmp", help="directory path where temporary data should " "be stored"
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
+parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 args = parser.parse_args()
 
 # Detect available datasets.
@@ -171,8 +172,10 @@ for dataset, tests in benchmarks:
     dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
     # Prepare runners and import the dataset.
-    memgraph = runners.Memgraph(args.memgraph_binary, args.temporary_directory, not args.no_properties_on_edges)
-    client = runners.Client(args.client_binary, args.temporary_directory)
+    memgraph = runners.Memgraph(
+        args.memgraph_binary, args.temporary_directory, not args.no_properties_on_edges, args.bolt_port
+    )
+    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
     memgraph.start_preparation()
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = memgraph.stop()
@@ -218,7 +221,9 @@ for dataset, tests in benchmarks:
                     ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
                 ]
             )
-            client = runners.Client(args.client_binary, args.temporary_directory, username="user", password="test")
+            client = runners.Client(
+                args.client_binary, args.temporary_directory, args.bolt_port, username="user", password="test"
+            )
             memgraph.stop()
 
         test_type = (
