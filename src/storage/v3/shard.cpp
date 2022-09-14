@@ -533,15 +533,6 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     return {std::move(*maybe_schema_violation)};
   }
   OOMExceptionEnabler oom_exception;
-  // Extract key properties
-  // std::vector<PropertyValue> primary_properties;
-  // for ([[maybe_unused]] const auto &[property_id, property_type] : shard_->GetSchema(primary_label)->second) {
-  //   // We know there definitely is key in properties since we have validated
-  //   primary_properties.push_back(
-  //       std::ranges::find_if(properties, [property_id = property_id](const auto &property_pair) {
-  //         return property_pair.first == property_id;
-  //       })->second);
-  // }
   auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});

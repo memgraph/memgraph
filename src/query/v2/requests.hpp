@@ -24,8 +24,10 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-using memgraph::coordinator::Hlc;
-using memgraph::storage::v3::LabelId;
+namespace memgraph::messages {
+
+using coordinator::Hlc;
+using storage::v3::LabelId;
 
 struct Value;
 
@@ -126,8 +128,6 @@ struct Value {
         return;
       case Type::EDGE:
         std::destroy_at(&edge_v);
-      default:
-        return;
     }
   }
 
@@ -504,3 +504,5 @@ using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest,
                                    CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest>;
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
                                     CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
+
+}  // namespace memgraph::messages

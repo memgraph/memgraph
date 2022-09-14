@@ -21,6 +21,8 @@
 
 namespace memgraph::storage::v3 {
 
+using namespace memgraph::messages;
+
 template <typename>
 constexpr auto kAlwaysFalse = false;
 
@@ -42,16 +44,14 @@ class ShardRsm {
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   ReadResponses Read(ReadRequests requests) {
     return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
-                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+                      std::move(requests));
   }
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   WriteResponses Apply(WriteRequests requests) {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
-                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+                      std::move(requests));
   }
 };
 

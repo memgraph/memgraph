@@ -15,9 +15,14 @@
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
+using memgraph::messages::Label;
+using memgraph::messages::PropertyId;
+using memgraph::messages::Value;
+using memgraph::messages::VertexId;
+
 namespace {
 // TODO(gvolfing use come algorithm instead of explicit for loops)
-memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
+memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
   using PV = memgraph::storage::v3::PropertyValue;
   PV ret;
   switch (value.type) {
@@ -34,14 +39,14 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::LIST: {
       std::vector<PV> list;
       for (auto &elem : value.list_v) {
-        list.emplace_back(ToPropertyValue(elem));
+        list.emplace_back(ToPropertyValue(std::move(elem)));
       }
       return PV(list);
     }
     case Value::Type::MAP: {
       std::map<std::string, PV> map;
       for (auto &[key, value] : value.map_v) {
-        map.emplace(std::make_pair(key, ToPropertyValue(value)));
+        map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
       }
       return PV(map);
     }
@@ -49,53 +54,48 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::VERTEX:
     case Value::Type::EDGE:
     case Value::Type::PATH:
-    default:
-      MG_ASSERT(false, "Missing or type from Value");
+      MG_ASSERT(false, "Not PropertyValue");
   }
   return ret;
 }
 
 Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
-  // There should be a better solution.
-  if (pv.IsBool()) {
-    return Value(pv.ValueBool());
-  }
-  if (pv.IsDouble()) {
-    return Value(pv.ValueDouble());
-  }
-  if (pv.IsInt()) {
-    return Value(pv.ValueInt());
-  }
-  if (pv.IsList()) {
-    std::vector<Value> list(pv.ValueList().size());
-    for (const auto &elem : pv.ValueList()) {
-      list.emplace_back(ToValue(elem));
+  using memgraph::storage::v3::PropertyValue;
+
+  switch (pv.type()) {
+    case PropertyValue::Type::Bool:
+      return Value(pv.ValueBool());
+    case PropertyValue::Type::Double:
+      return Value(pv.ValueDouble());
+    case PropertyValue::Type::Int:
+      return Value(pv.ValueInt());
+    case PropertyValue::Type::List: {
+      std::vector<Value> list(pv.ValueList().size());
+      for (const auto &elem : pv.ValueList()) {
+        list.emplace_back(ToValue(elem));
+      }
+
+      return Value(list);
     }
+    case PropertyValue::Type::Map: {
+      std::map<std::string, Value> map;
+      for (const auto &[key, val] : pv.ValueMap()) {
+        // maybe use std::make_pair once the && issue is resolved.
+        map.emplace(key, ToValue(val));
+      }
 
-    return Value(list);
-  }
-  if (pv.IsMap()) {
-    std::map<std::string, Value> map;
-    for (const auto &[key, val] : pv.ValueMap()) {
-      // maybe use std::make_pair once the && issue is resolved.
-      map.emplace(key, ToValue(val));
+      return Value(map);
     }
-
-    return Value(map);
+    case PropertyValue::Type::Null:
+      return Value{};
+    case PropertyValue::Type::String:
+      return Value(pv.ValueString());
+    case PropertyValue::Type::TemporalData: {
+      // TBD -> we need to specify this in the messages, not a priority.
+      MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
+      return Value{};
+    }
   }
-  if (pv.IsNull()) {
-    // NOOP -> default ctor
-  }
-  if (pv.IsString()) {
-    return Value(pv.ValueString());
-  }
-  if (pv.IsTemporalData()) {
-    // TBD -> we need to specify this in the messages, not a priority.
-    MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
-  }
-
-  MG_ASSERT(false, "Typematching Value and PropertyValue encounterd unspecified type!");
-  return Value{};
 }
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
@@ -104,8 +104,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   ret.reserve(properties.size());
 
   for (auto &[key, value] : properties) {
-    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(value));
-    ret.push_back(std::make_pair(key, converted_value));
+    ret.push_back(std::make_pair(key, ToPropertyValue(std::move(value))));
   }
 
   return ret;
@@ -116,8 +115,7 @@ std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vec
   ret.reserve(vec.size());
 
   for (auto &elem : vec) {
-    memgraph::storage::v3::PropertyValue converted_value(ToPropertyValue(elem));
-    ret.push_back(converted_value);
+    ret.push_back(ToPropertyValue(std::move(elem)));
   }
 
   return ret;
@@ -128,19 +126,18 @@ std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::P
   ret.reserve(vec.size());
 
   for (auto &elem : vec) {
-    Value converted_value(ToValue(elem));
-    ret.push_back(converted_value);
+    ret.push_back(ToValue(elem));
   }
 
   return ret;
 }
 
 std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
-    const memgraph::storage::v3::VertexAccessor &acc,
-    const std::optional<std::vector<memgraph::storage::v3::PropertyId>> &props, memgraph::storage::v3::View view) {
+    const memgraph::storage::v3::VertexAccessor &acc, const std::vector<memgraph::storage::v3::PropertyId> &props,
+    memgraph::storage::v3::View view) {
   std::map<PropertyId, Value> ret;
 
-  for (const auto &prop : props.value()) {
+  for (const auto &prop : props) {
     auto result = acc.GetProperty(prop, view);
     if (result.HasError()) {
       spdlog::debug("Encountered an Error while trying to get a vertex property.");
@@ -307,8 +304,6 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
 
           break;
         }
-        default:
-          MG_ASSERT(false, "Non-existent deletion type.");
       }
     }
   }
@@ -400,7 +395,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
       std::optional<std::map<PropertyId, Value>> found_props;
 
       if (req.props_to_return) {
-        found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return, view);
+        found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }

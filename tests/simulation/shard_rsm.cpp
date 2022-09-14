@@ -28,29 +28,29 @@
 #include "storage/v3/view.hpp"
 #include "utils/result.hpp"
 
-using memgraph::io::Address;
-using memgraph::io::Io;
-using memgraph::io::ResponseEnvelope;
-using memgraph::io::ResponseFuture;
-using memgraph::io::Time;
-using memgraph::io::TimedOut;
-using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
-using memgraph::io::rsm::RsmClient;
-using memgraph::io::rsm::WriteRequest;
-using memgraph::io::rsm::WriteResponse;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
-using memgraph::storage::v3::LabelId;
-using memgraph::storage::v3::SchemaProperty;
-using memgraph::utils::BasicResult;
+namespace memgraph::storage::v3::tests {
 
-using memgraph::storage::v3::PropertyValue;
-using memgraph::storage::v3::Shard;
-using memgraph::storage::v3::ShardRsm;
+using io::Address;
+using io::Io;
+using io::ResponseEnvelope;
+using io::ResponseFuture;
+using io::Time;
+using io::TimedOut;
+using io::rsm::Raft;
+using io::rsm::ReadRequest;
+using io::rsm::ReadResponse;
+using io::rsm::RsmClient;
+using io::rsm::WriteRequest;
+using io::rsm::WriteResponse;
+using io::simulator::Simulator;
+using io::simulator::SimulatorConfig;
+using io::simulator::SimulatorStats;
+using io::simulator::SimulatorTransport;
+using utils::BasicResult;
+
+using messages::Edge;
+using messages::PrimaryKey;
+using messages::Value;
 
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
@@ -77,7 +77,7 @@ uint64_t GetUniqueInteger() {
 LabelId get_primary_label() { return LabelId::FromUint(0); }
 
 SchemaProperty get_schema_property() {
-  return {.property_id = PropertyId::FromUint(0), .type = memgraph::common::SchemaType::INT};
+  return {.property_id = PropertyId::FromUint(0), .type = common::SchemaType::INT};
 }
 
 PrimaryKey GetPrimaryKey(int64_t value) {
@@ -281,7 +281,7 @@ void TestScanAllWithSmallBatchSize(ShardClient &client) {
 
 }  // namespace
 
-int main() {
+int TestMessages() {
   SimulatorConfig config{
       .drop_percent = 0,
       .perform_timeouts = false,
@@ -307,9 +307,9 @@ int main() {
   PropertyValue max_pk(static_cast<int64_t>(10000000));
   std::vector<PropertyValue> max_prim_key = {max_pk};
 
-  auto shard_ptr1 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
-  auto shard_ptr2 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
-  auto shard_ptr3 = std::make_unique<memgraph::storage::v3::Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
 
   shard_ptr1->CreateSchema(get_primary_label(), {get_schema_property()});
   shard_ptr2->CreateSchema(get_primary_label(), {get_schema_property()});
@@ -356,3 +356,7 @@ int main() {
 
   return 0;
 }
+
+}  // namespace memgraph::storage::v3::tests
+
+int main() { return memgraph::storage::v3::tests::TestMessages(); }
