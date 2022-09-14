@@ -936,8 +936,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
     return FLAGS_bolt_server_name_for_init;
   }
 
-  std::optional<std::string> GetRunIdForInit() override { return run_id_; }
-
  private:
   template <typename TStream>
   std::map<std::string, memgraph::communication::bolt::Value> PullResults(TStream &stream, std::optional<int> n,
@@ -959,7 +957,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
       }
-      if (auto run_id = GetRunIdForInit(); run_id) {
+      if (auto run_id = run_id_; run_id) {
         decoded_summary.emplace("run_id", *run_id);
       }
 

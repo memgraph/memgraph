@@ -99,9 +99,6 @@ class Session {
    * message. */
   virtual std::optional<std::string> GetServerNameForInit() = 0;
 
-  /** Return the instance identifier AKA run_id */
-  virtual std::optional<std::string> GetRunIdForInit() = 0;
-
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
