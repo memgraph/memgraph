@@ -51,6 +51,7 @@ using utils::BasicResult;
 using messages::Edge;
 using messages::PrimaryKey;
 using messages::Value;
+using messages::VertexId;
 
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 

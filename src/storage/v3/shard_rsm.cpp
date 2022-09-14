@@ -110,7 +110,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &vec) {
+std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
   std::vector<memgraph::storage::v3::PropertyValue> ret;
   ret.reserve(vec.size());
 
@@ -218,8 +218,9 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
       converted_label_ids.emplace_back(label_id.id);
     }
 
-    auto result_schema = acc.CreateVertexAndValidate(
-        prim_label, converted_label_ids, ConvertPropertyVector(new_vertex.primary_key), converted_property_map);
+    auto result_schema =
+        acc.CreateVertexAndValidate(prim_label, converted_label_ids,
+                                    ConvertPropertyVector(std::move(new_vertex.primary_key)), converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -265,7 +266,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
       break;
     }
 
-    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(propval), View::OLD);
+    auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
       spdlog::debug(
@@ -319,12 +320,12 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   auto acc = shard_->Access();
   bool action_successful = true;
 
-  for (const auto &edge : req.edges) {
+  for (auto &edge : req.edges) {
     auto vertex_acc_from_primary_key = edge.id.src.second;
-    auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(vertex_acc_from_primary_key), View::OLD);
+    auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
 
     auto vertex_acc_to_primary_key = edge.id.dst.second;
-    auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(vertex_acc_to_primary_key), View::OLD);
+    auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
     if (!vertex_from_acc || !vertex_to_acc) {
       action_successful = false;
@@ -334,7 +335,11 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
     }
 
     auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
-    auto edge_acc = acc.CreateEdge(&vertex_from_acc.value(), &vertex_to_acc.value(), edge_type_id);
+    // auto edge_acc = acc.CreateEdge(&vertex_from_acc.value(), &vertex_to_acc.value(), edge_type_id,
+    // Gid::FromUint(edge.id.gid));
+    auto from_vertex_id = VertexId(edge.id.src.first.id, ConvertPropertyVector(std::move(edge.id.src.second)));
+    auto to_vertex_id = VertexId(edge.id.dst.first.id, ConvertPropertyVector(std::move(edge.id.dst.second)));
+    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, edge_type_id, Gid::FromUint(edge.id.gid));
 
     if (edge_acc.HasError()) {
       action_successful = false;
@@ -366,7 +371,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   bool action_successful = true;
 
   std::vector<ScanResultRow> results;
-  std::optional<VertexId> next_start_id;
+  std::optional<messages::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
@@ -376,7 +381,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (ConvertPropertyVector(req.start_id.second) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (ConvertPropertyVector(std::move(req.start_id.second)) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
