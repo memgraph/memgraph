@@ -138,7 +138,7 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
 
   {
     auto user = memgraph::auth::User{"deny_global"};
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
@@ -154,7 +154,8 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
 
   {
     auto user = memgraph::auth::User{"deny_label_read"};
-    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
@@ -163,7 +164,8 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
   {
     auto user = memgraph::auth::User{"grant_global_deny_label"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
@@ -171,7 +173,7 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
 
   {
     auto user = memgraph::auth::User{"deny_global_grant_label"};
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant(labelName,
                                                                  memgraph::auth::FineGrainedPermission::READ);
 
@@ -182,7 +184,8 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
   {
     auto user = memgraph::auth::User{"global_update_deny_label"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
@@ -192,7 +195,8 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
     auto user = memgraph::auth::User{"global_create_delete_deny_label"};
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Deny(labelName, memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant(labelName,
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
 
     test_hypothesis(user, memgraph::storage::View::OLD, 0);
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
@@ -534,8 +538,8 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
 
   user.fine_grained_access_handler().edge_type_permissions().Grant(
       "Edge", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-  user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_test",
-                                                                  memgraph::auth::FineGrainedPermission::READ);
+  user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_test",
+                                                                   memgraph::auth::FineGrainedPermission::NOTHING);
   user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                memgraph::auth::FineGrainedPermission::CREATE_DELETE);
   memgraph::storage::EdgeTypeId edge_type_test{db.NameToEdgeType("edge_type_test")};
@@ -851,8 +855,9 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   // All labels, All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
@@ -866,7 +871,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   // All labels granted, All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
@@ -888,7 +894,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 1, nullopt, reverse, user), (map_int{}));
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 1, nullopt, reverse, user), (map_int{}));
@@ -905,7 +911,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
@@ -926,8 +932,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   // All labels granted, Edge types from layer 0 to layer 1 denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_1",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
@@ -956,7 +962,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
@@ -984,8 +990,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_2",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, 0, nullopt, reverse, user), (map_int{{0, 2}}));
@@ -1099,8 +1105,9 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
   // All labels denied, All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, false, user), (map_int{}));
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true, user), (map_int{}));
@@ -1111,7 +1118,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
 
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, false, user), (map_int{{0, 4}}));
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, true, user), (map_int{{0, 4}}));
@@ -1123,7 +1130,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, false, user), (map_int{{1, 4}, {0, 2}}));
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, true, user), (map_int{{1, 4}, {0, 2}}));
@@ -1133,8 +1140,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_1",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
                                                                      memgraph::auth::FineGrainedPermission::READ);
 
@@ -1150,8 +1157,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_2",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, false, user), (map_int{{1, 24}, {0, 12}}));
     EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 0, 2, true, user), (map_int{{1, 20}, {0, 12}}));
@@ -1220,8 +1227,9 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   // All labels and edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 0);
@@ -1231,7 +1239,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 0);
@@ -1240,7 +1248,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   // All labels granted, All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
@@ -1251,7 +1260,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
 
@@ -1264,7 +1273,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
@@ -1277,7 +1286,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
     ASSERT_EQ(results.size(), 6);
@@ -1297,8 +1306,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   // First layer edge type denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_1",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
@@ -1312,8 +1321,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_2",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
     auto results = GetPathResults(create_path, path_symbol, &user);
@@ -1587,8 +1596,9 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
   // All labels denied, All edge types denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt, std::nullopt, reverse, user), (map_int{}));
@@ -1614,7 +1624,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
 
     for (auto reverse : {false, true}) {
@@ -1642,7 +1652,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().label_permissions().Deny("2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::NOTHING);
 
     for (auto reverse : {false, true}) {
       EXPECT_EQ(test_expand(0, EdgeAtom::Direction::IN, std::nullopt, std::nullopt, reverse, user), (map_int{}));
@@ -1668,8 +1678,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
   // All labels granted, Edge type from layer 0 to layer 1 denied
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_1",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
                                                                      memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
@@ -1698,8 +1708,8 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_1",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_2",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_2",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
     for (auto reverse : {false, true}) {
@@ -2090,7 +2100,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied all labels
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
@@ -2100,7 +2110,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
@@ -2108,7 +2119,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("l0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
 
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
@@ -2128,7 +2139,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 4);
 
-    user.fine_grained_access_handler().label_permissions().Deny("l2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::NOTHING);
     auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 3);
   }
@@ -2153,8 +2164,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
 
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_filter",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_filter",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(filtered_results.size(), 4);
   }
@@ -2547,7 +2558,8 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   {
     memgraph::auth::User user{"test"};
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 0);
   }
@@ -2555,7 +2567,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // Denied first vertex label
   {
     memgraph::auth::User user{"test"};
-    user.fine_grained_access_handler().label_permissions().Deny("l0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
@@ -2574,7 +2586,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
 
     auto results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
     ASSERT_EQ(results.size(), 4);
-    user.fine_grained_access_handler().label_permissions().Deny("l2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::NOTHING);
     auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
     ASSERT_EQ(filtered_results.size(), 3);
@@ -2600,8 +2612,8 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
 
     user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
                                                                      memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_filter",
-                                                                    memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type_filter",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     auto filtered_results = ExpandAllShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
 
     ASSERT_EQ(filtered_results.size(), 4);
