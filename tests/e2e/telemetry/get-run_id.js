@@ -1,47 +1,5 @@
 const neo4j = require('neo4j-driver');
 
-const GRAPH_TYPES = ['Node', 'Relationship', 'UnboundRelationship', 'Path', 'PathSegment'];
-
-function parseField(field) {
-  if (field === undefined || field === null) {
-    return null;
-  }
-
-  if (_.isArray(field)) {
-    return field.map((f) => parseField(f));
-  }
-
-  if (neo4j.isInt(field)) {
-    return field.toNumber();
-  }
-
-  if (_.isObject(field)) {
-    const newObj = {};
-    Object.keys(field).forEach((key) => {
-      if (_.has(field, key)) {
-        newObj[key] = parseField(field[key]);
-      }
-    });
-
-    const valueName = field.constructor.name;
-    if (GRAPH_TYPES.includes(valueName)) {
-      newObj.class = valueName;
-    }
-
-    return newObj;
-  }
-
-  return field;
-}
-
-function parseRecord(record) {
-  const newRecord = {};
-  record.keys.forEach((key, index) => {
-    newRecord[key] = parseField(record._fields[index]);
-  });
-  return newRecord;
-}
-
 const fixNeo4jMetadata = (metadata) => {
   return { ...metadata, profile: {} };
 };
@@ -70,9 +28,6 @@ const runQuery = async (driver, query) => {
     };
 
     activeSession.subscribe({
-      onNext: (record) => {
-        result.records.push(parseRecord(record));
-      },
       onCompleted: async (summary) => {
         await session.close();
         result.summary = summary;
