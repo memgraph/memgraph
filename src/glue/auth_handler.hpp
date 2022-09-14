@@ -68,17 +68,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 #endif
       ) override;
 
-  void DenyPrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
-#ifdef MG_ENTERPRISE
-      ,
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &label_privileges,
-
-      const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges
-#endif
-      ) override;
+  void DenyPrivilege(const std::string &user_or_role,
+                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) override;
 
   void RevokePrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges

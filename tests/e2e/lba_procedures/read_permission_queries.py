@@ -49,23 +49,23 @@ read_node_with_index_operation_cases_expected_sizes = [1, 3, 1, 3, 1, 3]
 
 not_read_node_without_index_operation_cases = [
     [],
-    ["DENY READ ON LABELS :read_label TO user;"],
-    ["DENY READ ON LABELS * TO user;"],
+    ["GRANT NOTHING ON LABELS :read_label TO user;"],
+    ["GRANT NOTHING ON LABELS * TO user;"],
     [
         "GRANT UPDATE ON LABELS :read_label TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT UPDATE ON LABELS * TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE_DELETE ON LABELS :read_label TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE_DELETE ON LABELS * TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
 ]
 
@@ -73,23 +73,23 @@ not_read_node_without_index_operation_cases_expected_sizes = [0, 0, 0, 0, 2, 0, 
 
 not_read_node_with_index_operation_cases = [
     [],
-    ["DENY READ ON LABELS :read_label TO user;"],
-    ["DENY READ ON LABELS * TO user;"],
+    ["GRANT NOTHING ON LABELS :read_label TO user;"],
+    ["GRANT NOTHING ON LABELS * TO user;"],
     [
         "GRANT UPDATE ON LABELS :read_label TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT UPDATE ON LABELS * TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE_DELETE ON LABELS :read_label TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
     [
         "GRANT CREATE_DELETE ON LABELS * TO user;",
-        "DENY READ ON LABELS :read_label TO user",
+        "GRANT NOTHING ON LABELS :read_label TO user",
     ],
 ]
 

@@ -51,7 +51,7 @@ def test_can_update_node_when_given_update_grant():
 def test_can_not_update_node_when_given_deny():
     admin_cursor = connect(username="admin", password="test").cursor()
     reset_update_permissions(admin_cursor)
-    execute_and_fetch_all(admin_cursor, "DENY UPDATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
 
