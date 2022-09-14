@@ -957,6 +957,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
       }
+      // Add this memgraph instance run_id, received from telemetry
+      // This is sent with every query, instead of only on bolt init inside
+      // communication/bolt/v1/states/init.hpp because neo4jdriver does not
+      // read the init message.
       if (auto run_id = run_id_; run_id) {
         decoded_summary.emplace("run_id", *run_id);
       }
