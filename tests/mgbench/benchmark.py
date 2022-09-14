@@ -79,7 +79,8 @@ def filter_benchmarks(generators, patterns):
 
 # Parse options.
 parser = argparse.ArgumentParser(
-    description="Memgraph benchmark executor.", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    description="Memgraph benchmark executor.",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
 )
 parser.add_argument(
     "benchmarks",
@@ -96,7 +97,9 @@ parser.add_argument(
     "default test is '*' which selects all tests",
 )
 parser.add_argument(
-    "--memgraph-binary", default=helpers.get_binary_path("memgraph"), help="Memgraph binary used for benchmarking"
+    "--memgraph-binary",
+    default=helpers.get_binary_path("memgraph"),
+    help="Memgraph binary used for benchmarking",
 )
 parser.add_argument(
     "--client-binary",
@@ -110,14 +113,36 @@ parser.add_argument(
     help="number of workers used to import the dataset",
 )
 parser.add_argument(
-    "--num-workers-for-benchmark", type=int, default=1, help="number of workers used to execute the benchmark"
+    "--num-workers-for-benchmark",
+    type=int,
+    default=1,
+    help="number of workers used to execute the benchmark",
 )
-parser.add_argument("--single-threaded-runtime-sec", type=int, default=10, help="single threaded duration of each test")
-parser.add_argument("--no-load-query-counts", action="store_true", help="disable loading of cached query counts")
-parser.add_argument("--no-save-query-counts", action="store_true", help="disable storing of cached query counts")
-parser.add_argument("--export-results", default="", help="file path into which results should be exported")
 parser.add_argument(
-    "--temporary-directory", default="/tmp", help="directory path where temporary data should " "be stored"
+    "--single-threaded-runtime-sec",
+    type=int,
+    default=10,
+    help="single threaded duration of each test",
+)
+parser.add_argument(
+    "--no-load-query-counts",
+    action="store_true",
+    help="disable loading of cached query counts",
+)
+parser.add_argument(
+    "--no-save-query-counts",
+    action="store_true",
+    help="disable storing of cached query counts",
+)
+parser.add_argument(
+    "--export-results",
+    default="",
+    help="file path into which results should be exported",
+)
+parser.add_argument(
+    "--temporary-directory",
+    default="/tmp",
+    help="directory path where temporary data should " "be stored",
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
@@ -149,7 +174,11 @@ if len(args.benchmarks) == 0:
     for name in sorted(generators.keys()):
         print("Dataset:", name)
         dataset, tests = generators[name]
-        print("    Variants:", ", ".join(dataset.VARIANTS), "(default: " + dataset.DEFAULT_VARIANT + ")")
+        print(
+            "    Variants:",
+            ", ".join(dataset.VARIANTS),
+            "(default: " + dataset.DEFAULT_VARIANT + ")",
+        )
         for group in sorted(tests.keys()):
             print("    Group:", group)
             for test_name, test_func in tests[group]:
@@ -173,7 +202,10 @@ for dataset, tests in benchmarks:
 
     # Prepare runners and import the dataset.
     memgraph = runners.Memgraph(
-        args.memgraph_binary, args.temporary_directory, not args.no_properties_on_edges, args.bolt_port
+        args.memgraph_binary,
+        args.temporary_directory,
+        not args.no_properties_on_edges,
+        args.bolt_port,
     )
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
     memgraph.start_preparation()
@@ -214,15 +246,21 @@ for dataset, tests in benchmarks:
     for with_fine_grained_authorization in [False, True]:
         if with_fine_grained_authorization:
             memgraph.start_preparation()
+            client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
             client.execute(
                 queries=[
                     ("CREATE USER user IDENTIFIED BY 'test';", {}),
+                    ("GRANT ALL PRIVILEGES TO user;", {}),
                     ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
                     ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
                 ]
             )
             client = runners.Client(
-                args.client_binary, args.temporary_directory, args.bolt_port, username="user", password="test"
+                args.client_binary,
+                args.temporary_directory,
+                args.bolt_port,
+                username="user",
+                password="test",
             )
             memgraph.stop()
 
@@ -269,7 +307,13 @@ for dataset, tests in benchmarks:
                         else:
                             count = count * 10
                     memgraph.stop()
-                    config.set_value(*config_key, value={"count": count, "duration": args.single_threaded_runtime_sec})
+                    config.set_value(
+                        *config_key,
+                        value={
+                            "count": count,
+                            "duration": args.single_threaded_runtime_sec,
+                        }
+                    )
                 else:
                     print(
                         "Using cached query count of",
@@ -289,9 +333,16 @@ for dataset, tests in benchmarks:
                     args.single_threaded_runtime_sec,
                     "seconds.",
                 )
-                print("Queries are executed using", args.num_workers_for_benchmark, "concurrent clients.")
+                print(
+                    "Queries are executed using",
+                    args.num_workers_for_benchmark,
+                    "concurrent clients.",
+                )
                 memgraph.start_benchmark()
-                ret = client.execute(queries=get_queries(func, count), num_workers=args.num_workers_for_benchmark)[0]
+                ret = client.execute(
+                    queries=get_queries(func, count),
+                    num_workers=args.num_workers_for_benchmark,
+                )[0]
                 usage = memgraph.stop()
                 ret["database"] = usage
 
