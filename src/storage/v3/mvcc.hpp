@@ -114,6 +114,9 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // concurrently (as well as other execution threads).
 
   // 1. We need to set the next delta of the new delta to the existing delta.
+  // TODO(antaljanosbenjamin): clang-tidy detects (in my opinion a false positive) issue in
+  // `Shard::Accessor::CreateEdge`.
+  // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
   delta->next.store(object->delta, std::memory_order_release);
   // 2. We need to set the previous delta of the new delta to the object.
   delta->prev.Set(object);

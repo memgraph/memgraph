@@ -370,7 +370,6 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
     //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
     //                         &wal_seq_num_);
     if (info) {
-      edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_commit_timestamp) {
         last_commit_timestamp_ = *info->last_commit_timestamp;
@@ -601,8 +600,8 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
             "accessor when deleting a vertex!");
   auto *vertex_ptr = vertex->vertex_;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  std::vector<Vertex::EdgeLink> in_edges;
+  std::vector<Vertex::EdgeLink> out_edges;
 
   {
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -614,11 +613,12 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   }
 
   std::vector<EdgeAccessor> deleted_edges;
+  const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys.Keys()};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_ptr, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->vertex_validator_);
-    auto ret = DeleteEdge(&e);
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, &transaction_, &shard_->indices_, &shard_->constraints_,
+                   config_);
+    auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
@@ -630,9 +630,9 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_ptr, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_, shard_->vertex_validator_);
-    auto ret = DeleteEdge(&e);
+    EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
+                   config_);
+    auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
       return ret.GetError();
@@ -659,79 +659,38 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
                                         std::move(deleted_edges));
 }
 
-Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) {
+Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
+                                                 const EdgeTypeId edge_type, const Gid gid) {
   OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
+  Vertex *from_vertex{nullptr};
+  Vertex *to_vertex{nullptr};
 
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
+  auto acc = shard_->vertices_.access();
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  const auto from_is_local = shard_->IsVertexBelongToShard(from_vertex_id);
+  const auto to_is_local = shard_->IsVertexBelongToShard(to_vertex_id);
+  MG_ASSERT(from_is_local || to_is_local, "Trying to create an edge without having a local vertex");
 
-  if (to_vertex != from_vertex) {
+  if (from_is_local) {
+    auto it = acc.find(from_vertex_id.primary_key);
+    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
+    from_vertex = &it->vertex;
+  }
+
+  if (to_is_local) {
+    auto it = acc.find(to_vertex_id.primary_key);
+    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
+    to_vertex = &it->vertex;
+  }
+
+  if (from_is_local) {
+    if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+    if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  }
+  if (to_is_local && to_vertex != from_vertex) {
     if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
-
-  auto gid = Gid::FromUint(shard_->edge_id_++);
-  EdgeRef edge(gid);
-  if (config_.properties_on_edges) {
-    auto acc = shard_->edges_.access();
-    auto *delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
-    MG_ASSERT(inserted, "The edge must be inserted here!");
-    MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
-    edge = EdgeRef(&*it);
-    delta->prev.Set(&*it);
-  }
-
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
-  // Increment edge count.
-  ++shard_->edge_count_;
-
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                      config_, shard_->vertex_validator_);
-}
-
-Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
-                                                 Gid gid) {
-  OOMExceptionEnabler oom_exception;
-  MG_ASSERT(from->transaction_ == to->transaction_,
-            "VertexAccessors must be from the same transaction when creating "
-            "an edge!");
-  MG_ASSERT(from->transaction_ == &transaction_,
-            "VertexAccessors must be from the same transaction in when "
-            "creating an edge!");
-
-  auto *from_vertex = from->vertex_;
-  auto *to_vertex = to->vertex_;
-
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
-
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
-  }
-
-  // NOTE: When we update the next `edge_id_` here we perform a RMW
-  // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
-  // because this function is only called from the replication delta applier
-  // that runs single-threadedly and while this instance is set-up to apply
-  // threads (it is the replica), it is guaranteed that no other writes are
-  // possible.
-  shard_->edge_id_ = std::max(shard_->edge_id_, gid.AsUint() + 1);
 
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
@@ -744,69 +703,99 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexAccessor *from, VertexAcc
     delta->prev.Set(&*it);
   }
 
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
-
+  if (from_is_local) {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex_id, edge);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex_id, edge);
+  }
+  if (to_is_local) {
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex_id, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex_id, edge);
+  }
   // Increment edge count.
   ++shard_->edge_count_;
 
-  return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_, &shard_->constraints_,
-                      config_, shard_->vertex_validator_);
+  return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), &transaction_,
+                      &shard_->indices_, &shard_->constraints_, config_);
 }
 
-Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *edge) {
-  MG_ASSERT(edge->transaction_ == &transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
-            "accessor when deleting an edge!");
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
+Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id,
+                                                                const Gid edge_id) {
+  Vertex *from_vertex{nullptr};
+  Vertex *to_vertex{nullptr};
 
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
+  auto acc = shard_->vertices_.access();
 
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+  const auto from_is_local = shard_->IsVertexBelongToShard(from_vertex_id);
+  const auto to_is_local = shard_->IsVertexBelongToShard(to_vertex_id);
 
-    if (edge_ptr->deleted) return std::optional<EdgeAccessor>{};
+  if (from_is_local) {
+    auto it = acc.find(from_vertex_id.primary_key);
+    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
+    from_vertex = &it->vertex;
   }
 
-  auto *from_vertex = edge->from_vertex_;
-  auto *to_vertex = edge->to_vertex_;
+  if (to_is_local) {
+    auto it = acc.find(to_vertex_id.primary_key);
+    MG_ASSERT(it != acc.end(), "Cannot find local vertex");
+    to_vertex = &it->vertex;
+  }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+  MG_ASSERT(from_is_local || to_is_local, "Trying to delete an edge without having a local vertex");
 
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+  if (from_is_local) {
+    if (!PrepareForWrite(&transaction_, from_vertex)) {
+      return Error::SERIALIZATION_ERROR;
+    }
+    MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
+  }
+  if (to_is_local && to_vertex != from_vertex) {
+    if (!PrepareForWrite(&transaction_, to_vertex)) {
+      return Error::SERIALIZATION_ERROR;
+    }
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }
 
-  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
+  const auto edge_ref = std::invoke([edge_id, this]() -> EdgeRef {
+    if (!config_.properties_on_edges) {
+      return EdgeRef(edge_id);
+    }
+    auto edge_acc = shard_->edges_.access();
+    auto res = edge_acc.find(edge_id);
+    MG_ASSERT(res != edge_acc.end(), "Cannot find edge");
+    return EdgeRef(&*res);
+  });
+
+  std::optional<EdgeTypeId> edge_type{};
+  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](std::vector<Vertex::EdgeLink> &edges) mutable {
+    auto it = std::find_if(edges.begin(), edges.end(),
+                           [&edge_ref](const Vertex::EdgeLink &link) { return std::get<2>(link) == edge_ref; });
     if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
+      MG_ASSERT(it != edges.end(), "Invalid database state!");
+    } else if (it == edges.end()) {
       return false;
     }
-    std::swap(*it, *edges->rbegin());
-    edges->pop_back();
+    edge_type = std::get<0>(*it);
+    std::swap(*it, *edges.rbegin());
+    edges.pop_back();
     return true;
   };
-
-  auto op1 = delete_edge_from_storage(to_vertex, &from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(from_vertex, &to_vertex->in_edges);
+  // NOLINTNEXTLINE(clang-analyzer-core.NonNullParamChecker)
+  auto success_on_to = to_is_local ? delete_edge_from_storage(to_vertex->in_edges) : false;
+  auto success_on_from = from_is_local ? delete_edge_from_storage(from_vertex->out_edges) : false;
 
   if (config_.properties_on_edges) {
-    MG_ASSERT((op1 && op2), "Invalid database state!");
+    // Because of the check above, we are sure that the vertex exists.
+    // One vertex is always local to the shard, so at least one of the operation should always succeed
+    MG_ASSERT((to_is_local == success_on_to) && (from_is_local == success_on_from), "Invalid database state!");
   } else {
-    MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
-    if (!op1 && !op2) {
+    // We might get here with self-edges, because without the edge object we cannot detect already deleted edges, thus
+    // it is possible that both of the operation fails
+    if (!success_on_to && !success_on_from) {
       // The edge is already deleted.
       return std::optional<EdgeAccessor>{};
     }
+
+    MG_ASSERT((!to_is_local || !from_is_local) || (success_on_to == success_on_from), "Invalid database state!");
   }
 
   if (config_.properties_on_edges) {
@@ -815,14 +804,20 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(EdgeAccessor *ed
     edge_ptr->deleted = true;
   }
 
-  CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
-  CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+  MG_ASSERT(edge_type.has_value(), "Edge type is not determined");
+
+  if (from_is_local) {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), *edge_type, to_vertex_id, edge_ref);
+  }
+  if (to_is_local) {
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), *edge_type, from_vertex_id, edge_ref);
+  }
 
   // Decrement edge count.
   --shard_->edge_count_;
 
-  return std::make_optional<EdgeAccessor>(edge_ref, edge_type, from_vertex, to_vertex, &transaction_, &shard_->indices_,
-                                          &shard_->constraints_, config_, shard_->vertex_validator_, true);
+  return std::make_optional<EdgeAccessor>(edge_ref, *edge_type, std::move(from_vertex_id), std::move(to_vertex_id),
+                                          &transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
 }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
@@ -974,16 +969,16 @@ void Shard::Accessor::Abort() {
               break;
             }
             case Delta::Action::ADD_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
+              Vertex::EdgeLink link{current->vertex_edge.edge_type, current->vertex_edge.vertex_id,
+                                    current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
               MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
               vertex->in_edges.push_back(link);
               break;
             }
             case Delta::Action::ADD_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
+              Vertex::EdgeLink link{current->vertex_edge.edge_type, current->vertex_edge.vertex_id,
+                                    current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
               MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
               vertex->out_edges.push_back(link);
@@ -995,8 +990,8 @@ void Shard::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_IN_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
+              Vertex::EdgeLink link{current->vertex_edge.edge_type, current->vertex_edge.vertex_id,
+                                    current->vertex_edge.edge};
               auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
               MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
               std::swap(*it, *vertex->in_edges.rbegin());
@@ -1004,8 +999,8 @@ void Shard::Accessor::Abort() {
               break;
             }
             case Delta::Action::REMOVE_OUT_EDGE: {
-              std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                             current->vertex_edge.vertex, current->vertex_edge.edge};
+              Vertex::EdgeLink link{current->vertex_edge.edge_type, current->vertex_edge.vertex_id,
+                                    current->vertex_edge.edge};
               auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
               MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
               std::swap(*it, *vertex->out_edges.rbegin());
@@ -1246,27 +1241,23 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, View view) {
-  return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, std::nullopt, std::nullopt, view, &transaction_, shard_->vertex_validator_));
+  return VerticesIterable(
+      shard_->indices_.label_property_index.Vertices(label, property, std::nullopt, std::nullopt, view, &transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) {
   return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_,
-      shard_->vertex_validator_));
+      label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, &transaction_));
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
                                            const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                            const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
-  return VerticesIterable(shard_->indices_.label_property_index.Vertices(
-      label, property, lower_bound, upper_bound, view, &transaction_, shard_->vertex_validator_));
+  return VerticesIterable(
+      shard_->indices_.label_property_index.Vertices(label, property, lower_bound, upper_bound, view, &transaction_));
 }
 
 Transaction Shard::CreateTransaction(IsolationLevel isolation_level) {
-  // We acquire the transaction engine lock here because we access (and
-  // modify) the transaction engine variables (`transaction_id` and
-  // `timestamp`) below.
   uint64_t transaction_id{0};
   uint64_t start_timestamp{0};
 
@@ -1778,6 +1769,11 @@ uint64_t Shard::CommitTimestamp(const std::optional<uint64_t> desired_commit_tim
   }
   timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
   return *desired_commit_timestamp;
+}
+
+bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {
+  return vertex_id.primary_label == primary_label_ && vertex_id.primary_key >= min_primary_key_ &&
+         (!max_primary_key_.has_value() || vertex_id.primary_key < *max_primary_key_);
 }
 
 bool Shard::SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config) {

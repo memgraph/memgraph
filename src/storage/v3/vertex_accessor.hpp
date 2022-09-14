@@ -20,6 +20,7 @@
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::storage::v3 {
@@ -76,6 +77,8 @@ class VertexAccessor final {
 
   Result<PrimaryKey> PrimaryKey(View view) const;
 
+  Result<VertexId> Id(View view) const;
+
   /// Set a property value and return the old value or error.
   /// @throw std::bad_alloc
   ResultSchema<PropertyValue> SetPropertyAndValidate(PropertyId property, const PropertyValue &value);
@@ -94,13 +97,13 @@ class VertexAccessor final {
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                            const VertexAccessor *destination = nullptr) const;
+                                            const VertexId *destination_id = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<std::vector<EdgeAccessor>> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                             const VertexAccessor *destination = nullptr) const;
+                                             const VertexId *destination_id = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 
@@ -127,6 +130,8 @@ class VertexAccessor final {
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
+  Result<void> CheckVertexExistence(View view) const;
 
   Vertex *vertex_;
   Transaction *transaction_;
