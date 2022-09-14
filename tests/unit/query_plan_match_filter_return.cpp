@@ -33,6 +33,7 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/license.hpp"
 #include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
@@ -49,6 +50,7 @@ class MatchReturnFixture : public testing::Test {
   void AddVertices(int count) {
     for (int i = 0; i < count; i++) dba.InsertVertex();
   }
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   std::vector<Path> PathResults(std::shared_ptr<Produce> &op) {
     std::vector<Path> res;
@@ -58,12 +60,15 @@ class MatchReturnFixture : public testing::Test {
   }
 
   int PullCountAuthorized(ScanAllTuple scan_all, memgraph::auth::User user) {
+#ifdef MG_ENTERPRISE
     auto output =
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
+#endif
+    return 0;
   }
 };
 
@@ -107,6 +112,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(), results.begin()));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
   std::string labelName = "l1";
   const auto label = dba.NameToLabel(labelName);
@@ -192,6 +198,7 @@ TEST_F(MatchReturnFixture, ScanAllWithAuthChecker) {
     test_hypothesis(user, memgraph::storage::View::NEW, 0);
   }
 }
+#endif
 
 TEST(QueryPlan, MatchReturnCartesian) {
   memgraph::storage::Storage db;
@@ -474,6 +481,8 @@ class ExpandFixture : public testing::Test {
     ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l1")).HasValue());
     ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l2")).HasValue());
     ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l3")).HasValue());
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     dba.AdvanceCommand();
   }
 };
@@ -506,6 +515,7 @@ TEST_F(ExpandFixture, Expand) {
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   auto test_expand = [&](memgraph::auth::User user, EdgeAtom::Direction direction, memgraph::storage::View view) {
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -515,7 +525,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
     auto output =
         NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     return PullAll(*produce, &context);
   };
@@ -560,6 +570,7 @@ TEST_F(ExpandFixture, ExpandWithEdgeFiltering) {
   EXPECT_EQ(4, test_expand(user, EdgeAtom::Direction::IN, memgraph::storage::View::OLD));
   EXPECT_EQ(8, test_expand(user, EdgeAtom::Direction::BOTH, memgraph::storage::View::OLD));
 }
+#endif
 
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -613,6 +624,8 @@ class QueryPlanExpandVariable : public testing::Test {
   std::nullopt_t nullopt = std::nullopt;
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     // create the graph
     int chain_length = 3;
     std::vector<memgraph::query::VertexAccessor> layer;
@@ -703,8 +716,10 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+#ifdef MG_ENTERPRISE
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -721,8 +736,10 @@ class QueryPlanExpandVariable : public testing::Test {
     auto cursor = input_op->MakeCursor(memgraph::utils::NewDeleteResource());
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+#ifdef MG_ENTERPRISE
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -788,6 +805,7 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
@@ -989,6 +1007,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedOneVariableExpansion) {
     }
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
@@ -1049,6 +1068,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
   EXPECT_EQ(test_expand(0, EdgeAtom::Direction::OUT, 2, 2, true), (map_int{{2, 5 * 8}}));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool add_uniqueness_check, memgraph::auth::User &user) {
@@ -1139,6 +1159,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedEdgeUniquenessTwoVariableExpansions) 
     EXPECT_EQ(test_expand(1, EdgeAtom::Direction::OUT, 0, 2, true, user), (map_int{{0, 4}}));
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
@@ -1172,6 +1193,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
   auto expand = AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 0, 2, e, "m",
@@ -1310,6 +1332,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedFilterNamedPath) {
     EXPECT_TRUE(std::is_permutation(results.begin(), results.end(), expected_paths.begin()));
   }
 }
+#endif
 
 TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
@@ -1501,6 +1524,7 @@ TEST_F(QueryPlanExpandVariable, ExpandToSameSymbol) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
                          std::optional<size_t> upper, bool reverse, memgraph::auth::User &user) {
@@ -1699,6 +1723,7 @@ TEST_F(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
     }
   }
 }
+#endif
 
 namespace std {
 template <>
@@ -1743,6 +1768,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
@@ -1796,8 +1823,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     std::vector<ResultType> results;
     memgraph::query::ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+#ifdef MG_ENTERPRISE
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -2030,6 +2059,108 @@ TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
   EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)), QueryRuntimeException);
 }
 
+#if MG_ENTERPRISE
+TEST_F(QueryPlanExpandWeightedShortestPath, FineGrainedFiltering) {
+  // All edge_types and labels allowed
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    EXPECT_EQ(results[0].path.size(), 1);
+    EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+    EXPECT_EQ(results[0].total_weight, 3);
+
+    EXPECT_EQ(results[1].path.size(), 1);
+    EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+    EXPECT_EQ(results[1].total_weight, 5);
+
+    EXPECT_EQ(results[2].path.size(), 2);
+    EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
+    EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+
+    EXPECT_EQ(results[3].path.size(), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
+    EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+
+  // Denied all labels
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied all edge types
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Deny("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied first vertex label
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Deny("l0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 0);
+  }
+
+  // Denied vertex label 2
+  {
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("l0", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l1", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l2", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l3", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().label_permissions().Grant("l4", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 4);
+
+    user.fine_grained_access_handler().label_permissions().Deny("l2", memgraph::auth::FineGrainedPermission::READ);
+    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(filtered_results.size(), 3);
+  }
+
+  // Deny edge type (created vertex 5 and edge vertex 4 to vertex 5)
+  {
+    v.push_back(dba.InsertVertex());
+    ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(5)).HasValue());
+    ASSERT_TRUE(v.back().AddLabel(db.NameToLabel("l5")).HasValue());
+    dba.AdvanceCommand();
+    memgraph::storage::EdgeTypeId edge_type_filter = dba.NameToEdgeType("edge_type_filter");
+    auto edge = dba.InsertEdge(&v[4], &v[5], edge_type_filter);
+    ASSERT_TRUE(edge->SetProperty(prop.second, memgraph::storage::PropertyValue(1)).HasValue());
+    e.emplace(std::make_pair(4, 5), *edge);
+    dba.AdvanceCommand();
+
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(results.size(), 5);
+
+    user.fine_grained_access_handler().edge_type_permissions().Grant("edge_type",
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+    user.fine_grained_access_handler().edge_type_permissions().Deny("edge_type_filter",
+                                                                    memgraph::auth::FineGrainedPermission::READ);
+    auto filtered_results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), 0, nullptr, &user);
+    ASSERT_EQ(filtered_results.size(), 4);
+  }
+}
+#endif
+
 /** A test fixture for all shortest paths expansion */
 class QueryPlanExpandAllShortestPaths : public testing::Test {
  public:
@@ -2066,6 +2197,8 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
 
   void SetUp() {
+    memgraph::utils::license::global_license_checker.EnableTesting();
+
     for (int i = 0; i < 5; i++) {
       v.push_back(dba.InsertVertex());
       ASSERT_TRUE(v.back().SetProperty(prop.second, memgraph::storage::PropertyValue(i)).HasValue());
@@ -2119,8 +2252,10 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     std::vector<ResultType> results;
     ExecutionContext context;
     if (user) {
-      memgraph::glue::FineGrainedAuthChecker auth_checker{*user};
+#ifdef MG_ENTERPRISE
+      memgraph::glue::FineGrainedAuthChecker auth_checker{*user, &dba};
       context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+#endif
     } else {
       context = MakeContext(storage, symbol_table, &dba);
     }
@@ -2392,6 +2527,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, MultiEdge) {
   EXPECT_EQ(results[5].total_weight, 9);
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
   // All edge_types and labels allowed
   {
@@ -2471,6 +2607,7 @@ TEST_F(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
     ASSERT_EQ(filtered_results.size(), 4);
   }
 }
+#endif
 
 TEST(QueryPlan, ExpandOptional) {
   memgraph::storage::Storage db;

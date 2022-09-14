@@ -24,6 +24,7 @@
 #include "query/exceptions.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "utils/license.hpp"
 
 #include "query_plan_common.hpp"
 #include "storage/v2/id_types.hpp"
@@ -77,7 +78,9 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   EXPECT_EQ(vertex_count, 1);
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   memgraph::storage::Storage db;
@@ -94,7 +97,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
   node.labels.emplace_back(label);
 
   const auto test_create = [&](memgraph::auth::User &user) {
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &execution_dba};
     auto context = MakeContextWithFineGrainedChecker(ast, symbol_table, &execution_dba, &auth_checker);
     auto create = std::make_shared<CreateNode>(nullptr, node);
 
@@ -117,6 +120,7 @@ TEST(QueryPlan, FineGrainedCreateNodeWithAttributes) {
     ASSERT_THROW(test_create(user), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
@@ -158,7 +162,10 @@ TEST(QueryPlan, CreateReturn) {
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, FineGrainedCreateReturn) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
+
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
   memgraph::storage::Storage db;
   auto storage_dba = db.Access();
@@ -189,7 +196,7 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Grant("label",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(1, results.size());
@@ -210,11 +217,12 @@ TEST(QueryPlan, FineGrainedCreateReturn) {
     memgraph::auth::User user{"Test"};
     user.fine_grained_access_handler().label_permissions().Deny("label",
                                                                 memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     ASSERT_THROW(CollectProduce(*produce, &context), QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, CreateExpand) {
   memgraph::storage::Storage db;
@@ -293,6 +301,7 @@ TEST(QueryPlan, CreateExpand) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class CreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -300,6 +309,8 @@ class CreateExpandWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void ExecuteCreateExpand(bool cycle, memgraph::auth::User &user) {
     const auto label_node_1 = dba.NameToLabel("Node1");
@@ -328,7 +339,7 @@ class CreateExpandWithAuthFixture : public testing::Test {
 
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand = std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
@@ -465,6 +476,8 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
   AstStorage storage;
   SymbolTable symbol_table;
 
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+
   void InitGraph() {
     // add three nodes we'll match and expand-create from
     memgraph::query::VertexAccessor v1{dba.InsertVertex()};
@@ -486,7 +499,7 @@ class MatchCreateNodeWithAuthFixture : public testing::Test {
     m.labels = labels;
     // creation op
     auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*create_node, &context);
@@ -536,6 +549,7 @@ TEST_F(MatchCreateNodeWithAuthFixture, MatchCreateWithOneLabelDeniedThrows) {
 
   ASSERT_THROW(ExecuteMatchCreateTestSuite(user, 3), QueryRuntimeException);
 }
+#endif
 
 TEST(QueryPlan, MatchCreateExpand) {
   memgraph::storage::Storage db;
@@ -585,6 +599,7 @@ TEST(QueryPlan, MatchCreateExpand) {
   test_create_path(true, 0, 6);
 }
 
+#ifdef MG_ENTERPRISE
 class MatchCreateExpandWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -592,6 +607,8 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     // add three nodes we'll match and expand-create from
@@ -622,7 +639,7 @@ class MatchCreateExpandWithAuthFixture : public testing::Test {
     ;
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_, n_scan_all.sym_, cycle);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*create_expand, &context);
     dba.AdvanceCommand();
@@ -730,6 +747,7 @@ TEST_F(MatchCreateExpandWithAuthFixture, MatchCreateExpandWithCycleExecutesWhenG
 
   ExecuteMatchCreateExpandTestSuite(true, 3, 3, user);
 }
+#endif
 
 TEST(QueryPlan, Delete) {
   memgraph::storage::Storage db;
@@ -802,6 +820,7 @@ TEST(QueryPlan, Delete) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 class DeleteOperatorWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -809,6 +828,8 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
   memgraph::query::DbAccessor dba{&storage_dba};
   AstStorage storage;
   SymbolTable symbol_table;
+
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
 
   void InitGraph() {
     std::vector<memgraph::query::VertexAccessor> vertices;
@@ -837,7 +858,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     Frame frame(symbol_table.max_position());
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     auto delete_op = std::make_shared<plan::Delete>(n.op_, std::vector<Expression *>{n_get}, true);
     PullAll(*delete_op, &context);
@@ -861,7 +882,7 @@ class DeleteOperatorWithAuthFixture : public testing::Test {
                           memgraph::storage::View::NEW);
     auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(r_m.op_, std::vector<Expression *>{r_get}, false);
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
     PullAll(*delete_op, &context);
     dba.AdvanceCommand();
@@ -949,6 +970,7 @@ TEST_F(DeleteOperatorWithAuthFixture, DeleteNodeAndDeleteEdgePerformWhenGranted)
   TestDeleteNodesHypothesis(0);
   TestDeleteEdgesHypothesis(0);
 }
+#endif
 
 TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // test deleting the same vertex and edge multiple times
@@ -1242,7 +1264,9 @@ TEST(QueryPlan, SetLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, SetLabelsWithFineGrained) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   auto set_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                         std::vector<memgraph::storage::LabelId> labels) {
     ASSERT_TRUE(dba.InsertVertex().AddLabel(labels[0]).HasValue());
@@ -1255,7 +1279,11 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto label_set =
         std::make_shared<plan::SetLabels>(n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[1], labels[2]});
+<<<<<<< HEAD
     memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+=======
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+>>>>>>> E129-MG-label-based-authorization
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*label_set, &context);
@@ -1315,6 +1343,7 @@ TEST(QueryPlan, SetLabelsWithFineGrained) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, RemoveProperty) {
   memgraph::storage::Storage db;
@@ -1413,7 +1442,9 @@ TEST(QueryPlan, RemoveLabels) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
+  memgraph::utils::license::global_license_checker.EnableTesting();
   auto remove_labels = [&](memgraph::auth::User user, memgraph::query::DbAccessor dba,
                            std::vector<memgraph::storage::LabelId> labels) {
     auto v1 = dba.InsertVertex();
@@ -1431,7 +1462,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto label_remove = std::make_shared<plan::RemoveLabels>(
         n.op_, n.sym_, std::vector<memgraph::storage::LabelId>{labels[0], labels[1]});
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
 
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
@@ -1492,6 +1523,7 @@ TEST(QueryPlan, RemoveLabelsFineGrainedFiltering) {
                  QueryRuntimeException);
   }
 }
+#endif
 
 TEST(QueryPlan, NodeFilterSet) {
   memgraph::storage::Storage db;
@@ -1858,6 +1890,7 @@ TEST(QueryPlan, DeleteRemoveProperty) {
 //////////////////////////////////////////////
 ////     FINE GRAINED AUTHORIZATION      /////
 //////////////////////////////////////////////
+#ifdef MG_ENTERPRISE
 class UpdatePropertiesWithAuthFixture : public testing::Test {
  protected:
   memgraph::storage::Storage db;
@@ -1882,6 +1915,8 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
   const memgraph::storage::PropertyId edge_prop{dba.NameToProperty(edge_prop_name)};
   const memgraph::storage::PropertyValue edge_prop_value{1};
 
+  void SetUp() override { memgraph::utils::license::global_license_checker.EnableTesting(); }
+
   void SetVertexProperty(memgraph::query::VertexAccessor vertex) {
     static_cast<void>(vertex.SetProperty(entity_prop, entity_prop_value));
   }
@@ -1903,7 +1938,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_property, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1920,7 +1955,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
     auto n_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(expand.edge_sym_), entity_prop);
     auto set_property = std::make_shared<plan::SetProperty>(expand.op_, entity_prop, n_p, literal);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*set_property, &context);
@@ -1942,7 +1977,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_properties, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1966,7 +2001,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(set_properties, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -1985,7 +2020,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
         NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(remove_property, output);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*produce, &context);
@@ -2001,7 +2036,7 @@ class UpdatePropertiesWithAuthFixture : public testing::Test {
     auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(expand.edge_sym_), entity_prop);
     auto remove_property = std::make_shared<plan::RemoveProperty>(expand.op_, entity_prop, n_p);
 
-    memgraph::glue::FineGrainedAuthChecker auth_checker{user};
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
     auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
 
     PullAll(*remove_property, &context);
@@ -2484,3 +2519,4 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     test_remove_hypothesis(1);
   }
 }
+#endif

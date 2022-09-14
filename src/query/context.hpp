@@ -73,7 +73,9 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
+#ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
+#endif
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

@@ -57,35 +57,62 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) override;
 
   void GrantPrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+      ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
+
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) override;
+          &edge_type_privileges
+#endif
+      ) override;
 
   void DenyPrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+      ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
+
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) override;
+          &edge_type_privileges
+#endif
+      ) override;
 
   void RevokePrivilege(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+      ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges) override;
+          &edge_type_privileges
+#endif
+      ) override;
 
  private:
-  template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
+  template <class TEditPermissionsFun
+#ifdef MG_ENTERPRISE
+            ,
+            class TEditFineGrainedPermissionsFun
+#endif
+            >
   void EditPermissions(
-      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+      const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+      ,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
           &label_privileges,
       const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-          &edge_type_privileges,
-      const TEditPermissionsFun &edit_permissions_fun,
-      const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun);
+          &edge_type_privileges
+#endif
+      ,
+      const TEditPermissionsFun &edit_permissions_fun
+#ifdef MG_ENTERPRISE
+      ,
+      const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
+#endif
+  );
 };
 }  // namespace memgraph::glue
