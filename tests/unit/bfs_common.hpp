@@ -451,6 +451,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound, memgraph::query::Ed
   dba.Abort();
 }
 
+#ifdef MG_ENTERPRISE
 void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bound,
                                      memgraph::query::EdgeAtom::Direction direction,
                                      std::vector<std::string> edge_types, bool known_sink,
@@ -719,3 +720,4 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
 
   db_accessor.Abort();
 }
+#endif

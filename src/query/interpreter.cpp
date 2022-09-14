@@ -289,10 +289,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
+#ifdef MG_ENTERPRISE
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
       auth_query->label_privileges_;
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
       auth_query->edge_type_privileges_;
+#endif
   auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
 
   Callback callback;
@@ -322,9 +324,19 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll,
+          auth->GrantPrivilege(username, kPrivilegesAll
+#ifdef MG_ENTERPRISE
+                               ,
                                {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {auth::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {auth::kAsterisk}}}});
+                               {
+                                 {
+                                   {
+                                     AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { auth::kAsterisk }
+                                   }
+                                 }
+                               }
+#endif
+          );
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -399,8 +411,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::GRANT_PRIVILEGE:
-      callback.fn = [auth, user_or_role, privileges, label_privileges, edge_type_privileges] {
-        auth->GrantPrivilege(user_or_role, privileges, label_privileges, edge_type_privileges);
+      callback.fn = [auth, user_or_role, privileges
+#ifdef MG_ENTERPRISE
+                     ,
+                     label_privileges, edge_type_privileges
+#endif
+      ] {
+        auth->GrantPrivilege(user_or_role, privileges
+#ifdef MG_ENTERPRISE
+                             ,
+                             label_privileges, edge_type_privileges
+#endif
+        );
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -411,8 +433,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
       };
       return callback;
     case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, privileges, label_privileges, edge_type_privileges] {
-        auth->RevokePrivilege(user_or_role, privileges, label_privileges, edge_type_privileges);
+      callback.fn = [auth, user_or_role, privileges
+#ifdef MG_ENTERPRISE
+                     ,
+                     label_privileges, edge_type_privileges
+#endif
+      ] {
+        auth->RevokePrivilege(user_or_role, privileges
+#ifdef MG_ENTERPRISE
+                              ,
+                              label_privileges, edge_type_privileges
+#endif
+        );
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -444,7 +476,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
     default:
       break;
   }
-}
+}  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 InterpreterContext *interpreter_context, DbAccessor *db_accessor,
@@ -985,7 +1017,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (username.has_value() && dba) {
+  if (utils::license::global_license_checker.IsValidLicenseFast() && username.has_value() && dba) {
     ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
   }
 #endif

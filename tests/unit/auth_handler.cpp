@@ -32,8 +32,9 @@ class AuthQueryHandlerFixture : public testing::Test {
   std::string edge_type_repr = "EdgeType1";
   std::string label_repr = "Label1";
   memgraph::auth::Permissions perms{};
+#ifdef MG_ENTERPRISE
   memgraph::auth::FineGrainedAccessHandler handler{};
-
+#endif
   virtual void SetUp() {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::utils::license::global_license_checker.EnableTesting();
@@ -42,7 +43,9 @@ class AuthQueryHandlerFixture : public testing::Test {
   virtual void TearDown() {
     std::filesystem::remove_all(test_folder_);
     perms = memgraph::auth::Permissions{};
+#ifdef MG_ENTERPRISE
     handler = memgraph::auth::FineGrainedAccessHandler{};
+#endif
   }
 };
 
@@ -52,7 +55,7 @@ TEST_F(AuthQueryHandlerFixture, GivenAuthQueryHandlerWhenInitializedHaveNoUserna
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturned) {
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   auth->SaveUser(user);
 
   { ASSERT_EQ(auth_handler.GetUsernames().size(), 1); }
@@ -66,7 +69,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenNoDeniesOrGrantsThenNothingIsReturn
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturned) {
   perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -87,7 +90,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedGrantPermissionThenItIsReturne
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -109,7 +112,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenAddedDenyPermissionThenItIsReturned
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
   perms.Revoke(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -118,7 +121,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenPrivilegeRevokedThenNothingIsReturn
 
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
   perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth->SaveRole(role);
 
   { ASSERT_EQ(auth_handler.GetRolenames().size(), 1); }
@@ -143,7 +146,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeGrantedThenItIsReturned) {
 
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
@@ -165,7 +168,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeDeniedThenItIsReturned) {
 TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeRevokedThenNothingIsReturned) {
   perms.Deny(memgraph::auth::Permission::MATCH);
   perms.Revoke(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth->SaveRole(role);
 
   auto privileges = auth_handler.GetPrivileges("Mates_role");
@@ -175,7 +178,7 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWhenPrivilegeRevokedThenNothingIsReturn
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreReturned) {
   perms.Grant(memgraph::auth::Permission::MATCH);
   perms.Grant(memgraph::auth::Permission::CREATE);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   auth->SaveUser(user);
 
   auto privileges = auth_handler.GetPrivileges(user_name);
@@ -184,9 +187,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedTwoPrivilegesThenBothAreRetu
 
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThenBothArePrinted) {
   perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth->SaveRole(role);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   user.SetRole(role);
   auth->SaveUser(user);
 
@@ -208,9 +211,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherGrantedThe
 
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenBothArePrinted) {
   perms.Deny(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", perms};
   auth->SaveRole(role);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms};
   user.SetRole(role);
   auth->SaveUser(user);
 
@@ -233,12 +236,16 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherDeniedThenB
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThenBothArePrinted) {
   memgraph::auth::Permissions role_perms{};
   role_perms.Deny(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms};
   auth->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
   user_perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", user_perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{
+      user_name,
+      "",
+      user_perms,
+  };
   user.SetRole(role);
   auth->SaveUser(user);
 
@@ -261,12 +268,12 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneGrantedAndOtherDeniedThen
 TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThenBothArePrinted) {
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
-  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms, handler};
+  memgraph::auth::Role role = memgraph::auth::Role{"Mates_role", role_perms};
   auth->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
   user_perms.Deny(memgraph::auth::Permission::MATCH);
-  memgraph::auth::User user = memgraph::auth::User{user_name, "", user_perms, handler};
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", user_perms};
   user.SetRole(role);
   auth->SaveUser(user);
 
@@ -286,6 +293,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserAndRoleWhenOneDeniedAndOtherGrantedThen
   ASSERT_EQ(result[2].ValueString(), "DENIED TO USER, GRANTED TO ROLE");
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
@@ -693,3 +701,33 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
 }
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
+  auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
+
+  handler = memgraph::auth::FineGrainedAccessHandler{
+      memgraph::auth::FineGrainedAccessPermissions{},
+      memgraph::auth::FineGrainedAccessPermissions{read_permission},
+  };
+
+  memgraph::auth::User user = memgraph::auth::User{user_name, "", perms, handler};
+  auth->SaveUser(user);
+
+  auto privileges = auth_handler.GetPrivileges(user_name);
+  ASSERT_EQ(privileges.size(), 1);
+
+  auto result = *privileges.begin();
+  ASSERT_EQ(result.size(), 3);
+
+  ASSERT_TRUE(result[0].IsString());
+  ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
+
+  ASSERT_TRUE(result[1].IsString());
+  ASSERT_EQ(result[1].ValueString(), "READ");
+
+  ASSERT_TRUE(result[2].IsString());
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
+}
+#endif

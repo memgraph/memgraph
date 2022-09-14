@@ -17,6 +17,7 @@
 
 #include "auth/models.hpp"
 #include "glue/auth.hpp"
+#include "utils/license.hpp"
 
 namespace {
 
@@ -28,7 +29,9 @@ struct PermissionForPrivilegeResult {
 
 struct FineGrainedPermissionForPrivilegeResult {
   std::string permission;
+#ifdef MG_ENTERPRISE
   memgraph::auth::FineGrainedPermission permission_level;
+#endif
   std::string description;
 };
 
@@ -117,10 +120,14 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
   return ConstructPrivilegesResult(privilege_results);
 }
 
+#ifdef MG_ENTERPRISE
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return fine_grained_permissions;
+  }
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
     const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
@@ -159,7 +166,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
 std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivilegesResult(
     const std::vector<FineGrainedPermissionForPrivilegeResult> &privileges) {
   std::vector<std::vector<memgraph::query::TypedValue>> grants;
-
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
     grants.push_back(
@@ -173,6 +182,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivileges(
     const std::optional<memgraph::auth::User> &user) {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   const auto &label_permissions = user->GetFineGrainedAccessLabelPermissions();
   const auto &edge_type_permissions = user->GetFineGrainedAccessEdgeTypePermissions();
 
@@ -189,6 +201,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
     const std::optional<memgraph::auth::Role> &role) {
+  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+    return {};
+  }
   const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions();
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions();
 
@@ -202,6 +217,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
+#endif
+
 }  // namespace
 
 namespace memgraph::glue {
@@ -236,10 +253,21 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 
     if (first_user) {
       spdlog::info("{} is first created user. Granting all privileges.", username);
-      GrantPrivilege(
-          username, memgraph::query::kPrivilegesAll,
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}});
+      GrantPrivilege(username, memgraph::query::kPrivilegesAll
+#ifdef MG_ENTERPRISE
+                     ,
+                     {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::auth::kAsterisk}}}},
+                     {
+                       {
+                         {
+                           memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {
+                             memgraph::auth::kAsterisk
+                           }
+                         }
+                       }
+                     }
+#endif
+      );
     }
 
     return user_added;
@@ -433,7 +461,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
+#ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
+#endif
     auto user = locked_auth->GetUser(user_or_role);
     auto role = locked_auth->GetRole(user_or_role);
     if (!user && !role) {
@@ -442,14 +472,24 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 
     if (user) {
       grants = ShowUserPrivileges(user);
-      fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+      }
+#endif
     } else {
       grants = ShowRolePrivileges(role);
-      fine_grained_grants = ShowFineGrainedRolePrivileges(role);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        fine_grained_grants = ShowFineGrainedRolePrivileges(role);
+      }
+#endif
     }
-
-    grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
-
+#ifdef MG_ENTERPRISE
+    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+      grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
+    }
+#endif
     return grants;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -457,19 +497,28 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 }
 
 void AuthQueryHandler::GrantPrivilege(
-    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+    ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &edge_type_privileges) {
+        &edge_type_privileges
+#endif
+) {
   EditPermissions(
-      user_or_role, privileges, label_privileges, edge_type_privileges,
+      user_or_role, privileges,
+#ifdef MG_ENTERPRISE
+      label_privileges, edge_type_privileges,
+#endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
         permissions.Grant(permission);
-      },
+      }
+#ifdef MG_ENTERPRISE
+      ,
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
         for (const auto &[privilege, entities] : privilege_collection) {
           const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
@@ -477,54 +526,87 @@ void AuthQueryHandler::GrantPrivilege(
             fine_grained_permissions.Grant(entity, permission);
           }
         }
-      });
-}
+      }
+#endif
+  );
+}  // namespace memgraph::glue
 
 void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
                                      const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
   EditPermissions(
-      user_or_role, privileges, {}, {},
+      user_or_role, privileges,
+#ifdef MG_ENTERPRISE
+      {}, {},
+#endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
         permissions.Deny(permission);
-      },
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {});
+      }
+#ifdef MG_ENTERPRISE
+      ,
+      [](auto &fine_grained_permissions, const auto &privilege_collection) {}
+#endif
+  );
 }
 
 void AuthQueryHandler::RevokePrivilege(
-    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+    ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &edge_type_privileges) {
+        &edge_type_privileges
+#endif
+) {
   EditPermissions(
-      user_or_role, privileges, label_privileges, edge_type_privileges,
+      user_or_role, privileges,
+#ifdef MG_ENTERPRISE
+      label_privileges, edge_type_privileges,
+#endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
         permissions.Revoke(permission);
-      },
+      }
+#ifdef MG_ENTERPRISE
+      ,
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
         for ([[maybe_unused]] const auto &[privilege, entities] : privilege_collection) {
           for (const auto &entity : entities) {
             fine_grained_permissions.Revoke(entity);
           }
         }
-      });
-}
+      }
+#endif
+  );
+}  // namespace memgraph::glue
 
-template <class TEditPermissionsFun, class TEditFineGrainedPermissionsFun>
+template <class TEditPermissionsFun
+#ifdef MG_ENTERPRISE
+          ,
+          class TEditFineGrainedPermissionsFun
+#endif
+          >
 void AuthQueryHandler::EditPermissions(
-    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
+#ifdef MG_ENTERPRISE
+    ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
-        &edge_type_privileges,
-    const TEditPermissionsFun &edit_permissions_fun,
-    const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun) {
+        &edge_type_privileges
+#endif
+    ,
+    const TEditPermissionsFun &edit_permissions_fun
+#ifdef MG_ENTERPRISE
+    ,
+    const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
+#endif
+) {
   if (!std::regex_match(user_or_role, name_regex_)) {
     throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
   }
@@ -544,28 +626,34 @@ void AuthQueryHandler::EditPermissions(
       for (const auto &permission : permissions) {
         edit_permissions_fun(user->permissions(), permission);
       }
-      for (const auto &label_privilege_collection : label_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
-                                          label_privilege_collection);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        for (const auto &label_privilege_collection : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
+                                            label_privilege_collection);
+        }
+        for (const auto &edge_type_privilege_collection : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege_collection);
+        }
       }
-      for (const auto &edge_type_privilege_collection : edge_type_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
-                                          edge_type_privilege_collection);
-      }
-
+#endif
       locked_auth->SaveUser(*user);
     } else {
       for (const auto &permission : permissions) {
         edit_permissions_fun(role->permissions(), permission);
       }
-      for (const auto &label_privilege : label_privileges) {
-        edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+#ifdef MG_ENTERPRISE
+      if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        for (const auto &label_privilege : label_privileges) {
+          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+        }
+        for (const auto &edge_type_privilege : edge_type_privileges) {
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
+                                            edge_type_privilege);
+        }
       }
-      for (const auto &edge_type_privilege : edge_type_privileges) {
-        edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
-                                          edge_type_privilege);
-      }
-
+#endif
       locked_auth->SaveRole(*role);
     }
   } catch (const memgraph::auth::AuthException &e) {

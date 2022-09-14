@@ -161,6 +161,7 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
   ASSERT_FALSE(auth.HasUsers());
   ASSERT_TRUE(auth.AddUser("test"));
@@ -231,6 +232,7 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
               PermissionLevel::DENY);
   }
 }
+#endif
 
 TEST_F(AuthWithStorage, RoleManipulations) {
   {
@@ -480,6 +482,7 @@ TEST(AuthWithoutStorage, PermissionsMaskTest) {
   ASSERT_EQ(p4.denies(), 2);
 }
 
+#ifdef MG_ENTERPRISE
 TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
   const std::string any_label = "AnyString";
   const std::string check_label = "Label";
@@ -584,6 +587,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 }
+
 TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   auto any_label = "AnyString";
   auto check_label = "Label";
@@ -650,6 +654,7 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
     ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
   }
 }
+#endif
 
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   auto user = User("test");
