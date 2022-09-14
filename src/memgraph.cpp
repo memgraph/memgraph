@@ -959,6 +959,10 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
         }
         decoded_summary.emplace(kv.first, std::move(*maybe_value));
       }
+      if (auto run_id = GetRunIdForInit(); run_id) {
+        decoded_summary.emplace("run_id", *run_id);
+      }
+
       return decoded_summary;
     } catch (const memgraph::query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
