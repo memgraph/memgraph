@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <mg_exceptions.hpp>
 #include <mgp.hpp>
 
 void ProcImpl(std::vector<mgp::Value> arguments, mgp::Graph graph, mgp::RecordFactory record_factory) {

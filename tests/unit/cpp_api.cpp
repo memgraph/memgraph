@@ -16,7 +16,6 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
-#include "mg_exceptions.hpp"
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/view.hpp"
