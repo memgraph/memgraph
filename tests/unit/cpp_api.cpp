@@ -16,8 +16,8 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
-#include "mage.hpp"
 #include "mg_exceptions.hpp"
+#include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/view.hpp"
 
@@ -43,7 +43,7 @@ struct CppApiTestFixture : public ::testing::Test {
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-void PrintList(mage::List &list) {
+void PrintList(mgp::List &list) {
   auto first = true;
   std::cout << "[";
   for (const auto &element : list) {
@@ -54,7 +54,7 @@ void PrintList(mage::List &list) {
   std::cout << "]\n";
 }
 
-void PrintMap(mage::Map &map) {
+void PrintMap(mgp::Map &map) {
   auto first = true;
   std::cout << "{";
   for (const auto &item : map) {
@@ -66,9 +66,9 @@ void PrintMap(mage::Map &map) {
 }
 
 TEST_F(CppApiTestFixture, TestGraph) {
-  mage::memory = &memory;
+  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
-  auto graph = mage::Graph(&raw_graph);
+  auto graph = mgp::Graph(&raw_graph);
 
   graph.CreateNode();
 
@@ -80,7 +80,7 @@ TEST_F(CppApiTestFixture, TestGraph) {
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 0);
 
-  std::vector<mage::Node> nodes;
+  std::vector<mgp::Node> nodes;
   for (const auto &node : graph.Nodes()) {
     nodes.emplace_back(node);
   }
@@ -104,10 +104,10 @@ TEST_F(CppApiTestFixture, TestId) {
   int64_t int_3 = 7;
   uint64_t int_4 = 7;
 
-  auto id_1 = mage::Id::FromInt(int_1);
-  auto id_2 = mage::Id::FromUint(int_2);
-  auto id_3 = mage::Id::FromInt(int_3);
-  auto id_4 = mage::Id::FromUint(int_4);
+  auto id_1 = mgp::Id::FromInt(int_1);
+  auto id_2 = mgp::Id::FromUint(int_2);
+  auto id_3 = mgp::Id::FromInt(int_3);
+  auto id_4 = mgp::Id::FromUint(int_4);
 
   ASSERT_EQ(id_1.AsInt(), 8);
   ASSERT_EQ(id_1.AsUint(), 8);
@@ -130,62 +130,62 @@ TEST_F(CppApiTestFixture, TestId) {
 }
 
 TEST_F(CppApiTestFixture, TestList) {
-  auto list_1 = mage::List();
+  auto list_1 = mgp::List();
 
   ASSERT_EQ(list_1.Size(), 0);
 
-  auto list_2 = mage::List(10);
+  auto list_2 = mgp::List(10);
 
   ASSERT_EQ(list_2.Size(), 0);
   ASSERT_EQ(list_1, list_2);
 
-  auto a = mage::Value("a");
+  auto a = mgp::Value("a");
   list_2.Append(a);
   list_2.AppendExtend(a);
 
   ASSERT_EQ(list_2.Size(), 2);
 
-  std::vector<mage::Value> values{mage::Value("a"), mage::Value("b"), mage::Value("c")};
-  auto list_3 = mage::List(values);
+  std::vector<mgp::Value> values{mgp::Value("a"), mgp::Value("b"), mgp::Value("c")};
+  auto list_3 = mgp::List(values);
 
   ASSERT_EQ(list_3.Size(), 3);
 
-  auto list_4 = mage::List({mage::Value("d"), mage::Value("e"), mage::Value("f")});
+  auto list_4 = mgp::List({mgp::Value("d"), mgp::Value("e"), mgp::Value("f")});
   ASSERT_EQ(list_4.Size(), 3);
 }
 
 TEST_F(CppApiTestFixture, TestMap) {
-  auto map_1 = mage::Map();
+  auto map_1 = mgp::Map();
 
-  std::map<std::string_view, mage::Value> map_1a;
+  std::map<std::string_view, mgp::Value> map_1a;
   for (const auto &e : map_1) {
-    map_1a.insert(std::pair<std::string_view, mage::Value>(e.key, e.value));
+    map_1a.insert(std::pair<std::string_view, mgp::Value>(e.key, e.value));
   }
 
   ASSERT_EQ(map_1.Size(), 0);
   ASSERT_EQ(map_1a.size(), 0);
 
-  auto map_2 = mage::Map();
+  auto map_2 = mgp::Map();
 
-  auto y = mage::Value("y");
+  auto y = mgp::Value("y");
   map_2.Insert("x", y);
 
   ASSERT_EQ(map_2.Size(), 1);
   ASSERT_NE(map_1, map_2);
 
-  auto v_1 = mage::Value("1");
-  auto v_2 = mage::Value("2");
+  auto v_1 = mgp::Value("1");
+  auto v_2 = mgp::Value("2");
   auto p_1 = std::pair{"a", v_1};
   auto p_2 = std::pair{"b", v_2};
-  auto map_3 = mage::Map({p_1, p_2});
+  auto map_3 = mgp::Map({p_1, p_2});
 
   ASSERT_EQ(map_3.Size(), 2);
 }
 
 TEST_F(CppApiTestFixture, TestNode) {
-  mage::memory = &memory;
+  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
-  auto graph = mage::Graph(&raw_graph);
+  auto graph = mgp::Graph(&raw_graph);
 
   graph.CreateNode();
 
@@ -206,13 +206,13 @@ TEST_F(CppApiTestFixture, TestNode) {
   ASSERT_EQ(node_1, node_2);
 
   int count_out_relationships = 0;
-  for (const auto &neighbor : node_1.OutRelationships()) {
+  for (const auto _ : node_1.OutRelationships()) {
     count_out_relationships++;
   }
   ASSERT_EQ(count_out_relationships, 0);
 
   int count_in_relationships = 0;
-  for (const auto &neighbor : node_1.InRelationships()) {
+  for (const auto _ : node_1.InRelationships()) {
     count_in_relationships++;
   }
 
@@ -220,14 +220,14 @@ TEST_F(CppApiTestFixture, TestNode) {
 }
 
 TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
-  mage::memory = &memory;
+  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
-  auto graph = mage::Graph(&raw_graph);
+  auto graph = mgp::Graph(&raw_graph);
 
   graph.CreateNode();
   graph.CreateNode();
 
-  std::vector<mage::Node> nodes;
+  std::vector<mgp::Node> nodes;
   for (const auto &node : graph.Nodes()) {
     nodes.emplace_back(node);
   }
@@ -237,11 +237,11 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
   int count_out_relationships = 0;
   int count_in_relationships = 0;
   for (const auto &node : graph.Nodes()) {
-    for (const auto &neighbor : node.OutRelationships()) {
+    for (const auto _ : node.OutRelationships()) {
       count_out_relationships++;
     }
 
-    for (const auto &neighbor : node.OutRelationships()) {
+    for (const auto _ : node.OutRelationships()) {
       count_in_relationships++;
     }
   }
@@ -251,14 +251,14 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
 }
 
 TEST_F(CppApiTestFixture, TestRelationship) {
-  mage::memory = &memory;
+  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
-  auto graph = mage::Graph(&raw_graph);
+  auto graph = mgp::Graph(&raw_graph);
 
   graph.CreateNode();
   graph.CreateNode();
 
-  std::vector<mage::Node> nodes;
+  std::vector<mgp::Node> nodes;
   for (const auto &node : graph.Nodes()) {
     nodes.emplace_back(node);
   }
@@ -274,34 +274,38 @@ TEST_F(CppApiTestFixture, TestRelationship) {
 }
 
 TEST_F(CppApiTestFixture, TestPath) {
-  mage::memory = &memory;
+  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
-  auto graph = mage::Graph(&raw_graph);
+  auto graph = mgp::Graph(&raw_graph);
 
   graph.CreateNode();
   graph.CreateNode();
 
-  std::vector<mage::Node> nodes;
+  std::vector<mgp::Node> nodes;
   for (const auto &node : graph.Nodes()) {
     nodes.emplace_back(node);
   }
 
   graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
 
-  auto node_0 = graph.GetNodeById(mage::Id::FromInt(0));
+  auto node_0 = graph.GetNodeById(mgp::Id::FromInt(0));
   auto relationship = *graph.Relationships().begin();
-  auto path = mage::Path(node_0);
+  auto path = mgp::Path(node_0);
 
-  ASSERT_EQ(path.Length(), 2);
+  ASSERT_EQ(path.Length(), 0);
+
+  path.Expand(relationship);
+
+  ASSERT_EQ(path.Length(), 1);
   ASSERT_EQ(path.GetNodeAt(0).Id(), node_0.Id());
   ASSERT_EQ(path.GetRelationshipAt(0).Id(), relationship.Id());
 }
 
 TEST_F(CppApiTestFixture, TestDate) {
-  auto date_1 = mage::Date("2022-04-09");
-  auto date_2 = mage::Date(2022, 4, 9);
+  auto date_1 = mgp::Date("2022-04-09");
+  auto date_2 = mgp::Date(2022, 4, 9);
 
-  auto date_3 = mage::Date::Now();
+  auto date_3 = mgp::Date::Now();
 
   ASSERT_EQ(date_1.Year(), 2022);
   ASSERT_EQ(date_1.Month(), 4);
@@ -313,9 +317,9 @@ TEST_F(CppApiTestFixture, TestDate) {
 }
 
 TEST_F(CppApiTestFixture, TestLocalTime) {
-  auto lt_1 = mage::LocalTime("09:15:00");
-  auto lt_2 = mage::LocalTime(9, 15, 0, 0, 0);
-  auto lt_3 = mage::LocalTime::Now();
+  auto lt_1 = mgp::LocalTime("09:15:00");
+  auto lt_2 = mgp::LocalTime(9, 15, 0, 0, 0);
+  auto lt_3 = mgp::LocalTime::Now();
 
   ASSERT_EQ(lt_1.Hour(), 9);
   ASSERT_EQ(lt_1.Minute(), 15);
@@ -329,9 +333,8 @@ TEST_F(CppApiTestFixture, TestLocalTime) {
 }
 
 TEST_F(CppApiTestFixture, TestLocalDateTime) {
-  auto ldt_1 = mage::LocalDateTime("2021-10-05T14:15:00");
-  auto ldt_2 = mage::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
-  auto ldt_3 = mage::LocalTime::Now();
+  auto ldt_1 = mgp::LocalDateTime("2021-10-05T14:15:00");
+  auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
 
   ASSERT_EQ(ldt_1.Year(), 2021);
   ASSERT_EQ(ldt_1.Month(), 10);
@@ -344,13 +347,12 @@ TEST_F(CppApiTestFixture, TestLocalDateTime) {
   ASSERT_EQ(ldt_1.Timestamp() >= 0, true);
 
   ASSERT_EQ(ldt_1, ldt_2);
-  ASSERT_NE(ldt_2, ldt_3);
 }
 
 TEST_F(CppApiTestFixture, TestDuration) {
-  auto duration_2 = mage::Duration("PT2M2.33S");
-  auto duration_3 = mage::Duration(1465355);
-  auto duration_4 = mage::Duration(5, 14, 15, 0, 0, 0);
+  auto duration_2 = mgp::Duration("PT2M2.33S");
+  auto duration_3 = mgp::Duration(1465355);
+  auto duration_4 = mgp::Duration(5, 14, 15, 0, 0, 0);
 
   ASSERT_EQ(duration_3.Microseconds(), 1465355);
   ASSERT_NE(duration_2, duration_3);

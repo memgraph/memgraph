@@ -21,7 +21,7 @@
 #include "_mgp.hpp"
 #include "mg_procedure.h"
 
-namespace mage {
+namespace mgp {
 
 class IndexException : public std::exception {
  public:
@@ -804,18 +804,18 @@ class Node {
   ~Node();
 
   /// @brief Returns the node’s ID.
-  mage::Id Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
+  mgp::Id Id() const { return Id::FromInt(mgp::vertex_get_id(ptr_).as_int); }
 
   /// @brief Returns an iterable & indexable structure of the node’s labels.
   class Labels Labels() const {
-    return mage::Labels(ptr_);
+    return mgp::Labels(ptr_);
   }
   /// @brief Returns whether the node has the given `label`.
   bool HasLabel(std::string_view label) const;
 
   /// @brief Returns an iterable & indexable structure of the node’s properties.
   class Properties Properties() const {
-    return mage::Properties(mgp::vertex_iter_properties(ptr_, memory));
+    return mgp::Properties(mgp::vertex_iter_properties(ptr_, memory));
   }
   /// @brief Returns the value of the node’s `property_name` property.
   Value operator[](const std::string_view property_name) const;
@@ -863,14 +863,14 @@ class Relationship {
   ~Relationship();
 
   /// @brief Returns the relationship’s ID.
-  mage::Id Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
+  mgp::Id Id() const { return Id::FromInt(mgp::edge_get_id(ptr_).as_int); }
 
   /// @brief Returns the relationship’s type.
   std::string_view Type() const;
 
   /// @brief Returns an iterable & indexable structure of the relationship’s properties.
   class Properties Properties() const {
-    return mage::Properties(mgp::edge_iter_properties(ptr_, memory));
+    return mgp::Properties(mgp::edge_iter_properties(ptr_, memory));
   }
   /// @brief Returns the value of the relationship’s `property_name` property.
   Value operator[](const std::string_view property_name) const;
@@ -1327,7 +1327,7 @@ class Value {
 
   /// @brief Returns the type of the value.
   /// @exception std::runtime_error The value type is unknown.
-  mage::Type Type() const;
+  mgp::Type Type() const;
 
   /// @pre Value type needs to be Type::Bool.
   bool ValueBool() const;
@@ -1457,7 +1457,7 @@ class RecordFactory {
   explicit RecordFactory(mgp_result *result) : result_(result) {}
   RecordFactory(RecordFactory const &) = delete;
 
-  const mage::Record NewRecord() const;
+  const mgp::Record NewRecord() const;
 
   void operator=(RecordFactory const &) = delete;
 
@@ -1545,7 +1545,7 @@ class Parameter {
       : name(name), type_(type), optional(true), default_value(Value(default_value)) {}
 
   /// @brief Creates an optional parameter with the given `name` and `default_value`.
-  Parameter(std::string_view name, Type type, mage::Value default_value)
+  Parameter(std::string_view name, Type type, mgp::Value default_value)
       : name(name), type_(type), optional(true), default_value(default_value) {}
 
   /// @brief Creates a non-optional ListParameter with the given `name` and `item_type`.
@@ -1553,7 +1553,7 @@ class Parameter {
       : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
 
   /// @brief Creates an optional List parameter with the given `name`, `item_type`, and `default_value`.
-  Parameter(std::string_view name, std::pair<Type, Type> list_type, mage::Value default_value)
+  Parameter(std::string_view name, std::pair<Type, Type> list_type, mgp::Value default_value)
       : name(name),
         type_(list_type.first),
         list_item_type_(list_type.second),
@@ -1571,7 +1571,7 @@ class Return {
   Type list_item_type_;
 
   /// @brief Creates a return value with the given `name` and `type`.
-  Return(std::string_view name, mage::Type type) : name(name), type_(type) {}
+  Return(std::string_view name, mgp::Type type) : name(name), type_(type) {}
 
   Return(std::string_view name, std::pair<Type, Type> list_type)
       : name(name), type_(list_type.first), list_item_type_(list_type.second) {}
@@ -1593,7 +1593,7 @@ enum class ProdecureType : uint8_t {
 /// @param module - the query module that the procedure is added to
 /// @param memory - access to memory
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType proc_type,
-                  std::vector<mage::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory);
 
 /// @brief Adds a function to the query module.
@@ -1602,7 +1602,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType pro
 /// @param parameters - function parameters
 /// @param module - the query module that the function is added to
 /// @param memory - access to memory
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mage::Parameter> parameters,
+void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters,
                  std::vector<Return> returns, mgp_module *module, mgp_memory *memory);
 
 /* #endregion */
@@ -2703,7 +2703,7 @@ inline mgp_type *Return::GetMGPType() const {
 }
 
 void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType proc_type,
-                  std::vector<mage::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
+                  std::vector<mgp::Parameter> parameters, std::vector<Return> returns, mgp_module *module,
                   mgp_memory *memory) {
   auto proc = (proc_type == ProdecureType::Read) ? mgp::module_add_read_procedure(module, name.data(), callback)
                                                  : mgp::module_add_write_procedure(module, name.data(), callback);
@@ -2725,7 +2725,7 @@ void AddProcedure(mgp_proc_cb callback, std::string_view name, ProdecureType pro
   }
 }
 
-void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mage::Parameter> parameters,
+void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::Parameter> parameters,
                  mgp_module *module, mgp_memory *memory) {
   auto func = mgp::module_add_function(module, name.data(), callback);
 
@@ -2741,46 +2741,46 @@ void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mage::
 }
 
 /* #endregion */
-}  // namespace mage
+}  // namespace mgp
 
 namespace std {
 template <>
-struct hash<mage::Id> {
-  size_t operator()(const mage::Id &x) const { return hash<int64_t>()(x.AsInt()); };
+struct hash<mgp::Id> {
+  size_t operator()(const mgp::Id &x) const { return hash<int64_t>()(x.AsInt()); };
 };
 
 template <>
-struct hash<mage::Node> {
-  size_t operator()(const mage::Node &x) const { return hash<int64_t>()(x.Id().AsInt()); };
+struct hash<mgp::Node> {
+  size_t operator()(const mgp::Node &x) const { return hash<int64_t>()(x.Id().AsInt()); };
 };
 
 template <>
-struct hash<mage::Relationship> {
-  size_t operator()(const mage::Relationship &x) const { return hash<int64_t>()(x.Id().AsInt()); };
+struct hash<mgp::Relationship> {
+  size_t operator()(const mgp::Relationship &x) const { return hash<int64_t>()(x.Id().AsInt()); };
 };
 
 template <>
-struct hash<mage::Date> {
-  size_t operator()(const mage::Date &x) const { return hash<int64_t>()(x.Timestamp()); };
+struct hash<mgp::Date> {
+  size_t operator()(const mgp::Date &x) const { return hash<int64_t>()(x.Timestamp()); };
 };
 
 template <>
-struct hash<mage::LocalTime> {
-  size_t operator()(const mage::LocalTime &x) const { return hash<int64_t>()(x.Timestamp()); };
+struct hash<mgp::LocalTime> {
+  size_t operator()(const mgp::LocalTime &x) const { return hash<int64_t>()(x.Timestamp()); };
 };
 
 template <>
-struct hash<mage::LocalDateTime> {
-  size_t operator()(const mage::LocalDateTime &x) const { return hash<int64_t>()(x.Timestamp()); };
+struct hash<mgp::LocalDateTime> {
+  size_t operator()(const mgp::LocalDateTime &x) const { return hash<int64_t>()(x.Timestamp()); };
 };
 
 template <>
-struct hash<mage::Duration> {
-  size_t operator()(const mage::Duration &x) const { return hash<int64_t>()(x.Microseconds()); };
+struct hash<mgp::Duration> {
+  size_t operator()(const mgp::Duration &x) const { return hash<int64_t>()(x.Microseconds()); };
 };
 
 template <>
-struct hash<mage::MapItem> {
-  size_t operator()(const mage::MapItem &x) const { return hash<std::string_view>()(x.key); };
+struct hash<mgp::MapItem> {
+  size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
 };
 }  // namespace std

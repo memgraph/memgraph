@@ -9,25 +9,25 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <mage.hpp>
 #include <mg_exceptions.hpp>
+#include <mgp.hpp>
 
-void ProcImpl(std::vector<mage::Value> arguments, mage::Graph graph, mage::RecordFactory record_factory) {
+void ProcImpl(std::vector<mgp::Value> arguments, mgp::Graph graph, mgp::RecordFactory record_factory) {
   auto record = record_factory.NewRecord();
   record.Insert("out", true);
 }
 
 void SampleReadProc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
-    mage::memory = memory;
+    mgp::memory = memory;
 
-    std::vector<mage::Value> arguments;
+    std::vector<mgp::Value> arguments;
     for (size_t i = 0; i < mgp::list_size(args); i++) {
-      auto arg = mage::Value(mgp::list_at(args, i));
+      auto arg = mgp::Value(mgp::list_at(args, i));
       arguments.push_back(arg);
     }
 
-    ProcImpl(arguments, mage::Graph(memgraph_graph), mage::RecordFactory(result));
+    ProcImpl(arguments, mgp::Graph(memgraph_graph), mgp::RecordFactory(result));
   } catch (const std::exception &e) {
     mgp::result_set_error_msg(result, e.what());
     return;
@@ -35,12 +35,12 @@ void SampleReadProc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 }
 
 void AddXNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  mage::memory = memory;
-  auto graph = mage::Graph(memgraph_graph);
+  mgp::memory = memory;
+  auto graph = mgp::Graph(memgraph_graph);
 
-  std::vector<mage::Value> arguments;
+  std::vector<mgp::Value> arguments;
   for (size_t i = 0; i < mgp::list_size(args); i++) {
-    auto arg = mage::Value(mgp::list_at(args, i));
+    auto arg = mgp::Value(mgp::list_at(args, i));
     arguments.push_back(arg);
   }
 
@@ -50,15 +50,15 @@ void AddXNodes(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 }
 
 void Multiply(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  mage::memory = memory;
+  mgp::memory = memory;
 
-  std::vector<mage::Value> arguments;
+  std::vector<mgp::Value> arguments;
   for (size_t i = 0; i < mgp::list_size(args); i++) {
-    auto arg = mage::Value(mgp::list_at(args, i));
+    auto arg = mgp::Value(mgp::list_at(args, i));
     arguments.push_back(arg);
   }
 
-  auto result = mage::Result(res);
+  auto result = mgp::Result(res);
 
   auto first = arguments[0].ValueInt();
   auto second = arguments[1].ValueInt();
@@ -68,31 +68,31 @@ void Multiply(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mage::memory = memory;
+    mgp::memory = memory;
 
-    AddProcedure(SampleReadProc, "return_true", mage::ProdecureType::Read,
-                 {mage::Parameter("param_1", mage::Type::Int), mage::Parameter("param_2", mage::Type::Double, 2.3)},
-                 {mage::Return("out", mage::Type::Bool)}, module, memory);
+    AddProcedure(SampleReadProc, "return_true", mgp::ProdecureType::Read,
+                 {mgp::Parameter("param_1", mgp::Type::Int), mgp::Parameter("param_2", mgp::Type::Double, 2.3)},
+                 {mgp::Return("out", mgp::Type::Bool)}, module, memory);
   } catch (const std::exception &e) {
     return 1;
   }
 
   try {
-    mage::memory = memory;
+    mgp::memory = memory;
 
-    mage::AddProcedure(AddXNodes, "add_x_nodes", mage::ProdecureType::Write,
-                       {mage::Parameter("param_1", mage::Type::Int)}, {}, module, memory);
+    mgp::AddProcedure(AddXNodes, "add_x_nodes", mgp::ProdecureType::Write, {mgp::Parameter("param_1", mgp::Type::Int)},
+                      {}, module, memory);
 
   } catch (const std::exception &e) {
     return 1;
   }
 
   try {
-    mage::memory = memory;
+    mgp::memory = memory;
 
-    mage::AddFunction(Multiply, "multiply",
-                      {mage::Parameter("int", mage::Type::Int), mage::Parameter("int", mage::Type::Int, (int64_t)3)},
-                      module, memory);
+    mgp::AddFunction(Multiply, "multiply",
+                     {mgp::Parameter("int", mgp::Type::Int), mgp::Parameter("int", mgp::Type::Int, (int64_t)3)}, module,
+                     memory);
 
   } catch (const std::exception &e) {
     return 1;
