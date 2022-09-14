@@ -23,6 +23,8 @@
 
 struct CppApiTestFixture : public ::testing::Test {
  protected:
+  virtual void SetUp() { mgp::memory = &memory; }
+
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
     // the execution context can be null as it shouldn't be used in these tests
     return mgp_graph{&CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION), view, ctx_.get()};
@@ -43,30 +45,7 @@ struct CppApiTestFixture : public ::testing::Test {
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-void PrintList(mgp::List &list) {
-  auto first = true;
-  std::cout << "[";
-  for (const auto &element : list) {
-    if (!first) std::cout << ", ";
-    std::cout << element.ValueString();
-    first = false;
-  }
-  std::cout << "]\n";
-}
-
-void PrintMap(mgp::Map &map) {
-  auto first = true;
-  std::cout << "{";
-  for (const auto &item : map) {
-    if (!first) std::cout << ", ";
-    std::cout << item.key << ": " << item.value.ValueString();
-    first = false;
-  }
-  std::cout << "}\n";
-}
-
 TEST_F(CppApiTestFixture, TestGraph) {
-  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
@@ -183,7 +162,6 @@ TEST_F(CppApiTestFixture, TestMap) {
 }
 
 TEST_F(CppApiTestFixture, TestNode) {
-  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
@@ -220,7 +198,6 @@ TEST_F(CppApiTestFixture, TestNode) {
 }
 
 TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
-  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
@@ -251,7 +228,6 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
 }
 
 TEST_F(CppApiTestFixture, TestRelationship) {
-  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
@@ -274,7 +250,6 @@ TEST_F(CppApiTestFixture, TestRelationship) {
 }
 
 TEST_F(CppApiTestFixture, TestPath) {
-  mgp::memory = &memory;
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
