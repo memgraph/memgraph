@@ -211,7 +211,7 @@ for dataset, tests in benchmarks:
 
     # Run all benchmarks in all available groups.
 
-    for with_fine_grained_authorization in [True]:
+    for with_fine_grained_authorization in [False, True]:
         if with_fine_grained_authorization:
             memgraph.start_preparation()
             client.execute(
