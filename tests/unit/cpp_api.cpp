@@ -49,30 +49,23 @@ TEST_F(CppApiTestFixture, TestGraph) {
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
-  graph.CreateNode();
+  auto node_1 = graph.CreateNode();
 
   ASSERT_EQ(graph.Order(), 1);
   ASSERT_EQ(graph.Size(), 0);
 
-  graph.CreateNode();
+  auto node_2 = graph.CreateNode();
 
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 0);
 
-  std::vector<mgp::Node> nodes;
-  for (const auto &node : graph.Nodes()) {
-    nodes.emplace_back(node);
-  }
-
-  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(graph.Order(), 2);
   ASSERT_EQ(graph.Size(), 1);
 
-  ASSERT_EQ(graph.ContainsNode(nodes[0]), true);
-  ASSERT_EQ(graph.ContainsNode(nodes[1]), true);
-
-  const auto relationship = *graph.Relationships().begin();
+  ASSERT_EQ(graph.ContainsNode(node_1), true);
+  ASSERT_EQ(graph.ContainsNode(node_2), true);
 
   ASSERT_EQ(graph.ContainsRelationship(relationship), true);
 }
@@ -165,9 +158,8 @@ TEST_F(CppApiTestFixture, TestNode) {
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
-  graph.CreateNode();
+  auto node_1 = graph.CreateNode();
 
-  auto node_1 = *graph.Nodes().begin();
   ASSERT_EQ(node_1.HasLabel("L1"), false);
 
   node_1.AddLabel("L1");
@@ -201,15 +193,10 @@ TEST_F(CppApiTestFixture, TestNodeWithNeighbors) {
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
-  graph.CreateNode();
-  graph.CreateNode();
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
 
-  std::vector<mgp::Node> nodes;
-  for (const auto &node : graph.Nodes()) {
-    nodes.emplace_back(node);
-  }
-
-  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   int count_out_relationships = 0;
   int count_in_relationships = 0;
@@ -231,40 +218,27 @@ TEST_F(CppApiTestFixture, TestRelationship) {
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
-  graph.CreateNode();
-  graph.CreateNode();
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
 
-  std::vector<mgp::Node> nodes;
-  for (const auto &node : graph.Nodes()) {
-    nodes.emplace_back(node);
-  }
-
-  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
-
-  auto relationship = *graph.Relationships().begin();
+  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   ASSERT_EQ(relationship.Type(), "edge_type");
   ASSERT_EQ(relationship.Properties().Size(), 0);
-  ASSERT_EQ(relationship.From().Id(), nodes[0].Id());
-  ASSERT_EQ(relationship.To().Id(), nodes[1].Id());
+  ASSERT_EQ(relationship.From().Id(), node_1.Id());
+  ASSERT_EQ(relationship.To().Id(), node_2.Id());
 }
 
 TEST_F(CppApiTestFixture, TestPath) {
   mgp_graph raw_graph = CreateGraph();
   auto graph = mgp::Graph(&raw_graph);
 
-  graph.CreateNode();
-  graph.CreateNode();
+  auto node_1 = graph.CreateNode();
+  auto node_2 = graph.CreateNode();
 
-  std::vector<mgp::Node> nodes;
-  for (const auto &node : graph.Nodes()) {
-    nodes.emplace_back(node);
-  }
-
-  graph.CreateRelationship(nodes[0], nodes[1], "edge_type");
+  auto relationship = graph.CreateRelationship(node_1, node_2, "edge_type");
 
   auto node_0 = graph.GetNodeById(mgp::Id::FromInt(0));
-  auto relationship = *graph.Relationships().begin();
   auto path = mgp::Path(node_0);
 
   ASSERT_EQ(path.Length(), 0);
