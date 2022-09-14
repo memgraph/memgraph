@@ -35,6 +35,7 @@ namespace memgraph::storage::v3::tests {
 class StorageV3 : public ::testing::Test {
  protected:
   void SetUp() override {
+    store.StoreMapping({{1, "label"}, {2, "property"}});
     ASSERT_TRUE(
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
@@ -47,21 +48,16 @@ class StorageV3 : public ::testing::Test {
     return *vtx;
   }
 
-  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+  LabelId NameToLabelId(std::string_view label_name) { return store.NameToLabel(label_name); }
 
-  PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(id_mapper.NameToId(property_name));
-  }
+  PropertyId NameToPropertyId(std::string_view property_name) { return store.NameToProperty(property_name); }
 
-  EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
-  }
+  EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) { return store.NameToEdgeType(edge_type_name); }
 
-  NameIdMapper id_mapper;
   const std::vector<PropertyValue> pk{PropertyValue{0}};
-  const LabelId primary_label{NameToLabelId("label")};
+  const LabelId primary_label{LabelId::FromUint(1)};
   Shard store{primary_label, pk, std::nullopt};
-  const PropertyId primary_property{NameToPropertyId("property")};
+  const PropertyId primary_property{PropertyId::FromUint(2)};
 };
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -875,6 +871,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelCommit) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "other"}});
   {
     auto acc = store.Access();
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -987,6 +984,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelAbort) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "other"}});
   // Create the vertex.
   {
     auto acc = store.Access();
@@ -1231,6 +1229,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelSerializationError) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}});
   {
     auto acc = store.Access();
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1335,6 +1334,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertyCommit) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property5"}, {4, "other"}});
   {
     auto acc = store.Access();
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1454,6 +1454,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertyAbort) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property5"}, {4, "other"}});
   // Create the vertex.
   {
     auto acc = store.Access();
@@ -1728,6 +1729,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexPropertySerializationError) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property1"}, {4, "property2"}});
   {
     auto acc = store.Access();
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1826,6 +1828,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(StorageV3, VertexLabelPropertyMixed) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "property5"}});
   auto acc = store.Access();
   auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
@@ -2064,6 +2067,7 @@ TEST_F(StorageV3, VertexLabelPropertyMixed) {
 }
 
 TEST_F(StorageV3, VertexPropertyClear) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property1"}, {4, "property2"}});
   auto property1 = NameToPropertyId("property1");
   auto property2 = NameToPropertyId("property2");
   {
