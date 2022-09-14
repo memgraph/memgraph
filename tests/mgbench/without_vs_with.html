@@ -1,0 +1,292 @@
+==== Benchmark summary: ====
+
+<table>
+  <tr>
+    <th>Testcode</th>
+    <th>Throughput</th>
+    <th>Duration</th>
+    <th>Parsing time</th>
+    <th>Planning time</th>
+    <th>Plan execution time</th>
+    <th>Memory</th>
+  </tr>
+  <tr>
+    <td>pokec/medium/aggregation/count/12</td>
+    <td bgcolor="green">812.867QPS (+3210.24%)</td>
+    <td bgcolor="green">0.025s (-96.98%)</td>
+    <td bgcolor="green">11.482ms (-14.61%)</td>
+    <td bgcolor="red">2.628ms (+276.09%)</td>
+    <td bgcolor="green">0.031ms (-99.99%)</td>
+    <td bgcolor="green">179.508MiB (-55.16%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/aggregation/min_max_avg/12</td>
+    <td bgcolor="green">568.302QPS (+4451.90%)</td>
+    <td bgcolor="green">0.018s (-97.80%)</td>
+    <td bgcolor="green">17.605ms (-10.96%)</td>
+    <td bgcolor="red">2.932ms (+376.08%)</td>
+    <td bgcolor="green">0.036ms (-100.00%)</td>
+    <td bgcolor="green">165.832MiB (-57.82%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/aggregate/12</td>
+    <td bgcolor="green">514.997QPS (+3728.85%)</td>
+    <td bgcolor="green">0.023s (-97.39%)</td>
+    <td bgcolor="red">20.284ms (+3.54%)</td>
+    <td bgcolor="green">2.104ms (-7.78%)</td>
+    <td bgcolor="green">0.036ms (-100.00%)</td>
+    <td bgcolor="green">158.945MiB (-68.38%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/aggregate_with_filter/12</td>
+    <td bgcolor="green">452.856QPS (+3284.24%)</td>
+    <td bgcolor="green">0.024s (-97.05%)</td>
+    <td bgcolor="red">23.172ms (+21.99%)</td>
+    <td bgcolor="red">2.433ms (+16.62%)</td>
+    <td bgcolor="green">0.035ms (-100.00%)</td>
+    <td bgcolor="green">161.516MiB (-64.18%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/allshortest_paths/12</td>
+    <td bgcolor="green">2312.880QPS (+1533.42%)</td>
+    <td bgcolor="green">0.153s (-93.88%)</td>
+    <td bgcolor="red">3.139ms (+39.21%)</td>
+    <td bgcolor="red">1.684ms (+419.16%)</td>
+    <td bgcolor="green">0.011ms (-99.99%)</td>
+    <td bgcolor="green">168.047MiB (-74.29%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_1/12</td>
+    <td bgcolor="red">5495.921QPS (-51.38%)</td>
+    <td bgcolor="red">2.098s (+105.67%)</td>
+    <td bgcolor="green">0.132ms (-7.77%)</td>
+    <td bgcolor="red">1.752ms (+2147.77%)</td>
+    <td bgcolor="green">0.007ms (-98.16%)</td>
+    <td bgcolor="green">160.535MiB (-61.07%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_1_with_filter/12</td>
+    <td bgcolor="red">5617.685QPS (-52.27%)</td>
+    <td bgcolor="red">2.083s (+109.51%)</td>
+    <td bgcolor="green">0.160ms (-6.68%)</td>
+    <td bgcolor="red">1.676ms (+1895.18%)</td>
+    <td bgcolor="green">0.007ms (-97.89%)</td>
+    <td bgcolor="green">169.168MiB (-59.48%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_2/12</td>
+    <td bgcolor="green">4689.696QPS (+898.06%)</td>
+    <td bgcolor="green">0.101s (-89.98%)</td>
+    <td bgcolor="green">0.560ms (-0.85%)</td>
+    <td bgcolor="red">1.669ms (+711.17%)</td>
+    <td bgcolor="green">0.008ms (-99.97%)</td>
+    <td bgcolor="green">165.445MiB (-61.68%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_2_with_filter/12</td>
+    <td bgcolor="green">4667.503QPS (+724.14%)</td>
+    <td bgcolor="green">0.147s (-87.87%)</td>
+    <td bgcolor="green">0.519ms (-24.62%)</td>
+    <td bgcolor="red">1.733ms (+1003.58%)</td>
+    <td bgcolor="green">0.008ms (-99.96%)</td>
+    <td bgcolor="green">164.355MiB (-61.32%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_3/12</td>
+    <td bgcolor="green">2282.441QPS (+10514.77%)</td>
+    <td bgcolor="green">0.036s (-99.06%)</td>
+    <td bgcolor="red">2.801ms (+2.29%)</td>
+    <td bgcolor="red">2.039ms (+150.90%)</td>
+    <td bgcolor="green">0.008ms (-100.00%)</td>
+    <td bgcolor="green">158.219MiB (-77.45%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/expansion_3_with_filter/12</td>
+    <td bgcolor="green">863.586QPS (+3953.06%)</td>
+    <td bgcolor="green">0.028s (-97.53%)</td>
+    <td bgcolor="red">9.912ms (+3.39%)</td>
+    <td bgcolor="red">3.406ms (+55.09%)</td>
+    <td bgcolor="green">0.010ms (-100.00%)</td>
+    <td bgcolor="green">162.176MiB (-65.31%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/neighbours_2/12</td>
+    <td bgcolor="green">3831.469QPS (+644.05%)</td>
+    <td bgcolor="green">0.132s (-86.56%)</td>
+    <td bgcolor="red">1.094ms (+15.50%)</td>
+    <td bgcolor="red">1.716ms (+1072.68%)</td>
+    <td bgcolor="green">0.008ms (-99.96%)</td>
+    <td bgcolor="green">165.031MiB (-61.80%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/neighbours_2_with_data/12</td>
+    <td bgcolor="green">3484.470QPS (+1949.23%)</td>
+    <td bgcolor="green">0.077s (-95.12%)</td>
+    <td bgcolor="green">1.467ms (-7.03%)</td>
+    <td bgcolor="red">1.621ms (+399.55%)</td>
+    <td bgcolor="green">0.008ms (-99.99%)</td>
+    <td bgcolor="green">171.512MiB (-62.50%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/neighbours_2_with_data_and_filter/12</td>
+    <td bgcolor="green">3143.504QPS (+1085.20%)</td>
+    <td bgcolor="green">0.077s (-91.56%)</td>
+    <td bgcolor="green">1.679ms (-13.97%)</td>
+    <td bgcolor="red">1.805ms (+602.68%)</td>
+    <td bgcolor="green">0.008ms (-99.98%)</td>
+    <td bgcolor="green">171.207MiB (-59.76%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/neighbours_2_with_filter/12</td>
+    <td bgcolor="green">3735.566QPS (+564.03%)</td>
+    <td bgcolor="green">0.124s (-84.94%)</td>
+    <td bgcolor="green">1.229ms (-18.25%)</td>
+    <td bgcolor="red">1.671ms (+777.07%)</td>
+    <td bgcolor="green">0.008ms (-99.96%)</td>
+    <td bgcolor="green">168.938MiB (-60.56%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/shortest_path/12</td>
+    <td bgcolor="green">4663.955QPS (+141.11%)</td>
+    <td bgcolor="green">0.455s (-58.53%)</td>
+    <td bgcolor="red">0.654ms (+13.72%)</td>
+    <td bgcolor="red">1.603ms (+1203.84%)</td>
+    <td bgcolor="green">0.008ms (-99.85%)</td>
+    <td bgcolor="green">171.605MiB (-69.47%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/shortest_path_with_filter/12</td>
+    <td bgcolor="green">3786.085QPS (+257.66%)</td>
+    <td bgcolor="green">0.412s (-72.04%)</td>
+    <td bgcolor="red">1.235ms (+41.39%)</td>
+    <td bgcolor="red">1.612ms (+1035.01%)</td>
+    <td bgcolor="green">0.008ms (-99.92%)</td>
+    <td bgcolor="green">182.750MiB (-64.56%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/single_edge_write/12</td>
+    <td bgcolor="red">5654.753QPS (-56.84%)</td>
+    <td bgcolor="red">2.404s (+131.69%)</td>
+    <td bgcolor="green">0.195ms (-10.22%)</td>
+    <td bgcolor="red">1.617ms (+1699.16%)</td>
+    <td bgcolor="green">0.007ms (-91.95%)</td>
+    <td bgcolor="green">170.535MiB (-60.49%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/single_vertex_read/12</td>
+    <td bgcolor="red">5518.218QPS (-67.57%)</td>
+    <td bgcolor="red">3.169s (+208.34%)</td>
+    <td bgcolor="green">0.106ms (-1.54%)</td>
+    <td bgcolor="red">1.774ms (+2274.52%)</td>
+    <td bgcolor="green">0.006ms (-92.50%)</td>
+    <td bgcolor="green">162.090MiB (-59.32%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/arango/single_vertex_write/12</td>
+    <td bgcolor="red">5643.640QPS (-64.08%)</td>
+    <td bgcolor="red">2.908s (+178.37%)</td>
+    <td bgcolor="green">0.102ms (-6.97%)</td>
+    <td bgcolor="red">1.586ms (+2137.56%)</td>
+    <td bgcolor="red">0.069ms (+0.63%)</td>
+    <td bgcolor="green">160.590MiB (-54.57%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/create/edge/12</td>
+    <td bgcolor="red">5597.106QPS (-61.70%)</td>
+    <td bgcolor="red">2.709s (+161.12%)</td>
+    <td bgcolor="green">0.160ms (-12.37%)</td>
+    <td bgcolor="red">1.684ms (+2044.87%)</td>
+    <td bgcolor="green">0.007ms (-89.38%)</td>
+    <td bgcolor="green">169.426MiB (-54.07%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/create/pattern/12</td>
+    <td bgcolor="red">5564.851QPS (-70.14%)</td>
+    <td bgcolor="red">3.445s (+234.86%)</td>
+    <td bgcolor="green">0.078ms (-5.22%)</td>
+    <td bgcolor="red">1.696ms (+2983.88%)</td>
+    <td bgcolor="green">0.039ms (-2.00%)</td>
+    <td bgcolor="green">181.145MiB (-51.35%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/create/vertex/12</td>
+    <td bgcolor="red">5486.144QPS (-73.91%)</td>
+    <td bgcolor="red">3.880s (+283.29%)</td>
+    <td bgcolor="red">0.047ms (+1.81%)</td>
+    <td bgcolor="red">1.786ms (+3380.23%)</td>
+    <td bgcolor="green">0.015ms (-4.66%)</td>
+    <td bgcolor="green">152.078MiB (-55.96%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/create/vertex_big/12</td>
+    <td bgcolor="red">5596.454QPS (-58.28%)</td>
+    <td bgcolor="red">2.534s (+139.70%)</td>
+    <td bgcolor="green">0.209ms (-6.54%)</td>
+    <td bgcolor="red">1.487ms (+1310.39%)</td>
+    <td bgcolor="red">0.099ms (+12.67%)</td>
+    <td bgcolor="green">182.738MiB (-50.06%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/pattern_cycle/12</td>
+    <td bgcolor="red">5536.830QPS (-15.52%)</td>
+    <td bgcolor="red">1.105s (+18.37%)</td>
+    <td bgcolor="green">0.194ms (-3.17%)</td>
+    <td bgcolor="red">1.670ms (+1785.36%)</td>
+    <td bgcolor="green">0.007ms (-99.28%)</td>
+    <td bgcolor="green">176.727MiB (-46.82%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/pattern_long/12</td>
+    <td bgcolor="red">5674.979QPS (-58.12%)</td>
+    <td bgcolor="red">2.440s (+138.80%)</td>
+    <td bgcolor="green">0.187ms (-10.42%)</td>
+    <td bgcolor="red">1.620ms (+1640.79%)</td>
+    <td bgcolor="green">0.009ms (-94.20%)</td>
+    <td bgcolor="green">169.625MiB (-54.67%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/pattern_short/12</td>
+    <td bgcolor="red">5527.589QPS (-65.06%)</td>
+    <td bgcolor="red">2.979s (+186.20%)</td>
+    <td bgcolor="green">0.136ms (-2.87%)</td>
+    <td bgcolor="red">1.734ms (+2161.85%)</td>
+    <td bgcolor="green">0.008ms (-90.89%)</td>
+    <td bgcolor="green">166.637MiB (-52.08%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/vertex_on_label_property/12</td>
+    <td bgcolor="green">631.764QPS (+4401.42%)</td>
+    <td bgcolor="green">0.021s (-97.78%)</td>
+    <td bgcolor="red">15.125ms (+1.84%)</td>
+    <td bgcolor="red">2.902ms (+122.07%)</td>
+    <td bgcolor="green">0.007ms (-100.00%)</td>
+    <td bgcolor="green">151.727MiB (-50.44%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/vertex_on_label_property_index/12</td>
+    <td bgcolor="red">5572.255QPS (-66.83%)</td>
+    <td bgcolor="red">3.161s (+201.49%)</td>
+    <td bgcolor="green">0.101ms (-5.49%)</td>
+    <td bgcolor="red">1.761ms (+2367.62%)</td>
+    <td bgcolor="green">0.006ms (-92.50%)</td>
+    <td bgcolor="green">162.180MiB (-49.60%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/match/vertex_on_property/12</td>
+    <td bgcolor="green">1048.477QPS (+4059.26%)</td>
+    <td bgcolor="green">0.020s (-97.60%)</td>
+    <td bgcolor="red">8.819ms (+24.37%)</td>
+    <td bgcolor="red">2.055ms (+62.85%)</td>
+    <td bgcolor="green">0.007ms (-100.00%)</td>
+    <td bgcolor="green">168.891MiB (-56.39%)</td>
+  </tr>
+  <tr>
+    <td>pokec/medium/update/vertex_on_property/12</td>
+    <td bgcolor="green">1033.237QPS (+3761.86%)</td>
+    <td bgcolor="green">0.020s (-97.41%)</td>
+    <td bgcolor="red">8.944ms (+9.80%)</td>
+    <td bgcolor="red">1.963ms (+58.47%)</td>
+    <td bgcolor="green">0.007ms (-100.00%)</td>
+    <td bgcolor="green">161.906MiB (-59.75%)</td>
+  </tr>
+</table>

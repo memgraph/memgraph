@@ -291,4 +291,4 @@ class Pokec(Dataset):
         return ("MATCH (n {id: $id}) RETURN n", {"id": self._get_random_vertex()})
 
     def benchmark__update__vertex_on_property(self):
-        return ("MATCH (n {id: $id}) SET n.id = -1", {"id": self._get_random_vertex()})
+        return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})

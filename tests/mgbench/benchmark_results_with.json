@@ -1,0 +1,1182 @@
+{
+    "pokec": {
+        "medium": {
+            "__import__": {
+                "client": [
+                    {
+                        "count": 1,
+                        "duration": 0.0005898695833333335,
+                        "metadata": {
+                            "cost_estimate": {
+                                "average": 0.0,
+                                "maximum": 0.0,
+                                "minimum": 0.0
+                            },
+                            "parsing_time": {
+                                "average": 0.005572217,
+                                "maximum": 0.005572217,
+                                "minimum": 0.005572217
+                            },
+                            "plan_execution_time": {
+                                "average": 7.962e-06,
+                                "maximum": 7.962e-06,
+                                "minimum": 7.962e-06
+                            },
+                            "planning_time": {
+                                "average": 0.000794525,
+                                "maximum": 0.000794525,
+                                "minimum": 0.000794525
+                            }
+                        },
+                        "num_workers": 12,
+                        "retries": 0,
+                        "throughput": 1695.2899899483427
+                    },
+                    {
+                        "count": 1,
+                        "duration": 0.00013254816666666668,
+                        "metadata": {
+                            "cost_estimate": {
+                                "average": 0.0,
+                                "maximum": 0.0,
+                                "minimum": 0.0
+                            },
+                            "parsing_time": {
+                                "average": 0.000652954,
+                                "maximum": 0.000652954,
+                                "minimum": 0.000652954
+                            },
+                            "planning_time": {
+                                "average": 0.000235089,
+                                "maximum": 0.000235089,
+                                "minimum": 0.000235089
+                            }
+                        },
+                        "num_workers": 12,
+                        "retries": 0,
+                        "throughput": 7544.427245944556
+                    },
+                    {
+                        "count": 100000,
+                        "duration": 6.132656292166666,
+                        "metadata": {
+                            "cost_estimate": {
+                                "average": 0.0,
+                                "maximum": 0.0,
+                                "minimum": 0.0
+                            },
+                            "parsing_time": {
+                                "average": 0.00012271454942999995,
+                                "maximum": 0.002882525,
+                                "minimum": 8.9607e-05
+                            },
+                            "plan_execution_time": {
+                                "average": 5.420489724000003e-05,
+                                "maximum": 0.000871839,
+                                "minimum": 3.8762e-05
+                            },
+                            "planning_time": {
+                                "average": 7.173170919000003e-05,
+                                "maximum": 0.00299567,
+                                "minimum": 5.4477e-05
+                            }
+                        },
+                        "num_workers": 12,
+                        "retries": 0,
+                        "throughput": 16306.147815218586
+                    },
+                    {
+                        "count": 1768515,
+                        "duration": 120.12554639433334,
+                        "metadata": {
+                            "cost_estimate": {
+                                "average": 6.587993712239138,
+                                "maximum": 143.0,
+                                "minimum": 2.2
+                            },
+                            "parsing_time": {
+                                "average": 0.0001687759249415459,
+                                "maximum": 0.007773293,
+                                "minimum": 0.000122852
+                            },
+                            "plan_execution_time": {
+                                "average": 5.810234096855223e-05,
+                                "maximum": 0.003385529,
+                                "minimum": 4.0927e-05
+                            },
+                            "planning_time": {
+                                "average": 8.048039595253507e-05,
+                                "maximum": 0.227413623,
+                                "minimum": 5.5315e-05
+                            }
+                        },
+                        "num_workers": 12,
+                        "retries": 1043,
+                        "throughput": 14722.222317262449
+                    }
+                ],
+                "database": {
+                    "cpu": 1206.23,
+                    "memory": 849444864
+                }
+            },
+            "aggregation": {
+                "count": {
+                    "count": 20,
+                    "duration": 0.024604275,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.01148173315,
+                            "maximum": 0.019220353,
+                            "minimum": 0.000108814
+                        },
+                        "plan_execution_time": {
+                            "average": 3.0671249999999995e-05,
+                            "maximum": 4.3861e-05,
+                            "minimum": 2.2978e-05
+                        },
+                        "planning_time": {
+                            "average": 0.00262840485,
+                            "maximum": 0.005760512,
+                            "minimum": 0.000205056
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 812.8668696801674,
+                    "database": {
+                        "cpu": 4.02,
+                        "memory": 188227584
+                    }
+                },
+                "min_max_avg": {
+                    "count": 10,
+                    "duration": 0.017596283916666667,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.017604729,
+                            "maximum": 0.017676073,
+                            "minimum": 0.017447968
+                        },
+                        "plan_execution_time": {
+                            "average": 3.58713e-05,
+                            "maximum": 4.449e-05,
+                            "minimum": 2.5283e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0029317643000000004,
+                            "maximum": 0.003541068,
+                            "minimum": 0.002623691
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 568.3018100502632,
+                    "database": {
+                        "cpu": 4.05,
+                        "memory": 173887488
+                    }
+                }
+            },
+            "arango": {
+                "aggregate": {
+                    "count": 12,
+                    "duration": 0.023301119416666665,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.020284095333333335,
+                            "maximum": 0.020786493,
+                            "minimum": 0.019255623
+                        },
+                        "plan_execution_time": {
+                            "average": 3.553175e-05,
+                            "maximum": 4.442e-05,
+                            "minimum": 2.1441e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0021040999166666665,
+                            "maximum": 0.002672161,
+                            "minimum": 0.001717279
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 514.9967169138115,
+                    "database": {
+                        "cpu": 4.01,
+                        "memory": 166666240
+                    }
+                },
+                "aggregate_with_filter": {
+                    "count": 11,
+                    "duration": 0.02429030533333333,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.02317160927272727,
+                            "maximum": 0.023404178,
+                            "minimum": 0.022828468
+                        },
+                        "plan_execution_time": {
+                            "average": 3.484463636363637e-05,
+                            "maximum": 3.8623e-05,
+                            "minimum": 3.087e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0024328757272727274,
+                            "maximum": 0.00265051,
+                            "minimum": 0.002254924
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 452.8555672334351,
+                    "database": {
+                        "cpu": 4.11,
+                        "memory": 169361408
+                    }
+                },
+                "allshortest_paths": {
+                    "count": 354,
+                    "duration": 0.15305595958333335,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0031391446045197736,
+                            "maximum": 0.085582905,
+                            "minimum": 0.000225031
+                        },
+                        "plan_execution_time": {
+                            "average": 1.0767918079096045e-05,
+                            "maximum": 8.444e-05,
+                            "minimum": 8.59e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016843746779661016,
+                            "maximum": 0.006525004,
+                            "minimum": 0.000194091
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 2312.8795570175757,
+                    "database": {
+                        "cpu": 5.07,
+                        "memory": 176209920
+                    }
+                },
+                "expansion_1": {
+                    "count": 11528,
+                    "duration": 2.0975556896666667,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0001316845125780708,
+                            "maximum": 0.017583043,
+                            "minimum": 9.1772e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 6.843249826509366e-06,
+                            "maximum": 4.3372e-05,
+                            "minimum": 2.304e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0017522469704198474,
+                            "maximum": 0.011189761,
+                            "minimum": 0.000175933
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5495.920826698992,
+                    "database": {
+                        "cpu": 11.43,
+                        "memory": 168333312
+                    }
+                },
+                "expansion_1_with_filter": {
+                    "count": 11700,
+                    "duration": 2.0827085233333333,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00015950810829059824,
+                            "maximum": 0.020298995,
+                            "minimum": 0.000113842
+                        },
+                        "plan_execution_time": {
+                            "average": 6.991887435897433e-06,
+                            "maximum": 3.4712e-05,
+                            "minimum": 4.051e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016760610264102565,
+                            "maximum": 0.009026331,
+                            "minimum": 0.000179984
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5617.684793105079,
+                    "database": {
+                        "cpu": 11.72,
+                        "memory": 177385472
+                    }
+                },
+                "expansion_2": {
+                    "count": 476,
+                    "duration": 0.10149912341666666,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0005600064684873951,
+                            "maximum": 0.017298924,
+                            "minimum": 0.000111398
+                        },
+                        "plan_execution_time": {
+                            "average": 7.732957983193276e-06,
+                            "maximum": 1.9417e-05,
+                            "minimum": 6.007e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016692426995798318,
+                            "maximum": 0.00568124,
+                            "minimum": 0.000180053
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 4689.695673980948,
+                    "database": {
+                        "cpu": 4.38,
+                        "memory": 173481984
+                    }
+                },
+                "expansion_2_with_filter": {
+                    "count": 684,
+                    "duration": 0.14654516216666666,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0005189336666666667,
+                            "maximum": 0.021098478,
+                            "minimum": 0.000127671
+                        },
+                        "plan_execution_time": {
+                            "average": 7.549388888888891e-06,
+                            "maximum": 2.1092e-05,
+                            "minimum": 4.47e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0017325630833333332,
+                            "maximum": 0.007634167,
+                            "minimum": 0.000182847
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 4667.503108851064,
+                    "database": {
+                        "cpu": 4.53,
+                        "memory": 172339200
+                    }
+                },
+                "expansion_3": {
+                    "count": 83,
+                    "duration": 0.036364582250000006,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00280100043373494,
+                            "maximum": 0.019349351,
+                            "minimum": 0.000119849
+                        },
+                        "plan_execution_time": {
+                            "average": 8.348253012048194e-06,
+                            "maximum": 1.5226e-05,
+                            "minimum": 6.356e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0020390830120481924,
+                            "maximum": 0.005187037,
+                            "minimum": 0.000187456
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 2282.4406294396517,
+                    "database": {
+                        "cpu": 4.09,
+                        "memory": 165904384
+                    }
+                },
+                "expansion_3_with_filter": {
+                    "count": 24,
+                    "duration": 0.027791079166666663,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.009912322083333333,
+                            "maximum": 0.019909904,
+                            "minimum": 0.000147158
+                        },
+                        "plan_execution_time": {
+                            "average": 9.914749999999999e-06,
+                            "maximum": 1.6832e-05,
+                            "minimum": 6.845e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0034060043333333325,
+                            "maximum": 0.007091843,
+                            "minimum": 0.000194371
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 863.5864716180658,
+                    "database": {
+                        "cpu": 4.1,
+                        "memory": 170053632
+                    }
+                },
+                "expansion_4": {
+                    "count": 0,
+                    "duration": 2.8288333333333325e-06,
+                    "metadata": {},
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 0.0,
+                    "database": {
+                        "cpu": 3.93,
+                        "memory": 157466624
+                    }
+                },
+                "expansion_4_with_filter": {
+                    "count": 0,
+                    "duration": 3.5914166666666663e-06,
+                    "metadata": {},
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 0.0,
+                    "database": {
+                        "cpu": 3.93,
+                        "memory": 154845184
+                    }
+                },
+                "neighbours_2": {
+                    "count": 505,
+                    "duration": 0.13180324541666666,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0010935324653465347,
+                            "maximum": 0.04107103,
+                            "minimum": 0.000113912
+                        },
+                        "plan_execution_time": {
+                            "average": 8.083148514851484e-06,
+                            "maximum": 1.6762e-05,
+                            "minimum": 6.705e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0017163036871287128,
+                            "maximum": 0.006111957,
+                            "minimum": 0.000182707
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 3831.4686288911535,
+                    "database": {
+                        "cpu": 4.67,
+                        "memory": 173047808
+                    }
+                },
+                "neighbours_2_with_data": {
+                    "count": 270,
+                    "duration": 0.07748666725,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0014670940296296296,
+                            "maximum": 0.030533804,
+                            "minimum": 0.00011936
+                        },
+                        "plan_execution_time": {
+                            "average": 8.149562962962964e-06,
+                            "maximum": 1.8508e-05,
+                            "minimum": 6.705e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016214007222222222,
+                            "maximum": 0.00812844,
+                            "minimum": 0.000185221
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 3484.470420296725,
+                    "database": {
+                        "cpu": 4.33,
+                        "memory": 179843072
+                    }
+                },
+                "neighbours_2_with_data_and_filter": {
+                    "count": 242,
+                    "duration": 0.07698415266666668,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0016788258677685945,
+                            "maximum": 0.03088071,
+                            "minimum": 0.000140034
+                        },
+                        "plan_execution_time": {
+                            "average": 8.137462809917357e-06,
+                            "maximum": 2.0952e-05,
+                            "minimum": 6.775e-06
+                        },
+                        "planning_time": {
+                            "average": 0.001805073173553719,
+                            "maximum": 0.007147716,
+                            "minimum": 0.000186968
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 3143.5041059402793,
+                    "database": {
+                        "cpu": 4.36,
+                        "memory": 179523584
+                    }
+                },
+                "neighbours_2_with_filter": {
+                    "count": 465,
+                    "duration": 0.12447912466666666,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0012294233935483873,
+                            "maximum": 0.041877987,
+                            "minimum": 0.000133259
+                        },
+                        "plan_execution_time": {
+                            "average": 8.105301075268818e-06,
+                            "maximum": 1.9416e-05,
+                            "minimum": 6.774e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016706045720430108,
+                            "maximum": 0.005612236,
+                            "minimum": 0.00018592
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 3735.5661139583744,
+                    "database": {
+                        "cpu": 4.6,
+                        "memory": 177143808
+                    }
+                },
+                "shortest_path": {
+                    "count": 2122,
+                    "duration": 0.45497863333333344,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0006544265160226202,
+                            "maximum": 0.074785516,
+                            "minimum": 0.000197443
+                        },
+                        "plan_execution_time": {
+                            "average": 7.513901979264846e-06,
+                            "maximum": 2.9752e-05,
+                            "minimum": 6.007e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016026998143261076,
+                            "maximum": 0.006647158,
+                            "minimum": 0.000189063
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 4663.955281709565,
+                    "database": {
+                        "cpu": 6.32,
+                        "memory": 179941376
+                    }
+                },
+                "shortest_path_with_filter": {
+                    "count": 1560,
+                    "duration": 0.4120351459166667,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0012347097705128205,
+                            "maximum": 0.125508452,
+                            "minimum": 0.000224752
+                        },
+                        "plan_execution_time": {
+                            "average": 7.544248076923077e-06,
+                            "maximum": 2.3397e-05,
+                            "minimum": 6.076e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016121718910256408,
+                            "maximum": 0.008855985,
+                            "minimum": 0.000193881
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 3786.0847926684073,
+                    "database": {
+                        "cpu": 6.46,
+                        "memory": 191627264
+                    }
+                },
+                "single_edge_write": {
+                    "count": 13594,
+                    "duration": 2.4039955022499995,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00019522618640576726,
+                            "maximum": 0.021341668,
+                            "minimum": 0.000144644
+                        },
+                        "plan_execution_time": {
+                            "average": 7.388950051493284e-06,
+                            "maximum": 2.7099e-05,
+                            "minimum": 4.191e-06
+                        },
+                        "planning_time": {
+                            "average": 0.001616980842724731,
+                            "maximum": 0.009034503,
+                            "minimum": 0.000183266
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5654.7526762328835,
+                    "database": {
+                        "cpu": 13.81,
+                        "memory": 178819072
+                    }
+                },
+                "single_vertex_read": {
+                    "count": 17485,
+                    "duration": 3.1685952480833337,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00010612916219616813,
+                            "maximum": 0.0203057,
+                            "minimum": 7.2566e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 5.912802516442664e-06,
+                            "maximum": 4.2604e-05,
+                            "minimum": 2.724e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0017738694236774377,
+                            "maximum": 0.008313172,
+                            "minimum": 0.000171672
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5518.218210601869,
+                    "database": {
+                        "cpu": 14.58,
+                        "memory": 169963520
+                    }
+                },
+                "single_vertex_write": {
+                    "count": 16413,
+                    "duration": 2.908229680833333,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00010242828629744715,
+                            "maximum": 0.012887624,
+                            "minimum": 7.3753e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 6.873097191250837e-05,
+                            "maximum": 0.000239559,
+                            "minimum": 5.7759e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0015859366025711326,
+                            "maximum": 0.015560553,
+                            "minimum": 0.000172789
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5643.639533758203,
+                    "database": {
+                        "cpu": 15.93,
+                        "memory": 168390656
+                    }
+                }
+            },
+            "create": {
+                "edge": {
+                    "count": 15163,
+                    "duration": 2.709078647,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0001598651942227791,
+                            "maximum": 0.016897123,
+                            "minimum": 0.000119011
+                        },
+                        "plan_execution_time": {
+                            "average": 6.570599815339962e-06,
+                            "maximum": 0.000176701,
+                            "minimum": 2.584e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016839566330541446,
+                            "maximum": 0.008979745,
+                            "minimum": 0.000173977
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5597.105870954067,
+                    "database": {
+                        "cpu": 14.21,
+                        "memory": 177655808
+                    }
+                },
+                "pattern": {
+                    "count": 19169,
+                    "duration": 3.4446562535000003,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 7.803769742813919e-05,
+                            "maximum": 0.012178865,
+                            "minimum": 5.2592e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 3.85827805310658e-05,
+                            "maximum": 0.000429948,
+                            "minimum": 2.9473e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0016964482691846218,
+                            "maximum": 0.008586185,
+                            "minimum": 0.000161196
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5564.851349252343,
+                    "database": {
+                        "cpu": 16.14,
+                        "memory": 189943808
+                    }
+                },
+                "vertex": {
+                    "count": 21284,
+                    "duration": 3.879592276,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 4.7367416744972735e-05,
+                            "maximum": 0.006412418,
+                            "minimum": 3.1638e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 1.5431888319864694e-05,
+                            "maximum": 0.000113354,
+                            "minimum": 1.0825e-05
+                        },
+                        "planning_time": {
+                            "average": 0.0017859036118210866,
+                            "maximum": 0.00698666,
+                            "minimum": 0.000155469
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5486.143513499458,
+                    "database": {
+                        "cpu": 16.34,
+                        "memory": 159465472
+                    }
+                },
+                "vertex_big": {
+                    "count": 14181,
+                    "duration": 2.533925974083333,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00020914685381848947,
+                            "maximum": 0.035268892,
+                            "minimum": 0.00014597
+                        },
+                        "plan_execution_time": {
+                            "average": 9.878421613426413e-05,
+                            "maximum": 0.000480933,
+                            "minimum": 7.934e-05
+                        },
+                        "planning_time": {
+                            "average": 0.001486915665820464,
+                            "maximum": 0.009220283,
+                            "minimum": 0.000194371
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5596.453939476304,
+                    "database": {
+                        "cpu": 16.32,
+                        "memory": 191614976
+                    }
+                }
+            },
+            "match": {
+                "pattern_cycle": {
+                    "count": 6119,
+                    "duration": 1.10514497425,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00019372850792613176,
+                            "maximum": 0.024223285,
+                            "minimum": 0.000119291
+                        },
+                        "plan_execution_time": {
+                            "average": 6.674959143650906e-06,
+                            "maximum": 2.0394e-05,
+                            "minimum": 2.933e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016702032064062754,
+                            "maximum": 0.008224891,
+                            "minimum": 0.000179984
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5536.830137740637,
+                    "database": {
+                        "cpu": 8.14,
+                        "memory": 185311232
+                    }
+                },
+                "pattern_long": {
+                    "count": 13848,
+                    "duration": 2.4401850988333336,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.0001874603212738302,
+                            "maximum": 0.023124319,
+                            "minimum": 0.000140313
+                        },
+                        "plan_execution_time": {
+                            "average": 8.803515670132883e-06,
+                            "maximum": 5.308e-05,
+                            "minimum": 6.007e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0016203982494945115,
+                            "maximum": 0.008658262,
+                            "minimum": 0.000183126
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5674.979331125663,
+                    "database": {
+                        "cpu": 13.82,
+                        "memory": 177864704
+                    }
+                },
+                "pattern_short": {
+                    "count": 16469,
+                    "duration": 2.979418508166667,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00013572793994778067,
+                            "maximum": 0.025118452,
+                            "minimum": 9.3519e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 8.070447811038894e-06,
+                            "maximum": 4.1695e-05,
+                            "minimum": 3.771e-06
+                        },
+                        "planning_time": {
+                            "average": 0.001734026641447568,
+                            "maximum": 0.01399511,
+                            "minimum": 0.000174605
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5527.588673715366,
+                    "database": {
+                        "cpu": 14.63,
+                        "memory": 174731264
+                    }
+                },
+                "vertex_on_label_property": {
+                    "count": 13,
+                    "duration": 0.02057730925,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.015125296692307692,
+                            "maximum": 0.01696424,
+                            "minimum": 0.000131583
+                        },
+                        "plan_execution_time": {
+                            "average": 7.3976923076923085e-06,
+                            "maximum": 1.1873e-05,
+                            "minimum": 5.028e-06
+                        },
+                        "planning_time": {
+                            "average": 0.002902237,
+                            "maximum": 0.003356195,
+                            "minimum": 0.000199818
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 631.7638444394765,
+                    "database": {
+                        "cpu": 3.95,
+                        "memory": 159096832
+                    }
+                },
+                "vertex_on_label_property_index": {
+                    "count": 17613,
+                    "duration": 3.1608387904999997,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.00010074899795605517,
+                            "maximum": 0.013305629,
+                            "minimum": 7.1029e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 5.888933060807358e-06,
+                            "maximum": 6.7327e-05,
+                            "minimum": 2.025e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0017608477422358475,
+                            "maximum": 0.008997276,
+                            "minimum": 0.000170694
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 5572.255077651042,
+                    "database": {
+                        "cpu": 14.51,
+                        "memory": 170057728
+                    }
+                },
+                "vertex_on_property": {
+                    "count": 21,
+                    "duration": 0.02002906,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.008818948952380954,
+                            "maximum": 0.015617963,
+                            "minimum": 9.75e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 7.117428571428571e-06,
+                            "maximum": 9.988e-06,
+                            "minimum": 5.378e-06
+                        },
+                        "planning_time": {
+                            "average": 0.0020545833333333336,
+                            "maximum": 0.005418424,
+                            "minimum": 0.000207711
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 1048.4765635531571,
+                    "database": {
+                        "cpu": 4.01,
+                        "memory": 177094656
+                    }
+                }
+            },
+            "update": {
+                "vertex_on_property": {
+                    "count": 21,
+                    "duration": 0.02032448066666667,
+                    "metadata": {
+                        "cost_estimate": {
+                            "average": 0.0,
+                            "maximum": 0.0,
+                            "minimum": 0.0
+                        },
+                        "parsing_time": {
+                            "average": 0.008944245952380954,
+                            "maximum": 0.015869325,
+                            "minimum": 8.1297e-05
+                        },
+                        "plan_execution_time": {
+                            "average": 7.044e-06,
+                            "maximum": 1.0127e-05,
+                            "minimum": 5.099e-06
+                        },
+                        "planning_time": {
+                            "average": 0.001962920523809524,
+                            "maximum": 0.003502445,
+                            "minimum": 0.000622504
+                        }
+                    },
+                    "num_workers": 12,
+                    "retries": 0,
+                    "throughput": 1033.2367328057353,
+                    "database": {
+                        "cpu": 4.02,
+                        "memory": 169771008
+                    }
+                }
+            }
+        }
+    }
+}
