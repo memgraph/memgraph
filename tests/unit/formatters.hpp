@@ -136,6 +136,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
     case memgraph::query::TypedValue::Type::Duration:
       os << ToString(value.ValueDuration());
       break;
+    case memgraph::query::TypedValue::Type::Graph:
+      throw std::logic_error{"Not implemented"};
   }
   return os.str();
 }

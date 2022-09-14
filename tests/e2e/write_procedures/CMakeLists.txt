@@ -5,5 +5,6 @@ endfunction()
 copy_write_procedures_e2e_python_files(common.py)
 copy_write_procedures_e2e_python_files(conftest.py)
 copy_write_procedures_e2e_python_files(simple_write.py)
+copy_write_procedures_e2e_python_files(read_subgraph.py)
 
 add_subdirectory(procedures)
