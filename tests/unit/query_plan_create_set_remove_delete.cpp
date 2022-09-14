@@ -2056,8 +2056,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   {
     auto user = memgraph::auth::User{"denied_global"};
 
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetVertexProperty(v);
     ExecuteSetPropertyOnVertex(user, 2);
@@ -2076,7 +2075,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
     auto user = memgraph::auth::User{"denied_label"};
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetVertexProperty(v);
     ExecuteSetPropertyOnVertex(user, 2);
@@ -2170,8 +2169,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetVertexProperty(v);
     ExecuteSetPropertyOnVertex(user, 2);
@@ -2190,7 +2188,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
     auto user = memgraph::auth::User{"granted_update_global_denied_read_label"};
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
 
     SetVertexProperty(v);
@@ -2211,8 +2209,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().label_permissions().Grant("*",
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetVertexProperty(v);
     ExecuteSetPropertyOnVertex(user, 2);
@@ -2231,7 +2228,7 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
     auto user = memgraph::auth::User{"granted_create_delete_global_denied_read_label"};
 
     user.fine_grained_access_handler().label_permissions().Grant(vertex_label_name,
-                                                                 memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+                                                                 memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().label_permissions().Grant("*",
                                                                  memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 
@@ -2303,8 +2300,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     auto user = memgraph::auth::User{"denied_global"};
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "*", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetEdgeProperty(edge.GetValue());
     ExecuteSetPropertyOnEdge(user, 2);
@@ -2323,8 +2320,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     auto user = memgraph::auth::User{"denied_edge_type"};
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        edge_type_name, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetEdgeProperty(edge.GetValue());
     ExecuteSetPropertyOnEdge(user, 2);
@@ -2385,8 +2382,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "*", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetEdgeProperty(edge.GetValue());
     ExecuteSetPropertyOnEdge(user, 2);
@@ -2444,8 +2441,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     auto user = memgraph::auth::User{"granted_update_global_denied_read_edge_type"};
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        edge_type_name, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant("*",
                                                                      memgraph::auth::FineGrainedPermission::UPDATE);
 
@@ -2468,8 +2465,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         edge_type_name, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        "*", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant("*",
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
 
     SetEdgeProperty(edge.GetValue());
     ExecuteSetPropertyOnEdge(user, 2);
@@ -2488,8 +2485,8 @@ TEST_F(UpdatePropertiesWithAuthFixture, SetPropertyExpandWithAuthChecker) {
     auto user = memgraph::auth::User{"granted_create_delete_global_denied_read_edge_type"};
 
     user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
-    user.fine_grained_access_handler().edge_type_permissions().Grant(
-        edge_type_name, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+    user.fine_grained_access_handler().edge_type_permissions().Grant(edge_type_name,
+                                                                     memgraph::auth::FineGrainedPermission::NOTHING);
     user.fine_grained_access_handler().edge_type_permissions().Grant(
         "*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
 

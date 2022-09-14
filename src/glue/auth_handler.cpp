@@ -135,7 +135,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     std::stringstream permission_representation;
     permission_representation << "ALL " << permission_type << "S";
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
     const auto permission_description =
         fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
@@ -151,7 +151,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     permission_representation << permission_type << " :" << label;
 
     const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NO_PERMISSION ? "DENIED" : "GRANTED";
+        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
     const auto permission_description =
         fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);

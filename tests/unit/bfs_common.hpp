@@ -497,8 +497,8 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Grant("b",
                                                                        memgraph::auth::FineGrainedPermission::READ);
-      user.fine_grained_access_handler().edge_type_permissions().Grant(
-          "a", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("a",
+                                                                       memgraph::auth::FineGrainedPermission::NOTHING);
 
       edges_in_result = GetEdgeList(kEdges, direction, {"b"});
       break;
@@ -506,8 +506,8 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().edge_type_permissions().Grant("a",
                                                                        memgraph::auth::FineGrainedPermission::READ);
-      user.fine_grained_access_handler().edge_type_permissions().Grant(
-          "b", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+      user.fine_grained_access_handler().edge_type_permissions().Grant("b",
+                                                                       memgraph::auth::FineGrainedPermission::NOTHING);
 
       edges_in_result = GetEdgeList(kEdges, direction, {"a"});
       break;
@@ -518,8 +518,7 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
-      user.fine_grained_access_handler().label_permissions().Grant(
-          "0", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+      user.fine_grained_access_handler().label_permissions().Grant("0", memgraph::auth::FineGrainedPermission::NOTHING);
 
       edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
       edges_in_result.erase(
@@ -533,8 +532,7 @@ void BfsTestWithFineGrainedFiltering(Database *db, int lower_bound, int upper_bo
       user.fine_grained_access_handler().label_permissions().Grant("1", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("2", memgraph::auth::FineGrainedPermission::READ);
       user.fine_grained_access_handler().label_permissions().Grant("4", memgraph::auth::FineGrainedPermission::READ);
-      user.fine_grained_access_handler().label_permissions().Grant(
-          "3", memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+      user.fine_grained_access_handler().label_permissions().Grant("3", memgraph::auth::FineGrainedPermission::NOTHING);
 
       edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
       edges_in_result.erase(

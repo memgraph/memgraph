@@ -47,7 +47,7 @@ enum class Permission : uint64_t {
 #ifdef MG_ENTERPRISE
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NO_PERMISSION = 0,
+  NOTHING       = 0,
   READ          = 1,
   UPDATE        = 1U << 1U,
   CREATE_DELETE = 1U << 2U

@@ -647,7 +647,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::NOTHING);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -667,7 +667,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NO_PERMISSION");
+  ASSERT_EQ(result[1].ValueString(), "NOTHING");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER");
@@ -676,7 +676,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::NO_PERMISSION);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::NOTHING);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -696,7 +696,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "NO_PERMISSION");
+  ASSERT_EQ(result[1].ValueString(), "NOTHING");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");

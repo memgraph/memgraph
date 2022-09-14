@@ -115,7 +115,7 @@ FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permissio
     return FineGrainedPermission::READ;
   }
 
-  return FineGrainedPermission::NO_PERMISSION;
+  return FineGrainedPermission::NOTHING;
 }
 
 std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
@@ -126,8 +126,8 @@ std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
       return "UPDATE";
     case FineGrainedPermission::READ:
       return "READ";
-    case FineGrainedPermission::NO_PERMISSION:
-      return "NO_PERMISSION";
+    case FineGrainedPermission::NOTHING:
+      return "NOTHING";
   }
 }
 
