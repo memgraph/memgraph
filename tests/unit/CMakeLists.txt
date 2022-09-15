@@ -330,6 +330,10 @@ target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
 add_unit_test(auth_handler.cpp)
 target_link_libraries(${test_prefix}auth_handler mg-glue mg-auth)
 
+add_unit_test(cpp_api.cpp)
+target_link_libraries(${test_prefix}cpp_api mg-query)
+target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)

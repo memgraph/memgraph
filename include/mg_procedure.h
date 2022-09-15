@@ -171,6 +171,8 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_DURATION,
 };
 
+enum mgp_error mgp_value_copy(struct mgp_value *val, struct mgp_memory *memory, struct mgp_value **result);
+
 /// Free the memory used by the given mgp_value instance.
 void mgp_value_destroy(struct mgp_value *val);
 
@@ -406,6 +408,8 @@ enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_list.
 enum mgp_error mgp_list_make_empty(size_t capacity, struct mgp_memory *memory, struct mgp_list **result);
 
+enum mgp_error mgp_list_copy(struct mgp_list *list, struct mgp_memory *memory, struct mgp_list **result);
+
 /// Free the memory used by the given mgp_list and contained elements.
 void mgp_list_destroy(struct mgp_list *list);
 
@@ -443,6 +447,8 @@ enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value
 /// You need to free the created instance with mgp_map_destroy.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_map.
 enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Free the memory used by the given mgp_map and contained items.
 void mgp_map_destroy(struct mgp_map *map);
