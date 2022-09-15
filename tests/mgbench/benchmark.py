@@ -270,6 +270,7 @@ for dataset, tests in benchmarks:
 
         for group in sorted(tests.keys()):
             for test, funcname in tests[group]:
+                test = f"{test} {test_type}"
                 log.info("Running test:", "{}/{}".format(group, test))
                 func = getattr(dataset, funcname)
 
@@ -312,7 +313,7 @@ for dataset, tests in benchmarks:
                         value={
                             "count": count,
                             "duration": args.single_threaded_runtime_sec,
-                        }
+                        },
                     )
                 else:
                     print(
