@@ -168,7 +168,8 @@ class VertexAccessor final {
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.InEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -185,7 +186,8 @@ class VertexAccessor final {
   auto OutEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -205,9 +207,14 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnull-dereference"
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
+inline VertexAccessor EdgeAccessor::To() const { return *static_cast<VertexAccessor *>(nullptr); }
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
+inline VertexAccessor EdgeAccessor::From() const { return *static_cast<VertexAccessor *>(nullptr); }
+#pragma clang diagnostic pop
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
@@ -291,13 +298,15 @@ class DbAccessor final {
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
+    static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
+    auto maybe_edge = accessor_->CreateEdge(from->impl_.Id(storage::v3::View::NEW).GetValue(),
+                                            to->impl_.Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
     if (maybe_edge.HasError()) return storage::v3::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(&edge->impl_);
+    auto res = accessor_->DeleteEdge(edge->impl_.FromVertex(), edge->impl_.ToVertex(), edge->impl_.Gid());
     if (res.HasError()) {
       return res.GetError();
     }

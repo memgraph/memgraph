@@ -144,7 +144,9 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   explicit ExpressionPrettyPrinter(std::ostream *out) : out_(out) {}
 
   // Unary operators
-#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)      \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
   void Visit(OP_NODE &op) override { detail::PrintOperator(out_, OP_STR, op.expression_); }
 
   UNARY_OPERATOR_VISIT(NotOperator, "Not");
@@ -155,7 +157,9 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 #undef UNARY_OPERATOR_VISIT
 
   // Binary operators
-#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR)     \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
   void Visit(OP_NODE &op) override { detail::PrintOperator(out_, OP_STR, op.expression1_, op.expression2_); }
 
   BINARY_OPERATOR_VISIT(OrOperator, "Or");

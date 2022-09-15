@@ -24,6 +24,7 @@ cmake/DownloadProject/
 dist/
 src/query/frontend/opencypher/generated/
 src/query/v2/frontend/opencypher/generated/
+src/parser/opencypher/generated
 tags
 ve/
 ve3/

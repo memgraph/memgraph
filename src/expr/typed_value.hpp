@@ -116,9 +116,8 @@ class TypedValueT {
           return hash;
         }
         case TypedValueT::Type::Vertex:
-        case TypedValueT::Type::Edge: {
+        case TypedValueT::Type::Edge:
           return 0;
-        }
         case TypedValueT::Type::Path: {
           const auto &vertices = value.ValuePath().vertices();
           const auto &edges = value.ValuePath().edges();
@@ -559,7 +558,9 @@ class TypedValueT {
   }
 
   // copy assignment operators
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, member) \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                               \
   TypedValueT &operator=(type_param other) {                                     \
     if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
       this->member = other;                                                      \
@@ -611,8 +612,9 @@ class TypedValueT {
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
   /** Move assign other, utils::MemoryResource of `this` is used. */
-  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, member) \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                               \
   TypedValueT &operator=(type_param &&other) {                                   \
     if (this->type_ == TypedValueT::Type::typed_value_type) {                    \
       this->member = std::move(other);                                           \
@@ -779,6 +781,7 @@ class TypedValueT {
 
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                               \
   type_param &Value##type_enum() {                                                               \
     if (type_ != Type::type_enum)                                                                \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \

@@ -63,6 +63,20 @@ class SchemaValidator {
   Schemas &schemas_;
 };
 
+struct VertexValidator {
+  explicit VertexValidator(const SchemaValidator &schema_validator, LabelId primary_label);
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId label) const;
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
+
+  const SchemaValidator *schema_validator;
+
+  LabelId primary_label_;
+};
+
 template <typename TValue>
 using ResultSchema = utils::BasicResult<std::variant<SchemaViolation, Error>, TValue>;
 
