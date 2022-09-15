@@ -95,13 +95,15 @@ class DbAccessor final {
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(from, to, edge_type);
+    static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
+    auto maybe_edge = accessor_->CreateEdge(from->Id(storage::v3::View::NEW).GetValue(),
+                                            to->Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
     if (maybe_edge.HasError()) return storage::v3::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(edge);
+    auto res = accessor_->DeleteEdge(edge->FromVertex(), edge->ToVertex(), edge->Gid());
     if (res.HasError()) {
       return res.GetError();
     }

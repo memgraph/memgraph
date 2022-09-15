@@ -34,8 +34,6 @@ struct PropertyToTypedValueConverter {
   }
 };
 
-// inline const auto lam = [](const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); };
-
 struct Parameters {
  public:
   /**
