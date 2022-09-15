@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include "io/network/endpoint.hpp"
+#include "io/time.hpp"
 #include "storage/v3/constraints.hpp"
 #include "storage/v3/durability/durability.hpp"
 #include "storage/v3/durability/metadata.hpp"
@@ -59,7 +60,21 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
 
-void InsertVertexPKIntoList(auto &container, const PrimaryKey &primary_key) { container.push_back(primary_key); }
+uint64_t GetCleanupBeforeTimestamp(const std::map<uint64_t, std::unique_ptr<Transaction>> &transactions,
+                                   const io::Time clean_up_before) {
+  MG_ASSERT(!transactions.empty(), "There are no transactions!");
+  const auto it = std::lower_bound(
+      transactions.begin(), transactions.end(), clean_up_before,
+      [](const std::pair<const uint64_t, std::unique_ptr<Transaction>> &trans, const io::Time clean_up_before) {
+        return trans.second->start_timestamp.coordinator_wall_clock < clean_up_before;
+      });
+  if (it == transactions.end()) {
+    // all of the transaction are old enough to be cleaned up, return a timestamp that is higher than all of them
+    return transactions.rbegin()->first + 1;
+  }
+  return it->first;
+}
+
 }  // namespace
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
@@ -419,10 +434,8 @@ Shard::~Shard() {
   }
 }
 
-Shard::Accessor::Accessor(Shard *shard, coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
-    : shard_(shard),
-      transaction_(&shard->GetTransaction(start_timestamp, isolation_level)),
-      config_(shard->config_.items) {}
+Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
+    : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
@@ -754,7 +767,6 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(coordinato
   transaction_->commit_info->timestamp = commit_timestamp;
   transaction_->commit_info->is_locally_committed = true;
 
-  shard_->committed_transactions_.emplace_back(transaction_);
   return {};
 }
 
@@ -833,7 +845,7 @@ void Shard::Accessor::Abort() {
             }
             case Delta::Action::DELETE_OBJECT: {
               vertex->deleted = true;
-              InsertVertexPKIntoList(shard_->deleted_vertices_, vertex->keys.Keys());
+              shard_->deleted_vertices_.push_back(vertex->keys.Keys());
               break;
             }
             case Delta::Action::RECREATE_OBJECT: {
@@ -897,6 +909,7 @@ void Shard::Accessor::Abort() {
   transaction_->deltas.clear();
 
   transaction_->is_aborted = true;
+  shard_->has_any_transaction_aborted_since_last_gc = true;
 }
 
 void Shard::Accessor::FinalizeTransaction() {
@@ -1068,146 +1081,86 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
 }
 
 void Shard::CollectGarbage(const io::Time current_time) {
-  const auto cleanup_transaction_from_before = current_time - config_.gc.reclamation_interval;
+  if (start_logical_id_to_transaction_.empty()) {
+    // we are not aware of any transaction, thus no aborted or committed transactions, there is nothing to clean up
+    return;
+  }
+
+  const auto clean_up_before_wall_clock = current_time - config_.gc.reclamation_interval;
   // TODO(antaljanosbenjamin) Fix before merge, get the correct logical is from start_logical_id_to_transaction
-  const uint64_t oldest_might_active_transaction{0};
-  // Garbage collection must be performed in two phases. In the first phase,
-  // deltas that won't be applied by any transaction anymore are unlinked from
-  // the version chains. They cannot be deleted immediately, because there
-  // might be a transaction that still needs them to terminate the version
-  // chain traversal. They are instead marked for deletion and will be deleted
-  // in the second GC phase in this GC iteration or some of the following
-  // ones.
+  const auto clean_up_before_timestamp =
+      GetCleanupBeforeTimestamp(start_logical_id_to_transaction_, clean_up_before_wall_clock);
 
-  // We will only free vertices deleted up until now in this GC cycle, and we
-  // will do it after cleaning-up the indices. That way we are sure that all
-  // vertices that appear in an index also exist in main storage.
+  // TODO(antaljanosbenjamin): Fix before merge, run index clean_up when a transaction aborted
+  auto cleaned_up_committed_transaction = false;
 
-  // Flag that will be used to determine whether the Index GC should be run. It
-  // should be run when there were any items that were cleaned up (there were
-  // updates between this run of the GC and the previous run of the GC). This
-  // eliminates high CPU usage when the GC doesn't have to clean up anything.
+  for (auto it = start_logical_id_to_transaction_.begin();
+       it != start_logical_id_to_transaction_.end() &&
+       it->second->start_timestamp.logical_id < clean_up_before_timestamp;) {
+    auto &transaction = *it->second;
 
-  // TODO(antaljanosbenjamin): Fix before merge, run index cleanup when a transaction aborted
-  bool run_index_cleanup = !committed_transactions_.empty();  // || has_transaction_aborted_after_last_gc;
+    if (transaction.commit_info->is_locally_committed) {
+      cleaned_up_committed_transaction = true;
+      auto commit_timestamp = transaction.commit_info->timestamp;
 
-  while (true) {
-    // We don't want to hold the lock on commited transactions for too long,
-    // because that prevents other transactions from committing.
-    Transaction *transaction{nullptr};
-    {
-      if (committed_transactions_.empty()) {
-        break;
-      }
-      transaction = committed_transactions_.front();
-    }
-
-    // TODO(antaljanosbenjamin): use HLC here
-    auto commit_timestamp = transaction->commit_info->timestamp;
-    if (commit_timestamp.coordinator_wall_clock < cleanup_transaction_from_before) {
-      break;
-    }
-
-    // When unlinking a delta which is the first delta in its version chain,
-    // special care has to be taken to avoid the following race condition:
-    //
-    // [Vertex] --> [Delta A]
-    //
-    //    GC thread: Delta A is the first in its chain, it must be unlinked from
-    //               vertex and marked for deletion
-    //    TX thread: Update vertex and add Delta B with Delta A as next
-    //
-    // [Vertex] --> [Delta B] <--> [Delta A]
-    //
-    //    GC thread: Unlink delta from Vertex
-    //
-    // [Vertex] --> (nullptr)
-    //
-    // When processing a delta that is the first one in its chain, we
-    // obtain the corresponding vertex or edge lock, and then verify that this
-    // delta still is the first in its chain.
-    // When processing a delta that is in the middle of the chain we only
-    // process the final delta of the given transaction in that chain. We
-    // determine the owner of the chain (either a vertex or an edge), obtain the
-    // corresponding lock, and then verify that this delta is still in the same
-    // position as it was before taking the lock.
-    //
-    // Even though the delta chain is lock-free (both `next` and `prev`) the
-    // chain should not be modified without taking the lock from the object that
-    // owns the chain (either a vertex or an edge). Modifying the chain without
-    // taking the lock will cause subtle race conditions that will leave the
-    // chain in a broken state.
-    // The chain can be only read without taking any locks.
-
-    for (Delta &delta : transaction->deltas) {
-      while (true) {
-        auto prev = delta.prev.Get();
-        switch (prev.type) {
-          case PreviousPtr::Type::VERTEX: {
-            Vertex *vertex = prev.vertex;
-            vertex->delta = nullptr;
-            if (vertex->deleted) {
-              InsertVertexPKIntoList(deleted_vertices_, vertex->keys.Keys());
-            }
-            break;
-          }
-          case PreviousPtr::Type::EDGE: {
-            Edge *edge = prev.edge;
-
-            edge->delta = nullptr;
-            if (edge->deleted) {
-              deleted_edges_.push_back(edge->gid);
-            }
-            break;
-          }
-          case PreviousPtr::Type::DELTA: {
-            if (prev.delta->commit_info->timestamp == commit_timestamp) {
-              // The delta that is newer than this one is also a delta from this
-              // transaction. We skip the current delta and will remove it as a
-              // part of the suffix later.
+      for (Delta &delta : transaction.deltas) {
+        while (true) {
+          auto prev = delta.prev.Get();
+          switch (prev.type) {
+            case PreviousPtr::Type::VERTEX: {
+              Vertex *vertex = prev.vertex;
+              vertex->delta = nullptr;
+              if (vertex->deleted) {
+                deleted_vertices_.push_back(vertex->keys.Keys());
+              }
               break;
             }
-            Delta *prev_delta = prev.delta;
-            prev_delta->next = nullptr;
-            break;
+            case PreviousPtr::Type::EDGE: {
+              Edge *edge = prev.edge;
+
+              edge->delta = nullptr;
+              if (edge->deleted) {
+                deleted_edges_.push_back(edge->gid);
+              }
+              break;
+            }
+            case PreviousPtr::Type::DELTA: {
+              if (prev.delta->commit_info->timestamp == commit_timestamp) {
+                // The delta that is newer than this one is also a delta from this
+                // transaction. We skip the current delta and will unlink it as a
+                // part of the suffix later.
+                break;
+              }
+              Delta *prev_delta = prev.delta;
+              prev_delta->next = nullptr;
+              break;
+            }
+            case PreviousPtr::Type::NULLPTR: {
+              LOG_FATAL("Invalid pointer!");
+            }
           }
-          case PreviousPtr::Type::NULLPTR: {
-            LOG_FATAL("Invalid pointer!");
-          }
+          break;
         }
-        break;
       }
+    } else if (!transaction.is_aborted) {
+      Accessor(*this, transaction).Abort();
     }
-    committed_transactions_.pop_front();
-    MG_ASSERT(start_logical_id_to_transaction.erase(transaction->start_timestamp.logical_id));
+    it = start_logical_id_to_transaction_.erase(it);
   }
 
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
   // appears in an index, and we can safely remove the from the main storage
   // after the last currently active transaction is finished.
-  if (run_index_cleanup) {
+  if (cleaned_up_committed_transaction || has_any_transaction_aborted_since_last_gc) {
     // This operation is very expensive as it traverses through all of the items
     // in every index every time.
-    RemoveObsoleteEntries(&indices_, oldest_might_active_transaction);
+    RemoveObsoleteEntries(&indices_, clean_up_before_timestamp);
   }
 
-  {
-    for (const auto &vertex : deleted_vertices_) {
-      garbage_vertices_.emplace_back(oldest_might_active_transaction, vertex);
-    }
-  }
-
-  // if force is set to true we can simply delete all the leftover undos because
-  // no transaction is active
-
-  {
-    auto vertex_acc = vertices_.access();
-
-    while (!garbage_vertices_.empty() && garbage_vertices_.front().first < oldest_might_active_transaction) {
-      MG_ASSERT(vertex_acc.remove(garbage_vertices_.front().second), "Invalid database state!");
-      garbage_vertices_.pop_front();
-    }
+  auto vertex_acc = vertices_.access();
+  for (const auto &vertex : deleted_vertices_) {
+    MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
   }
   {
     auto edge_acc = edges_.access();
@@ -1426,15 +1379,15 @@ bool Shard::CreateSnapshot() {
 
 Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, IsolationLevel isolation_level) {
   // TODO(antaljanosbenjamin)
-  if (const auto it = start_logical_id_to_transaction.find(start_timestamp.logical_id);
-      it != start_logical_id_to_transaction.end()) {
+  if (const auto it = start_logical_id_to_transaction_.find(start_timestamp.logical_id);
+      it != start_logical_id_to_transaction_.end()) {
     MG_ASSERT(it->second->start_timestamp.coordinator_wall_clock == start_timestamp.coordinator_wall_clock,
               "Logical id and wall clock don't match in already seen hybrid logical clock!");
     MG_ASSERT(it->second->isolation_level == isolation_level,
               "Isolation level doesn't match in already existing transaction!");
     return *it->second;
   }
-  const auto insert_result = start_logical_id_to_transaction.emplace(
+  const auto insert_result = start_logical_id_to_transaction_.emplace(
       start_timestamp.logical_id, std::make_unique<Transaction>(start_timestamp, isolation_level));
   MG_ASSERT(insert_result.second, "Transaction creation failed!");
   return *insert_result.first->second;

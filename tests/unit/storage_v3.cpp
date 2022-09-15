@@ -35,7 +35,7 @@ using testing::UnorderedElementsAre;
 
 namespace memgraph::storage::v3::tests {
 
-class StorageV3 : public ::testing::Test {
+class StorageV3 : public ::testing::TestWithParam<bool> {
  protected:
   void SetUp() override {
     ASSERT_TRUE(
@@ -62,22 +62,50 @@ class StorageV3 : public ::testing::Test {
 
   coordinator::Hlc GetNextHlc() {
     ++last_hlc.logical_id;
-    last_hlc.coordinator_wall_clock += std::chrono::seconds(10);
+    last_hlc.coordinator_wall_clock += wall_clock_increment;
     return last_hlc;
   }
 
+  void CleanupHlc(const coordinator::Hlc hlc) {
+    if (with_gc) {
+      store.CollectGarbage(hlc.coordinator_wall_clock + reclamation_interval + one_time_unit);
+    }
+  }
+
+  const bool with_gc = GetParam();
+  static constexpr std::chrono::seconds wall_clock_increment{10};
+  static constexpr std::chrono::seconds reclamation_interval{wall_clock_increment / 2};
+  static constexpr io::Duration one_time_unit{1};
   NameIdMapper id_mapper;
   const std::vector<PropertyValue> pk{PropertyValue{0}};
   const LabelId primary_label{NameToLabelId("label")};
-  Shard store{primary_label, pk, std::nullopt};
+  Shard store{primary_label, pk, std::nullopt, Config{.gc = {.reclamation_interval = reclamation_interval}}};
   const PropertyId primary_property{NameToPropertyId("property")};
   coordinator::Hlc last_hlc{0, io::Time{}};
 };
+INSTANTIATE_TEST_CASE_P(WithGc, StorageV3, ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(WithoutGc, StorageV3, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, Commit) {
-  {
+TEST_P(StorageV3, Commit) {
+  const auto test_vertex_exists = [this](const coordinator::Hlc hlc) {
+    auto acc = store.Access(hlc);
+    ASSERT_TRUE(acc.FindVertex(pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
+    ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
+  };
+  const auto test_vertex_not_exists = [this](const coordinator::Hlc hlc) {
     auto acc = store.Access(GetNextHlc());
+    ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_FALSE(acc.FindVertex(pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+  };
+
+  const auto create_start_hlc = GetNextHlc();
+  {
+    auto acc = store.Access(create_start_hlc);
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
@@ -85,16 +113,15 @@ TEST_F(StorageV3, Commit) {
     EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
     ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
   }
+  const auto after_create_hlc = GetNextHlc();
+
+  ASSERT_NO_FATAL_FAILURE(test_vertex_exists(GetNextHlc()));
+  CleanupHlc(create_start_hlc);
+  ASSERT_NO_FATAL_FAILURE(test_vertex_exists(GetNextHlc()));
+
+  const auto delete_start_hlc = GetNextHlc();
   {
-    auto acc = store.Access(GetNextHlc());
-    ASSERT_TRUE(acc.FindVertex(pk, View::OLD).has_value());
-    EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
-    ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
-    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
-    acc.Abort();
-  }
-  {
-    auto acc = store.Access(GetNextHlc());
+    auto acc = store.Access(delete_start_hlc);
     auto vertex = acc.FindVertex(pk, View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -109,18 +136,23 @@ TEST_F(StorageV3, Commit) {
 
     ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
   }
-  {
-    auto acc = store.Access(GetNextHlc());
-    ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
-    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
-    ASSERT_FALSE(acc.FindVertex(pk, View::NEW).has_value());
-    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
-    acc.Abort();
+
+  ASSERT_NO_FATAL_FAILURE(test_vertex_not_exists(GetNextHlc()));
+  // The delta about deleting the vertex is still there, it
+  ASSERT_NO_FATAL_FAILURE(test_vertex_exists(after_create_hlc));
+  CleanupHlc(delete_start_hlc);
+
+  ASSERT_NO_FATAL_FAILURE(test_vertex_not_exists(GetNextHlc()));
+
+  if (with_gc) {
+    ASSERT_NO_FATAL_FAILURE(test_vertex_not_exists(create_start_hlc));
+  } else {
+    ASSERT_NO_FATAL_FAILURE(test_vertex_exists(after_create_hlc));
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, Abort) {
+TEST_P(StorageV3, Abort) {
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -141,7 +173,32 @@ TEST_F(StorageV3, Abort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, AdvanceCommandCommit) {
+TEST_P(StorageV3, AbortByGc) {
+  if (!with_gc) {
+    return;
+  }
+  {
+    const auto hlc = GetNextHlc();
+    auto acc = store.Access(hlc);
+    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 1U);
+    CleanupHlc(hlc);
+  }
+  {
+    auto acc = store.Access(GetNextHlc());
+    ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
+    EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
+    ASSERT_FALSE(acc.FindVertex(pk, View::NEW).has_value());
+    EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
+    acc.Abort();
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(StorageV3, AdvanceCommandCommit) {
   std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
@@ -180,7 +237,7 @@ TEST_F(StorageV3, AdvanceCommandCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, AdvanceCommandAbort) {
+TEST_P(StorageV3, AdvanceCommandAbort) {
   std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
   {
@@ -218,7 +275,7 @@ TEST_F(StorageV3, AdvanceCommandAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, SnapshotIsolation) {
+TEST_P(StorageV3, SnapshotIsolation) {
   auto acc1 = store.Access(GetNextHlc());
   auto acc2 = store.Access(GetNextHlc());
 
@@ -249,7 +306,7 @@ TEST_F(StorageV3, SnapshotIsolation) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, AccessorMove) {
+TEST_P(StorageV3, AccessorMove) {
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -279,7 +336,7 @@ TEST_F(StorageV3, AccessorMove) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexDeleteCommit) {
+TEST_P(StorageV3, VertexDeleteCommit) {
   auto acc1 = store.Access(GetNextHlc());  // read transaction
   auto acc2 = store.Access(GetNextHlc());  // write transaction
 
@@ -349,7 +406,7 @@ TEST_F(StorageV3, VertexDeleteCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexDeleteAbort) {
+TEST_P(StorageV3, VertexDeleteAbort) {
   auto acc1 = store.Access(GetNextHlc());  // read transaction
   auto acc2 = store.Access(GetNextHlc());  // write transaction
 
@@ -471,7 +528,7 @@ TEST_F(StorageV3, VertexDeleteAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexDeleteSerializationError) {
+TEST_P(StorageV3, VertexDeleteSerializationError) {
   // Create vertex
   {
     auto acc = store.Access(GetNextHlc());
@@ -542,7 +599,7 @@ TEST_F(StorageV3, VertexDeleteSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexDeleteSpecialCases) {
+TEST_P(StorageV3, VertexDeleteSpecialCases) {
   std::vector<PropertyValue> pk1{PropertyValue{0}};
   std::vector<PropertyValue> pk2{PropertyValue(2)};
 
@@ -607,7 +664,7 @@ void AssertErrorInVariant(TResultHolder &holder, TError error_type) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexDeleteLabel) {
+TEST_P(StorageV3, VertexDeleteLabel) {
   // Create the vertex
   {
     auto acc = store.Access(GetNextHlc());
@@ -751,7 +808,7 @@ TEST_F(StorageV3, VertexDeleteLabel) {
 }
 
 // NOLINTNEXTLINE(hicpp - special - member - functions)
-TEST_F(StorageV3, VertexDeleteProperty) {
+TEST_P(StorageV3, VertexDeleteProperty) {
   // Create the vertex
   {
     auto acc = store.Access(GetNextHlc());
@@ -884,7 +941,7 @@ TEST_F(StorageV3, VertexDeleteProperty) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexLabelCommit) {
+TEST_P(StorageV3, VertexLabelCommit) {
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -996,7 +1053,7 @@ TEST_F(StorageV3, VertexLabelCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexLabelAbort) {
+TEST_P(StorageV3, VertexLabelAbort) {
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
@@ -1240,7 +1297,7 @@ TEST_F(StorageV3, VertexLabelAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexLabelSerializationError) {
+TEST_P(StorageV3, VertexLabelSerializationError) {
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1344,7 +1401,7 @@ TEST_F(StorageV3, VertexLabelSerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexPropertyCommit) {
+TEST_P(StorageV3, VertexPropertyCommit) {
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1463,7 +1520,7 @@ TEST_F(StorageV3, VertexPropertyCommit) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexPropertyAbort) {
+TEST_P(StorageV3, VertexPropertyAbort) {
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
@@ -1737,7 +1794,7 @@ TEST_F(StorageV3, VertexPropertyAbort) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexPropertySerializationError) {
+TEST_P(StorageV3, VertexPropertySerializationError) {
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1835,7 +1892,7 @@ TEST_F(StorageV3, VertexPropertySerializationError) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, VertexLabelPropertyMixed) {
+TEST_P(StorageV3, VertexLabelPropertyMixed) {
   auto acc = store.Access(GetNextHlc());
   auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
@@ -2073,7 +2130,7 @@ TEST_F(StorageV3, VertexLabelPropertyMixed) {
   ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
 }
 
-TEST_F(StorageV3, VertexPropertyClear) {
+TEST_P(StorageV3, VertexPropertyClear) {
   auto property1 = NameToPropertyId("property1");
   auto property2 = NameToPropertyId("property2");
   {
@@ -2175,7 +2232,7 @@ TEST_F(StorageV3, VertexPropertyClear) {
   }
 }
 
-TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
+TEST_P(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto label1 = NameToLabelId("label1");
   auto property1 = NameToPropertyId("property1");
 
@@ -2232,7 +2289,7 @@ TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
 }
 
-TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
+TEST_P(StorageV3, VertexVisibilitySingleTransaction) {
   auto acc1 = store.Access(GetNextHlc());
   auto acc2 = store.Access(GetNextHlc());
 
@@ -2285,7 +2342,7 @@ TEST_F(StorageV3, VertexVisibilitySingleTransaction) {
   acc3.Abort();
 }
 
-TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
+TEST_P(StorageV3, VertexVisibilityMultipleTransactions) {
   {
     auto acc1 = store.Access(GetNextHlc());
     auto acc2 = store.Access(GetNextHlc());
@@ -2521,7 +2578,7 @@ TEST_F(StorageV3, VertexVisibilityMultipleTransactions) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_F(StorageV3, DeletedVertexAccessor) {
+TEST_P(StorageV3, DeletedVertexAccessor) {
   const auto property1 = NameToPropertyId("property1");
   const PropertyValue property_value{"property_value"};
 
@@ -2560,7 +2617,7 @@ TEST_F(StorageV3, DeletedVertexAccessor) {
   }
 }
 
-TEST_F(StorageV3, TestCreateVertexAndValidate) {
+TEST_P(StorageV3, TestCreateVertexAndValidate) {
   {
     auto acc = store.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label1");

@@ -215,7 +215,7 @@ class Shard final {
    private:
     friend class Shard;
 
-    explicit Accessor(Shard *shard, coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
+    explicit Accessor(Shard &shard, Transaction &transaction);
 
    public:
     /// @throw std::bad_alloc
@@ -335,7 +335,7 @@ class Shard final {
   };
 
   Accessor Access(coordinator::Hlc start_timestamp, std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, start_timestamp, override_isolation_level.value_or(isolation_level_)};
+    return Accessor{*this, GetTransaction(start_timestamp, override_isolation_level.value_or(isolation_level_))};
   }
 
   const std::string &LabelToName(LabelId label) const;
@@ -419,6 +419,8 @@ class Shard final {
 
   bool CreateSnapshot();
 
+  void CollectGarbage(io::Time current_time);
+
  private:
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
   /// The force parameter determines the behaviour of the garbage collector.
@@ -432,7 +434,6 @@ class Shard final {
   /// that no object in use can be deleted.
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  void CollectGarbage(io::Time current_time);
 
   bool InitializeWalFile();
   void FinalizeWalFile();
@@ -472,10 +473,6 @@ class Shard final {
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
   std::list<PrimaryKey> deleted_vertices_;
-
-  // Vertices that are logically deleted and removed from indices and now wait
-  // to be removed from the main storage.
-  std::list<std::pair<uint64_t, PrimaryKey>> garbage_vertices_;
 
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
@@ -520,7 +517,10 @@ class Shard final {
   // Global locker that is used for clients file locking
   utils::FileRetainer::FileLocker global_locker_;
 
-  std::unordered_map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction{};
+  // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
+  // haven't been cleaned up yet
+  std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
+  bool has_any_transaction_aborted_since_last_gc{false};
 };
 
 }  // namespace memgraph::storage::v3
