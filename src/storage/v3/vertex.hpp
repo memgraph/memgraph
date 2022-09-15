@@ -22,23 +22,28 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::storage::v3 {
 
 struct Vertex {
+  using EdgeLink = std::tuple<EdgeTypeId, VertexId, EdgeRef>;
+
   Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties) : keys{primary_properties}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
+  friend bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
+
   KeyStore keys;
 
   std::vector<LabelId> labels;
   PropertyStore properties;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  std::vector<EdgeLink> in_edges;
+  std::vector<EdgeLink> out_edges;
 
   bool deleted{false};
   // uint8_t PAD;

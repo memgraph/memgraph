@@ -2195,7 +2195,9 @@ TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   // Modify vertex.
   ASSERT_TRUE(vertex.AddLabelAndValidate(label1).HasValue());
   ASSERT_TRUE(vertex.SetPropertyAndValidate(property1, PropertyValue("value")).HasValue());
-  ASSERT_TRUE(acc.CreateEdge(&vertex, &vertex, NameToEdgeTypeId("edge")).HasValue());
+  ASSERT_TRUE(acc.CreateEdge(vertex.Id(View::NEW).GetValue(), vertex.Id(View::NEW).GetValue(), NameToEdgeTypeId("edge"),
+                             Gid::FromUint(1))
+                  .HasValue());
 
   // Check state after (OLD view).
   ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);

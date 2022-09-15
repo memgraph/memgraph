@@ -27,31 +27,31 @@ constexpr auto kAlwaysFalse = false;
 class ShardRsm {
   std::unique_ptr<Shard> shard_;
 
-  ReadResponses HandleRead(ExpandOneRequest &&req);
-  ReadResponses HandleRead(GetPropertiesRequest &&req);
-  ReadResponses HandleRead(ScanVerticesRequest &&req);
+  msgs::ReadResponses HandleRead(msgs::ExpandOneRequest &&req);
+  msgs::ReadResponses HandleRead(msgs::GetPropertiesRequest &&req);
+  msgs::ReadResponses HandleRead(msgs::ScanVerticesRequest &&req);
 
-  WriteResponses ApplyWrite(CreateVerticesRequest &&req);
-  WriteResponses ApplyWrite(DeleteVerticesRequest &&req);
-  WriteResponses ApplyWrite(UpdateVerticesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::CreateVerticesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::DeleteVerticesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::UpdateVerticesRequest &&req);
 
-  WriteResponses ApplyWrite(CreateEdgesRequest &&req);
-  WriteResponses ApplyWrite(DeleteEdgesRequest &&req);
-  WriteResponses ApplyWrite(UpdateEdgesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::CreateEdgesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::DeleteEdgesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::UpdateEdgesRequest &&req);
 
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
-  ReadResponses Read(ReadRequests requests) {
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  msgs::ReadResponses Read(msgs::ReadRequests requests) {
     return std::visit([&](auto &&request) mutable { return HandleRead(std::forward<decltype(request)>(request)); },
-                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+                      std::move(requests));
   }
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static
-  WriteResponses Apply(WriteRequests requests) {
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  msgs::WriteResponses Apply(msgs::WriteRequests requests) {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
-                      std::move(requests));  // NOLINT(hicpp-move-const-arg,performance-move-const-arg)
+                      std::move(requests));
   }
 };
 

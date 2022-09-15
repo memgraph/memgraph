@@ -166,8 +166,10 @@ const char *TriggerEventTypeToString(TriggerEventType event_type);
 
 static_assert(std::is_trivially_copy_constructible_v<VertexAccessor>,
               "VertexAccessor is not trivially copy constructible, move it where possible and remove this assert");
-static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
-              "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
+// TODO(antaljanosbenjamin): Either satisfy this static_assert or move the edge accessors where it is possible when we
+// will support triggers.
+// static_assert(std::is_trivially_copy_constructible_v<EdgeAccessor>,
+//               "EdgeAccessor is not trivially copy constructible, move it where possible and remove this asssert");
 
 // Holds the information necessary for triggers
 class TriggerContext {

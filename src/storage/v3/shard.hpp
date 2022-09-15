@@ -44,6 +44,7 @@
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
@@ -309,11 +310,11 @@ class Shard final {
         VertexAccessor *vertex);
 
     /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type);
+    Result<EdgeAccessor> CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id, EdgeTypeId edge_type, Gid gid);
 
     /// Accessor to the deleted edge if a deletion took place, std::nullopt otherwise
     /// @throw std::bad_alloc
-    Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
+    Result<std::optional<EdgeAccessor>> DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id, Gid edge_id);
 
     const std::string &LabelToName(LabelId label) const;
     const std::string &PropertyToName(PropertyId property) const;
@@ -354,9 +355,6 @@ class Shard final {
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(Gid gid, LabelId primary_label);
-
-    /// @throw std::bad_alloc
-    Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, Gid gid);
 
     Shard *shard_;
     Transaction transaction_;
@@ -513,14 +511,16 @@ class Shard final {
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
+  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
+
   // Main object storage
   NameIdMapper name_id_mapper_;
   LabelId primary_label_;
+  // The shard's range is [min, max)
   PrimaryKey min_primary_key_;
   std::optional<PrimaryKey> max_primary_key_;
   VerticesSkipList vertices_;
   utils::SkipList<Edge> edges_;
-  uint64_t edge_id_{0};
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we
   // keep a separate count of edges that is always updated.
