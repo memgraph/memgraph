@@ -15,10 +15,10 @@
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
-using memgraph::messages::Label;
-using memgraph::messages::PropertyId;
-using memgraph::messages::Value;
-using memgraph::messages::VertexId;
+using memgraph::msgs::Label;
+using memgraph::msgs::PropertyId;
+using memgraph::msgs::Value;
+using memgraph::msgs::VertexId;
 
 namespace {
 // TODO(gvolfing use come algorithm instead of explicit for loops)
@@ -27,7 +27,7 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
   PV ret;
   switch (value.type) {
     case Value::Type::Null:
-      return PV();
+      return PV{};
     case Value::Type::Bool:
       return PV(value.bool_v);
     case Value::Type::Int64:
@@ -104,7 +104,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   ret.reserve(properties.size());
 
   for (auto &[key, value] : properties) {
-    ret.push_back(std::make_pair(key, ToPropertyValue(std::move(value))));
+    ret.emplace_back(std::make_pair(key, ToPropertyValue(std::move(value))));
   }
 
   return ret;
@@ -125,7 +125,7 @@ std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::P
   std::vector<Value> ret;
   ret.reserve(vec.size());
 
-  for (auto &elem : vec) {
+  for (const auto &elem : vec) {
     ret.push_back(ToValue(elem));
   }
 
@@ -192,7 +192,7 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 
 namespace memgraph::storage::v3 {
 
-WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access();
 
   // Workaround untill we have access to CreateVertexAndValidate()
@@ -243,7 +243,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
     }
   }
 
-  CreateVerticesResponse resp{};
+  msgs::CreateVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -257,7 +257,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
   return resp;
 }
 
-WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   bool action_successful = true;
   auto acc = shard_->Access();
 
@@ -278,7 +278,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
       // Since we will not have different kinds of deletion types in one transaction,
       // we dont have to enter the switch statement on every iteration. Optimize this.
       switch (req.deletion_type) {
-        case DeleteVerticesRequest::DeletionType::DELETE: {
+        case msgs::DeleteVerticesRequest::DeletionType::DELETE: {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -287,7 +287,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
 
           break;
         }
-        case DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
+        case msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -301,7 +301,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
     }
   }
 
-  DeleteVerticesResponse resp{};
+  msgs::DeleteVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -316,7 +316,7 @@ WriteResponses ShardRsm::ApplyWrite(DeleteVerticesRequest &&req) {
   return resp;
 }
 
-WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
   auto acc = shard_->Access();
   bool action_successful = true;
 
@@ -346,7 +346,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
     }
   }
 
-  CreateEdgesResponse resp{};
+  msgs::CreateEdgesResponse resp{};
 
   resp.success = action_successful;
 
@@ -363,12 +363,12 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   return resp;
 }
 
-ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
+msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access();
   bool action_successful = true;
 
-  std::vector<ScanResultRow> results;
-  std::optional<messages::VertexId> next_start_id;
+  std::vector<msgs::ScanResultRow> results;
+  std::optional<msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
@@ -395,7 +395,8 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
         continue;
       }
 
-      results.emplace_back(ScanResultRow{.vertex = ConstructValueVertex(vertex, view), .props = found_props.value()});
+      results.emplace_back(
+          msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view), .props = found_props.value()});
 
       ++sample_counter;
       if (sample_counter == req.batch_limit) {
@@ -409,7 +410,7 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
     }
   }
 
-  ScanVerticesResponse resp{};
+  msgs::ScanVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -420,10 +421,19 @@ ReadResponses ShardRsm::HandleRead(ScanVerticesRequest &&req) {
   return resp;
 }
 
-WriteResponses ShardRsm::ApplyWrite(UpdateVerticesRequest &&req) { return UpdateVerticesResponse{}; }
-WriteResponses ShardRsm::ApplyWrite(DeleteEdgesRequest &&req) { return DeleteEdgesResponse{}; }
-WriteResponses ShardRsm::ApplyWrite(UpdateEdgesRequest &&req) { return UpdateEdgesResponse{}; }
-ReadResponses ShardRsm::HandleRead(ExpandOneRequest &&req) { return ExpandOneResponse{}; }
-ReadResponses ShardRsm::HandleRead(GetPropertiesRequest &&req) { return GetPropertiesResponse{}; }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest && /*req*/) {
+  return msgs::UpdateVerticesResponse{};
+}
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest && /*req*/) { return msgs::DeleteEdgesResponse{}; }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest && /*req*/) { return msgs::UpdateEdgesResponse{}; }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest && /*req*/) { return msgs::ExpandOneResponse{}; }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) {
+  return msgs::GetPropertiesResponse{};
+}
 
 }  //    namespace memgraph::storage::v3

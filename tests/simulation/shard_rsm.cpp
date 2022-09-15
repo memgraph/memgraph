@@ -48,10 +48,10 @@ using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
 using utils::BasicResult;
 
-using messages::Edge;
-using messages::PrimaryKey;
-using messages::Value;
-using messages::VertexId;
+using msgs::ReadRequests;
+using msgs::ReadResponses;
+using msgs::WriteRequests;
+using msgs::WriteResponses;
 
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
@@ -81,36 +81,36 @@ SchemaProperty get_schema_property() {
   return {.property_id = PropertyId::FromUint(0), .type = common::SchemaType::INT};
 }
 
-PrimaryKey GetPrimaryKey(int64_t value) {
-  Value prop_val(static_cast<int64_t>(value));
-  PrimaryKey primary_key = {prop_val};
+msgs::PrimaryKey GetPrimaryKey(int64_t value) {
+  msgs::Value prop_val(static_cast<int64_t>(value));
+  msgs::PrimaryKey primary_key = {prop_val};
   return primary_key;
 }
 
-NewVertex get_new_vertex(int64_t value) {
+msgs::NewVertex get_new_vertex(int64_t value) {
   // Specify Labels.
-  Label label1 = {.id = LabelId::FromUint(1)};
-  std::vector<Label> label_ids = {label1};
+  msgs::Label label1 = {.id = LabelId::FromUint(1)};
+  std::vector<msgs::Label> label_ids = {label1};
 
   // Specify primary key.
-  PrimaryKey primary_key = GetPrimaryKey(value);
+  msgs::PrimaryKey primary_key = GetPrimaryKey(value);
 
   // Specify properties
-  auto val1 = Value(static_cast<int64_t>(value));
+  auto val1 = msgs::Value(static_cast<int64_t>(value));
   auto prop1 = std::make_pair(PropertyId::FromUint(0), val1);
 
-  auto val2 = Value(static_cast<int64_t>(value));
+  auto val2 = msgs::Value(static_cast<int64_t>(value));
   auto prop2 = std::make_pair(PropertyId::FromUint(1), val1);
 
-  std::vector<std::pair<PropertyId, Value>> properties{prop1, prop2};
+  std::vector<std::pair<PropertyId, msgs::Value>> properties{prop1, prop2};
 
   // NewVertex
   return {.label_ids = label_ids, .primary_key = primary_key, .properties = properties};
 }
 
 // TODO(gvolfing) maybe rename that something that makes sense.
-std::vector<std::vector<Value>> GetValuePrimaryKeysWithValue(int64_t value) {
-  Value val(static_cast<int64_t>(value));
+std::vector<std::vector<msgs::Value>> GetValuePrimaryKeysWithValue(int64_t value) {
+  msgs::Value val(static_cast<int64_t>(value));
   return {{val}};
 }
 
@@ -120,9 +120,9 @@ std::vector<std::vector<Value>> GetValuePrimaryKeysWithValue(int64_t value) {
 namespace {
 
 bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
-  NewVertex vertex = get_new_vertex(value);
+  msgs::NewVertex vertex = get_new_vertex(value);
 
-  auto create_req = CreateVerticesRequest{};
+  auto create_req = msgs::CreateVerticesRequest{};
   create_req.new_vertices = {vertex};
   create_req.transaction_id.logical_id = GetTransactionId();
 
@@ -133,7 +133,7 @@ bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
     }
 
     auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<CreateVerticesResponse>(write_response_result);
+    auto write_response = std::get<msgs::CreateVerticesResponse>(write_response_result);
 
     return write_response.success;
   }
@@ -141,23 +141,23 @@ bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
                       int64_t edge_type_id) {
-  auto id = EdgeId{};
-  Label label = {.id = get_primary_label()};
+  auto id = msgs::EdgeId{};
+  msgs::Label label = {.id = get_primary_label()};
 
   auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
   auto dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
   id.gid = edge_gid;
 
-  auto type = EdgeType{};
+  auto type = msgs::EdgeType{};
   type.id = edge_type_id;
 
-  auto edge = Edge{};
+  auto edge = msgs::Edge{};
   edge.id = id;
   edge.type = type;
   edge.src = src;
   edge.dst = dst;
 
-  CreateEdgesRequest create_req{};
+  msgs::CreateEdgesRequest create_req{};
   create_req.edges = {edge};
   create_req.transaction_id.logical_id = GetTransactionId();
 
@@ -168,20 +168,21 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
     }
 
     auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<CreateEdgesResponse>(write_response_result);
+    auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
 
     return write_response.success;
   }
 }
 
-std::tuple<size_t, std::optional<VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client, VertexId start_id,
-                                                                           uint64_t batch_limit) {
-  ScanVerticesRequest scan_req{};
+std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client,
+                                                                                 msgs::VertexId start_id,
+                                                                                 uint64_t batch_limit) {
+  msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = batch_limit;
   scan_req.filter_expressions = std::nullopt;
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
-  scan_req.storage_view = StorageView::OLD;
+  scan_req.storage_view = msgs::StorageView::OLD;
   scan_req.transaction_id.logical_id = GetTransactionId();
 
   while (true) {
@@ -191,7 +192,7 @@ std::tuple<size_t, std::optional<VertexId>> AttemptToScanAllWithBatchLimit(Shard
     }
 
     auto write_response_result = read_res.GetValue();
-    auto write_response = std::get<ScanVerticesResponse>(write_response_result);
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
     MG_ASSERT(write_response.success);
     return {write_response.results.size(), write_response.next_start_id};
@@ -231,10 +232,10 @@ void TestScanAllOneGo(ShardClient &client) {
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_4));
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_5));
 
-  Label prim_label = {.id = get_primary_label()};
-  PrimaryKey prim_key = {Value(static_cast<int64_t>(unique_prop_val_1))};
+  msgs::Label prim_label = {.id = get_primary_label()};
+  msgs::PrimaryKey prim_key = {msgs::Value(static_cast<int64_t>(unique_prop_val_1))};
 
-  VertexId v_id = {prim_label, prim_key};
+  msgs::VertexId v_id = {prim_label, prim_key};
 
   auto [result_size, next_id] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   MG_ASSERT(result_size == 5);
@@ -263,10 +264,10 @@ void TestScanAllWithSmallBatchSize(ShardClient &client) {
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_9));
   MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_10));
 
-  Label prim_label = {.id = get_primary_label()};
-  PrimaryKey prim_key1 = {Value(static_cast<int64_t>(unique_prop_val_1))};
+  msgs::Label prim_label = {.id = get_primary_label()};
+  msgs::PrimaryKey prim_key1 = {msgs::Value(static_cast<int64_t>(unique_prop_val_1))};
 
-  VertexId v_id_1 = {prim_label, prim_key1};
+  msgs::VertexId v_id_1 = {prim_label, prim_key1};
 
   auto [result_size1, next_id1] = AttemptToScanAllWithBatchLimit(client, v_id_1, 3);
   MG_ASSERT(result_size1 == 3);

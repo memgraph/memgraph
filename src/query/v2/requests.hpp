@@ -24,7 +24,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-namespace memgraph::messages {
+namespace memgraph::msgs {
 
 using coordinator::Hlc;
 using storage::v3::LabelId;
@@ -74,7 +74,7 @@ struct Path {
 struct Null {};
 
 struct Value {
-  Value() : type(Type::Null), null_v{} {}
+  Value() : null_v{} {}
 
   explicit Value(const bool val) : type(Type::Bool), bool_v(val) {}
   explicit Value(const int64_t val) : type(Type::Int64), int_v(val) {}
@@ -504,4 +504,4 @@ using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest,
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
                                     CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
 
-}  // namespace memgraph::messages
+}  // namespace memgraph::msgs
