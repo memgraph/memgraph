@@ -99,7 +99,7 @@ Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
 }
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
-    std::vector<std::pair<PropertyId, Value>> &properties) {
+    std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
   ret.reserve(properties.size());
 
@@ -209,7 +209,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     /// TODO(gvolfing) Consider other methods than converting. Change either
     /// the way that the property map is stored in the messages, or the
     /// signature of CreateVertexAndValidate.
-    auto converted_property_map = ConvertPropertyMap(new_vertex.properties);
+    auto converted_property_map = ConvertPropertyMap(std::move(new_vertex.properties));
 
     // TODO(gvolfing) make sure if this conversion is actually needed.
     std::vector<memgraph::storage::v3::LabelId> converted_label_ids;
