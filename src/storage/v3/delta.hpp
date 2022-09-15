@@ -219,7 +219,9 @@ struct Delta {
       case Action::ADD_OUT_EDGE:
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
-        std::destroy_at(&vertex_edge.vertex_id);
+        // TODO(jbajic) Discuss this
+        break;
+        // std::destroy_at(&vertex_edge.vertex_id);
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
         break;

@@ -2170,6 +2170,8 @@ TEST_F(StorageV3, VertexPropertyClear) {
 }
 
 TEST_F(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "property1"}, {5, "edge"}});
+
   auto label1 = NameToLabelId("label1");
   auto property1 = NameToPropertyId("property1");
 
