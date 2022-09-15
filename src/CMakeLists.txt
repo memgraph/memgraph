@@ -99,8 +99,14 @@ install(PROGRAMS $<TARGET_FILE:memgraph>
 # Install Python source for supporting our embedded Python.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py
         DESTINATION lib/memgraph/python_support)
-# Install the include file for writing custom procedures.
+# Install the includes file for writing custom procedures in C and C++>
 install(FILES ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
+        DESTINATION include/memgraph)
+install(FILES ${CMAKE_SOURCE_DIR}/include/_mgp.hpp
+        DESTINATION include/memgraph)
+install(FILES ${CMAKE_SOURCE_DIR}/include/mg_exceptions.hpp
+        DESTINATION include/memgraph)
+install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.hpp
         DESTINATION include/memgraph)
 # Install the config file (must use absolute path).
 install(FILES ${CMAKE_BINARY_DIR}/config/memgraph.conf
