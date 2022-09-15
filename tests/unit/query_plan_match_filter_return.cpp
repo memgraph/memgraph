@@ -3028,7 +3028,7 @@ TEST(QueryPlan, Distinct) {
 TEST(QueryPlan, ScanAllByLabel) {
   memgraph::storage::Storage db;
   auto label = db.NameToLabel("label");
-  db.CreateIndex(label);
+  [[maybe_unused]] auto _ = db.CreateIndex(label);
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
   // Add a vertex with a label and one without.
@@ -3086,7 +3086,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3180,7 +3180,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3217,7 +3217,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3248,7 +3248,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     }
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3301,7 +3301,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3336,7 +3336,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3367,7 +3367,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
     ASSERT_FALSE(dba.Commit().HasError());
   }
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   auto storage_dba = db.Access();
   memgraph::query::DbAccessor dba(&storage_dba);
@@ -3409,7 +3409,7 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
 
-  db.CreateIndex(label, prop);
+  [[maybe_unused]] auto _ = db.CreateIndex(label, prop);
 
   // Make sure there are `vertex_count` vertices
   {

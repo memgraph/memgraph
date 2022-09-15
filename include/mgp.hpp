@@ -555,7 +555,7 @@ class List {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a List from the copy of the given @ref mgp_list.
@@ -653,7 +653,7 @@ class Map {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
@@ -788,7 +788,7 @@ class Node {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(mgp_vertex *ptr) : ptr_(mgp::vertex_copy(ptr, memory)) {}
@@ -846,7 +846,7 @@ class Relationship {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a Relationship from the copy of the given @ref mgp_edge.
@@ -897,7 +897,7 @@ class Path {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a Path from the copy of the given @ref mgp_path.
@@ -949,7 +949,7 @@ class Date {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a Date object from the copy of the given @ref mgp_date.
@@ -1003,7 +1003,7 @@ class LocalTime {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a LocalTime object from the copy of the given @ref mgp_local_time.
@@ -1063,7 +1063,7 @@ class LocalDateTime {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a LocalDateTime object from the copy of the given @ref mgp_local_date_time.
@@ -1131,7 +1131,7 @@ class Duration {
   friend class Value;
   friend class Record;
   friend class Result;
-  friend struct Parameter;
+  friend class Parameter;
 
  public:
   /// @brief Creates a Duration from the copy of the given @ref mgp_duration.
@@ -2743,7 +2743,7 @@ void AddFunction(mgp_func_cb callback, std::string_view name, std::vector<mgp::P
                  mgp_module *module, mgp_memory *memory) {
   auto func = mgp::module_add_function(module, name.data(), callback);
 
-  for (const auto parameter : parameters) {
+  for (const auto &parameter : parameters) {
     auto parameter_name = parameter.name.data();
 
     if (!parameter.optional) {

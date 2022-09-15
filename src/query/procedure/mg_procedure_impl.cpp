@@ -1734,10 +1734,12 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
       }
     }
 
-    ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_LABELS] += 1;
+    if (ctx) {
+      ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_LABELS] += 1;
 
-    if (ctx->trigger_context_collector) {
-      ctx->trigger_context_collector->RegisterSetVertexLabel(v->getImpl(), label_id);
+      if (ctx->trigger_context_collector) {
+        ctx->trigger_context_collector->RegisterSetVertexLabel(v->getImpl(), label_id);
+      }
     }
   });
 }
@@ -1774,10 +1776,12 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
       }
     }
 
-    ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_LABELS] += 1;
+    if (ctx) {
+      ctx->execution_stats[memgraph::query::ExecutionStats::Key::DELETED_LABELS] += 1;
 
-    if (ctx->trigger_context_collector) {
-      ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->getImpl(), label_id);
+      if (ctx->trigger_context_collector) {
+        ctx->trigger_context_collector->RegisterRemovedVertexLabel(v->getImpl(), label_id);
+      }
     }
   });
 }
