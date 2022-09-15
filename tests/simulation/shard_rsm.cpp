@@ -144,8 +144,8 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   auto id = EdgeId{};
   Label label = {.id = get_primary_label()};
 
-  id.src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
-  id.dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
+  auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
+  auto dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
   id.gid = edge_gid;
 
   auto type = EdgeType{};
@@ -154,6 +154,8 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   auto edge = Edge{};
   edge.id = id;
   edge.type = type;
+  edge.src = src;
+  edge.dst = dst;
 
   CreateEdgesRequest create_req{};
   create_req.edges = {edge};

@@ -46,12 +46,12 @@ struct EdgeType {
 };
 
 struct EdgeId {
-  VertexId src;
-  VertexId dst;
   Gid gid;
 };
 
 struct Edge {
+  VertexId src;
+  VertexId dst;
   EdgeId id;
   EdgeType type;
 };
@@ -418,7 +418,6 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
-// Update related messages
 struct UpdateVertexProp {
   VertexId primary_key;
   std::vector<std::pair<PropertyId, Value>> property_updates;

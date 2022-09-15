@@ -321,10 +321,10 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
   bool action_successful = true;
 
   for (auto &edge : req.edges) {
-    auto vertex_acc_from_primary_key = edge.id.src.second;
+    auto vertex_acc_from_primary_key = edge.src.second;
     auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.id.dst.second;
+    auto vertex_acc_to_primary_key = edge.dst.second;
     auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
     if (!vertex_from_acc || !vertex_to_acc) {
@@ -334,8 +334,8 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       break;
     }
 
-    auto from_vertex_id = VertexId(edge.id.src.first.id, ConvertPropertyVector(std::move(edge.id.src.second)));
-    auto to_vertex_id = VertexId(edge.id.dst.first.id, ConvertPropertyVector(std::move(edge.id.dst.second)));
+    auto from_vertex_id = VertexId(edge.src.first.id, ConvertPropertyVector(std::move(edge.src.second)));
+    auto to_vertex_id = VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second)));
     auto edge_acc =
         acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
 
