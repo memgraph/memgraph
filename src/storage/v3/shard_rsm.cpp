@@ -31,7 +31,7 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
     case Value::Type::BOOL:
       return PV(value.bool_v);
     case Value::Type::INT64:
-      return PV(static_cast<int>(value.int_v));
+      return PV(static_cast<int64_t>(value.int_v));
     case Value::Type::DOUBLE:
       return PV(value.double_v);
     case Value::Type::STRING:
@@ -159,7 +159,7 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
   std::map<PropertyId, Value> ret;
   auto iter = acc.Properties(view);
   if (iter.HasError()) {
-    spdlog::debug("Encountered an Error while trying to get vertex properties.");
+    spdlog::debug("Encountered an error while trying to get vertex properties.");
   }
 
   for (const auto &[prop_key, prop_val] : iter.GetValue()) {
@@ -172,7 +172,7 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
 Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
   // Get the vertex id
   auto prim_label = acc.PrimaryLabel(view).GetValue();
-  Label value_label = {.id = prim_label};
+  Label value_label{.id = prim_label};
 
   auto prim_key = ConvertValueVector(acc.PrimaryKey(view).GetValue());
   VertexId vertex_id = std::make_pair(value_label, prim_key);
@@ -197,7 +197,7 @@ WriteResponses ShardRsm::ApplyWrite(CreateVerticesRequest &&req) {
 
   // Workaround untill we have access to CreateVertexAndValidate()
   // with the new signature that does not require the primary label.
-  auto prim_label = acc.GetPrimaryLabel();
+  const auto prim_label = acc.GetPrimaryLabel();
 
   bool action_successful = true;
 
