@@ -146,7 +146,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
 
   void SetUp() override {
-    db.StoreMapping({{0, "label"}, {1, "property"}});
+    db.StoreMapping({{1, "label"}, {2, "property"}});
     ASSERT_TRUE(
         db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
@@ -491,7 +491,7 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
 }
 
 TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
-  db.StoreMapping({{0, "label"}, {1, "property"}, {2, "edge_type"}, {3, "prop"}});
+  db.StoreMapping({{1, "label"}, {2, "property"}, {3, "edge_type"}, {4, "prop"}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   auto prop = dba.NameToProperty("prop");
   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
@@ -681,7 +681,7 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 }
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
-  db.StoreMapping({{0, "label"}, {1, "property"}, {2, "ANIMAL"}, {3, "DOG"}, {4, "NICE_DOG"}});
+  db.StoreMapping({{1, "label"}, {2, "property"}, {3, "ANIMAL"}, {4, "DOG"}, {5, "NICE_DOG"}, {6, "BAD_DOG"}});
   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("ANIMAL")).HasValue());
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("DOG")).HasValue());
@@ -1091,14 +1091,14 @@ TEST_F(ExpressionEvaluatorTest, RegexMatch) {
 
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
-  std::pair<std::string, PropertyId> prop_age = std::make_pair("age", PropertyId::FromUint(2));
-  std::pair<std::string, PropertyId> prop_height = std::make_pair("height", PropertyId::FromUint(3));
-  Identifier *identifier = storage.Create<Identifier>("element");
+  std::pair<std::string, PropertyId> prop_age = std::make_pair("age", PropertyId::FromUint(3));
+  std::pair<std::string, PropertyId> prop_height = std::make_pair("height", PropertyId::FromUint(4));
+  Identifier *identifier = storage.Create<Identifier>("element", true);
   Symbol symbol = symbol_table.CreateSymbol("element", true);
 
   void SetUp() override {
     identifier->MapTo(symbol);
-    db.StoreMapping({{0, "label"}, {1, "property"}, {2, "age"}, {3, "height"}});
+    db.StoreMapping({{1, "label"}, {2, "property"}, {3, "age"}, {4, "height"}});
     ASSERT_TRUE(
         db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
@@ -1109,26 +1109,26 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
   }
 };
 
-// TODO Fix Vertex
-// TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-//   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
-//   ASSERT_TRUE(v1.SetPropertyAndValidate(prop_age.second, PropertyValue(10)).HasValue());
-//   dba.AdvanceCommand();
-//   frame[symbol] = TypedValue(v1);
-//   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
-//   EXPECT_TRUE(Value(prop_height).IsNull());
-// }
+TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
+  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
+  ASSERT_TRUE(v1.SetPropertyAndValidate(prop_age.second, PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(v1);
+
+  EXPECT_EQ(Value(prop_age).ValueInt(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
-  db.StoreMapping({{0, "label"},
-                   {1, "property"},
-                   {2, "day"},
-                   {3, "hour"},
-                   {4, "minute"},
-                   {5, "second"},
-                   {6, "millisecond"},
-                   {7, "microsecond"},
-                   {8, "nanosecond"}});
+  db.StoreMapping({{1, "label"},
+                   {2, "property"},
+                   {3, "day"},
+                   {4, "hour"},
+                   {5, "minute"},
+                   {6, "second"},
+                   {7, "millisecond"},
+                   {8, "microsecond"},
+                   {9, "nanosecond"}});
   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
   frame[symbol] = TypedValue(dur);
 
@@ -1174,7 +1174,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, Duration) {
 }
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Date) {
-  db.StoreMapping({{0, "label"}, {1, "property"}, {2, "year"}, {3, "month"}, {4, "day"}});
+  db.StoreMapping({{1, "label"}, {2, "property"}, {3, "year"}, {4, "month"}, {5, "day"}});
   const memgraph::utils::Date date({1996, 11, 22});
   frame[symbol] = TypedValue(date);
 
@@ -1269,18 +1269,18 @@ TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   EXPECT_EQ(mic.ValueInt(), 40);
 }
 
-// TODO Fix Edge
-// TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
-//   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
-//   auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(2)}});
-//   auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
-//   ASSERT_TRUE(e12.HasValue());
-//   ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());
-//   dba.AdvanceCommand();
-//   frame[symbol] = TypedValue(*e12);
-//   EXPECT_EQ(Value(prop_age).ValueInt(), 10);
-//   EXPECT_TRUE(Value(prop_height).IsNull());
-// }
+TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
+  db.StoreMapping({{1, "label"}, {2, "property"}, {3, "age"}, {4, "height"}, {5, "edge_type"}});
+  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
+  auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(2)}});
+  auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
+  ASSERT_TRUE(e12.HasValue());
+  ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());
+  dba.AdvanceCommand();
+  frame[symbol] = TypedValue(*e12);
+  EXPECT_EQ(Value(prop_age).ValueInt(), 10);
+  EXPECT_TRUE(Value(prop_height).IsNull());
+}
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Null) {
   frame[symbol] = TypedValue();

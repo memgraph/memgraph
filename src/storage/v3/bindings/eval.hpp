@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v3/bindings/bindings.hpp"
 
 #include "expr/interpret/eval.hpp"
@@ -19,11 +20,21 @@
 #include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_store.hpp"
+#include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::storage::v3 {
 
-inline const auto lam = [](const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); };
+struct PropertyToTypedValueConverter {
+  TypedValue operator()(const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); }
+
+  TypedValue operator()(const auto &val, utils::MemoryResource *mem) {
+    return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val, mem);
+  }
+};
+
+// inline const auto lam = [](const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); };
 
 struct Parameters {
  public:
@@ -89,7 +100,7 @@ struct EvaluationContext {
 
 using ExpressionEvaluator =
     memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
-                                        storage::v3::LabelId, storage::v3::PropertyStore, decltype(lam),
+                                        storage::v3::LabelId, storage::v3::PropertyStore, PropertyToTypedValueConverter,
                                         memgraph::storage::v3::Error>;
 
 }  // namespace memgraph::storage::v3
