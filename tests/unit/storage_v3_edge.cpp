@@ -25,35 +25,33 @@ using testing::UnorderedElementsAre;
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {
  protected:
   void SetUp() override {
+    store.StoreMapping({{1, "label"}, {2, "property"}, {3, "et5"}, {4, "other"}, {5, "different_label"}});
     ASSERT_TRUE(
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  [[nodiscard]] LabelId NameToLabelId(std::string_view label_name) {
-    return LabelId::FromUint(id_mapper.NameToId(label_name));
-  }
+  [[nodiscard]] LabelId NameToLabelId(std::string_view label_name) { return store.NameToLabel(label_name); }
 
   [[nodiscard]] PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(id_mapper.NameToId(property_name));
+    return store.NameToProperty(property_name);
   }
 
   [[nodiscard]] EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
+    return store.NameToEdgeType(edge_type_name);
   }
 
   ResultSchema<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
     return acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, key}});
   }
 
-  NameIdMapper id_mapper;
   static constexpr int64_t min_primary_key_value{0};
   static constexpr int64_t max_primary_key_value{10000};
-  const LabelId primary_label{NameToLabelId("label")};
+  const LabelId primary_label{LabelId::FromUint(1)};
   Shard store{primary_label,
               {PropertyValue{min_primary_key_value}},
               std::vector{PropertyValue{max_primary_key_value}},
               Config{.items = {.properties_on_edges = GetParam()}}};
-  const PropertyId primary_property{NameToPropertyId("property")};
+  const PropertyId primary_property{PropertyId::FromUint(2)};
 };
 
 INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
