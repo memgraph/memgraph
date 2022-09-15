@@ -79,13 +79,17 @@ def recursive_get(data, *args, value=None):
 
 def compare_results(results_from, results_to, fields):
     ret = {}
+
+    with open("compare_ignore.txt", "r") as f:
+        ignored = [line.rstrip("\n") for line in f]
+
     for dataset, variants in results_to.items():
         for variant, groups in variants.items():
             for group, scenarios in groups.items():
                 if group == "__import__":
                     continue
                 for scenario, summary_to in scenarios.items():
-                    if scenario == "expansion_4" or scenario == "expansion_4_with_filter":
+                    if scenario in ignored:
                         continue
 
                     summary_from = recursive_get(results_from, dataset, variant, group, scenario, value={})
