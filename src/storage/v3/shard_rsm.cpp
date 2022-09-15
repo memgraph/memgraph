@@ -26,24 +26,24 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
   using PV = memgraph::storage::v3::PropertyValue;
   PV ret;
   switch (value.type) {
-    case Value::Type::NILL:
+    case Value::Type::Null:
       return PV();
-    case Value::Type::BOOL:
+    case Value::Type::Bool:
       return PV(value.bool_v);
-    case Value::Type::INT64:
+    case Value::Type::Int64:
       return PV(static_cast<int64_t>(value.int_v));
-    case Value::Type::DOUBLE:
+    case Value::Type::Double:
       return PV(value.double_v);
-    case Value::Type::STRING:
+    case Value::Type::String:
       return PV(value.string_v);
-    case Value::Type::LIST: {
+    case Value::Type::List: {
       std::vector<PV> list;
       for (auto &elem : value.list_v) {
         list.emplace_back(ToPropertyValue(std::move(elem)));
       }
       return PV(list);
     }
-    case Value::Type::MAP: {
+    case Value::Type::Map: {
       std::map<std::string, PV> map;
       for (auto &[key, value] : value.map_v) {
         map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
@@ -51,9 +51,9 @@ memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
       return PV(map);
     }
     // These are not PropertyValues
-    case Value::Type::VERTEX:
-    case Value::Type::EDGE:
-    case Value::Type::PATH:
+    case Value::Type::Vertex:
+    case Value::Type::Edge:
+    case Value::Type::Path:
       MG_ASSERT(false, "Not PropertyValue");
   }
   return ret;
@@ -334,18 +334,15 @@ WriteResponses ShardRsm::ApplyWrite(CreateEdgesRequest &&req) {
       break;
     }
 
-    auto edge_type_id = EdgeTypeId::FromUint(edge.type.id);
-    // auto edge_acc = acc.CreateEdge(&vertex_from_acc.value(), &vertex_to_acc.value(), edge_type_id,
-    // Gid::FromUint(edge.id.gid));
     auto from_vertex_id = VertexId(edge.id.src.first.id, ConvertPropertyVector(std::move(edge.id.src.second)));
     auto to_vertex_id = VertexId(edge.id.dst.first.id, ConvertPropertyVector(std::move(edge.id.dst.second)));
-    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, edge_type_id, Gid::FromUint(edge.id.gid));
+    auto edge_acc =
+        acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
 
     if (edge_acc.HasError()) {
       action_successful = false;
       spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
       break;
-      ;
     }
   }
 
