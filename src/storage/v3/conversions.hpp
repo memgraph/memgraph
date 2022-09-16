@@ -88,7 +88,7 @@ TTypedValue PropertyToTypedValue(const PropertyValue &value, utils::MemoryResour
       for (const auto &elem : src) {
         dst.push_back(PropertyToTypedValue<TTypedValue>(elem, mem));
       }
-      return TTypedValue(std::move(dst));
+      return TTypedValue(std::move(dst), mem);
     }
     case storage::v3::PropertyValue::Type::Map: {
       const auto &src = value.ValueMap();
