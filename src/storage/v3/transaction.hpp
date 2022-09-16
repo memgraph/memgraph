@@ -27,7 +27,7 @@ namespace memgraph::storage::v3 {
 
 struct CommitInfo {
   bool is_locally_committed{false};
-  coordinator::Hlc timestamp;
+  coordinator::Hlc start_or_commit_timestamp;
 };
 
 struct Transaction {
@@ -55,10 +55,6 @@ struct Transaction {
   ~Transaction() {}
 
   coordinator::Hlc start_timestamp;
-  // The `Transaction` object is stack allocated, but the `commit_timestamp`
-  // must be heap allocated because `Delta`s have a pointer to it, and that
-  // pointer must stay valid after the `Transaction` is moved into
-  // `commited_transactions_` list for GC.
   std::unique_ptr<CommitInfo> commit_info;
   uint64_t command_id;
   std::list<Delta> deltas;

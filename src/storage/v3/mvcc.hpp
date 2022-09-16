@@ -43,7 +43,7 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
     //
     // For READ UNCOMMITTED -> we accept any change.
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_commit_info.is_locally_committed &&
-         delta_commit_info.timestamp.logical_id < transaction->start_timestamp.logical_id) ||
+         delta_commit_info.start_or_commit_timestamp.logical_id < transaction->start_timestamp.logical_id) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && delta_commit_info.is_locally_committed) ||
         (transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED)) {
       break;
@@ -51,13 +51,14 @@ inline void ApplyDeltasForRead(Transaction *transaction, const Delta *delta, Vie
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
-    if (view == View::NEW && delta_commit_info.timestamp == commit_info.timestamp && cid <= transaction->command_id) {
+    if (view == View::NEW && delta_commit_info.start_or_commit_timestamp == commit_info.start_or_commit_timestamp &&
+        cid <= transaction->command_id) {
       break;
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
     // of the database.
-    if (view == View::OLD && delta_commit_info.timestamp == commit_info.timestamp &&
+    if (view == View::OLD && delta_commit_info.start_or_commit_timestamp == commit_info.start_or_commit_timestamp &&
         delta->command_id < transaction->command_id) {
       break;
     }
@@ -80,8 +81,9 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
 
   const auto &delta_commit_info = *object->delta->commit_info;
-  if (delta_commit_info.timestamp == transaction->commit_info->timestamp ||
-      (delta_commit_info.is_locally_committed && delta_commit_info.timestamp < transaction->start_timestamp)) {
+  if (delta_commit_info.start_or_commit_timestamp == transaction->commit_info->start_or_commit_timestamp ||
+      (delta_commit_info.is_locally_committed &&
+       delta_commit_info.start_or_commit_timestamp < transaction->start_timestamp)) {
     return true;
   }
 

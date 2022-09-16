@@ -762,9 +762,8 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(coordinato
   MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
   MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
             "Commit timestamp must be older than start timestamp!");
-  MG_ASSERT(transaction_->commit_info != nullptr, "Invalid database state!");
   MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
-  transaction_->commit_info->timestamp = commit_timestamp;
+  transaction_->commit_info->start_or_commit_timestamp = commit_timestamp;
   transaction_->commit_info->is_locally_committed = true;
 
   return {};
@@ -780,7 +779,7 @@ void Shard::Accessor::Abort() {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
         Delta *current = vertex->delta;
-        while (current != nullptr && current->commit_info->timestamp == transaction_->start_timestamp) {
+        while (current != nullptr && current->commit_info->start_or_commit_timestamp == transaction_->start_timestamp) {
           switch (current->action) {
             case Delta::Action::REMOVE_LABEL: {
               auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label);
@@ -865,7 +864,7 @@ void Shard::Accessor::Abort() {
       case PreviousPtr::Type::EDGE: {
         auto *edge = prev.edge;
         Delta *current = edge->delta;
-        while (current != nullptr && current->commit_info->timestamp == transaction_->start_timestamp) {
+        while (current != nullptr && current->commit_info->start_or_commit_timestamp == transaction_->start_timestamp) {
           switch (current->action) {
             case Delta::Action::SET_PROPERTY: {
               edge->properties.SetProperty(current->property.key, current->property.value);
@@ -1087,11 +1086,9 @@ void Shard::CollectGarbage(const io::Time current_time) {
   }
 
   const auto clean_up_before_wall_clock = current_time - config_.gc.reclamation_interval;
-  // TODO(antaljanosbenjamin) Fix before merge, get the correct logical is from start_logical_id_to_transaction
   const auto clean_up_before_timestamp =
       GetCleanupBeforeTimestamp(start_logical_id_to_transaction_, clean_up_before_wall_clock);
 
-  // TODO(antaljanosbenjamin): Fix before merge, run index clean_up when a transaction aborted
   auto cleaned_up_committed_transaction = false;
 
   for (auto it = start_logical_id_to_transaction_.begin();
@@ -1101,7 +1098,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
 
     if (transaction.commit_info->is_locally_committed) {
       cleaned_up_committed_transaction = true;
-      auto commit_timestamp = transaction.commit_info->timestamp;
+      auto commit_timestamp = transaction.commit_info->start_or_commit_timestamp;
 
       for (Delta &delta : transaction.deltas) {
         while (true) {
@@ -1125,7 +1122,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
               break;
             }
             case PreviousPtr::Type::DELTA: {
-              if (prev.delta->commit_info->timestamp == commit_timestamp) {
+              if (prev.delta->commit_info->start_or_commit_timestamp == commit_timestamp) {
                 // The delta that is newer than this one is also a delta from this
                 // transaction. We skip the current delta and will unlink it as a
                 // part of the suffix later.
@@ -1205,14 +1202,14 @@ void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_ti
   if (!InitializeWalFile()) return;
   // Traverse deltas and append them to the WAL file.
   // A single transaction will always be contained in a single WAL file.
-  auto current_commit_timestamp = transaction.commit_info->timestamp;
+  auto current_commit_timestamp = transaction.commit_info->start_or_commit_timestamp;
 
   // Helper lambda that traverses the delta chain on order to find the first
   // delta that should be processed and then appends all discovered deltas.
   auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
     while (true) {
       auto *older = delta->next;
-      if (older == nullptr || older->commit_info->timestamp != current_commit_timestamp) {
+      if (older == nullptr || older->commit_info->start_or_commit_timestamp != current_commit_timestamp) {
         break;
       }
       delta = older;
