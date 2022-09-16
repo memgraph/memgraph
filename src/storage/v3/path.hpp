@@ -27,12 +27,14 @@ class Path {
   explicit Path(const VertexAccessor &vertex, const TOthers &...others) {}
 
   template <typename... TOthers>
-  Path(std::allocator_arg_t, utils::MemoryResource *memory, const VertexAccessor &vertex, const TOthers &...others) {}
+  Path(std::allocator_arg_t alloc, utils::MemoryResource *memory, const VertexAccessor &vertex,
+       const TOthers &...others) {}
 
   Path(const Path & /*other*/) {}
 
   Path(const Path & /*other*/, utils::MemoryResource * /*memory*/) {}
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   Path(Path &&other) noexcept : Path(std::move(other), other.GetMemoryResource()) {}
 
   Path(Path && /*other*/, utils::MemoryResource * /*memory*/) {}
@@ -72,6 +74,7 @@ class Path {
     return edges_;
   }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   utils::MemoryResource *GetMemoryResource() const {
     MG_ASSERT(false, "Using GetMemoryResource on Path from storage!");
     return nullptr;

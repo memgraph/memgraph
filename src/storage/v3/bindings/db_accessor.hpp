@@ -98,7 +98,7 @@ class DbAccessor final {
     static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
     auto maybe_edge = accessor_->CreateEdge(from->Id(storage::v3::View::NEW).GetValue(),
                                             to->Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
-    if (maybe_edge.HasError()) return storage::v3::Result<EdgeAccessor>(maybe_edge.GetError());
+    if (maybe_edge.HasError()) return {maybe_edge.GetError()};
     return EdgeAccessor(*maybe_edge);
   }
 

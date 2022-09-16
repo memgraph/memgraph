@@ -135,6 +135,15 @@ cpp<#
     }
     cpp<#))
 
+
+(defun clone-schema-property-vector (source dest)
+    #>cpp
+    ${dest}.reserve(${source}.size());
+    for (const auto &[property_ix, property_type]: ${source}) {
+      ${dest}.emplace_back(storage->GetPropertyIx(property_ix.name), property_type);
+    }
+    cpp<#)
+
 ;; The following index structs serve as a decoupling point of AST from
 ;; concrete database types. All the names are collected in AstStorage, and can
 ;; be indexed through these instances. This means that we can create a vector
@@ -2384,7 +2393,10 @@ cpp<#
    (port "Expression *" :initval "nullptr" :scope :public
              :slk-save #'slk-save-ast-pointer
              :slk-load (slk-load-ast-pointer "Expression"))
-   (sync_mode "SyncMode" :scope :public))
+   (sync_mode "SyncMode" :scope :public)
+   (timeout "Expression *" :initval "nullptr" :scope :public
+             :slk-save #'slk-save-ast-pointer
+             :slk-load (slk-load-ast-pointer "Expression")))
 
   (:public
     (lcp:define-enum action
@@ -2674,6 +2686,39 @@ cpp<#
   (:serialize (:slk))
   (:clone))
 
-(lcp:pop-namespace) ;; namespace v3
+(lcp:define-class schema-query (query)
+  ((action "Action" :scope :public)
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
+    (schema_type_map "std::vector<std::pair<PropertyIx, common::SchemaType>>"
+      :slk-save #'slk-save-property-map
+      :slk-load #'slk-load-property-map
+      :clone #'clone-schema-property-vector
+      :scope :public))
+
+  (:public
+    (lcp:define-enum action
+        (create-schema drop-schema show-schema show-schemas)
+      (:serialize))
+    #>cpp
+    SchemaQuery() = default;
+
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk))
+  (:clone))
+
+(lcp:pop-namespace) ;; namespace v2
 (lcp:pop-namespace) ;; namespace storage
 (lcp:pop-namespace) ;; namespace memgraph
