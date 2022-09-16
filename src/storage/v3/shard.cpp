@@ -773,6 +773,20 @@ void Shard::Accessor::Abort() {
   MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
   MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
 
+  // Here we walk the delta chain from the beginning for each object. That means we only have to start the walking of
+  // the delta chain when we find a delta which previous pointer points to a vertex or an edge. Every delta will be
+  // visited by the walks initiated from such deltas.
+  // This has to be true in all circumstances, as the current transaction is not committed, therefore no other
+  // transaction can modify the object if this transaction already modified it, thus we can be sure that for each object
+  // (vertex or edge) that this transaction modified, the deltas will be in the beginning of the delta chain:
+  //  * If an uncommitted transaction has two or more deltas for an object, then those deltas are always strictly
+  //  following each other without having deltas from other transactions among themself, otherwise there will be a
+  //  serialization error between the two transaction.
+  //  * If there would be another delta in front of the deltas of this transactions, that would mean a serialization
+  //  error as the current transaction is not yet committed, thus the deltas of any uncommitted transactions are always
+  //  the first in the chain.
+  //  * There might be deltas and the end of the delta chain though, but only from transactions that are committed
+  //  before the transaction that is being cleaned up.
   for (const auto &delta : transaction_->deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -1081,11 +1095,15 @@ VerticesIterable Shard::Accessor::Vertices(LabelId label, PropertyId property,
 
 void Shard::CollectGarbage(const io::Time current_time) {
   if (start_logical_id_to_transaction_.empty()) {
-    // we are not aware of any transaction, thus no aborted or committed transactions, there is nothing to clean up
+    // There is no transactions that the shard is aware of, thus no aborted or committed transactions, there is nothing
+    // to clean up
     return;
   }
 
   const auto clean_up_before_wall_clock = current_time - config_.gc.reclamation_interval;
+
+  /// The clean up must happen based on the start timestamp and not on the commit timestamp, thus we have to make sure
+  /// that we only compare this timestamp to the start timestamp of the transactions and not to the commit timestamp.
   const auto clean_up_before_timestamp =
       GetCleanupBeforeTimestamp(start_logical_id_to_transaction_, clean_up_before_wall_clock);
 
@@ -1100,6 +1118,23 @@ void Shard::CollectGarbage(const io::Time current_time) {
       cleaned_up_committed_transaction = true;
       auto commit_timestamp = transaction.commit_info->start_or_commit_timestamp;
 
+      // Two important notes here:
+      // 1. Deltas of the transaction in an object's deltachain are always strictly following each other without having
+      // deltas from other transactions among themself.
+      // 2. While the deltas are cleaned up, we can be sure the deltas of the actually cleaned up transaction is always
+      // the last deltas in the delta chain.
+      // Reasoning:
+      // 1. Once a delta is added to the delta chain of the object, no other transaction can add a delta to that
+      // deltachain until the transaction which just installed the delta is aborted or committed.
+      // 2. The deltas are sorted by start timestamp and cleaned up in that order. This means it is enough to prove that
+      // in case of any two deltas from two transactions, the one with smaller start timestamp will be later in the
+      // deltachain (starting from the object) compared to the one with greater start timestamp. Let's assume two
+      // transactions, t1 and t2 that are started in this order. If t2 modifies an object first, then it will put its
+      // delta in the beginning of the deltachain. If t1 tries to modify the same object, a serialization error must
+      // happen regardless whether t2 committed or not, as the first delta in the deltachain has a bigger timestamp than
+      // the start timestamp of t1, because both the start and commit timestamp of t2 is larger than the start timestamp
+      // of t1. Thus the only way t1 can modify the same object after t2 modified it, if t2 aborts. In that case the
+      // deltas of t2 are cleaned up during abort.
       for (Delta &delta : transaction.deltas) {
         while (true) {
           auto prev = delta.prev.Get();
