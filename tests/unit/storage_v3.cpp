@@ -42,6 +42,8 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
+  void TearDown() override { CleanupHlc(last_hlc); }
+
   VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,
                                          const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
@@ -224,6 +226,7 @@ TEST_P(StorageV3, AdvanceCommandCommit) {
 
     ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
   }
+  CleanupHlc(last_hlc);
   {
     auto acc = store.Access(GetNextHlc());
     ASSERT_TRUE(acc.FindVertex(pk1, View::OLD).has_value());
@@ -262,7 +265,7 @@ TEST_P(StorageV3, AdvanceCommandAbort) {
 
     acc.Abort();
   }
-  {
+  const auto check_vertex_not_exists = [this, &pk1, &pk2]() {
     auto acc = store.Access(GetNextHlc());
     ASSERT_FALSE(acc.FindVertex(pk1, View::OLD).has_value());
     ASSERT_FALSE(acc.FindVertex(pk1, View::NEW).has_value());
@@ -271,12 +274,16 @@ TEST_P(StorageV3, AdvanceCommandAbort) {
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     EXPECT_EQ(CountVertices(acc, View::NEW), 0U);
     acc.Abort();
-  }
+  };
+  ASSERT_NO_FATAL_FAILURE(check_vertex_not_exists());
+  CleanupHlc(last_hlc);
+  ASSERT_NO_FATAL_FAILURE(check_vertex_not_exists());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, SnapshotIsolation) {
-  auto acc1 = store.Access(GetNextHlc());
+  const auto start_hlc1 = GetNextHlc();
+  auto acc1 = store.Access(start_hlc1);
   auto acc2 = store.Access(GetNextHlc());
 
   CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -300,6 +307,7 @@ TEST_P(StorageV3, SnapshotIsolation) {
   auto acc3 = store.Access(GetNextHlc());
   ASSERT_TRUE(acc3.FindVertex(pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc3, View::OLD), 1U);
+  CleanupHlc(start_hlc1);
   ASSERT_TRUE(acc3.FindVertex(pk, View::NEW).has_value());
   EXPECT_EQ(CountVertices(acc3, View::NEW), 1U);
   acc3.Abort();
@@ -586,6 +594,7 @@ TEST_P(StorageV3, VertexDeleteSerializationError) {
   // Finalize both accessors
   ASSERT_FALSE(acc1.Commit(GetNextHlc()).HasError());
   acc2.Abort();
+  CleanupHlc(last_hlc);
 
   // Check whether the vertex exists
   {
@@ -2446,6 +2455,7 @@ TEST_P(StorageV3, VertexVisibilityMultipleTransactions) {
     ASSERT_FALSE(acc1.Commit(GetNextHlc()).HasError());
     ASSERT_FALSE(acc2.Commit(GetNextHlc()).HasError());
     ASSERT_FALSE(acc3.Commit(GetNextHlc()).HasError());
+    CleanupHlc(last_hlc);
   }
 
   {
@@ -2496,6 +2506,7 @@ TEST_P(StorageV3, VertexVisibilityMultipleTransactions) {
     acc1.Abort();
     acc2.Abort();
     acc3.Abort();
+    CleanupHlc(last_hlc);
   }
 
   {
