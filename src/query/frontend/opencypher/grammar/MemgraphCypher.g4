@@ -37,6 +37,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIG
                       | CONFIGS
                       | CONSUMER_GROUP
+                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | DATA
@@ -45,6 +46,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DROP
                       | DUMP
+                      | EDGE_TYPES
                       | EXECUTE
                       | FOR
                       | FOREACH
@@ -56,6 +58,7 @@ memgraphCypherKeyword : cypherKeyword
                       | IDENTIFIED
                       | ISOLATION
                       | KAFKA
+                      | LABELS
                       | LEVEL
                       | LOAD
                       | LOCK
@@ -63,6 +66,7 @@ memgraphCypherKeyword : cypherKeyword
                       | MODE
                       | NEXT
                       | NO
+                      | NOTHING
                       | PASSWORD
                       | PULSAR
                       | PORT
@@ -228,11 +232,11 @@ setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE
           | DELETE
@@ -257,7 +261,29 @@ privilege : CREATE
           | WEBSOCKET
           ;
 
-privilegeList : privilege ( ',' privilege )* ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+
+entityType : LABELS | EDGE_TYPES ;
+
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
+
+grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+
+entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
+
+entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+
+privilegeOrEntities : privilege | entityType entities=entitiesList ;
+
+revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
+
+privilegesList : privilege ( ',' privilege )* ;
+
+entitiesList : ASTERISK | listOfEntities ;
+
+listOfEntities : entity ( ',' entity )* ;
+
+entity : COLON symbolicName ;
 
 showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 

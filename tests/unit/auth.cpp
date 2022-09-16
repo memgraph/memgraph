@@ -11,12 +11,14 @@
 
 #include <algorithm>
 #include <iostream>
+#include <optional>
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
+#include "auth/models.hpp"
 #include "utils/cast.hpp"
 #include "utils/file.hpp"
 #include "utils/license.hpp"
@@ -158,6 +160,79 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
     ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   }
 }
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
+  ASSERT_FALSE(auth.HasUsers());
+  ASSERT_TRUE(auth.AddUser("test"));
+  ASSERT_TRUE(auth.HasUsers());
+
+  auto user = auth.GetUser("test");
+  ASSERT_NE(user, std::nullopt);
+
+  // Test initial user fine grained access permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), FineGrainedAccessPermissions{});
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(), FineGrainedAccessPermissions{});
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Grant one label to user .
+  user->fine_grained_access_handler().label_permissions().Grant("labelTest", FineGrainedPermission::CREATE_DELETE);
+  // Grant one edge type to user .
+  user->fine_grained_access_handler().edge_type_permissions().Grant("edgeTypeTest",
+                                                                    FineGrainedPermission::CREATE_DELETE);
+
+  // Check permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest", FineGrainedPermission::READ),
+            PermissionLevel::GRANT);
+  ASSERT_EQ(
+      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest", FineGrainedPermission::READ),
+      PermissionLevel::GRANT);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Check permissions.
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions().Has("labelTest1", FineGrainedPermission::READ),
+            PermissionLevel::DENY);
+  ASSERT_EQ(
+      user->fine_grained_access_handler().edge_type_permissions().Has("edgeTypeTest1", FineGrainedPermission::READ),
+      PermissionLevel::DENY);
+  ASSERT_EQ(user->fine_grained_access_handler().label_permissions(), user->GetFineGrainedAccessLabelPermissions());
+  ASSERT_EQ(user->fine_grained_access_handler().edge_type_permissions(),
+            user->GetFineGrainedAccessEdgeTypePermissions());
+
+  // Create role.
+  ASSERT_TRUE(auth.AddRole("admin"));
+  auto role = auth.GetRole("admin");
+  ASSERT_NE(role, std::nullopt);
+
+  // Grant label and edge type to role and role to user.
+  role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", FineGrainedPermission::CREATE_DELETE);
+  role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest",
+                                                                    FineGrainedPermission::CREATE_DELETE);
+  user->SetRole(*role);
+
+  // Check permissions.
+  {
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest", FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest", FineGrainedPermission::READ),
+              PermissionLevel::GRANT);
+  }
+
+  user->SetRole(*role);
+
+  // Check permissions.
+  {
+    ASSERT_EQ(user->GetFineGrainedAccessLabelPermissions().Has("roleLabelTest1", FineGrainedPermission::READ),
+              PermissionLevel::DENY);
+    ASSERT_EQ(user->GetFineGrainedAccessEdgeTypePermissions().Has("roleEdgeTypeTest1", FineGrainedPermission::READ),
+              PermissionLevel::DENY);
+  }
+}
+#endif
 
 TEST_F(AuthWithStorage, RoleManipulations) {
   {
@@ -407,6 +482,180 @@ TEST(AuthWithoutStorage, PermissionsMaskTest) {
   ASSERT_EQ(p4.denies(), 2);
 }
 
+#ifdef MG_ENTERPRISE
+TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
+  const std::string any_label = "AnyString";
+  const std::string check_label = "Label";
+  const std::string non_check_label = "OtherLabel";
+  const std::string asterisk = "*";
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    ASSERT_TRUE(fga_permissions1 == fga_permissions2);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::DENY);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
+
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_FALSE(fga_permissions.GetPermissions().empty());
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Revoke(any_label);
+
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), kLabelPermissionAll);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Revoke(any_label);
+
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(any_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions.Revoke(asterisk);
+
+    ASSERT_EQ(fga_permissions.GetGlobalPermission(), std::nullopt);
+    ASSERT_TRUE(fga_permissions.GetPermissions().empty());
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::UPDATE);
+
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::CREATE_DELETE);
+
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions;
+    fga_permissions.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions.Grant(check_label, FineGrainedPermission::UPDATE);
+
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions.Has(non_check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+}
+
+TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
+  auto any_label = "AnyString";
+  auto check_label = "Label";
+  auto asterisk = "*";
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::READ);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(any_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions1.Grant(check_label, FineGrainedPermission::UPDATE);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::GRANT);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+
+  {
+    FineGrainedAccessPermissions fga_permissions1, fga_permissions2;
+    fga_permissions1.Grant(asterisk, FineGrainedPermission::READ);
+    fga_permissions1.Grant(check_label, FineGrainedPermission::CREATE_DELETE);
+    fga_permissions2.Grant(asterisk, FineGrainedPermission::UPDATE);
+    fga_permissions2.Grant(check_label, FineGrainedPermission::READ);
+
+    auto fga_permissions3 = memgraph::auth::Merge(fga_permissions1, fga_permissions2);
+
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::CREATE_DELETE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::UPDATE), PermissionLevel::DENY);
+    ASSERT_EQ(fga_permissions3.Has(check_label, FineGrainedPermission::READ), PermissionLevel::GRANT);
+  }
+}
+#endif
+
 TEST(AuthWithoutStorage, UserSerializeDeserialize) {
   auto user = User("test");
   user.permissions().Grant(Permission::MATCH);
@@ -468,8 +717,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto user1 = User("test", "pw", perms);
-    auto user2 = User("Test", "pw", perms);
+    auto fine_grained_access_handler = FineGrainedAccessHandler();
+    auto user1 = User("test", "pw", perms, fine_grained_access_handler);
+    auto user2 = User("Test", "pw", perms, fine_grained_access_handler);
     ASSERT_EQ(user1, user2);
     ASSERT_EQ(user1.username(), user2.username());
     ASSERT_EQ(user1.username(), "test");
@@ -485,8 +735,9 @@ TEST(AuthWithoutStorage, CaseInsensitivity) {
   }
   {
     auto perms = Permissions();
-    auto role1 = Role("role", perms);
-    auto role2 = Role("Role", perms);
+    auto fine_grained_access_handler = FineGrainedAccessHandler();
+    auto role1 = Role("role", perms, fine_grained_access_handler);
+    auto role2 = Role("Role", perms, fine_grained_access_handler);
     ASSERT_EQ(role1, role2);
     ASSERT_EQ(role1.rolename(), role2.rolename());
     ASSERT_EQ(role1.rolename(), "role");

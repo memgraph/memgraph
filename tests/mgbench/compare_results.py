@@ -77,7 +77,7 @@ def recursive_get(data, *args, value=None):
     return data
 
 
-def compare_results(results_from, results_to, fields):
+def compare_results(results_from, results_to, fields, ignored):
     ret = {}
     for dataset, variants in results_to.items():
         for variant, groups in variants.items():
@@ -85,39 +85,44 @@ def compare_results(results_from, results_to, fields):
                 if group == "__import__":
                     continue
                 for scenario, summary_to in scenarios.items():
-                    summary_from = recursive_get(
-                        results_from, dataset, variant, group, scenario,
-                        value={})
-                    if len(summary_from) > 0 and \
-                            summary_to["count"] != summary_from["count"] or \
-                            summary_to["num_workers"] != \
-                            summary_from["num_workers"]:
+                    if scenario in ignored:
+                        continue
+
+                    summary_from = recursive_get(results_from, dataset, variant, group, scenario, value={})
+                    if (
+                        len(summary_from) > 0
+                        and summary_to["count"] != summary_from["count"]
+                        or summary_to["num_workers"] != summary_from["num_workers"]
+                    ):
                         raise Exception("Incompatible results!")
-                    testcode = "/".join([dataset, variant, group, scenario,
-                                         "{:02d}".format(
-                                             summary_to["num_workers"])])
+                    testcode = "/".join(
+                        [
+                            dataset,
+                            variant,
+                            group,
+                            scenario,
+                            "{:02d}".format(summary_to["num_workers"]),
+                        ]
+                    )
                     row = {}
                     performance_changed = False
                     for field in fields:
                         key = field["name"]
                         if key in summary_to:
-                            row[key] = compute_diff(
-                                summary_from.get(key, None),
-                                summary_to[key])
+                            row[key] = compute_diff(summary_from.get(key, None), summary_to[key])
                         elif key in summary_to["database"]:
                             row[key] = compute_diff(
-                                recursive_get(summary_from, "database", key,
-                                              value=None),
-                                summary_to["database"][key])
+                                recursive_get(summary_from, "database", key, value=None),
+                                summary_to["database"][key],
+                            )
                         else:
                             row[key] = compute_diff(
-                                recursive_get(summary_from, "metadata", key,
-                                              "average", value=None),
-                                summary_to["metadata"][key]["average"])
-                        if "diff" not in row[key] or \
-                                ("diff_treshold" in field and
-                                 abs(row[key]["diff"]) >=
-                                 field["diff_treshold"]):
+                                recursive_get(summary_from, "metadata", key, "average", value=None),
+                                summary_to["metadata"][key]["average"],
+                            )
+                        if "diff" not in row[key] or (
+                            "diff_treshold" in field and abs(row[key]["diff"]) >= field["diff_treshold"]
+                        ):
                             performance_changed = True
                     if performance_changed:
                         ret[testcode] = row
@@ -130,8 +135,15 @@ def generate_remarkup(fields, data):
         ret += "<table>\n"
         ret += "  <tr>\n"
         ret += "    <th>Testcode</th>\n"
-        ret += "\n".join(map(lambda x: "    <th>{}</th>".format(
-            x["name"].replace("_", " ").capitalize()), fields)) + "\n"
+        ret += (
+            "\n".join(
+                map(
+                    lambda x: "    <th>{}</th>".format(x["name"].replace("_", " ").capitalize()),
+                    fields,
+                )
+            )
+            + "\n"
+        )
         ret += "  </tr>\n"
         for testcode in sorted(data.keys()):
             ret += "  <tr>\n"
@@ -147,12 +159,9 @@ def generate_remarkup(fields, data):
                     else:
                         color = "red"
                     sign = "{{icon {} color={}}}".format(arrow, color)
-                    ret += "    <td>{:.3f}{} //({:+.2%})// {}</td>\n".format(
-                        value, field["unit"], diff, sign)
+                    ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(color, value, field["unit"], diff)
                 else:
-                    ret += "    <td>{:.3f}{} //(new)// " \
-                           "{{icon plus color=blue}}</td>\n".format(
-                               value, field["unit"])
+                    ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
             ret += "  </tr>\n"
         ret += "</table>\n"
     else:
@@ -161,22 +170,33 @@ def generate_remarkup(fields, data):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Compare results of multiple benchmark runs.")
-    parser.add_argument("--compare", action="append", nargs=2,
-                        metavar=("from", "to"),
-                        help="compare results between `from` and `to` files")
+    parser = argparse.ArgumentParser(description="Compare results of multiple benchmark runs.")
+    parser.add_argument(
+        "--compare",
+        action="append",
+        nargs=2,
+        metavar=("from", "to"),
+        help="compare results between `from` and `to` files",
+    )
     parser.add_argument("--output", default="", help="output file name")
+    # file is read line by line, each representing one test name
+    parser.add_argument("--exclude_tests_file", help="file listing test names to be excluded")
     args = parser.parse_args()
 
     if args.compare is None or len(args.compare) == 0:
         raise Exception("You must specify at least one pair of files!")
 
+    if args.exclude_tests_file:
+        with open(args.exclude_tests_file, "r") as f:
+            ignored = [line.rstrip("\n") for line in f]
+    else:
+        ignored = []
+
     data = {}
     for file_from, file_to in args.compare:
         results_from = load_results(file_from)
         results_to = load_results(file_to)
-        data.update(compare_results(results_from, results_to, FIELDS))
+        data.update(compare_results(results_from, results_to, FIELDS, ignored))
 
     remarkup = generate_remarkup(FIELDS, data)
     if args.output:

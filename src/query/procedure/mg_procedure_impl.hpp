@@ -714,22 +714,7 @@ struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory),
-        graph(graph),
-        vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
-        current_it(vertices.begin()) {
-    if (current_it != vertices.end()) {
-      std::visit(
-          memgraph::utils::Overloaded{
-              [this, graph, memory](memgraph::query::DbAccessor *) { current_v.emplace(*current_it, graph, memory); },
-              [this, graph, memory](memgraph::query::SubgraphDbAccessor *impl) {
-                current_v.emplace(memgraph::query::SubgraphVertexAccessor(*current_it, impl->getGraph()), graph,
-                                  memory);
-              }},
-          graph->impl);
-    }
-  }
+  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
 
   memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
 

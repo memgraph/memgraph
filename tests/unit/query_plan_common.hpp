@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 
+#include "auth/models.hpp"
+#include "glue/auth_checker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -39,6 +41,19 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   return context;
 }
+#ifdef MG_ENTERPRISE
+ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, const SymbolTable &symbol_table,
+                                                   memgraph::query::DbAccessor *dba,
+                                                   memgraph::glue::FineGrainedAuthChecker *auth_checker) {
+  ExecutionContext context{dba};
+  context.symbol_table = symbol_table;
+  context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
+  context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
+
+  return context;
+}
+#endif
 
 /** Helper function that collects all the results from the given Produce. */
 std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, ExecutionContext *context) {

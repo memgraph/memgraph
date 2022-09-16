@@ -70,13 +70,16 @@ target_link_libraries(${test_prefix}mgp_trans_c_api mg-query)
 
 # Test mg-query
 add_unit_test(bfs_single_node.cpp)
-target_link_libraries(${test_prefix}bfs_single_node mg-query)
+target_link_libraries(${test_prefix}bfs_single_node mg-query mg-glue)
+
+add_unit_test(bfs_fine_grained.cpp)
+target_link_libraries(${test_prefix}bfs_fine_grained mg-query mg-glue)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
 
 add_unit_test(interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
-target_link_libraries(${test_prefix}interpreter mg-communication mg-query)
+target_link_libraries(${test_prefix}interpreter mg-communication mg-query mg-glue)
 
 add_unit_test(plan_pretty_print.cpp)
 target_link_libraries(${test_prefix}plan_pretty_print mg-query)
@@ -94,32 +97,32 @@ add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-query)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query)
+target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-query mg-glue)
 
 add_unit_test(query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query)
+target_link_libraries(${test_prefix}query_plan_bag_semantics mg-query mg-glue)
 
 add_unit_test(query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query)
+target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-query mg-glue)
 
 add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-query mg-glue)
 
 add_unit_test(query_plan_read_write_typecheck.cpp
   ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
 target_link_libraries(${test_prefix}query_plan_read_write_typecheck mg-query)
 
 add_unit_test(query_plan_v2_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query)
+target_link_libraries(${test_prefix}query_plan_v2_create_set_remove_delete mg-query mg-glue)
 
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-query)
 
 add_unit_test(query_trigger.cpp)
-target_link_libraries(${test_prefix}query_trigger mg-query)
+target_link_libraries(${test_prefix}query_trigger mg-query mg-glue)
 
 add_unit_test(query_serialization_property_value.cpp)
 target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
@@ -160,7 +163,7 @@ add_unit_test(query_semantic.cpp)
 target_link_libraries(${test_prefix}query_semantic mg-query)
 
 add_unit_test(query_variable_start_planner.cpp)
-target_link_libraries(${test_prefix}query_variable_start_planner mg-query)
+target_link_libraries(${test_prefix}query_variable_start_planner mg-query mg-glue)
 
 add_unit_test(stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
@@ -320,6 +323,12 @@ target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
+
+add_unit_test(auth_checker.cpp)
+target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
+
+add_unit_test(auth_handler.cpp)
+target_link_libraries(${test_prefix}auth_handler mg-glue mg-auth)
 
 add_unit_test(cpp_api.cpp)
 target_link_libraries(${test_prefix}cpp_api mg-query)

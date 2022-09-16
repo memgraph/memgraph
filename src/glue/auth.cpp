@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/auth.hpp"
+#include "auth/models.hpp"
 
 namespace memgraph::glue {
 
@@ -59,4 +60,20 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::WEBSOCKET;
   }
 }
+
+#ifdef MG_ENTERPRISE
+auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
+    const query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
+  switch (fine_grained_privilege) {
+    case query::AuthQuery::FineGrainedPrivilege::NOTHING:
+      return auth::FineGrainedPermission::NOTHING;
+    case query::AuthQuery::FineGrainedPrivilege::READ:
+      return auth::FineGrainedPermission::READ;
+    case query::AuthQuery::FineGrainedPrivilege::UPDATE:
+      return auth::FineGrainedPermission::UPDATE;
+    case query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE:
+      return auth::FineGrainedPermission::CREATE_DELETE;
+  }
+}
+#endif
 }  // namespace memgraph::glue
