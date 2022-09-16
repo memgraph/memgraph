@@ -531,9 +531,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   memgraph::query::test_common::OnCreate {                 \
     std::vector<memgraph::query::Clause *> { __VA_ARGS__ } \
   }
-#define CREATE_INDEX_ON(label, property)                                        \
+#define CREATE_INDEX_ON(label, property)                                                            \
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
-                                    std::vector<memgraph::query::PropertyIx>{(property)})
+                                              std::vector<memgraph::query::PropertyIx>{(property)})
 #define QUERY(...) memgraph::query::test_common::GetQuery(storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) memgraph::query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
 #define UNION(...) memgraph::query::test_common::GetCypherUnion(storage.Create<CypherUnion>(true), __VA_ARGS__)
@@ -583,7 +583,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COALESCE(...) storage.Create<memgraph::query::Coalesce>(std::vector<memgraph::query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr) \
   storage.Create<memgraph::query::Extract>(storage.Create<memgraph::query::Identifier>(variable), list, expr)
-#define AUTH_QUERY(action, user, role, user_or_role, password, privileges) \
-  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges))
+#define AUTH_QUERY(action, user, role, user_or_role, password, privileges, labels, edgeTypes)                  \
+  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (privileges), \
+                                             (labels), (edgeTypes))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)

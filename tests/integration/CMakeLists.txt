@@ -10,6 +10,9 @@ add_subdirectory(transactions)
 # auth test binaries
 add_subdirectory(auth)
 
+# lba test binaries
+add_subdirectory(fine_grained_access)
+
 ## distributed ha/basic binaries
 #add_subdirectory(ha/basic)
 #

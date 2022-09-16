@@ -20,4 +20,12 @@ namespace memgraph::glue {
  */
 auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege);
 
+#ifdef MG_ENTERPRISE
+/**
+ * Converts query::AuthQuery::FineGrainedPrivilege to its corresponding
+ * auth::EntityPermission.
+ */
+auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
+    query::AuthQuery::FineGrainedPrivilege fine_grained_privilege);
+#endif
 }  // namespace memgraph::glue
