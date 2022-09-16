@@ -1162,12 +1162,14 @@ void Shard::CollectGarbage(const io::Time current_time) {
   for (const auto &vertex : deleted_vertices_) {
     MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
   }
+  deleted_vertices_.clear();
   {
     auto edge_acc = edges_.access();
     for (auto edge : deleted_edges_) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
+  deleted_edges_.clear();
 }
 
 bool Shard::InitializeWalFile() {
