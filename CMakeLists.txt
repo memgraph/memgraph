@@ -235,6 +235,12 @@ set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Suppo
 
 # setup external dependencies -------------------------------------------------
 
+set(CMAKE_THREAD_LIBS_INIT "-lpthread")
+set(CMAKE_HAVE_THREADS_LIBRARY 1)
+set(CMAKE_USE_WIN32_THREADS_INIT 0)
+set(CMAKE_USE_PTHREADS_INIT 1)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+
 # threading
 find_package(Threads REQUIRED)
 # optional readline

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/opt/homebrew/Cellar/bash/5.1.16/bin/bash -e
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
@@ -64,16 +64,16 @@ else
     done
 fi
 
-DISTRO=$(operating_system)
-ARCHITECTURE=$(architecture)
-if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
-  OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
-else
-  OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
-fi
-echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
-$OS_SCRIPT check MEMGRAPH_BUILD_DEPS
-echo "All packages are in-place..."
+# DISTRO=$(operating_system)
+# ARCHITECTURE=$(architecture)
+# if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
+#   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
+# else
+#   OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
+# fi
+# echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+# $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
+# echo "All packages are in-place..."
 
 # create a default build directory
 mkdir -p ./build
@@ -93,6 +93,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
+# TODO(gitbuda): -T doesn't work on Mac
 ln -Tfs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
 # Install LCP dependencies
 # TODO: We should at some point cache or have a mirror of packages we use.
@@ -111,34 +112,34 @@ if [[ "$setup_libs" == "true" ]]; then
     cd ..
 fi
 
-# setup gql_behave dependencies
-setup_virtualenv tests/gql_behave
-
-# setup stress dependencies
-setup_virtualenv tests/stress
-
-# setup integration/ldap dependencies
-setup_virtualenv tests/integration/ldap
-
-# Setup tests dependencies.
-# cd tests
-# ./setup.sh
-# cd ..
-# TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3. Take care
-# of the build order because tests/setup.py builds pymgclient which depends on
-# mgclient which is build after this script by calling make.
-
-echo "Done installing dependencies for Memgraph"
-
-echo "Linking git hooks"
-for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
-  ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
-  echo "Added $hook hook"
-done;
-
-# Install precommit hook
-python3 -m pip install pre-commit
-python3 -m pre_commit install
-
-# Link `include/mgp.py` with `release/mgp/mgp.py`
-ln -v -f include/mgp.py release/mgp/mgp.py
+# # setup gql_behave dependencies
+# setup_virtualenv tests/gql_behave
+#
+# # setup stress dependencies
+# setup_virtualenv tests/stress
+#
+# # setup integration/ldap dependencies
+# setup_virtualenv tests/integration/ldap
+#
+# # Setup tests dependencies.
+# # cd tests
+# # ./setup.sh
+# # cd ..
+# # TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3. Take care
+# # of the build order because tests/setup.py builds pymgclient which depends on
+# # mgclient which is build after this script by calling make.
+#
+# echo "Done installing dependencies for Memgraph"
+#
+# echo "Linking git hooks"
+# for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
+#   ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+#   echo "Added $hook hook"
+# done;
+#
+# # Install precommit hook
+# python3 -m pip install pre-commit
+# python3 -m pre_commit install
+#
+# # Link `include/mgp.py` with `release/mgp/mgp.py`
+# ln -v -f include/mgp.py release/mgp/mgp.py

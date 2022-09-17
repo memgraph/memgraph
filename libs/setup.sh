@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/opt/homebrew/Cellar/bash/5.1.16/bin/bash -e
 
 # Download external dependencies.
 # Don't forget to add/update the license in release/third-party-licenses of added/updated libs!
@@ -201,7 +201,7 @@ popd
 # mgclient
 mgclient_tag="v1.4.0" # (2022-06-14)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
+sed -e 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # pymgclient
 pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
