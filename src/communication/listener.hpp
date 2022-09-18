@@ -207,8 +207,9 @@ class Listener final {
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
-                    session.socket().endpoint(), event.events);
+      // TODO: GCC can't compile
+      // spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
+      //               session.socket().endpoint(), event.events);
       CloseSession(session);
     }
   }

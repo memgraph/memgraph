@@ -147,7 +147,9 @@ class ModuleRegistry final {
     void *handle_;
   };
 
-#if __has_feature(address_sanitizer)
+// TODO: Figure out for both clang and GCC
+// #if __has_feature(address_sanitizer)
+#if defined(__SANITIZE_ADDRESS__)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
   SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};

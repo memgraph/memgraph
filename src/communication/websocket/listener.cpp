@@ -65,8 +65,10 @@ Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::en
 }
 
 void Listener::DoAccept() {
-  acceptor_.async_accept(
-      ioc_, [shared_this = shared_from_this()](auto ec, auto socket) { shared_this->OnAccept(ec, std::move(socket)); });
+  // TODO(gitbuda): GCC throws and error here can't convert context to executor
+  // acceptor_.async_accept(
+  //     ioc_, [shared_this = shared_from_this()](auto ec, auto socket) { shared_this->OnAccept(ec, std::move(socket));
+  //     });
 }
 
 void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {

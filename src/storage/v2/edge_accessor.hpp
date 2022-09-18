@@ -68,7 +68,7 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const noexcept {
+  Gid GidX() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {
@@ -107,6 +107,6 @@ class EdgeAccessor final {
 namespace std {
 template <>
 struct hash<memgraph::storage::EdgeAccessor> {
-  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
+  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.GidX().AsUint(); }
 };
 }  // namespace std

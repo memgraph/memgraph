@@ -94,7 +94,7 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const noexcept { return vertex_->gid; }
+  Gid GidX() const noexcept { return vertex_->gid; }
 
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
@@ -123,6 +123,6 @@ class VertexAccessor final {
 namespace std {
 template <>
 struct hash<memgraph::storage::VertexAccessor> {
-  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.Gid().AsUint(); }
+  size_t operator()(const memgraph::storage::VertexAccessor &v) const noexcept { return v.GidX().AsUint(); }
 };
 }  // namespace std

@@ -265,6 +265,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
       return os << fmt::format("type: {}, microseconds: {}", TemporalTypeTostring(value.ValueTemporalData().type),
                                value.ValueTemporalData().microseconds);
   }
+  return os;
 }
 
 // NOTE: The logic in this function *MUST* be equal to the logic in
@@ -298,6 +299,7 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
     case PropertyValue::Type::TemporalData:
       return first.ValueTemporalData() == second.ValueTemporalData();
   }
+  return false;
 }
 
 inline bool operator<(const PropertyValue &first, const PropertyValue &second) noexcept {
@@ -328,6 +330,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
     case PropertyValue::Type::TemporalData:
       return first.ValueTemporalData() < second.ValueTemporalData();
   }
+  return false;
 }
 
 inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {

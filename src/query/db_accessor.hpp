@@ -85,9 +85,9 @@ class EdgeAccessor final {
 
   bool IsCycle() const;
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
+  int64_t CypherId() const { return impl_.GidX().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_.GidX(); }
 
   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 
@@ -170,9 +170,9 @@ class VertexAccessor final {
 
   storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
+  int64_t CypherId() const { return impl_.GidX().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_.GidX(); }
 
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));

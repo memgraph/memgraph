@@ -775,15 +775,15 @@ void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snaps
         const auto &in_edges = maybe_in_edges.GetValue();
         snapshot.WriteUint(in_edges.size());
         for (const auto &item : in_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.FromVertex().Gid().AsUint());
+          snapshot.WriteUint(item.GidX().AsUint());
+          snapshot.WriteUint(item.FromVertex().GidX().AsUint());
           write_mapping(item.EdgeType());
         }
         const auto &out_edges = maybe_out_edges.GetValue();
         snapshot.WriteUint(out_edges.size());
         for (const auto &item : out_edges) {
-          snapshot.WriteUint(item.Gid().AsUint());
-          snapshot.WriteUint(item.ToVertex().Gid().AsUint());
+          snapshot.WriteUint(item.GidX().AsUint());
+          snapshot.WriteUint(item.ToVertex().GidX().AsUint());
           write_mapping(item.EdgeType());
         }
       }

@@ -217,6 +217,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
   }
+  return "";
 }
 
 LicenseCheckResult LicenseChecker::IsValidLicense(const utils::Settings &settings) const {

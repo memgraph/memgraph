@@ -66,6 +66,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Null:
       LOG_FATAL("Invalid type");
   }
+  throw 1;
 }
 
 }  // namespace impl

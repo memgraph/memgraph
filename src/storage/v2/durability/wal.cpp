@@ -94,6 +94,7 @@ Marker OperationToMarker(StorageGlobalOperation operation) {
     case StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP:
       return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
   }
+  throw 1;
 }
 
 Marker VertexActionToMarker(Delta::Action action) {
@@ -120,6 +121,7 @@ Marker VertexActionToMarker(Delta::Action action) {
     case Delta::Action::REMOVE_OUT_EDGE:
       return Marker::DELTA_EDGE_CREATE;
   }
+  throw 1;
 }
 
 // This function convertes a Marker to a WalDeltaData::Type. It checks for the
@@ -184,6 +186,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::VALUE_TRUE:
       throw RecoveryFailure("Invalid WAL data!");
   }
+  throw 1;
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -457,6 +460,7 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
   }
+  return false;
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b); }
 

@@ -150,6 +150,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return true;
   }
+  return false;
 }
 
 /// Function used to read information about the WAL file.

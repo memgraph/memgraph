@@ -26,14 +26,14 @@ endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
 # NOTE: must be choosen before use of project() or enable_language()
-find_program(CLANG_FOUND clang)
-find_program(CLANGXX_FOUND clang++)
-if (CLANG_FOUND AND CLANGXX_FOUND)
-  set(CMAKE_C_COMPILER ${CLANG_FOUND})
-  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
-else()
-  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
-endif()
+# find_program(CLANG_FOUND clang)
+# find_program(CLANGXX_FOUND clang++)
+# if (CLANG_FOUND AND CLANGXX_FOUND)
+#   set(CMAKE_C_COMPILER ${CLANG_FOUND})
+#   set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
+# else()
+#   message(FATAL_ERROR "Couldn't find clang and/or clang++!")
+# endif()
 
 # -----------------------------------------------------------------------------
 
@@ -181,9 +181,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
+#     -Werror=switch -Werror=switch-bool -Werror=return-type \
+#     -Werror=return-stack-address \
+#     -Wno-c99-designator \
+#     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-stack-address \
+    -Werror=return-local-addr \
     -Wno-c99-designator \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
