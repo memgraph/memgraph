@@ -416,7 +416,9 @@ class TypedValue {
    * element-wise move and graph is not guaranteed to be empty.
    */
   TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-    new (&graph_v) Graph(std::move(graph), memory_);
+    auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
+    new (graph_ptr) Graph(std::move(graph), memory_);
+    new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
   }
 
   /**
@@ -547,7 +549,8 @@ class TypedValue {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
-    Graph graph_v;
+    // As the unique_ptr is not allocator aware, it require special attention when copying or moving graphs
+    std::unique_ptr<Graph> graph_v;
   };
 
   /**
