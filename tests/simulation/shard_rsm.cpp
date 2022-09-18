@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include <iostream>
 #include <optional>
 #include <thread>
@@ -139,6 +140,52 @@ bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
   }
 }
 
+bool AttemptToDeleteVertex(ShardClient &client, int64_t value) {
+  auto delete_req = msgs::DeleteVerticesRequest{};
+  delete_req.deletion_type = msgs::DeleteVerticesRequest::DeletionType::DELETE;
+  delete_req.primary_keys = GetValuePrimaryKeysWithValue(value);
+  delete_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(delete_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::DeleteVerticesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
+bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
+  auto vertex_id = GetValuePrimaryKeysWithValue(value)[0];
+
+  std::vector<std::pair<PropertyId, msgs::Value>> property_updates;
+  auto property_update = std::make_pair(PropertyId::FromUint(1), msgs::Value(static_cast<int64_t>(10000)));
+
+  auto vertex_prop = msgs::UpdateVertexProp{};
+  vertex_prop.primary_key = vertex_id;
+  vertex_prop.property_updates = {property_update};
+
+  auto update_req = msgs::UpdateVerticesRequest{};
+  update_req.transaction_id.logical_id = GetTransactionId();
+  update_req.new_properties = {vertex_prop};
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(update_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::UpdateVerticesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
                       int64_t edge_type_id) {
   auto id = msgs::EdgeId{};
@@ -156,6 +203,7 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   edge.type = type;
   edge.src = src;
   edge.dst = dst;
+  edge.properties = std::nullopt;
 
   msgs::CreateEdgesRequest create_req{};
   create_req.edges = {edge};
@@ -169,6 +217,129 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
 
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
+bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2,
+                                    int64_t edge_gid, uint64_t edge_prop_id, int64_t edge_prop_val,
+                                    int64_t edge_type_id) {
+  auto id = msgs::EdgeId{};
+  msgs::Label label = {.id = get_primary_label()};
+
+  auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
+  auto dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
+  id.gid = edge_gid;
+
+  auto type = msgs::EdgeType{};
+  type.id = edge_type_id;
+
+  auto edge_prop = std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val));
+
+  auto edge = msgs::Edge{};
+  edge.id = id;
+  edge.type = type;
+  edge.src = src;
+  edge.dst = dst;
+  edge.properties = {edge_prop};
+
+  msgs::CreateEdgesRequest create_req{};
+  create_req.edges = {edge};
+  create_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(create_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
+bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+                         int64_t edge_type_id) {
+  // TODO(gvolfing) uncomment this once the handle is implemented
+
+  auto id = msgs::EdgeId{};
+  msgs::Label label = {.id = get_primary_label()};
+
+  auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
+  auto dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
+
+  id.gid = edge_gid;
+
+  auto type = msgs::EdgeType{};
+  type.id = edge_type_id;
+
+  auto edge = msgs::Edge{};
+  edge.id = id;
+  edge.type = type;
+  edge.src = {src};
+  edge.dst = {dst};
+
+  msgs::DeleteEdgesRequest delete_req{};
+  delete_req.edges = {edge};
+  delete_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(delete_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::DeleteEdgesResponse>(write_response_result);
+
+    return write_response.success;
+  }
+}
+
+bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
+                         int64_t edge_type_id, uint64_t edge_prop_id, int64_t edge_prop_val) {
+  auto id = msgs::EdgeId{};
+  msgs::Label label = {.id = get_primary_label()};
+
+  auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
+  auto dst = std::make_pair(label, GetPrimaryKey(value_of_vertex_2));
+
+  id.gid = edge_gid;
+
+  auto type = msgs::EdgeType{};
+  type.id = edge_type_id;
+
+  auto edge = msgs::Edge{};
+  edge.id = id;
+  edge.type = type;
+
+  // struct UpdateEdgeProp {
+  //   EdgeId edge_id;
+  //   VertexId src;
+  //   VertexId dst;
+  //   std::vector<std::pair<PropertyId, Value>> property_updates;
+  // };
+
+  auto edge_prop = std::vector<std::pair<PropertyId, msgs::Value>>{
+      std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val))};
+
+  msgs::UpdateEdgeProp update_props{.src = src, .dst = dst, .edge_id = id, .property_updates = edge_prop};
+
+  msgs::UpdateEdgesRequest update_req{};
+  update_req.transaction_id.logical_id = GetTransactionId();
+  update_req.new_properties = {update_props};
+
+  while (true) {
+    auto write_res = client.SendWriteRequest(update_req);
+    if (write_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = write_res.GetValue();
+    auto write_response = std::get<msgs::UpdateEdgesResponse>(write_response_result);
 
     return write_response.success;
   }
@@ -206,7 +377,21 @@ namespace {
 
 void TestCreateVertices(ShardClient &client) { MG_ASSERT(AttemtpToCreateVertex(client, GetUniqueInteger())); }
 
-void TestAddEdge(ShardClient &client) {
+void TestCreateAndDeleteVertices(ShardClient &client) {
+  auto unique_prop_val = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
+  MG_ASSERT(AttemptToDeleteVertex(client, unique_prop_val));
+}
+
+void TestCreateAndUpdateVertices(ShardClient &client) {
+  auto unique_prop_val = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val));
+  MG_ASSERT(AttemptToUpdateVertex(client, unique_prop_val));
+}
+
+void TestCreateEdge(ShardClient &client) {
   auto unique_prop_val_1 = GetUniqueInteger();
   auto unique_prop_val_2 = GetUniqueInteger();
 
@@ -217,6 +402,46 @@ void TestAddEdge(ShardClient &client) {
   auto edge_type_id = GetUniqueInteger();
 
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+}
+
+void TestCreateAndDeleteEdge(ShardClient &client) {
+  // Add the Edge
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+  auto edge_gid = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+
+  // Delete the Edge
+  MG_ASSERT(AttemptToDeleteEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
+}
+
+void TestUpdateEdge(ShardClient &client) {
+  // Add the Edge
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+
+  auto edge_gid = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+
+  auto edge_prop_id = GetUniqueInteger();
+  auto edge_prop_val_old = GetUniqueInteger();
+  auto edge_prop_val_new = GetUniqueInteger();
+
+  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_prop_id,
+                                           edge_prop_val_old, edge_type_id));
+  MG_ASSERT(AttemptToUpdateEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id, edge_prop_id,
+                                edge_prop_val_new));
+
+  // Update the Edge
 }
 
 void TestScanAllOneGo(ShardClient &client) {
@@ -283,6 +508,77 @@ void TestScanAllWithSmallBatchSize(ShardClient &client) {
   MG_ASSERT(!next_id4);
 }
 
+void TestExpandOne(ShardClient &client) {
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+  auto unique_prop_val_3 = GetUniqueInteger();
+
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_2));
+  MG_ASSERT(AttemtpToCreateVertex(client, unique_prop_val_3));
+
+  auto edge_type_id = GetUniqueInteger();
+  auto edge_gid_1 = GetUniqueInteger();
+  auto edge_gid_2 = GetUniqueInteger();
+
+  // (V1)-[edge_type_id]->(V2)
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_type_id));
+  // (V1)-[edge_type_id]->(V3)
+  MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_type_id));
+
+  // ExpandOne
+
+  // Source vertex
+  auto id = msgs::EdgeId{};
+  msgs::Label label = {.id = get_primary_label()};
+
+  auto src_vertex = std::make_pair(label, GetPrimaryKey(unique_prop_val_1));
+
+  // Edge type
+  auto edge_type = msgs::EdgeType{};
+  edge_type.id = edge_type_id;
+
+  // Edge direction
+  auto edge_direction = msgs::EdgeDirection::OUT;
+
+  // Source Vertex properties to look for
+  std::optional<std::vector<PropertyId>> src_vertex_properties = {};
+
+  // Edge properties to look for
+  std::optional<std::vector<PropertyId>> edge_properties = {};
+
+  std::vector<msgs::Expression> expressions;
+  std::optional<std::vector<msgs::OrderBy>> order_by = {};
+  std::optional<size_t> limit = {};
+  std::optional<msgs::Filter> filter = {};
+
+  msgs::ExpandOneRequest expand_one_req{};
+
+  expand_one_req.direction = edge_direction;
+  expand_one_req.edge_properties = edge_properties;
+  expand_one_req.edge_types = {edge_type};
+  expand_one_req.expressions = expressions;
+  expand_one_req.filter = filter;
+  expand_one_req.limit = limit;
+  expand_one_req.order_by = order_by;
+  expand_one_req.src_vertex_properties = src_vertex_properties;
+  expand_one_req.src_vertices = {src_vertex};
+  expand_one_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(expand_one_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
+
+    MG_ASSERT(write_response.result.size() == 2);
+    break;
+  }
+}
+
 }  // namespace
 
 int TestMessages() {
@@ -340,10 +636,22 @@ int TestMessages() {
   std::vector server_addrs = {shard_server_1_address, shard_server_2_address, shard_server_3_address};
   ShardClient client(shard_client_io, shard_server_1_address, server_addrs);
 
+  // Vertex tests
   TestCreateVertices(client);
-  TestAddEdge(client);
+  TestCreateAndDeleteVertices(client);
+  TestCreateAndUpdateVertices(client);
+
+  // Edge tests
+  TestCreateEdge(client);
+  TestCreateAndDeleteEdge(client);
+  TestUpdateEdge(client);
+
+  // ScanAll tests
   TestScanAllOneGo(client);
   TestScanAllWithSmallBatchSize(client);
+
+  // ExpandOne tests
+  TestExpandOne(client);
 
   simulator.ShutDown();
 
