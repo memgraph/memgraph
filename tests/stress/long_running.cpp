@@ -373,6 +373,7 @@ class GraphSession {
       } else {
         CreateVertices(1);
       }
+      CheckGraphProjection();
     }
 
     // final verification
