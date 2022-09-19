@@ -112,7 +112,7 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
       }
     }
 
-    ASSERT_FALSE(creator.Commit(GetNextHlc()).HasError());
+    creator.Commit(GetNextHlc());
     {
       SCOPED_TRACE(fmt::format(
           "Visibility after the creator transaction is committed "
@@ -127,13 +127,13 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
       check_vertices_count(override_isolation_level_reader, override_isolation_level);
     }
 
-    ASSERT_FALSE(default_isolation_level_reader.Commit(GetNextHlc()).HasError());
-    ASSERT_FALSE(override_isolation_level_reader.Commit(GetNextHlc()).HasError());
+    default_isolation_level_reader.Commit(GetNextHlc());
+    override_isolation_level_reader.Commit(GetNextHlc());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
     auto verifier = store.Access(GetNextHlc());
     ASSERT_EQ(VerticesCount(verifier), iteration_count);
-    ASSERT_FALSE(verifier.Commit(GetNextHlc()).HasError());
+    verifier.Commit(GetNextHlc());
   }
 }
 

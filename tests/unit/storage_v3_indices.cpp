@@ -107,7 +107,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
@@ -157,7 +157,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   {
@@ -174,7 +174,7 @@ TEST_F(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 }
 
@@ -192,7 +192,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
@@ -223,7 +223,7 @@ TEST_F(IndexTest, LabelIndexDrop) {
       auto vertex = CreateVertex(&acc);
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(i % 2 ? label1 : label2));
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   EXPECT_TRUE(storage.CreateIndex(label1));
@@ -336,7 +336,7 @@ TEST_F(IndexTest, LabelIndexDuplicateVersions) {
 
     EXPECT_THAT(GetIds(acc.Vertices(label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   {
@@ -377,7 +377,7 @@ TEST_F(IndexTest, LabelIndexTransactionalIsolation) {
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+  acc.Commit(GetNextHlc());
 
   auto acc_after_commit = storage.Access(GetNextHlc());
 
@@ -519,7 +519,7 @@ TEST_F(IndexTest, LabelPropertyIndexDuplicateVersions) {
 
     EXPECT_THAT(GetIds(acc.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
 
   {
@@ -559,7 +559,7 @@ TEST_F(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   EXPECT_THAT(GetIds(acc_before.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
   EXPECT_THAT(GetIds(acc_after.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+  acc.Commit(GetNextHlc());
 
   auto acc_after_commit = storage.Access(GetNextHlc());
 
@@ -587,7 +587,7 @@ TEST_F(IndexTest, LabelPropertyIndexFiltering) {
       ASSERT_NO_ERROR(vertex.AddLabelAndValidate(label1));
       ASSERT_NO_ERROR(vertex.SetPropertyAndValidate(prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
   {
     auto acc = storage.Access(GetNextHlc());
@@ -699,7 +699,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
       ASSERT_TRUE(v->AddLabelAndValidate(label1).HasValue());
       ASSERT_TRUE(v->SetPropertyAndValidate(prop_val, value).HasValue());
     }
-    ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Verify that all nodes are in the index.
@@ -905,7 +905,7 @@ TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
           acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
   {
     EXPECT_TRUE(storage.CreateIndex(label1));
@@ -954,7 +954,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
           {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
-    ASSERT_NO_ERROR(acc.Commit(GetNextHlc()));
+    acc.Commit(GetNextHlc());
   }
   {
     EXPECT_TRUE(storage.CreateIndex(label1, prop_id));

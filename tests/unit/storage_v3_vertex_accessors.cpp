@@ -83,7 +83,7 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
   {
     auto acc = storage.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
-    ASSERT_FALSE(acc.Commit(GetNextHlc()).HasError());
+    acc.Commit(GetNextHlc());
   }
   {
     auto acc = storage.Access(GetNextHlc());

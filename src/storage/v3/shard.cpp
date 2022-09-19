@@ -25,12 +25,6 @@
 
 #include "io/network/endpoint.hpp"
 #include "io/time.hpp"
-#include "storage/v3/constraints.hpp"
-#include "storage/v3/durability/durability.hpp"
-#include "storage/v3/durability/metadata.hpp"
-#include "storage/v3/durability/paths.hpp"
-#include "storage/v3/durability/snapshot.hpp"
-#include "storage/v3/durability/wal.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
@@ -59,7 +53,6 @@ namespace memgraph::storage::v3 {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
-
 uint64_t GetCleanupBeforeTimestamp(const std::map<uint64_t, std::unique_ptr<Transaction>> &transactions,
                                    const io::Time clean_up_before) {
   MG_ASSERT(!transactions.empty(), "There are no transactions!");
@@ -79,9 +72,9 @@ uint64_t GetCleanupBeforeTimestamp(const std::map<uint64_t, std::unique_ptr<Tran
 
 auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Iterator end,
                             std::optional<VertexAccessor> *vertex, Transaction *tx, View view, Indices *indices,
-                            Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator) {
+                            Config::Items config, const VertexValidator &vertex_validator) {
   while (it != end) {
-    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, constraints, config, vertex_validator, view);
+    *vertex = VertexAccessor::Create(&it->vertex, tx, indices, config, vertex_validator, view);
     if (!*vertex) {
       ++it;
       continue;
@@ -94,14 +87,14 @@ auto AdvanceToVisibleVertex(VerticesSkipList::Iterator it, VerticesSkipList::Ite
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, VerticesSkipList::Iterator it)
     : self_(self),
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->transaction_, self->view_,
-                                 self->indices_, self_->constraints_, self->config_, *self_->vertex_validator_)) {}
+                                 self->indices_, self->config_, *self_->vertex_validator_)) {}
 
 VertexAccessor AllVerticesIterable::Iterator::operator*() const { return *self_->vertex_; }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   ++it_;
   it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->transaction_, self_->view_,
-                               self_->indices_, self_->constraints_, self_->config_, *self_->vertex_validator_);
+                               self_->indices_, self_->config_, *self_->vertex_validator_);
   return *this;
 }
 
@@ -331,108 +324,14 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       max_primary_key_{max_primary_key},
       schema_validator_{schemas_},
       vertex_validator_{schema_validator_, primary_label},
-      indices_{&constraints_, config.items, vertex_validator_},
+      indices_{config.items, vertex_validator_},
       isolation_level_{config.transaction.isolation_level},
       config_{config},
-      snapshot_directory_{config_.durability.storage_directory / durability::kSnapshotDirectory},
-      wal_directory_{config_.durability.storage_directory / durability::kWalDirectory},
-      lock_file_path_{config_.durability.storage_directory / durability::kLockFile},
       uuid_{utils::GenerateUUID()},
       epoch_id_{utils::GenerateUUID()},
-      global_locker_{file_retainer_.AddLocker()} {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-      config_.durability.snapshot_on_exit || config_.durability.recover_on_startup) {
-    // Create the directory initially to crash the database in case of
-    // permission errors. This is done early to crash the database on startup
-    // instead of crashing the database for the first time during runtime (which
-    // could be an unpleasant surprise).
-    utils::EnsureDirOrDie(snapshot_directory_);
-    // Same reasoning as above.
-    utils::EnsureDirOrDie(wal_directory_);
+      global_locker_{file_retainer_.AddLocker()} {}
 
-    // Verify that the user that started the process is the same user that is
-    // the owner of the storage directory.
-    durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(config_.durability.storage_directory);
-
-    // Create the lock file and open a handle to it. This will crash the
-    // database if it can't open the file for writing or if any other process is
-    // holding the file opened.
-    lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    MG_ASSERT(lock_file_handle_.AcquireLock(),
-              "Couldn't acquire lock on the storage directory {}!\n"
-              "Another Memgraph process is currently running with the same "
-              "storage directory, please stop it first before starting this "
-              "process!",
-              config_.durability.storage_directory);
-  }
-  if (config_.durability.recover_on_startup) {
-    // auto info = std::optional<durability::RecoveryInfo>{};
-
-    // durability::RecoverData(snapshot_directory_, wal_directory_, &uuid_, &epoch_id_, &epoch_history_, &vertices_,
-    //                         &edges_, &edge_count_, &name_id_mapper_, &indices_, &constraints_, config_.items,
-    //                         &wal_seq_num_);
-    // if (info) {
-    //   timestamp_ = std::max(timestamp_, info->next_timestamp);
-    //   if (info->last_commit_timestamp) {
-    //     last_commit_timestamp_ = *info->last_commit_timestamp;
-    //   }
-    // }
-  } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-             config_.durability.snapshot_on_exit) {
-    bool files_moved = false;
-    auto backup_root = config_.durability.storage_directory / durability::kBackupDirectory;
-    for (const auto &[path, dirname, what] :
-         {std::make_tuple(snapshot_directory_, durability::kSnapshotDirectory, "snapshot"),
-          std::make_tuple(wal_directory_, durability::kWalDirectory, "WAL")}) {
-      if (!utils::DirExists(path)) continue;
-      auto backup_curr = backup_root / dirname;
-      std::error_code error_code;
-      for (const auto &item : std::filesystem::directory_iterator(path, error_code)) {
-        utils::EnsureDirOrDie(backup_root);
-        utils::EnsureDirOrDie(backup_curr);
-        std::error_code item_error_code;
-        std::filesystem::rename(item.path(), backup_curr / item.path().filename(), item_error_code);
-        MG_ASSERT(!item_error_code, "Couldn't move {} file {} because of: {}", what, item.path(),
-                  item_error_code.message());
-        files_moved = true;
-      }
-      MG_ASSERT(!error_code, "Couldn't backup {} files because of: {}", what, error_code.message());
-    }
-    if (files_moved) {
-      spdlog::warn(
-          "Since Memgraph was not supposed to recover on startup and "
-          "durability is enabled, your current durability files will likely "
-          "be overridden. To prevent important data loss, Memgraph has stored "
-          "those files into a .backup directory inside the storage directory.");
-    }
-  }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    // TODO(antaljanosbenjamin): handle snapshots
-    // snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this] {
-    //   if (auto maybe_error = this->CreateSnapshot(); maybe_error.HasError()) {
-    //     switch (maybe_error.GetError()) {
-    //       case CreateSnapshotError::DisabledForReplica:
-    //         spdlog::warn(
-    //             utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
-    //         break;
-    //     }
-    //   }
-    // });
-  }
-}
-
-Shard::~Shard() {
-  if (wal_file_) {
-    wal_file_->FinalizeWal();
-    wal_file_ = std::nullopt;
-  }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    // TODO(antaljanosbenjamin): stop snapshot creation
-  }
-  if (config_.durability.snapshot_on_exit) {
-    MG_ASSERT(CreateSnapshot(), "Cannot create snapshot!");
-  }
-}
+Shard::~Shard() {}
 
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
@@ -461,8 +360,7 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   auto *delta = CreateDeleteObjectDelta(transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
 
-  VertexAccessor vertex_acc{&it->vertex,           transaction_, &shard_->indices_,
-                            &shard_->constraints_, config_,      shard_->vertex_validator_};
+  VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
 
@@ -491,8 +389,7 @@ std::optional<VertexAccessor> Shard::Accessor::FindVertex(std::vector<PropertyVa
   if (it == acc.end()) {
     return std::nullopt;
   }
-  return VertexAccessor::Create(&it->vertex, transaction_, &shard_->indices_, &shard_->constraints_, config_,
-                                shard_->vertex_validator_, view);
+  return VertexAccessor::Create(&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_, view);
 }
 
 Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -512,7 +409,7 @@ Result<std::optional<VertexAccessor>> Shard::Accessor::DeleteVertex(VertexAccess
   CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<VertexAccessor>(vertex_ptr, transaction_, &shard_->indices_, &shard_->constraints_, config_,
+  return std::make_optional<VertexAccessor>(vertex_ptr, transaction_, &shard_->indices_, config_,
                                             shard_->vertex_validator_, true);
 }
 
@@ -541,8 +438,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   const VertexId vertex_id{shard_->primary_label_, vertex_ptr->keys.Keys()};
   for (const auto &item : in_edges) {
     auto [edge_type, from_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_);
+    EdgeAccessor e(edge, edge_type, from_vertex, vertex_id, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -555,8 +451,7 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   }
   for (const auto &item : out_edges) {
     auto [edge_type, to_vertex, edge] = item;
-    EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, &shard_->constraints_,
-                   config_);
+    EdgeAccessor e(edge, edge_type, vertex_id, to_vertex, transaction_, &shard_->indices_, config_);
     auto ret = DeleteEdge(e.FromVertex(), e.ToVertex(), e.Gid());
     if (ret.HasError()) {
       MG_ASSERT(ret.GetError() == Error::SERIALIZATION_ERROR, "Invalid database state!");
@@ -579,9 +474,9 @@ Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Shar
   CreateAndLinkDelta(transaction_, vertex_ptr, Delta::RecreateObjectTag());
   vertex_ptr->deleted = true;
 
-  return std::make_optional<ReturnType>(VertexAccessor{vertex_ptr, transaction_, &shard_->indices_,
-                                                       &shard_->constraints_, config_, shard_->vertex_validator_, true},
-                                        std::move(deleted_edges));
+  return std::make_optional<ReturnType>(
+      VertexAccessor{vertex_ptr, transaction_, &shard_->indices_, config_, shard_->vertex_validator_, true},
+      std::move(deleted_edges));
 }
 
 Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, VertexId to_vertex_id,
@@ -640,7 +535,7 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
   ++shard_->edge_count_;
 
   return EdgeAccessor(edge, edge_type, std::move(from_vertex_id), std::move(to_vertex_id), transaction_,
-                      &shard_->indices_, &shard_->constraints_, config_);
+                      &shard_->indices_, config_);
 }
 
 Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id,
@@ -742,7 +637,7 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
   --shard_->edge_count_;
 
   return std::make_optional<EdgeAccessor>(edge_ref, *edge_type, std::move(from_vertex_id), std::move(to_vertex_id),
-                                          transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
+                                          transaction_, &shard_->indices_, config_, true);
 }
 
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
@@ -757,7 +652,7 @@ const std::string &Shard::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
 
 void Shard::Accessor::AdvanceCommand() { ++transaction_->command_id; }
 
-utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(coordinator::Hlc commit_timestamp) {
+void Shard::Accessor::Commit(coordinator::Hlc commit_timestamp) {
   MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
   MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
   MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
@@ -765,8 +660,6 @@ utils::BasicResult<ConstraintViolation, void> Shard::Accessor::Commit(coordinato
   MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
   transaction_->commit_info->start_or_commit_timestamp = commit_timestamp;
   transaction_->commit_info->is_locally_committed = true;
-
-  return {};
 }
 
 void Shard::Accessor::Abort() {
@@ -940,10 +833,6 @@ bool Shard::CreateIndex(LabelId label, const std::optional<uint64_t> /*desired_c
   if (label == primary_label_ || !indices_.label_index.CreateIndex(label, vertices_.access())) {
     return false;
   }
-  // TODO(antaljanosbenjamin): do we need to mark the transaction committed?
-  // const auto commit_timestamp = CommitTimestamp();
-  // AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_CREATE, label, {}, commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
@@ -958,92 +847,22 @@ bool Shard::CreateIndex(LabelId label, PropertyId property,
   if (!indices_.label_property_index.CreateIndex(label, property, vertices_.access())) {
     return false;
   }
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_CREATE, label, {property}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
   return true;
 }
 
 bool Shard::DropIndex(LabelId label, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  if (!indices_.label_index.DropIndex(label)) return false;
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::LABEL_INDEX_DROP, label, {}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-  return true;
+  return indices_.label_index.DropIndex(label);
 }
 
 bool Shard::DropIndex(LabelId label, PropertyId property, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  if (!indices_.label_property_index.DropIndex(label, property)) return false;
-  // For a description why using `timestamp_` is correct, see
-  // `CreateIndex(LabelId label)`.
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::LABEL_PROPERTY_INDEX_DROP, label, {property}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-  return true;
+  return indices_.label_property_index.DropIndex(label, property);
 }
 
 IndicesInfo Shard::ListAllIndices() const {
   return {indices_.label_index.ListIndices(), indices_.label_property_index.ListIndices()};
 }
 
-utils::BasicResult<ConstraintViolation, bool> Shard::CreateExistenceConstraint(
-    LabelId /*label*/, PropertyId /*property*/, const std::optional<uint64_t> /*desired_commit_timestamp*/) {
-  // TODO Fix constraints
-  // auto ret = ::memgraph::storage::v3::CreateExistenceConstraint(&constraints_, label, property, vertices_.access());
-  // if (ret.HasError() || !ret.GetValue()) return ret;
-  return false;
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_CREATE, label, {property}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-}
-
-bool Shard::DropExistenceConstraint(LabelId label, PropertyId property,
-                                    const std::optional<uint64_t> desired_commit_timestamp) {
-  if (!memgraph::storage::v3::DropExistenceConstraint(&constraints_, label, property)) return false;
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::EXISTENCE_CONSTRAINT_DROP, label, {property}, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-  return true;
-}
-
-utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Shard::CreateUniqueConstraint(
-    LabelId label, const std::set<PropertyId> &properties, const std::optional<uint64_t> desired_commit_timestamp) {
-  // TODO Fix constraints
-  // auto ret = constraints_.unique_constraints.CreateConstraint(label, properties, vertices_.access());
-  // if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS) {
-  //   return ret;
-  // }
-  return UniqueConstraints::CreationStatus::ALREADY_EXISTS;
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_CREATE, label, properties, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-  // return UniqueConstraints::CreationStatus::SUCCESS;
-}
-
-UniqueConstraints::DeletionStatus Shard::DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                                              const std::optional<uint64_t> desired_commit_timestamp) {
-  auto ret = constraints_.unique_constraints.DropConstraint(label, properties);
-  if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
-    return ret;
-  }
-  // const auto commit_timestamp = CommitTimestamp(desired_commit_timestamp);
-  // AppendToWal(durability::StorageGlobalOperation::UNIQUE_CONSTRAINT_DROP, label, properties, commit_timestamp);
-  // commit_log_->MarkFinished(commit_timestamp);
-  // last_commit_timestamp_ = commit_timestamp;
-  return UniqueConstraints::DeletionStatus::SUCCESS;
-}
-
 const SchemaValidator &Shard::Accessor::GetSchemaValidator() const { return shard_->schema_validator_; }
-
-ConstraintsInfo Shard::ListAllConstraints() const {
-  return {ListExistenceConstraints(constraints_), constraints_.unique_constraints.ListConstraints()};
-}
 
 SchemasInfo Shard::ListAllSchemas() const { return {schemas_.ListSchemas()}; }
 
@@ -1061,8 +880,7 @@ StorageInfo Shard::GetInfo() const {
   if (vertex_count) {
     average_degree = 2.0 * static_cast<double>(edge_count_) / static_cast<double>(vertex_count);
   }
-  return {vertex_count, edge_count_, average_degree, utils::GetMemoryUsage(),
-          utils::GetDirDiskUsage(config_.durability.storage_directory)};
+  return {vertex_count, edge_count_, average_degree, utils::GetMemoryUsage()};
 }
 
 VerticesIterable Shard::Accessor::Vertices(LabelId label, View view) {
@@ -1197,213 +1015,6 @@ void Shard::CollectGarbage(const io::Time current_time) {
   deleted_edges_.clear();
 }
 
-bool Shard::InitializeWalFile() {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
-    return false;
-  if (!wal_file_) {
-    wal_file_.emplace(wal_directory_, uuid_, epoch_id_, config_.items, &name_id_mapper_, wal_seq_num_++,
-                      &file_retainer_);
-  }
-  return true;
-}
-
-void Shard::FinalizeWalFile() {
-  ++wal_unsynced_transactions_;
-  if (wal_unsynced_transactions_ >= config_.durability.wal_file_flush_every_n_tx) {
-    wal_file_->Sync();
-    wal_unsynced_transactions_ = 0;
-  }
-  if (wal_file_->GetSize() / 1024 >= config_.durability.wal_file_size_kibibytes) {
-    wal_file_->FinalizeWal();
-    wal_file_ = std::nullopt;
-    wal_unsynced_transactions_ = 0;
-  } else {
-    // Try writing the internal buffer if possible, if not
-    // the data should be written as soon as it's possible
-    // (triggered by the new transaction commit, or some
-    // reading thread EnabledFlushing)
-    wal_file_->TryFlushing();
-  }
-}
-
-void Shard::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
-  // Traverse deltas and append them to the WAL file.
-  // A single transaction will always be contained in a single WAL file.
-  auto current_commit_timestamp = transaction.commit_info->start_or_commit_timestamp;
-
-  // Helper lambda that traverses the delta chain on order to find the first
-  // delta that should be processed and then appends all discovered deltas.
-  auto find_and_apply_deltas = [&](const auto *delta, const auto &parent, auto filter) {
-    while (true) {
-      auto *older = delta->next;
-      if (older == nullptr || older->commit_info->start_or_commit_timestamp != current_commit_timestamp) {
-        break;
-      }
-      delta = older;
-    }
-    while (true) {
-      if (filter(delta->action)) {
-        wal_file_->AppendDelta(*delta, parent, final_commit_timestamp);
-      }
-      auto prev = delta->prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type != PreviousPtr::Type::DELTA) break;
-      delta = prev.delta;
-    }
-  };
-
-  // The deltas are ordered correctly in the `transaction.deltas` buffer, but we
-  // don't traverse them in that order. That is because for each delta we need
-  // information about the vertex or edge they belong to and that information
-  // isn't stored in the deltas themselves. In order to find out information
-  // about the corresponding vertex or edge it is necessary to traverse the
-  // delta chain for each delta until a vertex or edge is encountered. This
-  // operation is very expensive as the chain grows.
-  // Instead, we traverse the edges until we find a vertex or edge and traverse
-  // their delta chains. This approach has a drawback because we lose the
-  // correct order of the operations. Because of that, we need to traverse the
-  // deltas several times and we have to manually ensure that the stored deltas
-  // will be ordered correctly.
-
-  // 1. Process all Vertex deltas and store all operations that create vertices
-  // and modify vertex data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-          return true;
-
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 2. Process all Vertex deltas and store all operations that create edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return true;
-
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-          return false;
-      }
-    });
-  }
-  // 3. Process all Edge deltas and store all operations that modify edge data.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::EDGE) continue;
-    find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
-      switch (action) {
-        case Delta::Action::SET_PROPERTY:
-          return true;
-
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 4. Process all Vertex deltas and store all operations that delete edges.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::ADD_OUT_EDGE:
-          return true;
-
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-  // 5. Process all Vertex deltas and store all operations that delete vertices.
-  for (const auto &delta : transaction.deltas) {
-    auto prev = delta.prev.Get();
-    MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type != PreviousPtr::Type::VERTEX) continue;
-    find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
-      switch (action) {
-        case Delta::Action::RECREATE_OBJECT:
-          return true;
-
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::SET_PROPERTY:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-          return false;
-      }
-    });
-  }
-
-  // Add a delta that indicates that the transaction is fully written to the WAL
-  // file.
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
-
-  FinalizeWalFile();
-}
-
-void Shard::AppendToWal(durability::StorageGlobalOperation operation, LabelId label,
-                        const std::set<PropertyId> &properties, uint64_t final_commit_timestamp) {
-  if (!InitializeWalFile()) return;
-  wal_file_->AppendOperation(operation, label, properties, final_commit_timestamp);
-  FinalizeWalFile();
-}
-
-bool Shard::CreateSnapshot() {
-  // Create the transaction used to create the snapshot.
-  // auto transaction = CreateTransaction(IsolationLevel::SNAPSHOT_ISOLATION);
-
-  // Create snapshot.
-  // durability::CreateSnapshot(&transaction, snapshot_directory_, wal_directory_,
-  //                            config_.durability.snapshot_retention_count, &vertices_, &edges_,
-  //                            &name_id_mapper_, &indices_, &constraints_, config_.items, schema_validator_,
-  //                            uuid_, epoch_id_, epoch_history_, &file_retainer_);
-  return true;
-}
-
 Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, IsolationLevel isolation_level) {
   // TODO(antaljanosbenjamin)
   if (const auto it = start_logical_id_to_transaction_.find(start_timestamp.logical_id);
@@ -1418,25 +1029,6 @@ Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, Isola
       start_timestamp.logical_id, std::make_unique<Transaction>(start_timestamp, isolation_level));
   MG_ASSERT(insert_result.second, "Transaction creation failed!");
   return *insert_result.first->second;
-}
-
-bool Shard::LockPath() {
-  auto locker_accessor = global_locker_.Access();
-  return locker_accessor.AddPath(config_.durability.storage_directory);
-}
-
-bool Shard::UnlockPath() {
-  {
-    auto locker_accessor = global_locker_.Access();
-    if (!locker_accessor.RemovePath(config_.durability.storage_directory)) {
-      return false;
-    }
-  }
-
-  // We use locker accessor in seperate scope so we don't produce deadlock
-  // after we call clean queue.
-  file_retainer_.CleanQueue();
-  return true;
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

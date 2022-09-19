@@ -28,7 +28,6 @@
 namespace memgraph::storage::v3 {
 
 struct Indices;
-struct Constraints;
 
 class LabelIndex {
  private:
@@ -53,8 +52,8 @@ class LabelIndex {
   };
 
  public:
-  LabelIndex(Indices *indices, Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator)
-      : indices_(indices), constraints_(constraints), config_(config), vertex_validator_{&vertex_validator} {}
+  LabelIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
+      : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -74,7 +73,7 @@ class LabelIndex {
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator);
+             Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
@@ -105,7 +104,6 @@ class LabelIndex {
     View view_;
     Transaction *transaction_;
     Indices *indices_;
-    Constraints *constraints_;
     Config::Items config_;
     const VertexValidator *vertex_validator_;
   };
@@ -114,7 +112,7 @@ class LabelIndex {
   Iterable Vertices(LabelId label, View view, Transaction *transaction) {
     auto it = index_.find(label);
     MG_ASSERT(it != index_.end(), "Index for label {} doesn't exist", label.AsUint());
-    return {it->second.access(), label, view, transaction, indices_, constraints_, config_, *vertex_validator_};
+    return {it->second.access(), label, view, transaction, indices_, config_, *vertex_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label) {
@@ -130,7 +128,6 @@ class LabelIndex {
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
   Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
 };
@@ -150,9 +147,8 @@ class LabelPropertyIndex {
   };
 
  public:
-  LabelPropertyIndex(Indices *indices, Constraints *constraints, Config::Items config,
-                     const VertexValidator &vertex_validator)
-      : indices_(indices), constraints_(constraints), config_(config), vertex_validator_{&vertex_validator} {}
+  LabelPropertyIndex(Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
+      : indices_(indices), config_(config), vertex_validator_{&vertex_validator} {}
 
   /// @throw std::bad_alloc
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx);
@@ -176,7 +172,7 @@ class LabelPropertyIndex {
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Transaction *transaction,
-             Indices *indices, Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator);
+             Indices *indices, Config::Items config, const VertexValidator &vertex_validator);
 
     class Iterator {
      public:
@@ -211,7 +207,6 @@ class LabelPropertyIndex {
     View view_;
     Transaction *transaction_;
     Indices *indices_;
-    Constraints *constraints_;
     Config::Items config_;
     const VertexValidator *vertex_validator_;
   };
@@ -222,8 +217,8 @@ class LabelPropertyIndex {
     auto it = index_.find({label, property});
     MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
               property.AsUint());
-    return {it->second.access(), label,    property,     lower_bound, upper_bound,       view,
-            transaction,         indices_, constraints_, config_,     *vertex_validator_};
+    return {it->second.access(), label,    property, lower_bound,       upper_bound, view,
+            transaction,         indices_, config_,  *vertex_validator_};
   }
 
   int64_t ApproximateVertexCount(LabelId label, PropertyId property) const {
@@ -250,15 +245,13 @@ class LabelPropertyIndex {
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
 };
 
 struct Indices {
-  Indices(Constraints *constraints, Config::Items config, const VertexValidator &vertex_validator)
-      : label_index(this, constraints, config, vertex_validator),
-        label_property_index(this, constraints, config, vertex_validator) {}
+  Indices(Config::Items config, const VertexValidator &vertex_validator)
+      : label_index(this, config, vertex_validator), label_property_index(this, config, vertex_validator) {}
 
   // Disable copy and move because members hold pointer to `this`.
   Indices(const Indices &) = delete;

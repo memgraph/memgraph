@@ -1472,31 +1472,7 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_ex
 
 PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                    InterpreterContext *interpreter_context, DbAccessor *dba) {
-  if (in_explicit_transaction) {
-    throw LockPathModificationInMulticommandTxException();
-  }
-
-  auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
-
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [interpreter_context, action = lock_path_query->action_](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         switch (action) {
-                           case LockPathQuery::Action::LOCK_PATH:
-                             if (!interpreter_context->db->LockPath()) {
-                               throw QueryRuntimeException("Failed to lock the data directory");
-                             }
-                             break;
-                           case LockPathQuery::Action::UNLOCK_PATH:
-                             if (!interpreter_context->db->UnlockPath()) {
-                               throw QueryRuntimeException("Failed to unlock the data directory");
-                             }
-                             break;
-                         }
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  throw SemanticException("LockPath query is not supported!");
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
@@ -1724,20 +1700,7 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction) {
-    throw CreateSnapshotInMulticommandTxException();
-  }
-
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (!interpreter_context->db->CreateSnapshot()) {
-          throw utils::BasicException("Failed to create a snapshot. Replica instances are not allowed to create them.");
-        }
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  throw SemanticException("CreateSnapshot query is not supported!");
 }
 
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, DbAccessor *dba) {
@@ -1805,7 +1768,6 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"),
              TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
@@ -1830,28 +1792,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       };
       break;
     case InfoQuery::InfoType::CONSTRAINT:
-      header = {"constraint type", "label", "properties"};
-      handler = [interpreter_context] {
-        auto *db = interpreter_context->db;
-        auto info = db->ListAllConstraints();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.existence.size() + info.unique.size());
-        for (const auto &item : info.existence) {
-          results.push_back({TypedValue("exists"), TypedValue(db->LabelToName(item.first)),
-                             TypedValue(db->PropertyToName(item.second))});
-        }
-        for (const auto &item : info.unique) {
-          std::vector<TypedValue> properties;
-          properties.reserve(item.second.size());
-          for (const auto &property : item.second) {
-            properties.emplace_back(db->PropertyToName(property));
-          }
-          results.push_back(
-              {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
-        }
-        return std::pair{results, QueryHandlerResult::NOTHING};
-      };
-      break;
+      throw SemanticException("Constraints are not yet supported!");
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -1875,185 +1816,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      std::vector<Notification> *notifications,
                                      InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction) {
-    throw ConstraintInMulticommandTxException();
-  }
-
-  auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
-  std::function<void(Notification &)> handler;
-
-  auto label = interpreter_context->NameToLabelId(constraint_query->constraint_.label.name);
-  std::vector<storage::v3::PropertyId> properties;
-  std::vector<std::string> properties_string;
-  properties.reserve(constraint_query->constraint_.properties.size());
-  properties_string.reserve(constraint_query->constraint_.properties.size());
-  for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
-    properties_string.push_back(prop.name);
-  }
-  auto properties_stringified = utils::Join(properties_string, ", ");
-
-  Notification constraint_notification(SeverityLevel::INFO);
-  switch (constraint_query->action_type_) {
-    case ConstraintQuery::ActionType::CREATE: {
-      constraint_notification.code = NotificationCode::CREATE_CONSTRAINT;
-
-      switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
-          throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
-          if (properties.empty() || properties.size() > 1) {
-            throw SyntaxException("Exactly one property must be used for existence constraints.");
-          }
-          constraint_notification.title = fmt::format("Created EXISTS constraint on label {} on properties {}.",
-                                                      constraint_query->constraint_.label.name, properties_stringified);
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     properties = std::move(properties)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              MG_ASSERT(violation.properties.size() == 1U);
-              auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
-              throw QueryRuntimeException(
-                  "Unable to create existence constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_name);
-            }
-            if (res.HasValue() && !res.GetValue()) {
-              constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} already exists.", label_name, properties_stringified);
-            }
-          };
-          break;
-        case Constraint::Type::UNIQUE:
-          std::set<storage::v3::PropertyId> property_set;
-          for (const auto &property : properties) {
-            property_set.insert(property);
-          }
-          if (property_set.size() != properties.size()) {
-            throw SyntaxException("The given set of properties contains duplicates.");
-          }
-          constraint_notification.title =
-              fmt::format("Created UNIQUE constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              std::stringstream property_names_stream;
-              utils::PrintIterable(property_names_stream, violation.properties, ", ",
-                                   [&interpreter_context](auto &stream, const auto &prop) {
-                                     stream << interpreter_context->db->PropertyToName(prop);
-                                   });
-              throw QueryRuntimeException(
-                  "Unable to create unique constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_names_stream.str());
-            }
-            switch (res.GetValue()) {
-              case storage::v3::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
-                throw SyntaxException(
-                    "At least one property must be used for unique "
-                    "constraints.");
-              case storage::v3::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
-                throw SyntaxException(
-                    "Too many properties specified. Limit of {} properties "
-                    "for unique constraints is exceeded.",
-                    storage::v3::kUniqueConstraintsMaxProperties);
-              case storage::v3::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
-                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-                constraint_notification.title =
-                    fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
-                                properties_stringified);
-                break;
-              case storage::v3::UniqueConstraints::CreationStatus::SUCCESS:
-                break;
-            }
-          };
-          break;
-      }
-    } break;
-    case ConstraintQuery::ActionType::DROP: {
-      constraint_notification.code = NotificationCode::DROP_CONSTRAINT;
-
-      switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
-          throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
-          if (properties.empty() || properties.size() > 1) {
-            throw SyntaxException("Exactly one property must be used for existence constraints.");
-          }
-          constraint_notification.title =
-              fmt::format("Dropped EXISTS constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     properties = std::move(properties)](Notification &constraint_notification) {
-            if (!interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
-              constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-            }
-            return std::vector<std::vector<TypedValue>>();
-          };
-          break;
-        case Constraint::Type::UNIQUE:
-          std::set<storage::v3::PropertyId> property_set;
-          for (const auto &property : properties) {
-            property_set.insert(property);
-          }
-          if (property_set.size() != properties.size()) {
-            throw SyntaxException("The given set of properties contains duplicates.");
-          }
-          constraint_notification.title =
-              fmt::format("Dropped UNIQUE constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
-            switch (res) {
-              case storage::v3::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
-                throw SyntaxException(
-                    "At least one property must be used for unique "
-                    "constraints.");
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
-                throw SyntaxException(
-                    "Too many properties specified. Limit of {} properties for "
-                    "unique constraints is exceeded.",
-                    storage::v3::kUniqueConstraintsMaxProperties);
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::NOT_FOUND:
-                constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-                constraint_notification.title =
-                    fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
-                                properties_stringified);
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::SUCCESS:
-                break;
-            }
-            return std::vector<std::vector<TypedValue>>();
-          };
-      }
-    } break;
-  }
-
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler), constraint_notification = std::move(constraint_notification),
-                        notifications](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
-                         handler(constraint_notification);
-                         notifications->push_back(constraint_notification);
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  throw SemanticException("Constraint query is not supported!");
 }
 
 PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2269,29 +2032,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::v3::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::v3::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
-          break;
-        }
-      }
-    }
+    db_accessor.Commit();
   }
 }
 }  // namespace
@@ -2332,33 +2073,7 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit(coordinator::Hlc{});
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::v3::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::v3::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
-        break;
-      }
-    }
-  }
-
+  db_accessor_->Commit(coordinator::Hlc{});
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
   // only one of the transactions can be commiting at the same time, so when the commit is finished, that transaction
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still

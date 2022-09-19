@@ -1,10 +1,5 @@
 set(storage_v3_src_files
-    constraints.cpp
     temporal.cpp
-    durability/durability.cpp
-    durability/serialization.cpp
-    durability/snapshot.cpp
-    durability/wal.cpp
     edge_accessor.cpp
     indices.cpp
     key_store.cpp

@@ -378,7 +378,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::v3::ConstraintViolation, void> Commit() { return accessor_->Commit(coordinator::Hlc{}); }
+  void Commit() { return accessor_->Commit(coordinator::Hlc{}); }
 
   void Abort() { accessor_->Abort(); }
 
@@ -408,8 +408,6 @@ class DbAccessor final {
   }
 
   storage::v3::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
-
-  storage::v3::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const storage::v3::SchemaValidator &GetSchemaValidator() const { return accessor_->GetSchemaValidator(); }
 

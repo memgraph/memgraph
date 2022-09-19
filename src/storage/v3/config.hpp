@@ -34,25 +34,6 @@ struct Config {
     bool properties_on_edges{true};
   } items;
 
-  struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
-
-    std::filesystem::path storage_directory{"storage"};
-
-    bool recover_on_startup{false};
-
-    SnapshotWalMode snapshot_wal_mode{SnapshotWalMode::DISABLED};
-
-    std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};
-    uint64_t snapshot_retention_count{3};
-
-    uint64_t wal_file_size_kibibytes{static_cast<uint64_t>(20 * 1024)};
-    uint64_t wal_file_flush_every_n_tx{100000};
-
-    bool snapshot_on_exit{false};
-
-  } durability;
-
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
   } transaction;
