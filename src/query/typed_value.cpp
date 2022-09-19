@@ -680,12 +680,16 @@ void TypedValue::DestroyValue() {
     case Type::LocalDateTime:
     case Type::Duration:
       break;
-    case Type::Graph:
+    case Type::Graph: {
+      MG_ASSERT(memory_ == graph_v->GetMemoryResource(), "TESTING");
       auto *graph = graph_v.release();
       std::destroy_at(&graph_v);
-      std::destroy_at(graph);
-      utils::Allocator<Graph>(memory_).destroy(graph);
+      if (graph) {
+        std::destroy_at(graph);
+        utils::Allocator<Graph>(memory_).destroy(graph);
+      }
       break;
+    }
   }
 
   type_ = TypedValue::Type::Null;
