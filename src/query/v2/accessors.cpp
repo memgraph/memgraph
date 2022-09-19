@@ -59,15 +59,15 @@ std::map<requests::PropertyId, Value> VertexAccessor::Properties() const {
 
 Value VertexAccessor::GetProperty(requests::PropertyId prop_id) const {
   MG_ASSERT(properties.contains(prop_id));
-  return Value(properties[prop_id]);
+  return properties[prop_id];
   //    return ValueToTypedValue(properties[prop_name]);
 }
 
-Value VertexAccessor::GetProperty(const std::string &prop_name) const {
+Value VertexAccessor::GetProperty(const std::string & /*prop_name*/) const {
   // TODO(kostasrim) Add string mapping
   auto prop_id = requests::PropertyId::FromUint(0);
   MG_ASSERT(properties.contains(prop_id));
-  return Value(properties[prop_id]);
+  return properties[prop_id];
   //    return ValueToTypedValue(properties[prop_name]);
 }
 

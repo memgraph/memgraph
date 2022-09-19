@@ -504,6 +504,7 @@ void Expand::ExpandCursor::Reset() {
   out_edges_it_ = std::nullopt;
 }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 bool Expand::ExpandCursor::InitEdges(Frame & /*frame*/, ExecutionContext & /*context*/) { return true; }
 
 ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Symbol node_symbol,
@@ -624,6 +625,7 @@ class ExpandVariableCursor : public Cursor {
    * case no more expansions are available from the current input
    * vertex and another Pull from the input cursor should be performed.
    */
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   bool Expand(Frame & /*frame*/, ExecutionContext & /*context*/) { return false; }
 };
 

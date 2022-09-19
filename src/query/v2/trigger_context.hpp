@@ -47,8 +47,7 @@ struct CreatedObject {
 
   bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
-    // return {{ObjectString<TAccessor>(), TypedValue{object}}};
-    return {};
+    return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
 
   TAccessor object;
@@ -60,8 +59,7 @@ struct DeletedObject {
 
   bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
-    //    return {{ObjectString<TAccessor>(), TypedValue{object}}};
-    return {};
+    return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
 
   TAccessor object;
@@ -74,11 +72,10 @@ struct SetObjectProperty {
       : object{object}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {};
-    //    return {{ObjectString<TAccessor>(), TypedValue{object}},
-    //            {"key", TypedValue{dba->PropertyToName(key)}},
-    //            {"old", old_value},
-    //            {"new", new_value}};
+    return {{ObjectString<TAccessor>(), TypedValue{object}},
+            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"old", old_value},
+            {"new", new_value}};
   }
 
   bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
@@ -95,10 +92,9 @@ struct RemovedObjectProperty {
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {};
-    //    return {{ObjectString<TAccessor>(), TypedValue{object}},
-    //            {"key", TypedValue{dba->PropertyToName(key)}},
-    //            {"old", old_value}};
+    return {{ObjectString<TAccessor>(), TypedValue{object}},
+            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"old", old_value}};
   }
 
   bool IsValid() const { return object.IsVisible(storage::v3::View::OLD); }

@@ -216,15 +216,13 @@ namespace detail {
 bool SetVertexLabel::IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
 std::map<std::string, TypedValue> SetVertexLabel::ToMap(DbAccessor *dba) const {
-  //  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
-  return {};
+  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 
 bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::v3::View::OLD); }
 
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
-  //  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
-  return {};
+  return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
 }
 }  // namespace detail
 

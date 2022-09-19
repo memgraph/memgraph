@@ -24,12 +24,10 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-using memgraph::coordinator::Hlc;
-using memgraph::storage::v3::LabelId;
-
 namespace requests {
 
 struct Label {
+  using LabelId = memgraph::storage::v3::LabelId;
   LabelId id;
   friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
 };
@@ -324,6 +322,7 @@ struct OrderBy {
 enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
+  using Hlc = memgraph::coordinator::Hlc;
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<std::string>> props_to_return;
@@ -347,6 +346,7 @@ struct ScanVerticesResponse {
 using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
 
 struct GetPropertiesRequest {
+  using Hlc = memgraph::coordinator::Hlc;
   Hlc transaction_id;
   VertexOrEdgeIds vertex_or_edge_ids;
   std::vector<PropertyId> property_ids;
@@ -369,6 +369,7 @@ struct VertexEdgeId {
   std::optional<EdgeId> next_id;
 };
 
+using Hlc = memgraph::coordinator::Hlc;
 struct ExpandOneRequest {
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
@@ -426,6 +427,7 @@ struct NewVertexLabel {
 };
 
 struct CreateVerticesRequest {
+  using Hlc = memgraph::coordinator::Hlc;
   std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;

@@ -48,6 +48,9 @@ class RsmStorageClientManager {
   RsmStorageClientManager() = default;
   RsmStorageClientManager(const RsmStorageClientManager &) = delete;
   RsmStorageClientManager(RsmStorageClientManager &&) = delete;
+  RsmStorageClientManager& operator=(const RsmStorageClientManager &) = delete;
+  RsmStorageClientManager& operator=(RsmStorageClientManager &&) = delete;
+  ~RsmStorageClientManager() = default;
 
   void AddClient(const LabelId label_id, Shard key, TStorageClient client) {
     cli_cache_[label_id].insert({std::move(key), std::move(client)});
@@ -92,17 +95,21 @@ class ShardRequestManagerInterface {
  public:
   using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
   ShardRequestManagerInterface() = default;
+  ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
+  ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
+  ShardRequestManagerInterface &operator=(const ShardRequestManagerInterface &) = delete;
+  ShardRequestManagerInterface &&operator=(ShardRequestManagerInterface &&) = delete;
+
+  virtual ~ShardRequestManagerInterface() = default;
+
   virtual void StartTransaction() = 0;
   virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<requests::NewVertex> new_vertices) = 0;
   virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
-  virtual ~ShardRequestManagerInterface() {}
   virtual memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
   virtual memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const = 0;
-  virtual bool IsPrimaryKey(const PropertyId name) const = 0;
-  ShardRequestManagerInterface(const ShardRequestManagerInterface &) = delete;
-  ShardRequestManagerInterface(ShardRequestManagerInterface &&) = delete;
+  virtual bool IsPrimaryKey(PropertyId name) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -121,11 +128,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   using ShardMap = memgraph::coordinator::ShardMap;
   using CompoundKey = memgraph::coordinator::CompoundKey;
   using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
+  using LabelId = Label::LabelId;
   ShardRequestManager(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
       : coord_cli_(std::move(coord)), io_(std::move(io)) {}
 
   ShardRequestManager(const ShardRequestManager &) = delete;
   ShardRequestManager(ShardRequestManager &&) = delete;
+  ShardRequestManager &operator=(const ShardRequestManager &) = delete;
+  ShardRequestManager &operator=(ShardRequestManager &&) = delete;
 
   ~ShardRequestManager() override {}
 
@@ -177,7 +187,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ScanAll request timedout");
       }
       auto &response = std::get<ScanVerticesResponse>(read_response_result.GetValue());
-      if (response.success == false) {
+      if (!response.success) {
         throw std::runtime_error("ScanAll request did not succeed");
       }
       if (!response.next_start_id) {
@@ -213,7 +223,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       if (write_response_result.HasError()) {
         throw std::runtime_error("CreateVertices request timedout");
       }
-      if (write_response_result.GetValue().success == false) {
+      if (!write_response_result.GetValue().success) {
         throw std::runtime_error("CreateVertices request did not succeed");
       }
       responses.push_back(write_response_result.GetValue());
@@ -314,12 +324,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       return;
     }
     state.transaction_id = transaction_id_;
-    const auto shards = shards_map_.GetShards(*state.label);
-    for (const auto &[key, shard] : shards) {
+    auto shards = shards_map_.GetShards(*state.label);
+    for (auto &[key, shard] : shards) {
       state.shard_cache.push_back(std::move(shard));
       ScanVerticesRequest rqst;
       rqst.transaction_id = transaction_id_;
-      rqst.start_id.primary_key = std::move(key);
+      rqst.start_id.primary_key = key;
       state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;

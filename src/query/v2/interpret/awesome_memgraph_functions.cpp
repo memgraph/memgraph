@@ -388,7 +388,7 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) { return {}; }
+TypedValue Properties(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext & /*ctx*/) { return {}; }
 
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
@@ -560,27 +560,27 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 // TODO: How is Keys different from Properties function?
-TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext & /*ctx*/) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
-  return TypedValue{};
+  return {};
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("labels", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue();
+  return {};
 }
 
 TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue();
+  return {};
 }
 
 TypedValue Relationships(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue();
+  return {};
 }
 
 TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

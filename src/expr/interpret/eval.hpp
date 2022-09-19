@@ -383,7 +383,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <typename VertexAccessor, typename TTag = Tag,
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, bool>>
-  TReturnType HasLabelImpl(const VertexAccessor &vertex, StorageTag tag, const LabelIx &label) {
+  TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label, StorageTag /*tag*/) {
     auto has_label = vertex.HasLabel(view_, GetLabel(label));
     if (has_label.HasError() && has_label.GetError() == Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE
@@ -407,15 +407,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw ExpressionRuntimeException("Unexpected error when accessing labels.");
       }
     }
-    if (!*has_label) {
-      return true;
-    }
-    return false;
+    return *has_label;
   }
 
   template <typename VertexAccessor, typename TTag = Tag,
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, bool>>
-  TReturnType HasLabelImpl(const VertexAccessor &vertex, QueryEngineTag tag, const LabelIx &label_ix) {
+  TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label_ix, QueryEngineTag /*tag*/) {
     auto label = requests::Label{.id = LabelId::FromUint(label_ix.ix)};
     auto has_label = vertex.HasLabel(label);
     return !has_label;
@@ -429,7 +426,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
-          if (HasLabelImpl(vertex, Tag{}, label)) {
+          if (HasLabelImpl(vertex, label, Tag{})) {
             return TypedValue(false, ctx_->memory);
           }
         }

@@ -43,6 +43,7 @@ class EdgeAccessor final {
   requests::Edge GetEdge() const;
 
   // Dummy function
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   inline size_t CypherId() const { return 10; }
 
   //  bool HasSrcAccessor const { return src == nullptr; }
@@ -51,11 +52,11 @@ class EdgeAccessor final {
   VertexAccessor To() const;
   VertexAccessor From() const;
 
-  friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) noexcept {
+  friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) {
     return lhs.edge == rhs.edge && lhs.properties == rhs.properties;
   }
 
-  friend bool operator!=(const EdgeAccessor &lhs, const EdgeAccessor &rhs) noexcept { return !(lhs == rhs); }
+  friend bool operator!=(const EdgeAccessor &lhs, const EdgeAccessor &rhs) { return !(lhs == rhs); }
 
  private:
   Edge edge;
@@ -73,12 +74,13 @@ class VertexAccessor final {
 
   std::map<PropertyId, Value> Properties() const;
 
-  Value GetProperty(PropertyId prop_name) const;
+  Value GetProperty(PropertyId prop_id) const;
   Value GetProperty(const std::string &prop_name) const;
 
   requests::Vertex GetVertex() const;
 
   // Dummy function
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   inline size_t CypherId() const { return 10; }
 
   //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
@@ -120,11 +122,11 @@ class VertexAccessor final {
   //  storage::Result<size_t> OutDegree(storage::View view) const { return impl_.OutDegree(view); }
   //
 
-  friend bool operator==(const VertexAccessor lhs, const VertexAccessor &rhs) noexcept {
+  friend bool operator==(const VertexAccessor &lhs, const VertexAccessor &rhs) {
     return lhs.vertex == rhs.vertex && lhs.properties == rhs.properties;
   }
 
-  friend bool operator!=(const VertexAccessor lhs, const VertexAccessor &rhs) noexcept { return !(lhs == rhs); }
+  friend bool operator!=(const VertexAccessor &lhs, const VertexAccessor &rhs) { return !(lhs == rhs); }
 
  private:
   Vertex vertex;
@@ -139,24 +141,40 @@ class VertexAccessor final {
 class Path {
  public:
   // Empty for now
-  explicit Path(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
+  explicit Path(const VertexAccessor & /*vertex*/, utils::MemoryResource *memory = utils::NewDeleteResource())
       : mem(memory) {}
 
   template <typename... TOthers>
   explicit Path(const VertexAccessor &vertex, const TOthers &...others) {}
 
   template <typename... TOthers>
-  Path(std::allocator_arg_t, utils::MemoryResource *memory, const VertexAccessor &vertex, const TOthers &...others) {}
+  Path(std::allocator_arg_t /*unused*/, utils::MemoryResource *memory, const VertexAccessor &vertex,
+       const TOthers &...others) {}
 
-  Path(const Path &other) {}
+  Path(const Path & /*other*/) {}
 
-  Path(const Path &other, utils::MemoryResource *memory) : mem(memory) {}
+  Path(const Path & /*other*/, utils::MemoryResource *memory) : mem(memory) {}
 
-  Path(Path &&other) noexcept {}
+  Path(Path && /*other*/) noexcept {}
 
-  Path(Path &&other, utils::MemoryResource *memory) : mem(memory) {}
-  Path &operator=(const Path &path) { return *this; }
-  friend bool operator==(const Path &lhs, const Path &rhs) { return true; };
+  Path(Path && /*other*/, utils::MemoryResource *memory) : mem(memory) {}
+  Path &operator=(const Path &path) {
+    if (this == &path) {
+      return *this;
+    }
+    return *this;
+  }
+
+  Path &operator=(Path &&path) noexcept {
+    if (this == &path) {
+      return *this;
+    }
+    return *this;
+  }
+
+  ~Path() {}
+
+  friend bool operator==(const Path & /*lhs*/, const Path & /*rhs*/) { return true; };
   utils::MemoryResource *GetMemoryResource() { return mem; }
 
  private:
