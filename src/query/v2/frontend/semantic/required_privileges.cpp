@@ -11,7 +11,6 @@
 
 #include "query/v2/bindings/ast_visitor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/procedure/module.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query::v2 {
@@ -86,12 +85,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
-  bool PreVisit(CallProcedure &procedure) override {
-    const auto maybe_proc =
-        procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_, utils::NewDeleteResource());
-    if (maybe_proc && maybe_proc->second->info.required_privilege) {
-      AddPrivilege(*maybe_proc->second->info.required_privilege);
-    }
+  bool PreVisit(CallProcedure & /*procedure*/) override {
     return false;
   }
   bool PreVisit(Delete & /*unused*/) override {

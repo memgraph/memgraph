@@ -357,6 +357,9 @@ target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
 #add_unit_test(replication_persistence_helper.cpp)
 #target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
+add_unit_test(query_v2_dummy_test.cpp)
+target_link_libraries(${test_prefix}query_v2_dummy_test mg-query-v2)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
