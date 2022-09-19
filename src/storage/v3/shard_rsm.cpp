@@ -23,7 +23,7 @@ using memgraph::msgs::Value;
 using memgraph::msgs::VertexId;
 
 namespace {
-// TODO(gvolfing use come algorithm instead of explicit for loops)
+// TODO(gvolfing) use come algorithm instead of explicit for loops
 // TODO(gvolfing) make this use rvalue& again instead of copy!!!!
 memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
   using PV = memgraph::storage::v3::PropertyValue;
@@ -421,6 +421,18 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
       spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
       break;
     }
+
+    // Add properties to the edge if there is any
+    if (edge.properties) {
+      for (auto &[edge_prop_key, edge_prop_val] : edge.properties.value()) {
+        auto set_result = edge_acc->SetProperty(edge_prop_key, ToPropertyValue(std::move(edge_prop_val)));
+        if (set_result.HasError()) {
+          action_successful = false;
+          spdlog::debug(&"Adding property to edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+          break;
+        }
+      }
+    }
   }
 
   msgs::CreateEdgesResponse resp{};
@@ -649,10 +661,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   for (auto &src_vertex : req.src_vertices) {
     msgs::ExpandOneResultRow current_row;
-    msgs::Vertex source_vertex;
+    msgs::Vertex source_vertex;  // (VERIFY) should the ExpandOneRowREsult have Vertex or VertexId as the?
     //  The empty optional means return all of the properties, while an empty
     //  list means do not return any properties.
-    std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+    std::optional<std::map<PropertyId, Value>> src_vertex_properties_opt;
+    std::map<PropertyId, Value> src_vertex_properties;
 
     auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
 
@@ -672,7 +685,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     }
 
     /// Fill up source vertex properties
-
     if (!req.src_vertex_properties) {
       auto props = v_acc->Properties(View::OLD);
       if (props.HasError()) {
@@ -684,72 +696,67 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       }
 
       for (auto &[key, val] : props.GetValue()) {
-        src_vertex_properties->insert(std::make_pair(key, ToValue(val)));
+        src_vertex_properties.insert(std::make_pair(key, ToValue(val)));
       }
+
+      src_vertex_properties_opt = src_vertex_properties;
+
     } else if (req.src_vertex_properties.value().empty()) {
-      src_vertex_properties = {};
+      src_vertex_properties_opt = {};
     } else {
       for (const auto &prop : req.src_vertex_properties.value()) {
-        const auto &prop_val = v_acc->GetProperty(prop, View::OLD).GetValue();
-        src_vertex_properties->insert(std::make_pair(prop, ToValue(prop_val)));
+        const auto &prop_val = v_acc->GetProperty(prop, View::OLD);
+        src_vertex_properties.insert(std::make_pair(prop, ToValue(prop_val.GetValue())));
       }
+      src_vertex_properties_opt = src_vertex_properties;
     }
 
     /// Fill up connecting edges
-    /*
     std::vector<EdgeAccessor> edges;
-    switch(req.direction)
-    {
-      case msgs::EdgeDirection::OUT:
-      {
+    switch (req.direction) {
+      case msgs::EdgeDirection::OUT: {
         auto out_edges_result = v_acc->OutEdges(View::OLD);
-        if(out_edges_result.HasError())
-        {
+        if (out_edges_result.HasError()) {
           spdlog::debug(
-          &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+              &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                        .logical_id]);
           action_successful = false;
           break;
         }
         edges = out_edges_result.GetValue();
         break;
       }
-      case msgs::EdgeDirection::IN:
-      {
+      case msgs::EdgeDirection::IN: {
         auto in_edges_result = v_acc->InEdges(View::OLD);
-        if(in_edges_result.HasError())
-        {
+        if (in_edges_result.HasError()) {
           spdlog::debug(
-          &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+              &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                       .logical_id]);
           action_successful = false;
           break;
         }
         edges = in_edges_result.GetValue();
         break;
       }
-      case msgs::EdgeDirection::BOTH:
-      {
+      case msgs::EdgeDirection::BOTH: {
         std::vector<EdgeAccessor> in_edges;
         std::vector<EdgeAccessor> out_edges;
 
         auto in_edges_result = v_acc->InEdges(View::OLD);
-        if(in_edges_result.HasError())
-        {
+        if (in_edges_result.HasError()) {
           spdlog::debug(
-          &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+              &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                       .logical_id]);
           action_successful = false;
           break;
         }
         in_edges = in_edges_result.GetValue();
 
         auto out_edges_result = v_acc->InEdges(View::OLD);
-        if(out_edges_result.HasError())
-        {
+        if (out_edges_result.HasError()) {
           spdlog::debug(
-          &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+              &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                        .logical_id]);
           action_successful = false;
           break;
         }
@@ -761,7 +768,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         break;
       }
     }
-    */
 
     // Check for stoppage here because of the switch case
     if (!action_successful) {
@@ -769,19 +775,16 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     }
 
     /// Assemble the edge properties
-    /*
     std::optional<std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>>>
-    edges_with_all_properties; std::optional<std::vector<std::tuple<msgs::VertexId, msgs::Gid,
-    std::vector<msgs::Value>>>> edges_with_specific_properties;
-    */
+        edges_with_all_properties;
+    std::optional<std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>>>
+        edges_with_specific_properties;
 
     if (!req.edge_properties) {
-      /*
       std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret;
       ret.reserve(edges.size());
 
-      for(const auto& edge : edges)
-      {
+      for (const auto &edge : edges) {
         std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
         msgs::Label label1 = {.id = edge.FromVertex().primary_label};
         msgs::VertexId vertex1 = std::make_pair(label1, ConvertValueVector(edge.FromVertex().primary_key));
@@ -789,14 +792,16 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         msgs::Label label2 = {.id = edge.ToVertex().primary_label};
         msgs::VertexId vertex2 = std::make_pair(label2, ConvertValueVector(edge.ToVertex().primary_key));
 
+        auto other_vertex = vertex2;
+
         // Figure out which VertexId should be stored in the tuple
         // TODO(gvolfing) overload operator==() for msgs::VertexId
-        auto int1 = source_vertex.id.first.id.AsUint();
-        auto int2 = vertex1.first.id.AsUint();
+        // auto int1 = source_vertex.id.first.id.AsUint();
+        // auto int2 = vertex1.first.id.AsUint();
 
         // auto other_vertex = ((int1 == int2) && (ConvertPropertyVector(source_vertex.id.second) ==
-      ConvertPropertyVector(vertex1.second))) ? vertex2 : vertex1; auto other_vertex = vertex2; const auto&
-      edge_props_var = get_edge_properties(edge);
+        // ConvertPropertyVector(vertex1.second))) ? vertex2 : vertex1; auto other_vertex = vertex2;
+        const auto &edge_props_var = get_edge_properties(edge);
 
         auto edge_props = std::get<std::map<PropertyId, msgs::Value>>(edge_props_var);
         msgs::Gid gid = edge.Gid().AsUint();
@@ -804,12 +809,37 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         ret_tuple = {other_vertex, gid, edge_props};
         ret.push_back(ret_tuple);
       }
-      */
+
       // Set one of the options to the actual datastructure and the otherone to nullopt
-      // edges_with_all_properties = ret;
-      // edges_with_specific_properties = {};
+      edges_with_all_properties = ret;
+      edges_with_specific_properties = {};
     } else {
       // when user specifies specific properties, its enough to return just a vector
+      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret;
+
+      for (const auto &edge : edges) {
+        std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
+        msgs::Label label1 = {.id = edge.FromVertex().primary_label};
+        msgs::VertexId vertex1 = std::make_pair(label1, ConvertValueVector(edge.FromVertex().primary_key));
+
+        msgs::Label label2 = {.id = edge.ToVertex().primary_label};
+        msgs::VertexId vertex2 = std::make_pair(label2, ConvertValueVector(edge.ToVertex().primary_key));
+
+        auto other_vertex = vertex2;
+
+        // Figure out which VertexId should be stored in the tuple
+        // TODO(gvolfing) overload operator==() for msgs::VertexId
+
+        const auto &edge_props_var = get_edge_properties(edge);
+        auto edge_props = std::get<std::vector<msgs::Value>>(edge_props_var);
+        msgs::Gid gid = edge.Gid().AsUint();
+
+        ret.push_back({other_vertex, gid, edge_props});
+      }
+
+      // Set one of the options to the actual datastructure and the otherone to nullopt
+      edges_with_all_properties = {};
+      edges_with_specific_properties = ret;
     }
 
     // Fill up current row.
@@ -817,11 +847,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     // .edges_with_all_properties = edges_with_all_properties, .edges_with_specific_properties =
     // edges_with_specific_properties};
 
-    // results.emplace_back(
-    // msgs::ExpandOneResultRow{.src_vertex = src_vertex, .src_vertex_properties = src_vertex_properties,
-    // .edges_with_all_properties = edges_with_all_properties, .edges_with_specific_properties =
-    // edges_with_specific_properties}
-    // );
+    results.emplace_back(msgs::ExpandOneResultRow{.src_vertex = src_vertex,
+                                                  .src_vertex_properties = src_vertex_properties,
+                                                  .edges_with_all_properties = edges_with_all_properties,
+                                                  .edges_with_specific_properties = edges_with_specific_properties});
+
+    int i = 2;
   }
 
   msgs::ExpandOneResponse resp{};
