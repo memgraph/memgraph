@@ -216,8 +216,7 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&duration_v) utils::Duration(other.duration_v);
       return;
     case Type::Graph:
-      auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
-      new (graph_ptr) Graph(*other.graph_v, memory_);
+      auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
       new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
       return;
   }
@@ -273,8 +272,7 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       if (other.GetMemoryResource() == memory_) {
         new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
       } else {
-        auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
-        new (graph_ptr) Graph(std::move(*other.graph_v), memory_);
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
         new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
       }
   }
@@ -555,8 +553,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         new (&path_v) Path(other.path_v, memory_);
         return *this;
       case TypedValue::Type::Graph: {
-        auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
-        new (graph_ptr) Graph(*other.graph_v, memory_);
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
         new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
         return *this;
       }
@@ -635,8 +632,7 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         if (other.GetMemoryResource() == memory_) {
           new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
         } else {
-          auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
-          new (graph_ptr) Graph(std::move(*other.graph_v), memory_);
+          auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
           new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
         }
         break;
@@ -681,12 +677,10 @@ void TypedValue::DestroyValue() {
     case Type::Duration:
       break;
     case Type::Graph: {
-      MG_ASSERT(memory_ == graph_v->GetMemoryResource(), "TESTING");
       auto *graph = graph_v.release();
       std::destroy_at(&graph_v);
       if (graph) {
-        std::destroy_at(graph);
-        utils::Allocator<Graph>(memory_).destroy(graph);
+        utils::Allocator<Graph>(memory_).delete_object(graph);
       }
       break;
     }

@@ -416,8 +416,7 @@ class TypedValue {
    * element-wise move and graph is not guaranteed to be empty.
    */
   TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-    auto *graph_ptr = utils::Allocator<Graph>(memory_).allocate(1);
-    new (graph_ptr) Graph(std::move(graph), memory_);
+    auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
     new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
   }
 
