@@ -925,13 +925,6 @@ void Shard::Accessor::Abort() {
   shard_->has_any_transaction_aborted_since_last_gc = true;
 }
 
-void Shard::Accessor::FinalizeTransaction() {
-  MG_ASSERT(transaction_->is_aborted || transaction_->commit_info->is_locally_committed,
-            "Cannot finalize active transaction!");
-  if (transaction_->commit_info->is_locally_committed) {
-  }
-}
-
 const std::string &Shard::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
 
 const std::string &Shard::PropertyToName(PropertyId property) const {

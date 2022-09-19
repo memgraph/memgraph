@@ -2370,7 +2370,6 @@ void Interpreter::Commit() {
          user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
           RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
                                   std::move(trigger_context));
-          user_transaction->FinalizeTransaction();
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
         });
   }

@@ -263,8 +263,6 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
-
   VerticesIterable Vertices(storage::v3::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label) {
