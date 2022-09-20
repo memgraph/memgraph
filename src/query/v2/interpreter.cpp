@@ -1483,7 +1483,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_exp
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                       [](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
                          memory::PurgeUnusedMemory();
                          return QueryHandlerResult::COMMIT;
                        },

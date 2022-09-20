@@ -58,6 +58,8 @@ uint64_t GetCleanupBeforeTimestamp(const std::map<uint64_t, std::unique_ptr<Tran
   MG_ASSERT(!transactions.empty(), "There are no transactions!");
   const auto it = std::lower_bound(
       transactions.begin(), transactions.end(), clean_up_before,
+      // A different comparator has to be used here as this function translates the wall clock time into a logical id
+      // NOLINTNEXTLINE(performance-inefficient-algorithm)
       [](const std::pair<const uint64_t, std::unique_ptr<Transaction>> &trans, const io::Time clean_up_before) {
         return trans.second->start_timestamp.coordinator_wall_clock < clean_up_before;
       });
