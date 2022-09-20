@@ -39,6 +39,8 @@ using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
+using memgraph::io::messages::StorageReadRequest;
+using memgraph::io::messages::StorageWriteRequest;
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;
 using memgraph::io::rsm::ReadRequest;
@@ -48,11 +50,6 @@ using memgraph::io::rsm::VoteResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::storage::v3::ShardManager;
-
-using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageReadResponse;
-using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
 
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level

@@ -25,8 +25,8 @@
 #include <io/transport.hpp>
 #include <machine_manager/machine_config.hpp>
 #include <machine_manager/machine_manager.hpp>
+#include <query/v2/requests.hpp>
 #include "io/rsm/rsm_client.hpp"
-#include "io/rsm/shard_rsm.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/schemas.hpp"
 
@@ -45,19 +45,19 @@ using memgraph::coordinator::ShardMap;
 using memgraph::io::Io;
 using memgraph::io::local_transport::LocalSystem;
 using memgraph::io::local_transport::LocalTransport;
-using memgraph::io::rsm::RsmClient;
-using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageReadResponse;
-using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::machine_manager::MachineConfig;
 using memgraph::machine_manager::MachineManager;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::SchemaProperty;
 
+using memgraph::io::rsm::RsmClient;
+using memgraph::msgs::ReadRequests;
+using memgraph::msgs::ReadResponses;
+using memgraph::msgs::WriteRequests;
+using memgraph::msgs::WriteResponses;
+
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
-using ShardClient =
-    RsmClient<LocalTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
+using ShardClient = RsmClient<LocalTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 ShardMap TestShardMap() {
   ShardMap sm{};
@@ -192,16 +192,21 @@ TEST(MachineManager, BasicFunctionality) {
   // submit a read request and assert that the requested key does not yet exist
 
   LabelId label_id = sm.labels.at(label_name);
-  StorageReadRequest storage_get_req;
+  ReadRequests storage_get_req;
+  /*
+  TODO(tyler,kostas) set this to a real request
   storage_get_req.label_id = label_id;
   storage_get_req.key = compound_key;
   storage_get_req.transaction_id = hlc_response.new_hlc;
+  */
 
   auto get_response_result = shard_client.SendReadRequest(storage_get_req);
   auto get_response = get_response_result.GetValue();
+  /*
   auto val = get_response.value;
 
   MG_ASSERT(!val.has_value());
+  */
 
   local_system.ShutDown();
 };
