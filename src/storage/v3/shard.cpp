@@ -359,6 +359,7 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
+  delta->prev.Set(&it->vertex);
 
   VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
   MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -378,7 +379,6 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
       return {err.GetError()};
     }
   }
-  delta->prev.Set(&it->vertex);
   return vertex_acc;
 }
 
