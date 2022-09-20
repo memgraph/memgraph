@@ -33,9 +33,9 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
   const auto &info = consumer_->Info();
-  return {{.batch_interval = info.batch_interval,
-           .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+  return {.common_info = {.batch_interval = info.batch_interval,
+                          .batch_size = info.batch_size,
+                          .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
           .consumer_group = info.consumer_group,
           .bootstrap_servers = info.bootstrap_servers,
@@ -101,9 +101,9 @@ PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
 
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {
   const auto &info = consumer_->Info();
-  return {{.batch_interval = info.batch_interval,
-           .batch_size = info.batch_size,
-           .transformation_name = std::move(transformation_name)},
+  return {.common_info = {.batch_interval = info.batch_interval,
+                          .batch_size = info.batch_size,
+                          .transformation_name = std::move(transformation_name)},
           .topics = info.topics,
           .service_url = info.service_url};
 }

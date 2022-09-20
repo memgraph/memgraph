@@ -566,6 +566,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
       }
+      throw 1;
     };
     auto maybe_lower = convert(lower_bound_);
     auto maybe_upper = convert(upper_bound_);
@@ -3150,6 +3151,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::PROJECT:
       return TypedValue(query::Graph(memory));
   }
+  throw 1;
 }
 }  // namespace
 

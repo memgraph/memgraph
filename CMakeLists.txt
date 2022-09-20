@@ -179,18 +179,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# c99-designator is disabled because of required mixture of designated and
-# non-designated initializers in Python Query Module code (`py_module.cpp`).
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-#     -Werror=switch -Werror=switch-bool -Werror=return-type \
-#     -Werror=return-stack-address \
-#     -Wno-c99-designator \
-#     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-    -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-local-addr \
-    -Wno-c99-designator \
+# TODO(gitbuda): Add support for both clang and GCC with the valid flags.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.

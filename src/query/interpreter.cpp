@@ -476,6 +476,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
     default:
       break;
   }
+  throw 1;
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
@@ -525,6 +526,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
           }
         }
+        throw 1;
       };
       return callback;
     }
@@ -605,6 +607,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
+  throw 1;
 }
 
 std::optional<std::string> StringPointerToOptional(const std::string *str) {
@@ -836,6 +839,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
   }
+  throw 1;
 }
 
 Callback HandleConfigQuery() {
@@ -948,6 +952,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       return callback;
     }
   }
+  throw 1;
 }
 
 // Struct for lazy pulling from a vector
@@ -1686,6 +1691,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
     case TriggerQuery::EventType::EDGE_UPDATE:
       return TriggerEventType::EDGE_UPDATE;
   }
+  throw 1;
 }
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
@@ -1763,6 +1769,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, const bool in_explic
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(interpreter_context);
     }
+    throw 1;
   });
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
@@ -1826,6 +1833,7 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
     case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
       return storage::IsolationLevel::READ_UNCOMMITTED;
   }
+  throw 1;
 }
 
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
@@ -1849,6 +1857,7 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
       case IsolationLevelQuery::IsolationLevelScope::NEXT:
         return [interpreter, isolation_level] { interpreter->SetNextTransactionIsolationLevel(isolation_level); };
     }
+    throw 1;
   }();
 
   return PreparedQuery{
@@ -2590,7 +2599,7 @@ void Interpreter::Commit() {
 
   SPDLOG_DEBUG("Finished committing the transaction");
   if (!commit_confirmed_by_all_sync_repplicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+    throw ReplicationException(std::string("At least one SYNC replica has not confirmed committing last transaction."));
   }
 }
 

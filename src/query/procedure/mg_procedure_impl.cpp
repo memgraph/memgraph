@@ -305,6 +305,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
   }
+  throw 1;
 }
 }  // namespace
 
@@ -361,6 +362,7 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::query::TypedValue(val.duration_v->duration, memory);
   }
+  throw 1;
 }
 
 mgp_value::mgp_value(memgraph::utils::MemoryResource *m) noexcept : type(MGP_VALUE_TYPE_NULL), memory(m) {}
@@ -1645,6 +1647,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
     case MGP_VALUE_TYPE_PATH:
       throw ValueConversionException{"A path is not a valid property value!"};
   }
+  throw 1;
 }
 }  // namespace
 
@@ -2934,6 +2937,7 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Graph:
       LOG_FATAL("value must not be a graph element");
   }
+  throw 1;
 }
 
 }  // namespace
@@ -3006,6 +3010,7 @@ mgp_source_type StreamSourceTypeToMgpSourceType(const StreamSourceType type) {
     case StreamSourceType::PULSAR:
       return mgp_source_type::PULSAR;
   }
+  throw 1;
 }
 
 }  // namespace

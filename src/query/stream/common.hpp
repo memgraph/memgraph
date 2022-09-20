@@ -75,6 +75,7 @@ constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
     case StreamSourceType::PULSAR:
       return "pulsar";
   }
+  throw 1;
 }
 
 template <Stream T>
