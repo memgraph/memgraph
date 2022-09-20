@@ -774,9 +774,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
     if (!req.edge_properties) {
       std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_in;
-      ret_in.reserve(in_edges.size());
+      // ret_in.reserve(in_edges.size());
       std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_out;
-      ret_out.reserve(out_edges.size());
+      // ret_out.reserve(out_edges.size());
 
       for (const auto &edge : in_edges) {
         if (!DoesEdgeTypeMatch(req, edge)) {
@@ -841,9 +841,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     } else {
       // when user specifies specific properties, its enough to return just a vector
       std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_in;
-      ret_in.reserve(in_edges.size());
+      // ret_in.reserve(in_edges.size());
       std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_out;
-      ret_out.reserve(out_edges.size());
+      // ret_out.reserve(out_edges.size());
 
       for (const auto &edge : in_edges) {
         if (!DoesEdgeTypeMatch(req, edge)) {
