@@ -108,7 +108,6 @@ msgs::NewVertex GetNewVertex(int64_t value) {
   auto val2 = msgs::Value(static_cast<int64_t>(value));
   auto prop2 = std::make_pair(PropertyId::FromUint(0), val2);
 
-  // std::vector<std::pair<PropertyId, msgs::Value>> properties{prop1, prop2};
   std::vector<std::pair<PropertyId, msgs::Value>> properties{prop1, prop2, prop3};
 
   // NewVertex
@@ -269,8 +268,6 @@ bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex
 
 bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
                          int64_t edge_type_id) {
-  // TODO(gvolfing) uncomment this once the handle is implemented
-
   auto id = msgs::EdgeId{};
   msgs::Label label = {.id = get_primary_label()};
 
@@ -321,13 +318,6 @@ bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
   auto edge = msgs::Edge{};
   edge.id = id;
   edge.type = type;
-
-  // struct UpdateEdgeProp {
-  //   EdgeId edge_id;
-  //   VertexId src;
-  //   VertexId dst;
-  //   std::vector<std::pair<PropertyId, Value>> property_updates;
-  // };
 
   auto edge_prop = std::vector<std::pair<PropertyId, msgs::Value>>{
       std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val))};
@@ -446,7 +436,6 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   // Source Vertex properties to look for
   std::vector<PropertyId> desired_src_vertex_props{PropertyId::FromUint(2)};
   std::optional<std::vector<PropertyId>> src_vertex_properties = desired_src_vertex_props;
-  // std::optional<std::vector<PropertyId>> src_vertex_properties = {};
 
   // Edge properties to look for
   std::optional<std::vector<PropertyId>> edge_properties = {};
@@ -536,7 +525,6 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
     MG_ASSERT(write_response.result.size() == 1);
-    // This should be 1
     auto specific_properties_size =
         (std::get<std::vector<msgs::Value>>(write_response.result[0].edges_with_specific_properties.value()[0]));
     MG_ASSERT(specific_properties_size.size() == 1);
@@ -612,10 +600,10 @@ void TestUpdateEdge(ShardClient &client) {
 
   MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_prop_id,
                                            edge_prop_val_old, edge_type_id));
-  MG_ASSERT(AttemptToUpdateEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id, edge_prop_id,
-                                edge_prop_val_new));
 
   // Update the Edge
+  MG_ASSERT(AttemptToUpdateEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id, edge_prop_id,
+                                edge_prop_val_new));
 }
 
 void TestScanAllOneGo(ShardClient &client) {
@@ -684,81 +672,31 @@ void TestScanAllWithSmallBatchSize(ShardClient &client) {
 
 void TestExpandOne(ShardClient &client) {
   // ExpandOneSimple
-  {
-    auto unique_prop_val_1 = GetUniqueInteger();
-    auto unique_prop_val_2 = GetUniqueInteger();
-    auto unique_prop_val_3 = GetUniqueInteger();
+  auto unique_prop_val_1 = GetUniqueInteger();
+  auto unique_prop_val_2 = GetUniqueInteger();
+  auto unique_prop_val_3 = GetUniqueInteger();
 
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
+  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
 
-    auto edge_type_id = GetUniqueInteger();
-    auto edge_gid_1 = GetUniqueInteger();
-    auto edge_gid_2 = GetUniqueInteger();
+  auto edge_type_id = GetUniqueInteger();
+  auto edge_gid_1 = GetUniqueInteger();
+  auto edge_gid_2 = GetUniqueInteger();
 
-    auto edge_prop_id = GetUniqueInteger();
-    auto edge_prop_val = GetUniqueInteger();
+  auto edge_prop_id = GetUniqueInteger();
+  auto edge_prop_val = GetUniqueInteger();
 
-    // (V1)-[edge_type_id]->(V2)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
-    // (V1)-[edge_type_id]->(V3)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
+  // (V1)-[edge_type_id]->(V2)
+  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
+                                           edge_prop_val, edge_type_id));
+  // (V1)-[edge_type_id]->(V3)
+  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
+                                           edge_prop_val, edge_type_id));
 
-    AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
-  }
-  {
-    auto unique_prop_val_1 = GetUniqueInteger();
-    auto unique_prop_val_2 = GetUniqueInteger();
-    auto unique_prop_val_3 = GetUniqueInteger();
-
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
-
-    auto edge_type_id = GetUniqueInteger();
-    auto edge_gid_1 = GetUniqueInteger();
-    auto edge_gid_2 = GetUniqueInteger();
-
-    auto edge_prop_id = GetUniqueInteger();
-    auto edge_prop_val = GetUniqueInteger();
-
-    // (V1)-[edge_type_id]->(V2)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
-    // (V1)-[edge_type_id]->(V3)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
-
-    AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
-  }
-  {
-    auto unique_prop_val_1 = GetUniqueInteger();
-    auto unique_prop_val_2 = GetUniqueInteger();
-    auto unique_prop_val_3 = GetUniqueInteger();
-
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
-    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
-
-    auto edge_type_id = GetUniqueInteger();
-    auto edge_gid_1 = GetUniqueInteger();
-    auto edge_gid_2 = GetUniqueInteger();
-
-    auto edge_prop_id = GetUniqueInteger();
-    auto edge_prop_val = GetUniqueInteger();
-
-    // (V1)-[edge_type_id]->(V2)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
-    // (V1)-[edge_type_id]->(V3)
-    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
-                                             edge_prop_val, edge_type_id));
-
-    AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
-  }
+  AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
+  AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
+  AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
 }
 
 }  // namespace
