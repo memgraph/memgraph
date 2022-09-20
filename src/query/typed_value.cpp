@@ -346,14 +346,14 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 
 Graph &TypedValue::ValueGraph() {
   if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '', not '{}'", type_, Type::Graph);
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
   }
   return *graph_v;
 }
 
 const Graph &TypedValue::ValueGraph() const {
   if (type_ != Type::Graph) {
-    throw TypedValueException("TypedValue is of type '', not '{}'", type_, Type::Graph);
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
   }
   return *graph_v;
 }
