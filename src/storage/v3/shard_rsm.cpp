@@ -12,6 +12,7 @@
 #include <iterator>
 #include <utility>
 
+#include "query/v2/requests.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
@@ -382,6 +383,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 
   return resp;
 }
+
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
+  shard_->Access(req.transaction_id).Commit(req.commit_timestamp);
+  return msgs::CommitResponse{true};
+};
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest && /*req*/) {
