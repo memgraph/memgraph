@@ -152,9 +152,7 @@ template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &io) {
   requests::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
-  std::cout << "Testing ScanALl" << std::endl;
   auto result = io.Request(state);
-  std::cout << "Testing ScanALl" << std::endl;
   MG_ASSERT(result.size() == 2);
   {
     auto prop = result[0].GetProperty(requests::PropertyId::FromUint(0));
@@ -177,7 +175,6 @@ void TestScanAll(ShardRequestManager &io) {
 
 template <typename ShardRequestManager>
 void TestCreateVertices(ShardRequestManager &io) {
-  std::cout << "Testing Create" << std::endl;
   using PropVal = memgraph::storage::v3::PropertyValue;
   requests::ExecutionState<CreateVerticesRequest> state;
   std::vector<requests::NewVertex> new_vertices;
