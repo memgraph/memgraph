@@ -126,17 +126,15 @@ bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
   create_req.new_vertices = {vertex};
   create_req.transaction_id.logical_id = GetTransactionId();
 
-  while (true) {
-    auto write_res = client.SendWriteRequest(create_req);
-    if (write_res.HasError()) {
-      continue;
-    }
+  auto write_res = client.SendWriteRequest(create_req);
+  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).success,
+            "Unexpected failure");
 
-    auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<msgs::CreateVerticesResponse>(write_response_result);
-
-    return write_response.success;
-  }
+  auto commit_req = msgs::CommitRequest{create_req.transaction_id, msgs::Hlc{.logical_id = GetTransactionId()}};
+  auto commit_res = client.SendWriteRequest(commit_req);
+  MG_ASSERT(commit_res.HasValue() && std::get<msgs::CommitResponse>(commit_res.GetValue()).success,
+            "Unexpected failure");
+  return true;
 }
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
@@ -161,17 +159,15 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   create_req.edges = {edge};
   create_req.transaction_id.logical_id = GetTransactionId();
 
-  while (true) {
-    auto write_res = client.SendWriteRequest(create_req);
-    if (write_res.HasError()) {
-      continue;
-    }
+  auto write_res = client.SendWriteRequest(create_req);
+  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateEdgesResponse>(write_res.GetValue()).success,
+            "Unexpected failure");
 
-    auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
-
-    return write_response.success;
-  }
+  auto commit_req = msgs::CommitRequest{create_req.transaction_id, msgs::Hlc{.logical_id = GetTransactionId()}};
+  auto commit_res = client.SendWriteRequest(commit_req);
+  MG_ASSERT(commit_res.HasValue() && std::get<msgs::CommitResponse>(commit_res.GetValue()).success,
+            "Unexpected failure");
+  return true;
 }
 
 std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client,
