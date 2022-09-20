@@ -61,6 +61,7 @@ src/durability/single_node/state_delta.hpp
 src/durability/single_node_ha/state_delta.hpp
 src/query/frontend/semantic/symbol.hpp
 src/query/v2/frontend/semantic/symbol.hpp
+src/expr/semantic/symbol.hpp
 src/query/distributed/frontend/semantic/symbol_serialization.hpp
 src/query/v2/distributed/frontend/semantic/symbol_serialization.hpp
 src/query/distributed/plan/ops.hpp
