@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <iostream>
 #include <optional>
 #include <thread>
@@ -294,12 +295,16 @@ int TestMessages() {
   auto simulator = Simulator(config);
 
   Io<SimulatorTransport> shard_server_io_1 = simulator.RegisterNew();
+  shard_server_io_1.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_1_address = shard_server_io_1.GetAddress();
   Io<SimulatorTransport> shard_server_io_2 = simulator.RegisterNew();
+  shard_server_io_2.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_2_address = shard_server_io_2.GetAddress();
   Io<SimulatorTransport> shard_server_io_3 = simulator.RegisterNew();
+  shard_server_io_3.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_3_address = shard_server_io_3.GetAddress();
   Io<SimulatorTransport> shard_client_io = simulator.RegisterNew();
+  shard_client_io.SetDefaultTimeout(std::chrono::seconds(1));
 
   PropertyValue min_pk(static_cast<int64_t>(0));
   std::vector<PropertyValue> min_prim_key = {min_pk};
