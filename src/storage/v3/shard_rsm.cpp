@@ -113,17 +113,6 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-// std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(const std::vector<Value> &&vec) {
-//   std::vector<memgraph::storage::v3::PropertyValue> ret;
-//   ret.reserve(vec.size());
-
-//   for (auto &elem : vec) {
-//     ret.push_back(ToPropertyValue((elem)));
-//   }
-
-//   return ret;
-// }
-
 std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
   std::vector<memgraph::storage::v3::PropertyValue> ret;
   ret.reserve(vec.size());
@@ -712,7 +701,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     }
 
     /// Fill up connecting edges
-    std::vector<EdgeAccessor> edges;
+    std::vector<EdgeAccessor> in_edges;
+    std::vector<EdgeAccessor> out_edges;
+
     switch (req.direction) {
       case msgs::EdgeDirection::OUT: {
         auto out_edges_result = v_acc->OutEdges(View::OLD);
@@ -723,7 +714,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
           action_successful = false;
           break;
         }
-        edges = out_edges_result.GetValue();
+        out_edges = out_edges_result.GetValue();
         break;
       }
       case msgs::EdgeDirection::IN: {
@@ -735,12 +726,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
           action_successful = false;
           break;
         }
-        edges = in_edges_result.GetValue();
+        in_edges = in_edges_result.GetValue();
         break;
       }
       case msgs::EdgeDirection::BOTH: {
-        std::vector<EdgeAccessor> in_edges;
-        std::vector<EdgeAccessor> out_edges;
+        // std::vector<EdgeAccessor> in_edges;
+        // std::vector<EdgeAccessor> out_edges;
 
         auto in_edges_result = v_acc->InEdges(View::OLD);
         if (in_edges_result.HasError()) {
@@ -761,10 +752,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
           break;
         }
         out_edges = out_edges_result.GetValue();
-
-        edges.reserve(in_edges.size() + out_edges.size());
-        edges.insert(edges.end(), in_edges.begin(), in_edges.end());
-        edges.insert(edges.end(), out_edges.begin(), out_edges.end());
         break;
       }
     }
@@ -781,65 +768,121 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         edges_with_specific_properties;
 
     if (!req.edge_properties) {
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret;
-      ret.reserve(edges.size());
+      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_in;
+      ret_in.reserve(in_edges.size());
+      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_out;
+      ret_out.reserve(out_edges.size());
 
-      for (const auto &edge : edges) {
+      for (const auto &edge : in_edges) {
         std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
-        msgs::Label label1 = {.id = edge.FromVertex().primary_label};
-        msgs::VertexId vertex1 = std::make_pair(label1, ConvertValueVector(edge.FromVertex().primary_key));
 
-        msgs::Label label2 = {.id = edge.ToVertex().primary_label};
-        msgs::VertexId vertex2 = std::make_pair(label2, ConvertValueVector(edge.ToVertex().primary_key));
+        msgs::Label label;
+        label.id = edge.FromVertex().primary_label;
+        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
 
-        auto other_vertex = vertex2;
-
-        // Figure out which VertexId should be stored in the tuple
-        // TODO(gvolfing) overload operator==() for msgs::VertexId
-        // auto int1 = source_vertex.id.first.id.AsUint();
-        // auto int2 = vertex1.first.id.AsUint();
-
-        // auto other_vertex = ((int1 == int2) && (ConvertPropertyVector(source_vertex.id.second) ==
-        // ConvertPropertyVector(vertex1.second))) ? vertex2 : vertex1; auto other_vertex = vertex2;
         const auto &edge_props_var = get_edge_properties(edge);
-
         auto edge_props = std::get<std::map<PropertyId, msgs::Value>>(edge_props_var);
         msgs::Gid gid = edge.Gid().AsUint();
 
         ret_tuple = {other_vertex, gid, edge_props};
-        ret.push_back(ret_tuple);
+        ret_in.push_back(ret_tuple);
+      }
+
+      for (const auto &edge : out_edges) {
+        std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
+
+        msgs::Label label;
+        label.id = edge.FromVertex().primary_label;
+        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
+
+        const auto &edge_props_var = get_edge_properties(edge);
+        auto edge_props = std::get<std::map<PropertyId, msgs::Value>>(edge_props_var);
+        msgs::Gid gid = edge.Gid().AsUint();
+
+        ret_tuple = {other_vertex, gid, edge_props};
+        ret_out.push_back(ret_tuple);
       }
 
       // Set one of the options to the actual datastructure and the otherone to nullopt
-      edges_with_all_properties = ret;
+      switch (req.direction) {
+        case msgs::EdgeDirection::OUT: {
+          edges_with_all_properties = ret_out;
+          break;
+        }
+        case msgs::EdgeDirection::IN: {
+          edges_with_all_properties = ret_in;
+          break;
+        }
+        case msgs::EdgeDirection::BOTH: {
+          std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret;
+          ret.resize(ret_out.size() + ret_in.size());
+          ret.insert(ret.end(), ret_in.begin(), ret_in.end());
+          ret.insert(ret.end(), ret_out.begin(), ret_out.end());
+
+          edges_with_all_properties = ret;
+          break;
+        }
+      }
       edges_with_specific_properties = {};
+
     } else {
       // when user specifies specific properties, its enough to return just a vector
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret;
+      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_in;
+      ret_in.reserve(in_edges.size());
+      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_out;
+      ret_out.reserve(out_edges.size());
 
-      for (const auto &edge : edges) {
-        std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
-        msgs::Label label1 = {.id = edge.FromVertex().primary_label};
-        msgs::VertexId vertex1 = std::make_pair(label1, ConvertValueVector(edge.FromVertex().primary_key));
+      for (const auto &edge : in_edges) {
+        std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
 
-        msgs::Label label2 = {.id = edge.ToVertex().primary_label};
-        msgs::VertexId vertex2 = std::make_pair(label2, ConvertValueVector(edge.ToVertex().primary_key));
-
-        auto other_vertex = vertex2;
-
-        // Figure out which VertexId should be stored in the tuple
-        // TODO(gvolfing) overload operator==() for msgs::VertexId
+        msgs::Label label;
+        label.id = edge.FromVertex().primary_label;
+        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
 
         const auto &edge_props_var = get_edge_properties(edge);
         auto edge_props = std::get<std::vector<msgs::Value>>(edge_props_var);
         msgs::Gid gid = edge.Gid().AsUint();
 
-        ret.push_back({other_vertex, gid, edge_props});
+        ret_tuple = {other_vertex, gid, edge_props};
+        ret_in.push_back(ret_tuple);
+      }
+
+      for (const auto &edge : out_edges) {
+        std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
+
+        msgs::Label label;
+        label.id = edge.FromVertex().primary_label;
+        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
+
+        const auto &edge_props_var = get_edge_properties(edge);
+        auto edge_props = std::get<std::vector<msgs::Value>>(edge_props_var);
+        msgs::Gid gid = edge.Gid().AsUint();
+
+        ret_tuple = {other_vertex, gid, edge_props};
+        ret_out.push_back(ret_tuple);
       }
 
       // Set one of the options to the actual datastructure and the otherone to nullopt
+      switch (req.direction) {
+        case msgs::EdgeDirection::OUT: {
+          edges_with_specific_properties = ret_out;
+          break;
+        }
+        case msgs::EdgeDirection::IN: {
+          edges_with_specific_properties = ret_in;
+          break;
+        }
+        case msgs::EdgeDirection::BOTH: {
+          std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret;
+          ret.resize(ret_out.size() + ret_in.size());
+          ret.insert(ret.end(), ret_in.begin(), ret_in.end());
+          ret.insert(ret.end(), ret_out.begin(), ret_out.end());
+
+          edges_with_specific_properties = ret;
+          break;
+        }
+      }
       edges_with_all_properties = {};
-      edges_with_specific_properties = ret;
     }
 
     // Fill up current row.

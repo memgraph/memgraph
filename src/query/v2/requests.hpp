@@ -26,6 +26,15 @@
 
 namespace memgraph::msgs {
 
+// TODO(gvolfing) introduce structure for property updates
+// TODO(gvolfing) remove tuples from ExpandOne and add specific structs instead
+
+// TODO(gvolfing) discuss with kostas:
+//  - EdgeId
+//  - Everything about ExpandOne
+//  - Edge properties
+//  - Ctors
+
 using coordinator::Hlc;
 using storage::v3::LabelId;
 
@@ -40,6 +49,11 @@ using PrimaryKey = std::vector<Value>;
 using VertexId = std::pair<Label, PrimaryKey>;
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
+
+// struct PropertyUpdate{
+//   PropertyId id;
+//   Value value;
+// };
 
 struct EdgeType {
   uint64_t id;
@@ -411,8 +425,13 @@ struct ExpandOneResultRow {
   // The drawback of this is currently the key of the map is always interpreted as a string in Value, not as an
   // integer, which should be in case of mapped properties.
   Vertex src_vertex;
-
   std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+
+  // NOTE: If the desired edges are specified in the request,
+  // edges_with_specific_properties will have a value and it will
+  // return the properties as a vector of property values. The order
+  // of the values returned should be the same as the PropertyIds
+  // were defined in the request.
   std::optional<std::vector<std::tuple<VertexId, Gid, std::map<PropertyId, Value>>>> edges_with_all_properties;
   std::optional<std::vector<std::tuple<VertexId, Gid, std::vector<Value>>>> edges_with_specific_properties;
 };
