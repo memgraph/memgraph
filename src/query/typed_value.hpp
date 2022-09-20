@@ -548,7 +548,7 @@ class TypedValue {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
-    // As the unique_ptr is not allocator aware, it require special attention when copying or moving graphs
+    // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
   };
 
