@@ -191,6 +191,15 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
   return Value({.id = vertex_id, .labels = value_labels});
 }
 
+bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgraph::storage::v3::EdgeAccessor &edge) {
+  for (const auto &edge_type : req.edge_types) {
+    if (memgraph::storage::v3::EdgeTypeId::FromUint(edge_type.id) == edge.EdgeType()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 namespace memgraph::storage::v3 {
@@ -477,7 +486,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
   return resp;
 }
 
-// TODO(gvolfing) refactor this abomination
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   auto acc = shard_->Access();
 
@@ -650,9 +658,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   for (auto &src_vertex : req.src_vertices) {
     msgs::ExpandOneResultRow current_row;
-    msgs::Vertex source_vertex;  // (VERIFY) should the ExpandOneRowREsult have Vertex or VertexId as the?
-    //  The empty optional means return all of the properties, while an empty
-    //  list means do not return any properties.
+    msgs::Vertex source_vertex;
+    /// The empty optional means return all of the properties, while an empty
+    /// list means do not return any properties.
     std::optional<std::map<PropertyId, Value>> src_vertex_properties_opt;
     std::map<PropertyId, Value> src_vertex_properties;
 
@@ -730,9 +738,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         break;
       }
       case msgs::EdgeDirection::BOTH: {
-        // std::vector<EdgeAccessor> in_edges;
-        // std::vector<EdgeAccessor> out_edges;
-
         auto in_edges_result = v_acc->InEdges(View::OLD);
         if (in_edges_result.HasError()) {
           spdlog::debug(
@@ -774,6 +779,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       ret_out.reserve(out_edges.size());
 
       for (const auto &edge : in_edges) {
+        if (!DoesEdgeTypeMatch(req, edge)) {
+          continue;
+        }
+
         std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
 
         msgs::Label label;
@@ -789,6 +798,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       }
 
       for (const auto &edge : out_edges) {
+        if (!DoesEdgeTypeMatch(req, edge)) {
+          continue;
+        }
+
         std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
 
         msgs::Label label;
@@ -833,6 +846,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       ret_out.reserve(out_edges.size());
 
       for (const auto &edge : in_edges) {
+        if (!DoesEdgeTypeMatch(req, edge)) {
+          continue;
+        }
+
         std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
 
         msgs::Label label;
@@ -848,6 +865,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       }
 
       for (const auto &edge : out_edges) {
+        if (!DoesEdgeTypeMatch(req, edge)) {
+          continue;
+        }
+
         std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
 
         msgs::Label label;
@@ -885,17 +906,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       edges_with_all_properties = {};
     }
 
-    // Fill up current row.
-    // msgs::ExpandOneResultRow{.src_vertex = src_vertex, .src_vertex_properties = src_vertex_properties,
-    // .edges_with_all_properties = edges_with_all_properties, .edges_with_specific_properties =
-    // edges_with_specific_properties};
-
     results.emplace_back(msgs::ExpandOneResultRow{.src_vertex = src_vertex,
                                                   .src_vertex_properties = src_vertex_properties,
                                                   .edges_with_all_properties = edges_with_all_properties,
                                                   .edges_with_specific_properties = edges_with_specific_properties});
-
-    int i = 2;
   }
 
   msgs::ExpandOneResponse resp{};
