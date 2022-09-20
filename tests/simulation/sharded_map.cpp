@@ -34,12 +34,12 @@
 
 using memgraph::common::SchemaType;
 using memgraph::coordinator::AddressAndStatus;
-using memgraph::coordinator::CompoundKey;
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorClient;
 using memgraph::coordinator::CoordinatorRsm;
 using memgraph::coordinator::HlcRequest;
 using memgraph::coordinator::HlcResponse;
+using memgraph::coordinator::PrimaryKey;
 using memgraph::coordinator::Shard;
 using memgraph::coordinator::ShardMap;
 using memgraph::coordinator::Shards;
@@ -66,9 +66,11 @@ using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::LabelId;
+using memgraph::storage::v3::PropertyValue;
 using memgraph::storage::v3::SchemaProperty;
 using memgraph::utils::BasicResult;
 
+using PrimaryKey = std::vector<PropertyValue>;
 using ShardClient =
     RsmClient<SimulatorTransport, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
 namespace {
@@ -108,9 +110,9 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
 
   Shard shard1 = {aas1_1, aas1_2, aas1_3};
 
-  const auto key1 = memgraph::storage::v3::PropertyValue(0);
-  const auto key2 = memgraph::storage::v3::PropertyValue(0);
-  const CompoundKey compound_key_1 = {key1, key2};
+  const auto key1 = PropertyValue(0);
+  const auto key2 = PropertyValue(0);
+  const PrimaryKey compound_key_1 = {key1, key2};
   shards_for_label.emplace(compound_key_1, shard1);
 
   // add second shard at [12, 13]
@@ -120,9 +122,9 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
 
   Shard shard2 = {aas2_1, aas2_2, aas2_3};
 
-  auto key3 = memgraph::storage::v3::PropertyValue(12);
-  auto key4 = memgraph::storage::v3::PropertyValue(13);
-  CompoundKey compound_key_2 = {key3, key4};
+  auto key3 = PropertyValue(12);
+  auto key4 = PropertyValue(13);
+  PrimaryKey compound_key_2 = {key3, key4};
   shards_for_label[compound_key_2] = shard2;
 
   return sm;
@@ -266,11 +268,11 @@ int main() {
   req.last_shard_map_version = client_shard_map.GetHlc();
 
   while (true) {
-    // Create CompoundKey
-    const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
-    const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
+    // Create PrimaryKey
+    const auto cm_key_1 = PropertyValue(3);
+    const auto cm_key_2 = PropertyValue(4);
 
-    const CompoundKey compound_key = {cm_key_1, cm_key_2};
+    const PrimaryKey compound_key = {cm_key_1, cm_key_2};
 
     // Look for Shard
     BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res =

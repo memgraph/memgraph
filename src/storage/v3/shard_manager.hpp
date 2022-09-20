@@ -193,15 +193,15 @@ class ShardManager {
   }
 
   void EnsureShardsInitialized(HeartbeatResponse hr) {
-    for (const auto rsm_uuid : hr.create_storage_rsms) {
-      InitializeRsm(rsm_uuid);
-      initialized_but_not_confirmed_rsm_.emplace(rsm_uuid);
+    for (const auto &shard_to_initialize : hr.shards_to_initialize) {
+      InitializeRsm(shard_to_initialize);
+      initialized_but_not_confirmed_rsm_.emplace(shard_to_initialize.uuid);
     }
   }
 
   /// Returns true if the RSM was able to be initialized, and false if it was already initialized
-  void InitializeRsm(boost::uuids::uuid rsm_uuid) {
-    if (rsm_map_.contains(rsm_uuid)) {
+  void InitializeRsm(coordinator::ShardToInitialize to_init) {
+    if (rsm_map_.contains(to_init.uuid)) {
       // it's not a bug for the coordinator to send us UUIDs that we have
       // already created, because there may have been lag that caused
       // the coordinator not to hear back from us.
@@ -210,27 +210,22 @@ class ShardManager {
 
     auto rsm_io = io_.ForkLocal();
     auto io_addr = rsm_io.GetAddress();
-    io_addr.unique_id = rsm_uuid;
+    io_addr.unique_id = to_init.uuid;
     rsm_io.SetAddress(io_addr);
 
     // TODO(tyler) get geers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
 
-    // TODO(tyler) change this to real shard info from Coordinator
-    LabelId primary_label{};
-    PrimaryKey min_primary_key{};
-    std::optional<PrimaryKey> max_primary_key{};
-    Config config{};
-
-    std::unique_ptr<Shard> shard = std::make_unique<Shard>(primary_label, min_primary_key, max_primary_key, config);
+    std::unique_ptr<Shard> shard =
+        std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.config);
 
     ShardRsm rsm_state{std::move(shard)};
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
-    spdlog::info("SM created a new shard with UUID {}", rsm_uuid);
+    spdlog::info("SM created a new shard with UUID {}", to_init.uuid);
 
-    rsm_map_.emplace(rsm_uuid, std::move(rsm));
+    rsm_map_.emplace(to_init.uuid, std::move(rsm));
   }
 };
 
