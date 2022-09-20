@@ -258,9 +258,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
-      spdlog::debug(
-          &"Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: "[req.transaction_id
-                                                                                                        .logical_id]);
+      spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       action_successful = false;
     } else {
       // TODO(gvolfing)
@@ -271,7 +270,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(&"Error while trying to delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to delete vertex. Transaction id: {}", req.transaction_id.logical_id);
           }
 
           break;
@@ -280,8 +279,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(
-                &"Error while trying to detach and delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to detach and delete vertex. Transaction id: {}",
+                          req.transaction_id.logical_id);
           }
 
           break;
@@ -306,8 +305,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (!vertex_from_acc || !vertex_to_acc) {
       action_successful = false;
-      spdlog::debug(
-          &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       break;
     }
 
@@ -318,7 +317,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (edge_acc.HasError()) {
       action_successful = false;
-      spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
   }
