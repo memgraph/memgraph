@@ -9,7 +9,8 @@ set(storage_v3_src_files
     schemas.cpp
     schema_validator.cpp
     shard.cpp
-    storage.cpp)
+    storage.cpp
+    shard_rsm.cpp)
 
 # ######################
 find_package(gflags REQUIRED)
