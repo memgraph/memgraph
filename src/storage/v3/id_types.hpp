@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <bit>
+#include <cstdint>
 #include <functional>
 #include <type_traits>
 
@@ -19,30 +21,36 @@
 namespace memgraph::storage::v3 {
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define STORAGE_DEFINE_ID_TYPE(name)                                                                          \
-  class name final {                                                                                          \
-   private:                                                                                                   \
-    explicit name(uint64_t id) : id_(id) {}                                                                   \
-                                                                                                              \
-   public:                                                                                                    \
-    /* Default constructor to allow serialization or preallocation. */                                        \
-    name() = default;                                                                                         \
-                                                                                                              \
-    static name FromUint(uint64_t id) { return (name){id}; }                                                  \
-    static name FromInt(int64_t id) { return (name){utils::MemcpyCast<uint64_t>(id)}; }                       \
-    uint64_t AsUint() const { return id_; }                                                                   \
-    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
-                                                                                                              \
-   private:                                                                                                   \
-    uint64_t id_;                                                                                             \
-  };                                                                                                          \
-  static_assert(std::is_trivially_copyable<name>::value, "storage::" #name " must be trivially copyable!");   \
-  inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); } \
-  inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); } \
-  inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }   \
-  inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); }   \
-  inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); } \
-  inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
+#define STORAGE_DEFINE_ID_TYPE(name)                                                                                  \
+  class name final {                                                                                                  \
+   private:                                                                                                           \
+    constexpr explicit name(uint64_t id) : id_(id) {}                                                                 \
+                                                                                                                      \
+   public:                                                                                                            \
+    /* Default constructor to allow serialization or preallocation. */                                                \
+    constexpr name() = default;                                                                                       \
+                                                                                                                      \
+    constexpr static name FromUint(uint64_t id) { return (name){id}; }                                                \
+    constexpr static name FromInt(int64_t id) { return (name){std::bit_cast<uint64_t>(id)}; }                         \
+    constexpr uint64_t AsUint() const { return id_; }                                                                 \
+    constexpr int64_t AsInt() const { return std::bit_cast<int64_t>(id_); }                                           \
+                                                                                                                      \
+   private:                                                                                                           \
+    uint64_t id_;                                                                                                     \
+  };                                                                                                                  \
+  static_assert(std::is_trivially_copyable<name>::value, "storage::" #name " must be trivially copyable!");           \
+  constexpr inline bool operator==(const name &first, const name &second) {                                           \
+    return first.AsUint() == second.AsUint();                                                                         \
+  }                                                                                                                   \
+  constexpr inline bool operator!=(const name &first, const name &second) {                                           \
+    return first.AsUint() != second.AsUint();                                                                         \
+  }                                                                                                                   \
+  constexpr inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); } \
+  constexpr inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); } \
+  constexpr inline bool operator<=(const name &first, const name &second) {                                           \
+    return first.AsUint() <= second.AsUint();                                                                         \
+  }                                                                                                                   \
+  constexpr inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
 
 STORAGE_DEFINE_ID_TYPE(Gid);
 STORAGE_DEFINE_ID_TYPE(LabelId);

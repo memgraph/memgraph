@@ -116,9 +116,8 @@ class TypedValueT {
           return hash;
         }
         case TypedValueT::Type::Vertex:
-          return value.ValueVertex().Gid().AsUint();
         case TypedValueT::Type::Edge:
-          return value.ValueEdge().Gid().AsUint();
+          return 0;
         case TypedValueT::Type::Path: {
           const auto &vertices = value.ValuePath().vertices();
           const auto &edges = value.ValuePath().edges();

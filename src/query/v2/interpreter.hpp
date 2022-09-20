@@ -30,6 +30,7 @@
 #include "query/v2/stream/streams.hpp"
 #include "query/v2/trigger.hpp"
 #include "storage/v3/isolation_level.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -165,10 +166,10 @@ struct PreparedQuery {
  * been passed to an `Interpreter` instance.
  */
 struct InterpreterContext {
-  explicit InterpreterContext(storage::v3::Storage *db, InterpreterConfig config,
+  explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory);
 
-  storage::v3::Storage *db;
+  storage::v3::Shard *db;
 
   std::optional<double> tsc_frequency{utils::GetTSCFrequency()};
   std::atomic<bool> is_shutting_down{false};
@@ -185,6 +186,22 @@ struct InterpreterContext {
   const InterpreterConfig config;
 
   query::v2::stream::Streams streams;
+
+  storage::v3::LabelId NameToLabelId(std::string_view label_name) {
+    return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
+  }
+
+  storage::v3::PropertyId NameToPropertyId(std::string_view property_name) {
+    return storage::v3::PropertyId::FromUint(query_id_mapper.NameToId(property_name));
+  }
+
+  storage::v3::EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
+    return storage::v3::EdgeTypeId::FromUint(query_id_mapper.NameToId(edge_type_name));
+  }
+
+ private:
+  // TODO Replace with local map of labels, properties and edge type ids
+  storage::v3::NameIdMapper query_id_mapper;
 };
 
 /// Function that is used to tell all active interpreters that they should stop
@@ -315,7 +332,7 @@ class Interpreter final {
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
   // move this unique_ptr into a shrared_ptr.
-  std::unique_ptr<storage::v3::Storage::Accessor> db_accessor_;
+  std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_transaction_{false};

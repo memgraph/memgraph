@@ -11,6 +11,7 @@
 
 #pragma once
 #include <concepts>
+#include <iterator>
 
 namespace memgraph::utils {
 template <typename T, typename... Args>
@@ -18,4 +19,19 @@ concept SameAsAnyOf = (std::same_as<T, Args> || ...);
 
 template <typename T>
 concept Enum = std::is_enum_v<T>;
+
+// WithRef, CanReference and Dereferenceable is based on the similarly named concepts in GCC 11.2.0
+// bits/iterator_concepts.h
+template <typename T>
+using WithRef = T &;
+
+template <typename T>
+concept CanReference = requires {
+  typename WithRef<T>;
+};
+
+template <typename T>
+concept Dereferenceable = requires(T t) {
+  { *t } -> CanReference;
+};
 }  // namespace memgraph::utils

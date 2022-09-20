@@ -60,15 +60,15 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
-RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, VerticesSkipList *vertices,
                                utils::SkipList<Edge> *edges,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config::Items items);
+                               NameIdMapper *name_id_mapper, uint64_t *edge_count, Config::Items items);
 
 /// Function used to create a snapshot using the given transaction.
 void CreateSnapshot(Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, uint64_t snapshot_retention_count,
-                    utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
+                    VerticesSkipList *vertices, utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper,
                     Indices *indices, Constraints *constraints, Config::Items items,
                     const SchemaValidator &schema_validator, const std::string &uuid, std::string_view epoch_id,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,

@@ -8,11 +8,15 @@ set(storage_v3_src_files
     durability/wal.cpp
     edge_accessor.cpp
     indices.cpp
+    key_store.cpp
+    lexicographically_ordered_vertex.cpp
     property_store.cpp
     vertex_accessor.cpp
     schemas.cpp
     schema_validator.cpp
-    storage.cpp)
+    shard.cpp
+    storage.cpp
+    shard_rsm.cpp)
 
 # #### Replication #####
 define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)

@@ -28,36 +28,36 @@ namespace memgraph::glue::v2 {
 
 /// @param storage::v3::VertexAccessor for converting to
 ///        communication::bolt::Vertex.
-/// @param storage::v3::Storage for getting label and property names.
+/// @param storage::v3::Shard for getting label and property names.
 /// @param storage::v3::View for deciding which vertex attributes are visible.
 ///
 /// @throw std::bad_alloc
 storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const storage::v3::VertexAccessor &vertex,
-                                                              const storage::v3::Storage &db, storage::v3::View view);
+                                                              const storage::v3::Shard &db, storage::v3::View view);
 
 /// @param storage::v3::EdgeAccessor for converting to communication::bolt::Edge.
-/// @param storage::v3::Storage for getting edge type and property names.
+/// @param storage::v3::Shard for getting edge type and property names.
 /// @param storage::v3::View for deciding which edge attributes are visible.
 ///
 /// @throw std::bad_alloc
 storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::EdgeAccessor &edge,
-                                                          const storage::v3::Storage &db, storage::v3::View view);
+                                                          const storage::v3::Shard &db, storage::v3::View view);
 
 /// @param query::v2::Path for converting to communication::bolt::Path.
-/// @param storage::v3::Storage for ToBoltVertex and ToBoltEdge.
+/// @param storage::v3::Shard for ToBoltVertex and ToBoltEdge.
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::Path &path, const storage::v3::Storage &db,
+storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::Path &path, const storage::v3::Shard &db,
                                                           storage::v3::View view);
 
 /// @param query::v2::TypedValue for converting to communication::bolt::Value.
-/// @param storage::v3::Storage for ToBoltVertex and ToBoltEdge.
+/// @param storage::v3::Shard for ToBoltVertex and ToBoltEdge.
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
 storage::v3::Result<communication::bolt::Value> ToBoltValue(const query::v2::TypedValue &value,
-                                                            const storage::v3::Storage &db, storage::v3::View view);
+                                                            const storage::v3::Shard &db, storage::v3::View view);
 
 query::v2::TypedValue ToTypedValue(const communication::bolt::Value &value);
 

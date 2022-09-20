@@ -25,6 +25,7 @@
 #include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/vertex.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
@@ -189,8 +190,8 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                     std::optional<uint64_t> last_loaded_timestamp, VerticesSkipList *vertices,
+                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, uint64_t *edge_count,
                      Config::Items items);
 
 /// WalFile class used to append deltas and operations to the WAL file.

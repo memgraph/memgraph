@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include "storage/v3/storage.hpp"
+#include "storage/v3/shard.hpp"
 
 namespace memgraph::storage::v3 {
 
-class Storage::ReplicationServer {
+class Shard::ReplicationServer {
  public:
-  explicit ReplicationServer(Storage *storage, io::network::Endpoint endpoint,
+  explicit ReplicationServer(Shard *shard, io::network::Endpoint endpoint,
                              const replication::ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;
@@ -41,7 +41,7 @@ class Storage::ReplicationServer {
   std::optional<communication::ServerContext> rpc_server_context_;
   std::optional<rpc::Server> rpc_server_;
 
-  Storage *storage_;
+  Shard *shard_;
 };
 
 }  // namespace memgraph::storage::v3

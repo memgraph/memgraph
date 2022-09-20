@@ -94,7 +94,7 @@ TEST_F(QueryPlanCRUDTest, ScanAll) {
     auto dba = db.Access();
     for (int i = 0; i < 42; ++i) {
       auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(v.SetPropertyAndValidate(property, storage::v3::PropertyValue(i)).HasValue());
     }
     EXPECT_FALSE(dba.Commit().HasError());
   }
@@ -120,13 +120,13 @@ TEST_F(QueryPlanCRUDTest, ScanAllByLabel) {
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) {
       auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(v.SetPropertyAndValidate(property, storage::v3::PropertyValue(i)).HasValue());
     }
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
       auto v = *dba.CreateVertexAndValidate(label, {}, {{property, storage::v3::PropertyValue(i)}});
-      ASSERT_TRUE(v.SetProperty(property, storage::v3::PropertyValue(i)).HasValue());
-      ASSERT_TRUE(v.AddLabel(label2).HasValue());
+      ASSERT_TRUE(v.SetPropertyAndValidate(property, storage::v3::PropertyValue(i)).HasValue());
+      ASSERT_TRUE(v.AddLabelAndValidate(label2).HasValue());
     }
     EXPECT_FALSE(dba.Commit().HasError());
   }

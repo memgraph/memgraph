@@ -17,6 +17,7 @@
 #include "storage/v3/edge_ref.hpp"
 
 #include "storage/v3/config.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/result.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/transaction.hpp"
@@ -31,29 +32,27 @@ struct Constraints;
 
 class EdgeAccessor final {
  private:
-  friend class Storage;
+  friend class Shard;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config,
-               const SchemaValidator &schema_validator, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, VertexId from_vertex, VertexId to_vertex, Transaction *transaction,
+               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
-        from_vertex_(from_vertex),
-        to_vertex_(to_vertex),
+        from_vertex_(std::move(from_vertex)),
+        to_vertex_(std::move(to_vertex)),
         transaction_(transaction),
         indices_(indices),
         constraints_(constraints),
         config_(config),
-        schema_validator_{&schema_validator},
         for_deleted_(for_deleted) {}
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
 
-  VertexAccessor FromVertex() const;
+  const VertexId &FromVertex() const;
 
-  VertexAccessor ToVertex() const;
+  const VertexId &ToVertex() const;
 
   EdgeTypeId EdgeType() const { return edge_type_; }
 
@@ -88,13 +87,12 @@ class EdgeAccessor final {
  private:
   EdgeRef edge_;
   EdgeTypeId edge_type_;
-  Vertex *from_vertex_;
-  Vertex *to_vertex_;
+  VertexId from_vertex_;
+  VertexId to_vertex_;
   Transaction *transaction_;
   Indices *indices_;
   Constraints *constraints_;
   Config::Items config_;
-  const SchemaValidator *schema_validator_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this

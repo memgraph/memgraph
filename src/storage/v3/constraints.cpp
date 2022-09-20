@@ -57,7 +57,6 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   bool deleted{false};
   bool has_label{false};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     delta = vertex.delta;
     deleted = vertex.deleted;
     has_label = VertexHasLabel(vertex, label);
@@ -142,7 +141,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
   bool deleted{false};
   Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = VertexHasLabel(vertex, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
@@ -280,7 +278,7 @@ void UniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const Transacti
 }
 
 utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> UniqueConstraints::CreateConstraint(
-    LabelId label, const std::set<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices) {
+    LabelId label, const std::set<PropertyId> &properties, VerticesSkipList::Accessor vertices) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -301,7 +299,8 @@ utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> Uniqu
   {
     auto acc = constraint->second.access();
 
-    for (const Vertex &vertex : vertices) {
+    for (const auto &lo_vertex : vertices) {
+      const auto &vertex = lo_vertex.vertex;
       if (vertex.deleted || !VertexHasLabel(vertex, label)) {
         continue;
       }

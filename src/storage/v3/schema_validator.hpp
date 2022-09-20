@@ -27,7 +27,7 @@ struct SchemaViolation {
     NO_SCHEMA_DEFINED_FOR_LABEL,
     VERTEX_PROPERTY_WRONG_TYPE,
     VERTEX_UPDATE_PRIMARY_KEY,
-    VERTEX_MODIFY_PRIMARY_LABEL,
+    VERTEX_UPDATE_PRIMARY_LABEL,
     VERTEX_SECONDARY_LABEL_IS_PRIMARY,
   };
 
@@ -61,6 +61,20 @@ class SchemaValidator {
 
  private:
   Schemas &schemas_;
+};
+
+struct VertexValidator {
+  explicit VertexValidator(const SchemaValidator &schema_validator, LabelId primary_label);
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(PropertyId property_id) const;
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateAddLabel(LabelId label) const;
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateRemoveLabel(LabelId label) const;
+
+  const SchemaValidator *schema_validator;
+
+  LabelId primary_label_;
 };
 
 template <typename TValue>

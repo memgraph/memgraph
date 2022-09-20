@@ -13,9 +13,10 @@
 
 #include <limits>
 
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -52,7 +53,6 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
@@ -105,7 +105,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     deleted = vertex.deleted;
@@ -164,7 +163,6 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
   bool has_label{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     delta = vertex.delta;
@@ -216,7 +214,6 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
   bool current_value_equal_to_value = value.IsNull();
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
@@ -272,7 +269,7 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   acc.insert(Entry{vertex, tx.start_timestamp});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
@@ -281,7 +278,8 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -329,7 +327,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -348,7 +346,7 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ = VertexAccessor{current_vertex_,     self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_,      *self_->schema_validator_};
+                                                self_->constraints_, self_->config_,      *self_->vertex_validator_};
       break;
     }
   }
@@ -356,7 +354,7 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
 
 LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
                                Transaction *transaction, Indices *indices, Constraints *constraints,
-                               Config::Items config, const SchemaValidator &schema_validator)
+                               Config::Items config, const VertexValidator &vertex_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
@@ -364,7 +362,7 @@ LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, 
       indices_(indices),
       constraints_(constraints),
       config_(config),
-      schema_validator_(&schema_validator) {}
+      vertex_validator_(&vertex_validator) {}
 
 void LabelIndex::RunGC() {
   for (auto &index_entry : index_) {
@@ -419,7 +417,7 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
@@ -429,7 +427,8 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -481,7 +480,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -521,7 +520,7 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_, *self_->schema_validator_);
+                                                self_->constraints_, self_->config_, *self_->vertex_validator_);
       break;
     }
   }
@@ -544,7 +543,7 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                        Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       Config::Items config, const SchemaValidator &schema_validator)
+                                       Config::Items config, const VertexValidator &vertex_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
@@ -555,7 +554,7 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
       indices_(indices),
       constraints_(constraints),
       config_(config),
-      schema_validator_(&schema_validator) {
+      vertex_validator_(&vertex_validator) {
   // We have to fix the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
