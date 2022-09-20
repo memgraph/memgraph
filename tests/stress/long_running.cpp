@@ -254,6 +254,22 @@ class GraphSession {
     Execute(fmt::format("MATCH ()-[e]->() WHERE e.id > {} AND e.id < {} SET e.value = {}", lo, hi, num));
   }
 
+  void CheckGraphProjection() {
+    uint64_t vertex_id = *vertices_.rbegin();
+    uint64_t lo = std::floor(GetRandom() * vertex_id);
+    uint64_t hi = std::floor(lo + vertex_id * 0.01);
+
+    Execute(fmt::format(
+        "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.nodes as nodes "
+        "UNWIND nodes as n RETURN n.x "
+        "as x ORDER BY x DESC",
+        lo, hi));
+    Execute(fmt::format(
+        "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.edges as edges "
+        "UNWIND edges as e RETURN e.prop as y ORDER BY y DESC",
+        lo, hi));
+  }
+
   /** Checks if the local info corresponds to DB state */
   void VerifyGraph() {
     // helper lambda for set verification
@@ -357,6 +373,7 @@ class GraphSession {
       } else {
         CreateVertices(1);
       }
+      CheckGraphProjection();
     }
 
     // final verification
