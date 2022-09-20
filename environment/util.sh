@@ -1,11 +1,11 @@
 #!/bin/bash
 
-operating_system() {
+function operating_system() {
     grep -E '^(VERSION_)?ID=' /etc/os-release | \
     sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
 }
 
-check_operating_system() {
+function check_operating_system() {
     if [ "$(operating_system)" != "$1" ]; then
         echo "Not the right operating system!"
         exit 1
@@ -14,20 +14,22 @@ check_operating_system() {
     fi
 }
 
-architecture() {
+function architecture() {
     uname -m
 }
 
 check_architecture() {
-    if [ "$(architecture)" != "$1" ]; then
-        echo "Not the right architecture!"
-        exit 1
-    else
-        echo "The right architecture."
-    fi
+    for arch in "$@"; do
+        if [ "$(architecture)" = "$arch" ]; then
+            echo "The right architecture!"
+            exit 0
+        fi
+    done
+    echo "Not the right architecture!"
+    exit 1
 }
 
-check_all_yum() {
+function check_all_yum() {
     local missing=""
     for pkg in $1; do
         if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
@@ -40,7 +42,7 @@ check_all_yum() {
     fi
 }
 
-check_all_dpkg() {
+function check_all_dpkg() {
     local missing=""
     for pkg in $1; do
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
@@ -53,7 +55,7 @@ check_all_dpkg() {
     fi
 }
 
-check_all_dnf() {
+function check_all_dnf() {
     local missing=""
     for pkg in $1; do
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
@@ -65,7 +67,8 @@ check_all_dnf() {
         exit 1
     fi
 }
-install_all_apt() {
+
+function install_all_apt() {
     for pkg in $1; do
         apt install -y "$pkg"
     done
