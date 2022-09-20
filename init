@@ -5,6 +5,9 @@ cd "$DIR"
 
 source "$DIR/environment/util.sh"
 
+DISTRO=$(operating_system)
+ARCHITECTURE=$(architecture)
+
 function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Check for missing packages and setup the project.\n"
@@ -64,8 +67,6 @@ else
     done
 fi
 
-DISTRO=$(operating_system)
-ARCHITECTURE=$(architecture)
 if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
@@ -109,6 +110,12 @@ if [[ "$setup_libs" == "true" ]]; then
     ./cleanup.sh
     ./setup.sh
     cd ..
+fi
+
+# Fix for centos 7 during release
+if [ "${ARCHITECTURE}" = "centos-7" ]; then
+  python3 -m pip uninstall virtualenv
+  python3 -m pip install virtualenv
 fi
 
 # setup gql_behave dependencies

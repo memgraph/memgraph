@@ -6,7 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 check_operating_system "debian-11"
-check_architecture "arm64"
+check_architecture "arm64" "aarch64"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
