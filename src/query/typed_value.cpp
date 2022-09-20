@@ -22,6 +22,7 @@
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -215,7 +216,8 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       new (&duration_v) utils::Duration(other.duration_v);
       return;
     case Type::Graph:
-      new (&graph_v) Graph(other.graph_v, memory_);
+      auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+      new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
@@ -267,7 +269,12 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       new (&duration_v) utils::Duration(other.duration_v);
       break;
     case Type::Graph:
-      new (&graph_v) Graph(std::move(other.graph_v), memory_);
+      if (other.GetMemoryResource() == memory_) {
+        new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+      } else {
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
+        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+      }
   }
   other.DestroyValue();
 }
@@ -336,7 +343,22 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, graph_v)
+
+Graph &TypedValue::ValueGraph() {
+  if (type_ != Type::Graph) {
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
+  }
+  return *graph_v;
+}
+
+const Graph &TypedValue::ValueGraph() const {
+  if (type_ != Type::Graph) {
+    throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::Graph);
+  }
+  return *graph_v;
+}
+
+bool TypedValue::IsGraph() const { return type_ == Type::Graph; }
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
 
@@ -530,9 +552,11 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case TypedValue::Type::Path:
         new (&path_v) Path(other.path_v, memory_);
         return *this;
-      case TypedValue::Type::Graph:
-        new (&graph_v) Graph(other.graph_v, memory_);
+      case TypedValue::Type::Graph: {
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
         return *this;
+      }
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
         return *this;
@@ -605,7 +629,12 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         new (&duration_v) utils::Duration(other.duration_v);
         break;
       case Type::Graph:
-        new (&graph_v) Graph(std::move(other.graph_v), memory_);
+        if (other.GetMemoryResource() == memory_) {
+          new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+        } else {
+          auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
+          new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+        }
         break;
     }
     other.DestroyValue();
@@ -625,31 +654,36 @@ void TypedValue::DestroyValue() {
       // we need to call destructors for non primitive types since we used
       // placement new
     case Type::String:
-      string_v.~TString();
+      std::destroy_at(&string_v);
       break;
     case Type::List:
-      list_v.~TVector();
+      std::destroy_at(&list_v);
       break;
     case Type::Map:
-      map_v.~TMap();
+      std::destroy_at(&map_v);
       break;
     case Type::Vertex:
-      vertex_v.~VertexAccessor();
+      std::destroy_at(&vertex_v);
       break;
     case Type::Edge:
-      edge_v.~EdgeAccessor();
+      std::destroy_at(&edge_v);
       break;
     case Type::Path:
-      path_v.~Path();
+      std::destroy_at(&path_v);
       break;
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
     case Type::Duration:
       break;
-    case Type::Graph:
-      graph_v.~Graph();
+    case Type::Graph: {
+      auto *graph = graph_v.release();
+      std::destroy_at(&graph_v);
+      if (graph) {
+        utils::Allocator<Graph>(memory_).delete_object(graph);
+      }
       break;
+    }
   }
 
   type_ = TypedValue::Type::Null;
