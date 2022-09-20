@@ -20,6 +20,7 @@
 
 #include "gtest/gtest.h"
 
+#include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -48,8 +49,13 @@ class AllTypesFixture : public testing::Test {
                                                            {"e", TypedValue()}});
     auto vertex = dba.InsertVertex();
     values_.emplace_back(vertex);
-    values_.emplace_back(*dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et")));
+    auto edge = *dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
+    values_.emplace_back(edge);
     values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
+    memgraph::query::Graph graph{memgraph::utils::NewDeleteResource()};
+    graph.InsertVertex(vertex);
+    graph.InsertEdge(edge);
+    values_.emplace_back(std::move(graph));
   }
 };
 
@@ -526,6 +532,18 @@ TEST_F(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &original = value.ValuePath();
       const auto &moved = move_constructed_value.ValuePath();
       const auto &copied = copy_constructed_value.ValuePath();
+      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(moved.vertices(), original.vertices());
+      EXPECT_EQ(moved.edges(), original.edges());
+      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.vertices(), original.vertices());
+      EXPECT_EQ(copied.edges(), original.edges());
+      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+    } else if (value.type() == TypedValue::Type::Graph) {
+      ASSERT_EQ(move_constructed_value.type(), value.type());
+      const auto &original = value.ValueGraph();
+      const auto &moved = move_constructed_value.ValueGraph();
+      const auto &copied = copy_constructed_value.ValueGraph();
       EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
