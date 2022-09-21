@@ -346,6 +346,9 @@ target_link_libraries(${test_prefix}storage_v3_vertex_accessors mg-storage-v3)
 add_unit_test(storage_v3_edge.cpp)
 target_link_libraries(${test_prefix}storage_v3_edge mg-storage-v3)
 
+add_unit_test(storage_v3_isolation_level.cpp)
+target_link_libraries(${test_prefix}storage_v3_isolation_level mg-storage-v3)
+
 # Test mg-query-v2
 add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
 target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)

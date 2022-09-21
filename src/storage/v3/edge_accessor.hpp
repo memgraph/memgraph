@@ -28,7 +28,6 @@ namespace memgraph::storage::v3 {
 struct Vertex;
 class VertexAccessor;
 struct Indices;
-struct Constraints;
 
 class EdgeAccessor final {
  private:
@@ -36,14 +35,13 @@ class EdgeAccessor final {
 
  public:
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, VertexId from_vertex, VertexId to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
+               Indices *indices, Config::Items config, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(std::move(from_vertex)),
         to_vertex_(std::move(to_vertex)),
         transaction_(transaction),
         indices_(indices),
-        constraints_(constraints),
         config_(config),
         for_deleted_(for_deleted) {}
 
@@ -93,7 +91,6 @@ class EdgeAccessor final {
   VertexId to_vertex_;
   Transaction *transaction_;
   Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
 
   // if the accessor was created for a deleted edge.

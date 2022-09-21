@@ -11,9 +11,7 @@
 
 #pragma once
 
-#include <atomic>
 #include <memory>
-
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
@@ -26,6 +24,7 @@ namespace memgraph::storage::v3 {
 struct Vertex;
 struct Edge;
 struct Delta;
+struct CommitInfo;
 
 // This class stores one of three pointers (`Delta`, `Vertex` and `Edge`)
 // without using additional memory for storing the type. The type is stored in
@@ -63,31 +62,30 @@ class PreviousPtr {
     Edge *edge{nullptr};
   };
 
-  PreviousPtr() : storage_(0) {}
+  PreviousPtr() {}
 
-  PreviousPtr(const PreviousPtr &other) noexcept : storage_(other.storage_.load(std::memory_order_acquire)) {}
+  PreviousPtr(const PreviousPtr &other) noexcept : storage_(other.storage_) {}
   PreviousPtr(PreviousPtr &&) = delete;
   PreviousPtr &operator=(const PreviousPtr &) = delete;
   PreviousPtr &operator=(PreviousPtr &&) = delete;
   ~PreviousPtr() = default;
 
   Pointer Get() const {
-    uintptr_t value = storage_.load(std::memory_order_acquire);
-    if (value == 0) {
+    if (storage_ == 0) {
       return {};
     }
-    uintptr_t type = value & kMask;
+    uintptr_t type = storage_ & kMask;
     if (type == kDelta) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Delta *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Delta *>(storage_ & ~kMask)};
     }
     if (type == kVertex) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Vertex *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Vertex *>(storage_ & ~kMask)};
     }
     if (type == kEdge) {
       // NOLINTNEXTLINE(performance-no-int-to-ptr)
-      return Pointer{reinterpret_cast<Edge *>(value & ~kMask)};
+      return Pointer{reinterpret_cast<Edge *>(storage_ & ~kMask)};
     }
     LOG_FATAL("Invalid pointer type!");
   }
@@ -95,23 +93,23 @@ class PreviousPtr {
   void Set(Delta *delta) {
     auto value = reinterpret_cast<uintptr_t>(delta);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kDelta, std::memory_order_release);
+    storage_ = value | kDelta;
   }
 
   void Set(Vertex *vertex) {
     auto value = reinterpret_cast<uintptr_t>(vertex);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kVertex, std::memory_order_release);
+    storage_ = value | kVertex;
   }
 
   void Set(Edge *edge) {
     auto value = reinterpret_cast<uintptr_t>(edge);
     MG_ASSERT((value & kMask) == 0, "Invalid pointer!");
-    storage_.store(value | kEdge, std::memory_order_release);
+    storage_ = value | kEdge;
   }
 
  private:
-  std::atomic<uintptr_t> storage_;
+  uintptr_t storage_{0};
 };
 
 inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) {
@@ -159,47 +157,47 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteObjectTag /*unused*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
+  Delta(DeleteObjectTag /*unused*/, CommitInfo *commit_info, uint64_t command_id)
+      : action(Action::DELETE_OBJECT), commit_info(commit_info), command_id(command_id) {}
 
-  Delta(RecreateObjectTag /*unused*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::RECREATE_OBJECT), timestamp(timestamp), command_id(command_id) {}
+  Delta(RecreateObjectTag /*unused*/, CommitInfo *commit_info, uint64_t command_id)
+      : action(Action::RECREATE_OBJECT), commit_info(commit_info), command_id(command_id) {}
 
-  Delta(AddLabelTag /*unused*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::ADD_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
+  Delta(AddLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
+      : action(Action::ADD_LABEL), commit_info(commit_info), command_id(command_id), label(label) {}
 
-  Delta(RemoveLabelTag /*unused*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::REMOVE_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
+  Delta(RemoveLabelTag /*unused*/, LabelId label, CommitInfo *commit_info, uint64_t command_id)
+      : action(Action::REMOVE_LABEL), commit_info(commit_info), command_id(command_id), label(label) {}
 
-  Delta(SetPropertyTag /*unused*/, PropertyId key, const PropertyValue &value, std::atomic<uint64_t> *timestamp,
+  Delta(SetPropertyTag /*unused*/, PropertyId key, const PropertyValue &value, CommitInfo *commit_info,
         uint64_t command_id)
-      : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, value}) {}
+      : action(Action::SET_PROPERTY), commit_info(commit_info), command_id(command_id), property({key, value}) {}
 
-  Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(AddInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
+        uint64_t command_id)
       : action(Action::ADD_IN_EDGE),
-        timestamp(timestamp),
+        commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(AddOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
+        uint64_t command_id)
       : action(Action::ADD_OUT_EDGE),
-        timestamp(timestamp),
+        commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveInEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
+        uint64_t command_id)
       : action(Action::REMOVE_IN_EDGE),
-        timestamp(timestamp),
+        commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
-  Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge,
-        std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveOutEdgeTag /*unused*/, EdgeTypeId edge_type, VertexId vertex_id, EdgeRef edge, CommitInfo *commit_info,
+        uint64_t command_id)
       : action(Action::REMOVE_OUT_EDGE),
-        timestamp(timestamp),
+        commit_info(commit_info),
         command_id(command_id),
         vertex_edge({edge_type, std::move(vertex_id), edge}) {}
 
@@ -230,10 +228,10 @@ struct Delta {
   Action action;
 
   // TODO: optimize with in-place copy
-  std::atomic<uint64_t> *timestamp;
+  CommitInfo *commit_info;
   uint64_t command_id;
   PreviousPtr prev;
-  std::atomic<Delta *> next{nullptr};
+  Delta *next{nullptr};
 
   union {
     LabelId label;

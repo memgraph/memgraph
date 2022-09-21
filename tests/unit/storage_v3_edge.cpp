@@ -44,6 +44,12 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
     return acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, key}});
   }
 
+  coordinator::Hlc GetNextHlc() {
+    ++last_hlc.logical_id;
+    last_hlc.coordinator_wall_clock += std::chrono::seconds(10);
+    return last_hlc;
+  }
+
   static constexpr int64_t min_primary_key_value{0};
   static constexpr int64_t max_primary_key_value{10000};
   const LabelId primary_label{LabelId::FromUint(1)};
@@ -52,6 +58,7 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
               std::vector{PropertyValue{max_primary_key_value}},
               Config{.items = {.properties_on_edges = GetParam()}}};
   const PropertyId primary_property{PropertyId::FromUint(2)};
+  coordinator::Hlc last_hlc{0, io::Time{}};
 };
 
 INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
@@ -65,7 +72,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
   const PropertyValue non_existing_key{2};
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(0U);
-  auto acc = store.Access();
+  auto acc = store.Access(GetNextHlc());
   const auto [from_id, to_id] =
       std::invoke([this, &from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
         auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
@@ -77,11 +84,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
   const VertexId to_id_with_different_label{NameToLabelId("different_label"), to_id.primary_key};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-  ASSERT_FALSE(acc.Commit().HasError());
+  acc.Commit(GetNextHlc());
 
   // Create edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex({to_id.primary_key}, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -157,12 +164,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from.has_value());
@@ -269,7 +276,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 }
 
@@ -281,17 +288,17 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
 //   // Create vertices
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_to = acc.CreateVertex();
 //     auto vertex_from = acc.CreateVertex();
 //     gid_to = vertex_to.Gid();
 //     gid_from = vertex_from.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -354,12 +361,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -441,7 +448,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -452,15 +459,15 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
 //   // Create vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid_vertex = vertex.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -513,12 +520,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -586,7 +593,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -598,17 +605,17 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
 //   // Create vertices
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.CreateVertex();
 //     auto vertex_to = acc.CreateVertex();
 //     gid_from = vertex_from.Gid();
 //     gid_to = vertex_to.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -676,7 +683,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -700,12 +707,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -768,12 +775,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -855,7 +862,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -865,7 +872,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
   const PropertyValue from_key{0};
   const PropertyValue to_key{1};
   const PropertyValue non_existing_key{2};
-  auto acc = store.Access();
+  auto acc = store.Access(GetNextHlc());
   const auto [from_id, to_id] =
       std::invoke([this, &from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
         auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
@@ -879,11 +886,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
   const VertexId to_id_with_different_label{NameToLabelId("different_label"), to_id.primary_key};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-  ASSERT_FALSE(acc.Commit().HasError());
+  acc.Commit(GetNextHlc());
 
   // Create edge but abort
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex({to_id.primary_key}, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -966,7 +973,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -990,12 +997,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Create edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1073,12 +1080,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1165,7 +1172,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 }
 
@@ -1176,15 +1183,15 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
 //   // Create vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid_vertex = vertex.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1242,7 +1249,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1256,12 +1263,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1314,12 +1321,12 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1391,7 +1398,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -1401,7 +1408,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
   const PropertyValue from_key{0};
   const PropertyValue to_key{max_primary_key_value};
   const PropertyValue non_existing_key{2};
-  auto acc = store.Access();
+  auto acc = store.Access(GetNextHlc());
   const auto from_id = std::invoke(
       [this, &from_key, &acc]() mutable -> VertexId { return CreateVertex(acc, from_key)->Id(View::NEW).GetValue(); });
   const VertexId to_id{primary_label, {to_key}};
@@ -1411,11 +1418,11 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
   const VertexId to_id_with_different_label{NameToLabelId("different_label"), to_id.primary_key};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-  ASSERT_FALSE(acc.Commit().HasError());
+  acc.Commit(GetNextHlc());
 
   // Create edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
     ASSERT_FALSE(acc.FindVertex(to_id.primary_key, View::NEW).has_value());
@@ -1463,12 +1470,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {et, other_et}, &to_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
 
@@ -1515,12 +1522,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(View::NEW, {et, other_et}, &to_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Delete edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
 
@@ -1562,12 +1569,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_from->OutEdges(View::OLD, {et, other_et}, &to_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
 
@@ -1581,7 +1588,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_from->OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_from->OutDegree(View::NEW), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 }
 
@@ -1593,17 +1600,17 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
 //   // Create vertices
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_to = acc.CreateVertex();
 //     auto vertex_from = acc.CreateVertex();
 //     gid_from = vertex_from.Gid();
 //     gid_to = vertex_to.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -1666,12 +1673,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -1753,12 +1760,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -1820,12 +1827,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -1849,7 +1856,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -1860,15 +1867,15 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
 //   // Create vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid_vertex = vertex.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1921,12 +1928,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -1998,12 +2005,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -2055,12 +2062,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -2074,7 +2081,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -2086,17 +2093,17 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
 //   // Create vertices
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.CreateVertex();
 //     auto vertex_to = acc.CreateVertex();
 //     gid_from = vertex_from.Gid();
 //     gid_to = vertex_to.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2159,12 +2166,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2246,12 +2253,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete the edge, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2318,7 +2325,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2400,12 +2407,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 //     ASSERT_EQ(vertex_to->InEdges(View::NEW, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete the edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2467,12 +2474,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &from_id)->size(), 1);
 //     ASSERT_EQ(vertex_to->InEdges(View::OLD, {}, &to_id)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -2496,7 +2503,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -2506,7 +2513,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
   const PropertyValue from_key{max_primary_key_value};
   const PropertyValue to_key{0};
   const PropertyValue non_existing_key{2};
-  auto acc = store.Access();
+  auto acc = store.Access(GetNextHlc());
   const auto to_id = std::invoke(
       [this, &to_key, &acc]() mutable -> VertexId { return CreateVertex(acc, to_key)->Id(View::NEW).GetValue(); });
   const VertexId from_id{primary_label, {from_key}};
@@ -2516,10 +2523,10 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
   const VertexId from_id_with_different_label{NameToLabelId("different_label"), from_id.primary_key};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
-  ASSERT_FALSE(acc.Commit().HasError());
+  acc.Commit(GetNextHlc());
   // Create edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
@@ -2563,12 +2570,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {}, &non_existing_id)->size(), 0);
     ASSERT_EQ(vertex_to->OutEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
 
     // Check edges without filters
@@ -2623,12 +2630,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Delete the edge, but abort the transaction
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
@@ -2674,7 +2681,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
@@ -2730,12 +2737,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Delete the edge
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
@@ -2786,12 +2793,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(View::OLD, {et, other_et}, &from_id_with_different_label)->size(), 0);
     ASSERT_EQ(vertex_to->InEdges(View::NEW, {et, other_et}, &from_id_with_different_label)->size(), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check whether the edge exists
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_to);
 
@@ -2805,7 +2812,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 }
 
@@ -2816,15 +2823,15 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
 //   // Create vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid_vertex = vertex.Gid();
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Create edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -2877,12 +2884,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->InEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -2954,12 +2961,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete the edge, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -3016,7 +3023,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -3088,12 +3095,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 //     ASSERT_EQ(vertex->OutEdges(View::NEW, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Delete the edge
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -3145,12 +3152,12 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {}, &*vertex)->size(), 1);
 //     ASSERT_EQ(vertex->OutEdges(View::OLD, {other_et}, &*vertex)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check whether the edge exists
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid_vertex, View::NEW);
 //     ASSERT_TRUE(vertex);
 
@@ -3164,7 +3171,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 //     ASSERT_EQ(vertex->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 // }
 
@@ -3176,14 +3183,13 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
   const PropertyValue non_existing_key{2};
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(0U);
-  auto acc = store.Access();
   const VertexId from_id{primary_label, {from_key}};
   const VertexId to_id{primary_label, {to_key}};
   const VertexId non_existing_id{primary_label, {non_existing_key}};
 
   // Create dataset
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = CreateVertex(acc, from_key).GetValue();
     auto vertex_to = CreateVertex(acc, to_key).GetValue();
 
@@ -3224,12 +3230,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Detach delete vertex
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -3287,12 +3293,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    acc.Commit(GetNextHlc());
   }
 
   // Check dataset
   {
-    auto acc = store.Access();
+    auto acc = store.Access(GetNextHlc());
     auto vertex_from = acc.FindVertex(from_id.primary_key, View::NEW);
     auto vertex_to = acc.FindVertex(to_id.primary_key, View::NEW);
     ASSERT_FALSE(vertex_from);
@@ -3318,7 +3324,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Create dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.CreateVertex();
 //     auto vertex2 = acc.CreateVertex();
 
@@ -3436,12 +3442,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       }
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Detach delete vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_TRUE(vertex1);
@@ -3570,12 +3576,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(e.ToVertex(), *vertex2);
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_FALSE(vertex1);
@@ -3639,7 +3645,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Create dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.CreateVertex();
 //     auto vertex_to = acc.CreateVertex();
 
@@ -3683,12 +3689,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(vertex_to.OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to.OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Detach delete vertex, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -3751,7 +3757,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Check dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -3787,12 +3793,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Detach delete vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_TRUE(vertex_from);
@@ -3850,12 +3856,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(vertex_to->OutEdges(View::NEW)->size(), 0);
 //     ASSERT_EQ(*vertex_to->OutDegree(View::NEW), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex_from = acc.FindVertex(gid_from, View::NEW);
 //     auto vertex_to = acc.FindVertex(gid_to, View::NEW);
 //     ASSERT_FALSE(vertex_from);
@@ -3881,7 +3887,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Create dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.CreateVertex();
 //     auto vertex2 = acc.CreateVertex();
 
@@ -3999,12 +4005,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       }
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Detach delete vertex, but abort the transaction
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_TRUE(vertex1);
@@ -4138,7 +4144,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Check dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_TRUE(vertex1);
@@ -4303,12 +4309,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       }
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Detach delete vertex
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_TRUE(vertex1);
@@ -4437,12 +4443,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(e.ToVertex(), *vertex2);
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check dataset
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex1 = acc.FindVertex(gid_vertex1, View::NEW);
 //     auto vertex2 = acc.FindVertex(gid_vertex2, View::NEW);
 //     ASSERT_FALSE(vertex1);
@@ -4503,7 +4509,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   memgraph::storage::Storage store({.items = {.properties_on_edges = true}});
 //   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -4543,10 +4549,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(properties[property].ValueString(), "nandare");
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4575,7 +4581,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     acc.Abort();
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4604,10 +4610,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_TRUE(old_value->IsNull());
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4635,7 +4641,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Create the vertex.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -4643,12 +4649,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(edge.EdgeType(), et);
 //     ASSERT_EQ(edge.FromVertex(), vertex);
 //     ASSERT_EQ(edge.ToVertex(), vertex);
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Set property 5 to "nandare", but abort the transaction.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4689,7 +4695,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Check that property 5 is null.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4711,7 +4717,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Set property 5 to "nandare".
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4747,12 +4753,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //       ASSERT_EQ(properties[property].ValueString(), "nandare");
 //     }
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check that property 5 is "nandare".
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4783,7 +4789,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Set property 5 to null, but abort the transaction.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4825,7 +4831,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Check that property 5 is "nandare".
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4856,7 +4862,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   // Set property 5 to null.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4893,12 +4899,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(edge.GetProperty(property, View::NEW)->IsNull());
 //     ASSERT_EQ(edge.Properties(View::NEW)->size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
 //   // Check that property 5 is null.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -4924,7 +4930,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   memgraph::storage::Storage store({.items = {.properties_on_edges = true}});
 //   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -4932,11 +4938,11 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(edge.EdgeType(), et);
 //     ASSERT_EQ(edge.FromVertex(), vertex);
 //     ASSERT_EQ(edge.ToVertex(), vertex);
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 
-//   auto acc1 = store.Access();
-//   auto acc2 = store.Access();
+//   auto acc1 = store.Access(GetNextHlc());
+//   auto acc2 = store.Access(GetNextHlc());
 
 //   // Set property 1 to 123 in accessor 1.
 //   {
@@ -4996,12 +5002,12 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   }
 
 //   // Finalize both accessors.
-//   ASSERT_FALSE(acc1.Commit().HasError());
+//   ASSERT_FALSE(acc1.Commit(GetNextHlc());
 //   acc2.Abort();
 
 //   // Check which properties exist.
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5035,7 +5041,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   auto property1 = store.NameToProperty("property1");
 //   auto property2 = store.NameToProperty("property2");
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -5048,10 +5054,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(old_value.HasValue());
 //     ASSERT_TRUE(old_value->IsNull());
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5084,7 +5090,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     acc.Abort();
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5093,10 +5099,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(old_value.HasValue());
 //     ASSERT_TRUE(old_value->IsNull());
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5127,10 +5133,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_TRUE(edge.GetProperty(property2, View::NEW)->IsNull());
 //     ASSERT_EQ(edge.Properties(View::NEW).GetValue().size(), 0);
 
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5148,7 +5154,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   memgraph::storage::Storage store({.items = {.properties_on_edges = false}});
 //   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -5156,10 +5162,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(edge.EdgeType(), et);
 //     ASSERT_EQ(edge.FromVertex(), vertex);
 //     ASSERT_EQ(edge.ToVertex(), vertex);
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5190,7 +5196,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     acc.Abort();
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5216,7 +5222,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   memgraph::storage::Storage store({.items = {.properties_on_edges = false}});
 //   memgraph::storage::Gid gid;
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.CreateVertex();
 //     gid = vertex.Gid();
 //     auto et = acc.NameToEdgeType("et5");
@@ -5224,10 +5230,10 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //     ASSERT_EQ(edge.EdgeType(), et);
 //     ASSERT_EQ(edge.FromVertex(), vertex);
 //     ASSERT_EQ(edge.ToVertex(), vertex);
-//     ASSERT_FALSE(acc.Commit().HasError());
+//     acc.Commit(GetNextHlc());
 //   }
 //   {
-//     auto acc = store.Access();
+//     auto acc = store.Access(GetNextHlc());
 //     auto vertex = acc.FindVertex(gid, View::OLD);
 //     ASSERT_TRUE(vertex);
 //     auto edge = vertex->OutEdges(View::NEW).GetValue()[0];
@@ -5243,7 +5249,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
 //   auto property = store.NameToProperty("property");
 
-//   auto acc = store.Access();
+//   auto acc = store.Access(GetNextHlc());
 //   auto vertex = acc.CreateVertex();
 //   auto edge = acc.CreateEdge(&vertex, &vertex, acc.NameToEdgeType("edge"));
 //   ASSERT_TRUE(edge.HasValue());
@@ -5267,6 +5273,6 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 //   ASSERT_EQ(edge->Properties(View::NEW)->size(), 1);
 //   ASSERT_EQ(*edge->GetProperty(property, View::NEW), memgraph::storage::PropertyValue("value"));
 
-//   ASSERT_FALSE(acc.Commit().HasError());
+//   acc.Commit(GetNextHlc());
 // }
 }  // namespace memgraph::storage::v3::tests

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
 #include <iostream>
 #include <optional>
 #include <thread>
@@ -126,17 +127,15 @@ bool AttemtpToCreateVertex(ShardClient &client, int64_t value) {
   create_req.new_vertices = {vertex};
   create_req.transaction_id.logical_id = GetTransactionId();
 
-  while (true) {
-    auto write_res = client.SendWriteRequest(create_req);
-    if (write_res.HasError()) {
-      continue;
-    }
+  auto write_res = client.SendWriteRequest(create_req);
+  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateVerticesResponse>(write_res.GetValue()).success,
+            "Unexpected failure");
 
-    auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<msgs::CreateVerticesResponse>(write_response_result);
-
-    return write_response.success;
-  }
+  auto commit_req = msgs::CommitRequest{create_req.transaction_id, msgs::Hlc{.logical_id = GetTransactionId()}};
+  auto commit_res = client.SendWriteRequest(commit_req);
+  MG_ASSERT(commit_res.HasValue() && std::get<msgs::CommitResponse>(commit_res.GetValue()).success,
+            "Unexpected failure");
+  return true;
 }
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
@@ -161,17 +160,15 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   create_req.edges = {edge};
   create_req.transaction_id.logical_id = GetTransactionId();
 
-  while (true) {
-    auto write_res = client.SendWriteRequest(create_req);
-    if (write_res.HasError()) {
-      continue;
-    }
+  auto write_res = client.SendWriteRequest(create_req);
+  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateEdgesResponse>(write_res.GetValue()).success,
+            "Unexpected failure");
 
-    auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
-
-    return write_response.success;
-  }
+  auto commit_req = msgs::CommitRequest{create_req.transaction_id, msgs::Hlc{.logical_id = GetTransactionId()}};
+  auto commit_res = client.SendWriteRequest(commit_req);
+  MG_ASSERT(commit_res.HasValue() && std::get<msgs::CommitResponse>(commit_res.GetValue()).success,
+            "Unexpected failure");
+  return true;
 }
 
 std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client,
@@ -298,12 +295,16 @@ int TestMessages() {
   auto simulator = Simulator(config);
 
   Io<SimulatorTransport> shard_server_io_1 = simulator.RegisterNew();
+  shard_server_io_1.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_1_address = shard_server_io_1.GetAddress();
   Io<SimulatorTransport> shard_server_io_2 = simulator.RegisterNew();
+  shard_server_io_2.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_2_address = shard_server_io_2.GetAddress();
   Io<SimulatorTransport> shard_server_io_3 = simulator.RegisterNew();
+  shard_server_io_3.SetDefaultTimeout(std::chrono::seconds(1));
   const auto shard_server_3_address = shard_server_io_3.GetAddress();
   Io<SimulatorTransport> shard_client_io = simulator.RegisterNew();
+  shard_client_io.SetDefaultTimeout(std::chrono::seconds(1));
 
   PropertyValue min_pk(static_cast<int64_t>(0));
   std::vector<PropertyValue> min_prim_key = {min_pk};

@@ -11,13 +11,11 @@
 
 #pragma once
 
-#include <atomic>
 #include <limits>
 #include <list>
 #include <memory>
 
-#include "utils/skip_list.hpp"
-
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/isolation_level.hpp"
@@ -27,24 +25,27 @@
 
 namespace memgraph::storage::v3 {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
+struct CommitInfo {
+  bool is_locally_committed{false};
+  coordinator::Hlc start_or_commit_timestamp;
+};
 
 struct Transaction {
-  Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level)
-      : transaction_id(transaction_id),
-        start_timestamp(start_timestamp),
+  Transaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level)
+      : start_timestamp(start_timestamp),
+        commit_info(std::make_unique<CommitInfo>(CommitInfo{false, {start_timestamp}})),
         command_id(0),
         must_abort(false),
+        is_aborted(false),
         isolation_level(isolation_level) {}
 
   Transaction(Transaction &&other) noexcept
-      : transaction_id(other.transaction_id),
-        start_timestamp(other.start_timestamp),
-        commit_timestamp(std::move(other.commit_timestamp)),
+      : start_timestamp(other.start_timestamp),
+        commit_info(std::move(other.commit_info)),
         command_id(other.command_id),
         deltas(std::move(other.deltas)),
         must_abort(other.must_abort),
+        is_aborted(other.is_aborted),
         isolation_level(other.isolation_level) {}
 
   Transaction(const Transaction &) = delete;
@@ -53,32 +54,23 @@ struct Transaction {
 
   ~Transaction() {}
 
-  /// @throw std::bad_alloc if failed to create the `commit_timestamp`
-  void EnsureCommitTimestampExists() {
-    if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
-  }
-
-  uint64_t transaction_id;
-  uint64_t start_timestamp;
-  // The `Transaction` object is stack allocated, but the `commit_timestamp`
-  // must be heap allocated because `Delta`s have a pointer to it, and that
-  // pointer must stay valid after the `Transaction` is moved into
-  // `commited_transactions_` list for GC.
-  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp;
+  coordinator::Hlc start_timestamp;
+  std::unique_ptr<CommitInfo> commit_info;
   uint64_t command_id;
   std::list<Delta> deltas;
   bool must_abort;
+  bool is_aborted;
   IsolationLevel isolation_level;
 };
 
+// Relies on start timestamps are unique
 inline bool operator==(const Transaction &first, const Transaction &second) {
-  return first.transaction_id == second.transaction_id;
+  return first.start_timestamp == second.start_timestamp;
 }
 inline bool operator<(const Transaction &first, const Transaction &second) {
-  return first.transaction_id < second.transaction_id;
+  return first.start_timestamp < second.start_timestamp;
 }
-inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
-inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
+inline bool operator==(const Transaction &first, const uint64_t second) { return first.start_timestamp == second; }
+inline bool operator<(const Transaction &first, const uint64_t second) { return first.start_timestamp < second; }
 
 }  // namespace memgraph::storage::v3

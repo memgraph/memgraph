@@ -11,6 +11,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <chrono>
 #include <exception>
 #include <optional>
 #include <vector>
@@ -134,7 +135,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   PrimaryKey min_pk{PropertyValue(0)};
 
   Shard db{primary_label, min_pk, std::nullopt};
-  Shard::Accessor storage_dba{db.Access()};
+  Shard::Accessor storage_dba{db.Access(GetNextHlc())};
   DbAccessor dba{&storage_dba};
 
   AstStorage storage;
@@ -144,6 +145,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   Frame frame{128};
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
+
+  coordinator::Hlc last_hlc{0, io::Time{}};
 
   void SetUp() override {
     db.StoreMapping({{1, "label"}, {2, "property"}});
@@ -185,6 +188,12 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     EXPECT_EQ(value.GetMemoryResource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
                                                   "EvaluationContext for allocations!";
     return value;
+  }
+
+  coordinator::Hlc GetNextHlc() {
+    ++last_hlc.logical_id;
+    last_hlc.coordinator_wall_clock += std::chrono::seconds(1);
+    return last_hlc;
   }
 };
 
