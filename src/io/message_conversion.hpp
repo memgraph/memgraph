@@ -203,4 +203,30 @@ struct DeadlineAndOpaquePromise {
   OpaquePromise promise;
 };
 
+template <class From>
+std::type_info const &type_info_for_variant(From const &from) {
+  return std::visit([](auto &&x) -> decltype(auto) { return typeid(x); }, from);
+}
+
+template <typename From, typename Return, typename Head, typename... Rest>
+std::optional<Return> ConvertVariantInner(From &&a) {
+  if (typeid(Head) == type_info_for_variant(a)) {
+    Head concrete = std::get<Head>(std::forward<From>(a));
+    return concrete;
+  }
+
+  if constexpr (sizeof...(Rest) > 0) {
+    return ConvertVariantInner<From, Return, Rest...>(std::forward<From>(a));
+  } else {
+    return std::nullopt;
+  }
+}
+
+/// This function converts a variant to another variant holding a subset OR superset of
+/// possible types.
+template <class From, class... Ms>
+requires(sizeof...(Ms) > 0) std::optional<std::variant<Ms...>> ConvertVariant(From &&from) {
+  return ConvertVariantInner<From, std::variant<Ms...>, Ms...>(std::forward<From>(from));
+}
+
 }  // namespace memgraph::io
