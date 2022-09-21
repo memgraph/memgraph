@@ -99,6 +99,8 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -157,6 +159,7 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz.sig
 fi
+# TODO(gitbuda): Check the libcxx, libcxxabi signatures.
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
 $GPG --keyserver $KEYSERVER --recv-keys 0x474E22316ABF4785A88C6E8EA2C794A986419D8A
 $GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
@@ -496,10 +499,21 @@ if [ ! -d swig-$SWIG_VERSION/install ]; then
     popd && popd
 fi
 
-# compile llvm
+echo ""
+echo "#### LLVM COMPILATION ####"
+echo ""
 if [ ! -f $PREFIX/bin/clang ]; then
     if [ -d llvm-$LLVM_VERSION ]; then
         rm -rf llvm-$LLVM_VERSION
+    fi
+    if [ -d libcxx ]; then
+        rm -rf libcxx
+    fi
+    if [ -d libcxxabi ]; then
+        rm -rf libcxxabi
+    fi
+    if [ -d libunwind ]; then
+        rm -rf libunwind
     fi
     tar -xvf ../archives/llvm-$LLVM_VERSION.src.tar.xz
     mv llvm-$LLVM_VERSION.src llvm-$LLVM_VERSION
@@ -513,6 +527,16 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
     mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
+
+    tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
+    mv libcxx-$LLVM_VERSION.src libcxx
+    tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
+    mv libcxxabi-$LLVM_VERSION.src libcxxabi
+    # NOTE: We moved part of the libunwind in one of the previous step.
+    rm -r libunwind-$LLVM_VERSION.src
+    tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
+    mv libunwind-$LLVM_VERSION.src libunwind
+
     pushd llvm-$LLVM_VERSION
     mkdir build && pushd build
     # activate swig
@@ -527,6 +551,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
