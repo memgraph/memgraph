@@ -1,7 +1,6 @@
 set(coordinator_src_files
-    coordinator.hpp
-    shard_map.hpp
-    hybrid_logical_clock.hpp)
+    coordinator.cpp
+    shard_map.cpp)
 
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)

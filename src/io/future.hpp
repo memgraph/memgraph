@@ -99,7 +99,7 @@ class Shared {
 
   bool IsReady() const {
     std::unique_lock<std::mutex> lock(mu_);
-    return item_;
+    return item_.has_value();
   }
 
   std::optional<T> TryGet() {
@@ -145,12 +145,6 @@ class Future {
     MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
-    old.consumed_or_moved_ = true;
-  }
-
-  Future &operator=(Future &&old) noexcept {
-    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
-    shared_ = std::move(old.shared_);
     old.consumed_or_moved_ = true;
   }
 
