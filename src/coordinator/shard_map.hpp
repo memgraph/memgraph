@@ -24,7 +24,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
-#include "storage/v3/temporal.cpp"
+#include "storage/v3/temporal.hpp"
 
 namespace memgraph::coordinator {
 

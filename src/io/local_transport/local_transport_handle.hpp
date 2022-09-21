@@ -60,7 +60,7 @@ class LocalTransportHandle {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address receiver_address, Duration timeout) {
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address /* receiver_address */, Duration timeout) {
     std::unique_lock lock(mu_);
 
     Time before = Now();
