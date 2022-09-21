@@ -33,8 +33,8 @@ template <typename TCallback>
 bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
     const auto commit_info = *delta->commit_info;
-    // // This is a committed change that we see so we shouldn't undo it.
-    if (!commit_info.is_locally_committed || commit_info.start_or_commit_timestamp.logical_id < timestamp) {
+    // This is a committed change that we see so we shouldn't undo it.
+    if (commit_info.is_locally_committed && commit_info.start_or_commit_timestamp.logical_id < timestamp) {
       break;
     }
     if (predicate(*delta)) {

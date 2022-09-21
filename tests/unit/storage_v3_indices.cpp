@@ -1135,6 +1135,10 @@ TEST_F(IndexTest, CollectGarbageRemoveLabel) {
     EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
     EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
   }
+  // We clean up T1 here to make sure the garbace collection doesn't remove the vertex from the indices until the vertex
+  // has a version that is reachable from an active transaction, even though the latest version of the vertex doesn't
+  // belong to the index
+  CleanupHlc(t1_start);
   acc3.Commit(t3_commit);
   auto check_t3 = [this, &acc3]() {
     EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
@@ -1157,9 +1161,6 @@ TEST_F(IndexTest, CollectGarbageRemoveLabel) {
   };
   check_t5();
 
-  // Second part
-  // Start to clean up things.
-  CleanupHlc(t1_start);
   // As the deltas of T1 is cleaned up, T2 will see the vertex as an existing one
   EXPECT_THAT(GetIds(acc2.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
   EXPECT_THAT(GetIds(acc2.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
@@ -1172,6 +1173,8 @@ TEST_F(IndexTest, CollectGarbageRemoveLabel) {
   EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
   check_t5();
 
+  // Second part
+  // Clean up T3 and check the changes
   CleanupHlc(t3_start);
   // As T3 got cleaned up, it will delete the vertex from the index but not from the actual storage
   EXPECT_THAT(GetIds(acc4.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
