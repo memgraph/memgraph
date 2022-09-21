@@ -775,8 +775,7 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
-# TODO(gitbuda): The fizz checksum doesn't match.
-# echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify flex
 if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
     wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
@@ -1114,6 +1113,9 @@ if [ ! -d $PREFIX/include/folly ]; then
 fi
 
 # install fizz
+echo ""
+echo "#### FIZZ ####"
+echo ""
 if [ ! -d $PREFIX/include/fizz ]; then
     if [ -d fizz-$FBLIBS_VERSION ]; then
         rm -rf fizz-$FBLIBS_VERSION
@@ -1132,7 +1134,9 @@ if [ ! -d $PREFIX/include/fizz ]; then
     popd && popd
 fi
 
-# install wangle
+echo ""
+echo "#### WANGLE ####"
+echo ""
 if [ ! -d $PREFIX/include/wangle ]; then
     if [ -d wangle-$FBLIBS_VERSION ]; then
         rm -rf wangle-$FBLIBS_VERSION
