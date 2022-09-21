@@ -23,16 +23,12 @@ namespace memgraph::io::messages {
 using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
-using memgraph::coordinator::HeartbeatResponse;
-
-// TODO(everbody) change these to the real shard messages
 using StorageReadRequest = msgs::ReadRequests;
 using StorageWriteRequest = msgs::WriteRequests;
 
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;
 using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::VoteRequest;
 using memgraph::io::rsm::VoteResponse;
 using memgraph::io::rsm::WriteRequest;

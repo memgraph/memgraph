@@ -192,6 +192,7 @@ TEST(MachineManager, BasicFunctionality) {
   // submit a read request and assert that the requested key does not yet exist
 
   LabelId label_id = sm.labels.at(label_name);
+
   ReadRequests storage_get_req;
   /*
   TODO(tyler,kostas) set this to a real request

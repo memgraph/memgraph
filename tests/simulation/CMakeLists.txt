@@ -15,7 +15,12 @@ function(add_simulation_test test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator Boost::headers)
+  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator mg-coordinator Boost::headers)
+
+  # sanitize
+  target_compile_options(${target_name} PRIVATE -fsanitize=${san})
+  target_link_options(${target_name} PRIVATE -fsanitize=${san})
+
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__simulation ${target_name})

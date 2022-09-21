@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <boost/uuid/uuid.hpp>
-
 #include <coordinator/coordinator_rsm.hpp>
 #include <io/message_conversion.hpp>
 #include <io/messages.hpp>
@@ -23,8 +21,6 @@
 
 namespace memgraph::machine_manager {
 
-using boost::uuids::uuid;
-
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorReadResponses;
@@ -33,7 +29,6 @@ using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::io::ConvertVariant;
 using memgraph::io::Duration;
-using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;

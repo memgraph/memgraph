@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <map>
+#include <set>
 #include <vector>
 
 #include <boost/uuid/uuid.hpp>
@@ -67,44 +68,7 @@ struct ShardToInitialize {
   Config config;
 };
 
-PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
-  PrimaryKey ret{};
-
-  const int64_t min_int = std::numeric_limits<int64_t>::min();
-
-  const TemporalData date{TemporalType::Date, min_int};
-  const TemporalData local_time{TemporalType::LocalTime, min_int};
-  const TemporalData local_date_time{TemporalType::LocalDateTime, min_int};
-  const TemporalData duration{TemporalType::Duration, min_int};
-
-  for (const auto &schema_property : schema) {
-    switch (schema_property.type) {
-      case SchemaType::BOOL:
-        ret.emplace_back(PropertyValue(false));
-        break;
-      case SchemaType::INT:
-        ret.emplace_back(PropertyValue(min_int));
-        break;
-      case SchemaType::STRING:
-        ret.emplace_back(PropertyValue(""));
-        break;
-      case SchemaType::DATE:
-        ret.emplace_back(PropertyValue(date));
-        break;
-      case SchemaType::LOCALTIME:
-        ret.emplace_back(PropertyValue(local_time));
-        break;
-      case SchemaType::LOCALDATETIME:
-        ret.emplace_back(PropertyValue(local_date_time));
-        break;
-      case SchemaType::DURATION:
-        ret.emplace_back(PropertyValue(duration));
-        break;
-    }
-  }
-
-  return ret;
-}
+PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
 
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
@@ -216,34 +180,7 @@ struct ShardMap {
   }
 
   std::optional<LabelId> InitializeNewLabel(std::string label_name, std::vector<SchemaProperty> schema,
-                                            size_t replication_factor, Hlc last_shard_map_version) {
-    if (shard_map_version != last_shard_map_version || labels.contains(label_name)) {
-      return std::nullopt;
-    }
-
-    const LabelId label_id = LabelId::FromUint(++max_label_id);
-
-    labels.emplace(std::move(label_name), label_id);
-
-    PrimaryKey initial_key = SchemaToMinKey(schema);
-    Shard empty_shard = {};
-
-    Shards shards = {
-        {initial_key, empty_shard},
-    };
-
-    LabelSpace label_space{
-        .schema = std::move(schema),
-        .shards = shards,
-        .replication_factor = replication_factor,
-    };
-
-    label_spaces.emplace(label_id, label_space);
-
-    IncrementShardMapVersion();
-
-    return label_id;
-  }
+                                            size_t replication_factor, Hlc last_shard_map_version);
 
   void AddServer(Address server_address) {
     // Find a random place for the server to plug in
