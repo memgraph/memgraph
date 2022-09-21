@@ -22,7 +22,6 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
 #include "storage/v3/vertex.hpp"
-#include "typed_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 

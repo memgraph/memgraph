@@ -64,9 +64,7 @@ Checks: '*,
          -readability-named-parameter,
          -misc-no-recursion,
          -concurrency-mt-unsafe,
-         -bugprone-easily-swappable-parameters,
-         -cppcoreguidelines-macro-usage,
-         -bugprone-macro-parentheses'
+         -bugprone-easily-swappable-parameters'
 
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'

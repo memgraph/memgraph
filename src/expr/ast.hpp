@@ -29,5 +29,5 @@
 #include MG_AST_INCLUDE_PATH
 
 namespace memgraph::expr {
-using namespace MG_INJECTED_NAMESPACE_NAME;  // NOLINT(google-build-using-namespace)
+using namespace MG_INJECTED_NAMESPACE_NAME;
 }  // namespace memgraph::expr
