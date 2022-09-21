@@ -77,7 +77,8 @@ inline Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
     case PropertyValue::Type::Int:
       return Value(pv.ValueInt());
     case PropertyValue::Type::List: {
-      std::vector<Value> list(pv.ValueList().size());
+      std::vector<Value> list;
+      list.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
         list.emplace_back(ToValue(elem));
       }

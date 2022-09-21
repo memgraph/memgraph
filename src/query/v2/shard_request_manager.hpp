@@ -151,10 +151,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     // Transaction ID to be used later...
     transaction_id_ = hlc_response.new_hlc;
 
-    if (!hlc_response.fresher_shard_map) {
-      throw std::runtime_error("Should handle gracefully!");
+    if (hlc_response.fresher_shard_map) {
+      shards_map_ = hlc_response.fresher_shard_map.value();
     }
-    shards_map_ = hlc_response.fresher_shard_map.value();
   }
 
   memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const override {

@@ -63,19 +63,9 @@ struct ShardMap {
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
 
   Shards GetShards(const LabelName &label) {
-    const auto id = labels[label];
-    auto &shards = label_spaces[id].shards;
+    const auto id = labels.at(label);
+    auto &shards = label_spaces.at(id).shards;
     return shards;
-  }
-
-  auto FindShardToInsert(const LabelName &name, CompoundKey &key) {
-    MG_ASSERT(labels.contains(name));
-    const auto id = labels.find(name)->second;
-    auto &shards_ref = label_spaces[id].shards;
-    auto it =
-        std::find_if(shards_ref.rbegin(), shards_ref.rend(), [&key](const auto &shard) { return shard.first <= key; });
-    MG_ASSERT(it != shards_ref.rbegin());
-    return it;
   }
 
   // TODO(gabor) later we will want to update the wallclock time with
