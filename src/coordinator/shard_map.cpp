@@ -10,8 +10,13 @@
 // licenses/APL.txt.
 
 #include "coordinator/shard_map.hpp"
+#include "storage/v3/temporal.hpp"
 
 namespace memgraph::coordinator {
+
+using memgraph::common::SchemaType;
+using memgraph::storage::v3::TemporalData;
+using memgraph::storage::v3::TemporalType;
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
   PrimaryKey ret{};

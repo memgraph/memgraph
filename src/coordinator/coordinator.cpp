@@ -93,9 +93,6 @@ CoordinatorWriteResponses Coordinator::ApplyWrite(
     DeregisterStorageEngineRequest && /* register_storage_engine_request */) {
   DeregisterStorageEngineResponse res{};
   // TODO
-  // const Address &address = register_storage_engine_request.address;
-  // storage_engine_pool_.erase(address);
-  // res.success = true;
 
   return res;
 }

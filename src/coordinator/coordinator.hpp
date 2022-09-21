@@ -177,11 +177,11 @@ class Coordinator {
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
-  CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */);
+  static CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */);
 
   /// This begins the process of draining the provided storage engine from all raft
   /// clusters that it might be participating in.
-  CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */);
+  static CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */);
 
   CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request);
 
