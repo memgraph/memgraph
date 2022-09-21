@@ -28,7 +28,7 @@ std::vector<std::pair<PropertyId, Value>> EdgeAccessor::Properties() const {
 }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
+Value EdgeAccessor::GetProperty(const std::string & /*prop_name*/) const {
   // TODO(kostasrim) fix this
   return {};
 }

@@ -24,7 +24,6 @@
 // This should not be put under v3 because ADL will mess that up.
 namespace memgraph::storage::conversions {
 
-using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
 using memgraph::msgs::Value;
 using memgraph::msgs::VertexId;
