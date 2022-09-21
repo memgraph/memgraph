@@ -46,15 +46,12 @@ using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
 using memgraph::msgs::ReadRequests;
 using memgraph::msgs::ReadResponses;
 using memgraph::msgs::WriteRequests;
 using memgraph::msgs::WriteResponses;
-using memgraph::storage::v3::Config;
 using memgraph::storage::v3::ShardRsm;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
