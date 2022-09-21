@@ -970,7 +970,7 @@ void Shard::CollectGarbage(const io::Time current_time) {
 
       // Two important notes here:
       // 1. Deltas of the transaction in an object's deltachain are always strictly following each other without having
-      // deltas from other transactions among themself.
+      // deltas from other transactions between them.
       // 2. While the deltas are cleaned up, we can be sure the deltas of the actually cleaned up transaction is always
       // the last deltas in the delta chain.
       // Reasoning:
