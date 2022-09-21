@@ -23,6 +23,7 @@ set(storage_v3_src_files
     schema_validator.cpp
     shard.cpp
     bindings/typed_value.cpp
+    shard_rsm.cpp
     storage.cpp)
 
 # #### Replication #####
