@@ -43,8 +43,6 @@ using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::ShardRsm;
 using memgraph::io::rsm::StorageReadRequest;
 using memgraph::io::rsm::StorageReadResponse;
@@ -95,7 +93,7 @@ class ShardManager {
     }
 
     if (!cron_schedule_.empty()) {
-      auto &[time, uuid] = cron_schedule_.top();
+      const auto &[time, uuid] = cron_schedule_.top();
 
       if (time <= now) {
         auto &rsm = rsm_map_.at(uuid);
@@ -104,7 +102,7 @@ class ShardManager {
         cron_schedule_.pop();
         cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
 
-        auto &[next_time, _uuid] = cron_schedule_.top();
+        const auto &[next_time, _uuid] = cron_schedule_.top();
 
         return std::min(next_cron_, next_time);
       }
@@ -132,8 +130,7 @@ class ShardManager {
  private:
   io::Io<IoImpl> io_;
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
-  std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<std::pair<Time, uuid>>>
-      cron_schedule_;
+  std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
   Time next_cron_;
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;

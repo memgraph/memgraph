@@ -23,8 +23,6 @@
 
 namespace memgraph::machine_manager {
 
-using boost::uuids::uuid;
-
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorReadResponses;
@@ -33,7 +31,6 @@ using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
 using memgraph::io::ConvertVariant;
 using memgraph::io::Duration;
-using memgraph::io::RequestEnvelope;
 using memgraph::io::RequestId;
 using memgraph::io::Time;
 using memgraph::io::messages::CoordinatorMessages;
@@ -42,7 +39,6 @@ using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;
 using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::VoteRequest;
 using memgraph::io::rsm::VoteResponse;
 using memgraph::io::rsm::WriteRequest;
@@ -50,9 +46,7 @@ using memgraph::io::rsm::WriteResponse;
 using memgraph::storage::v3::ShardManager;
 
 using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageReadResponse;
 using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
 
 /// The MachineManager is responsible for:
 /// * starting the entire system and ensuring that high-level

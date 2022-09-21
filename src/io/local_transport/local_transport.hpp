@@ -27,7 +27,7 @@ class LocalTransport {
   std::shared_ptr<LocalTransportHandle> local_transport_handle_;
 
  public:
-  LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle)
+  explicit LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle)
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
   template <Message RequestT, Message ResponseT>

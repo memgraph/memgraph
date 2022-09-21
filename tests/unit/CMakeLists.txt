@@ -401,4 +401,4 @@ target_link_libraries(${test_prefix}local_transport mg-io)
 
 # Test MachineManager with LocalTransport
 add_unit_test(machine_manager.cpp)
-target_link_libraries(${test_prefix}machine_manager mg-io mg-storage-v3)
+target_link_libraries(${test_prefix}machine_manager mg-io mg-coordinator mg-storage-v3)
