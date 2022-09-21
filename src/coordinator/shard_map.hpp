@@ -30,15 +30,12 @@
 
 namespace memgraph::coordinator {
 
-using memgraph::common::SchemaType;
 using memgraph::io::Address;
 using memgraph::storage::v3::Config;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
 using memgraph::storage::v3::PropertyValue;
 using memgraph::storage::v3::SchemaProperty;
-using memgraph::storage::v3::TemporalData;
-using memgraph::storage::v3::TemporalType;
 
 enum class Status : uint8_t {
   CONSENSUS_PARTICIPANT,

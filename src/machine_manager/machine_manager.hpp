@@ -39,7 +39,6 @@ using memgraph::io::messages::StorageWriteRequest;
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;
 using memgraph::io::rsm::ReadRequest;
-using memgraph::io::rsm::ReadResponse;
 using memgraph::io::rsm::VoteRequest;
 using memgraph::io::rsm::VoteResponse;
 using memgraph::io::rsm::WriteRequest;
