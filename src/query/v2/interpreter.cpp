@@ -44,6 +44,7 @@
 #include "query/v2/stream/common.hpp"
 #include "query/v2/trigger.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/storage.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/csv_parsing.hpp"
@@ -128,135 +129,25 @@ std::optional<std::string> GetOptionalStringValue(query::v2::Expression *express
 
 class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
-  explicit ReplQueryHandler(storage::v3::Storage *db) : db_(db) {}
+  explicit ReplQueryHandler(storage::v3::Shard * /*db*/) {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void SetReplicationRole(ReplicationQuery::ReplicationRole replication_role, std::optional<int64_t> port) override {
-    if (replication_role == ReplicationQuery::ReplicationRole::MAIN) {
-      if (!db_->SetMainReplicationRole()) {
-        throw QueryRuntimeException("Couldn't set role to main!");
-      }
-    }
-    if (replication_role == ReplicationQuery::ReplicationRole::REPLICA) {
-      if (!port || *port < 0 || *port > std::numeric_limits<uint16_t>::max()) {
-        throw QueryRuntimeException("Port number invalid!");
-      }
-      if (!db_->SetReplicaRole(
-              io::network::Endpoint(query::v2::kDefaultReplicationServerIp, static_cast<uint16_t>(*port)))) {
-        throw QueryRuntimeException("Couldn't set role to replica!");
-      }
-    }
-  }
+  void SetReplicationRole(ReplicationQuery::ReplicationRole /*replication_role*/,
+                          std::optional<int64_t> /*port*/) override {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  ReplicationQuery::ReplicationRole ShowReplicationRole() const override {
-    switch (db_->GetReplicationRole()) {
-      case storage::v3::ReplicationRole::MAIN:
-        return ReplicationQuery::ReplicationRole::MAIN;
-      case storage::v3::ReplicationRole::REPLICA:
-        return ReplicationQuery::ReplicationRole::REPLICA;
-    }
-    throw QueryRuntimeException("Couldn't show replication role - invalid role set!");
-  }
+  ReplicationQuery::ReplicationRole ShowReplicationRole() const override { return {}; }
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void RegisterReplica(const std::string &name, const std::string &socket_address,
-                       const ReplicationQuery::SyncMode sync_mode, const std::optional<double> timeout,
-                       const std::chrono::seconds replica_check_frequency) override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't register another replica
-      throw QueryRuntimeException("Replica can't register another replica!");
-    }
-
-    storage::v3::replication::ReplicationMode repl_mode;
-    switch (sync_mode) {
-      case ReplicationQuery::SyncMode::ASYNC: {
-        repl_mode = storage::v3::replication::ReplicationMode::ASYNC;
-        break;
-      }
-      case ReplicationQuery::SyncMode::SYNC: {
-        repl_mode = storage::v3::replication::ReplicationMode::SYNC;
-        break;
-      }
-    }
-
-    auto maybe_ip_and_port =
-        io::network::Endpoint::ParseSocketOrIpAddress(socket_address, query::v2::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      auto [ip, port] = *maybe_ip_and_port;
-      auto ret = db_->RegisterReplica(
-          name, {std::move(ip), port}, repl_mode,
-          {.timeout = timeout, .replica_check_frequency = replica_check_frequency, .ssl = std::nullopt});
-      if (ret.HasError()) {
-        throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
-      }
-    } else {
-      throw QueryRuntimeException("Invalid socket address!");
-    }
-  }
+  void RegisterReplica(const std::string & /*name*/, const std::string & /*socket_address*/,
+                       const ReplicationQuery::SyncMode /*sync_mode*/, const std::optional<double> /*timeout*/,
+                       const std::chrono::seconds /*replica_check_frequency*/) override {}
 
   /// @throw QueryRuntimeException if an error ocurred.
-  void DropReplica(const std::string &replica_name) override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't unregister a replica
-      throw QueryRuntimeException("Replica can't unregister a replica!");
-    }
-    if (!db_->UnregisterReplica(replica_name)) {
-      throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
-    }
-  }
+  void DropReplica(const std::string & /*replica_name*/) override {}
 
   using Replica = ReplicationQueryHandler::Replica;
-  std::vector<Replica> ShowReplicas() const override {
-    if (db_->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA) {
-      // replica can't show registered replicas (it shouldn't have any)
-      throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
-    }
-
-    auto repl_infos = db_->ReplicasInfo();
-    std::vector<Replica> replicas;
-    replicas.reserve(repl_infos.size());
-
-    const auto from_info = [](const auto &repl_info) -> Replica {
-      Replica replica;
-      replica.name = repl_info.name;
-      replica.socket_address = repl_info.endpoint.SocketAddress();
-      switch (repl_info.mode) {
-        case storage::v3::replication::ReplicationMode::SYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::SYNC;
-          break;
-        case storage::v3::replication::ReplicationMode::ASYNC:
-          replica.sync_mode = ReplicationQuery::SyncMode::ASYNC;
-          break;
-      }
-      if (repl_info.timeout) {
-        replica.timeout = *repl_info.timeout;
-      }
-
-      switch (repl_info.state) {
-        case storage::v3::replication::ReplicaState::READY:
-          replica.state = ReplicationQuery::ReplicaState::READY;
-          break;
-        case storage::v3::replication::ReplicaState::REPLICATING:
-          replica.state = ReplicationQuery::ReplicaState::REPLICATING;
-          break;
-        case storage::v3::replication::ReplicaState::RECOVERY:
-          replica.state = ReplicationQuery::ReplicaState::RECOVERY;
-          break;
-        case storage::v3::replication::ReplicaState::INVALID:
-          replica.state = ReplicationQuery::ReplicaState::INVALID;
-          break;
-      }
-
-      return replica;
-    };
-
-    std::transform(repl_infos.begin(), repl_infos.end(), std::back_inserter(replicas), from_info);
-    return replicas;
-  }
-
- private:
-  storage::v3::Storage *db_;
+  std::vector<Replica> ShowReplicas() const override { return {}; }
 };
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error ocurred.
@@ -914,7 +805,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.header = {"property_name", "property_type"};
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         const auto *schema = db->GetSchema(label);
         std::vector<std::vector<TypedValue>> results;
         if (schema) {
@@ -939,11 +830,11 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_,
                      schema_type_map = std::move(schema_type_map)]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         std::vector<storage::v3::SchemaProperty> schemas_types;
         schemas_types.reserve(schema_type_map.size());
         for (const auto &schema_type : schema_type_map) {
-          auto property_id = db->NameToProperty(schema_type.first.name);
+          auto property_id = interpreter_context->NameToPropertyId(schema_type.first.name);
           schemas_types.push_back({property_id, schema_type.second});
         }
         if (!db->CreateSchema(label, schemas_types)) {
@@ -958,8 +849,7 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
     case SchemaQuery::Action::DROP_SCHEMA: {
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
-        const auto label = db->NameToLabel(primary_label.name);
-
+        const auto label = interpreter_context->NameToLabelId(primary_label.name);
         if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
         }
@@ -1139,7 +1029,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
-InterpreterContext::InterpreterContext(storage::v3::Storage *db, const InterpreterConfig config,
+InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
                                        const std::filesystem::path &data_directory)
     : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory / "streams"} {}
 
@@ -1158,8 +1048,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
 
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
+          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (interpreter_context_->trigger_store.HasTriggers()) {
@@ -1430,14 +1320,14 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   };
 
-  auto label = interpreter_context->db->NameToLabel(index_query->label_.name);
+  const auto label = interpreter_context->NameToLabelId(index_query->label_.name);
 
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;
   properties.reserve(index_query->properties_.size());
   properties_string.reserve(index_query->properties_.size());
   for (const auto &prop : index_query->properties_) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
+    properties.push_back(interpreter_context->NameToPropertyId(prop.name));
     properties_string.push_back(prop.name);
   }
   auto properties_stringified = utils::Join(properties_string, ", ");
@@ -1581,48 +1471,22 @@ PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_ex
 
 PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                    InterpreterContext *interpreter_context, DbAccessor *dba) {
-  if (in_explicit_transaction) {
-    throw LockPathModificationInMulticommandTxException();
-  }
-
-  auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
-
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [interpreter_context, action = lock_path_query->action_](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         switch (action) {
-                           case LockPathQuery::Action::LOCK_PATH:
-                             if (!interpreter_context->db->LockPath()) {
-                               throw QueryRuntimeException("Failed to lock the data directory");
-                             }
-                             break;
-                           case LockPathQuery::Action::UNLOCK_PATH:
-                             if (!interpreter_context->db->UnlockPath()) {
-                               throw QueryRuntimeException("Failed to unlock the data directory");
-                             }
-                             break;
-                         }
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  throw SemanticException("LockPath query is not supported!");
 }
 
 PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
-                                     InterpreterContext *interpreter_context) {
+                                     InterpreterContext * /*interpreter_context*/) {
   if (in_explicit_transaction) {
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        interpreter_context->db->FreeMemory();
-        memory::PurgeUnusedMemory();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [](AnyStream * /*stream*/, std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         memory::PurgeUnusedMemory();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
@@ -1835,24 +1699,7 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                          InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction) {
-    throw CreateSnapshotInMulticommandTxException();
-  }
-
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [interpreter_context](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-        if (auto maybe_error = interpreter_context->db->CreateSnapshot(); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::v3::Storage::CreateSnapshotError::DisabledForReplica:
-              throw utils::BasicException(
-                  "Failed to create a snapshot. Replica instances are not allowed to create them.");
-          }
-        }
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  throw SemanticException("CreateSnapshot query is not supported!");
 }
 
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, DbAccessor *dba) {
@@ -1900,8 +1747,8 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, const bool in_explic
 }
 
 PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               storage::v3::Storage *db, utils::MemoryResource *execution_memory) {
+                               std::map<std::string, TypedValue> * /*summary*/, InterpreterContext *interpreter_context,
+                               storage::v3::Shard *db, utils::MemoryResource * /*execution_memory*/) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -1920,7 +1767,6 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
             {TypedValue("edge_count"), TypedValue(static_cast<int64_t>(info.edge_count))},
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("memory_usage"), TypedValue(static_cast<int64_t>(info.memory_usage))},
-            {TypedValue("disk_usage"), TypedValue(static_cast<int64_t>(info.disk_usage))},
             {TypedValue("memory_allocated"), TypedValue(static_cast<int64_t>(utils::total_memory_tracker.Amount()))},
             {TypedValue("allocation_limit"),
              TypedValue(static_cast<int64_t>(utils::total_memory_tracker.HardLimit()))}};
@@ -1945,28 +1791,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
       };
       break;
     case InfoQuery::InfoType::CONSTRAINT:
-      header = {"constraint type", "label", "properties"};
-      handler = [interpreter_context] {
-        auto *db = interpreter_context->db;
-        auto info = db->ListAllConstraints();
-        std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.existence.size() + info.unique.size());
-        for (const auto &item : info.existence) {
-          results.push_back({TypedValue("exists"), TypedValue(db->LabelToName(item.first)),
-                             TypedValue(db->PropertyToName(item.second))});
-        }
-        for (const auto &item : info.unique) {
-          std::vector<TypedValue> properties;
-          properties.reserve(item.second.size());
-          for (const auto &property : item.second) {
-            properties.emplace_back(db->PropertyToName(property));
-          }
-          results.push_back(
-              {TypedValue("unique"), TypedValue(db->LabelToName(item.first)), TypedValue(std::move(properties))});
-        }
-        return std::pair{results, QueryHandlerResult::NOTHING};
-      };
-      break;
+      throw SemanticException("Constraints are not yet supported!");
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -1990,185 +1815,7 @@ PreparedQuery PrepareInfoQuery(ParsedQuery parsed_query, bool in_explicit_transa
 PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                      std::vector<Notification> *notifications,
                                      InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction) {
-    throw ConstraintInMulticommandTxException();
-  }
-
-  auto *constraint_query = utils::Downcast<ConstraintQuery>(parsed_query.query);
-  std::function<void(Notification &)> handler;
-
-  auto label = interpreter_context->db->NameToLabel(constraint_query->constraint_.label.name);
-  std::vector<storage::v3::PropertyId> properties;
-  std::vector<std::string> properties_string;
-  properties.reserve(constraint_query->constraint_.properties.size());
-  properties_string.reserve(constraint_query->constraint_.properties.size());
-  for (const auto &prop : constraint_query->constraint_.properties) {
-    properties.push_back(interpreter_context->db->NameToProperty(prop.name));
-    properties_string.push_back(prop.name);
-  }
-  auto properties_stringified = utils::Join(properties_string, ", ");
-
-  Notification constraint_notification(SeverityLevel::INFO);
-  switch (constraint_query->action_type_) {
-    case ConstraintQuery::ActionType::CREATE: {
-      constraint_notification.code = NotificationCode::CREATE_CONSTRAINT;
-
-      switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
-          throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
-          if (properties.empty() || properties.size() > 1) {
-            throw SyntaxException("Exactly one property must be used for existence constraints.");
-          }
-          constraint_notification.title = fmt::format("Created EXISTS constraint on label {} on properties {}.",
-                                                      constraint_query->constraint_.label.name, properties_stringified);
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     properties = std::move(properties)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateExistenceConstraint(label, properties[0]);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              MG_ASSERT(violation.properties.size() == 1U);
-              auto property_name = interpreter_context->db->PropertyToName(*violation.properties.begin());
-              throw QueryRuntimeException(
-                  "Unable to create existence constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_name);
-            }
-            if (res.HasValue() && !res.GetValue()) {
-              constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} already exists.", label_name, properties_stringified);
-            }
-          };
-          break;
-        case Constraint::Type::UNIQUE:
-          std::set<storage::v3::PropertyId> property_set;
-          for (const auto &property : properties) {
-            property_set.insert(property);
-          }
-          if (property_set.size() != properties.size()) {
-            throw SyntaxException("The given set of properties contains duplicates.");
-          }
-          constraint_notification.title =
-              fmt::format("Created UNIQUE constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->CreateUniqueConstraint(label, property_set);
-            if (res.HasError()) {
-              auto violation = res.GetError();
-              auto label_name = interpreter_context->db->LabelToName(violation.label);
-              std::stringstream property_names_stream;
-              utils::PrintIterable(property_names_stream, violation.properties, ", ",
-                                   [&interpreter_context](auto &stream, const auto &prop) {
-                                     stream << interpreter_context->db->PropertyToName(prop);
-                                   });
-              throw QueryRuntimeException(
-                  "Unable to create unique constraint :{}({}), because an "
-                  "existing node violates it.",
-                  label_name, property_names_stream.str());
-            }
-            switch (res.GetValue()) {
-              case storage::v3::UniqueConstraints::CreationStatus::EMPTY_PROPERTIES:
-                throw SyntaxException(
-                    "At least one property must be used for unique "
-                    "constraints.");
-              case storage::v3::UniqueConstraints::CreationStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
-                throw SyntaxException(
-                    "Too many properties specified. Limit of {} properties "
-                    "for unique constraints is exceeded.",
-                    storage::v3::kUniqueConstraintsMaxProperties);
-              case storage::v3::UniqueConstraints::CreationStatus::ALREADY_EXISTS:
-                constraint_notification.code = NotificationCode::EXISTANT_CONSTRAINT;
-                constraint_notification.title =
-                    fmt::format("Constraint UNIQUE on label {} on properties {} already exists.", label_name,
-                                properties_stringified);
-                break;
-              case storage::v3::UniqueConstraints::CreationStatus::SUCCESS:
-                break;
-            }
-          };
-          break;
-      }
-    } break;
-    case ConstraintQuery::ActionType::DROP: {
-      constraint_notification.code = NotificationCode::DROP_CONSTRAINT;
-
-      switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
-          throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
-          if (properties.empty() || properties.size() > 1) {
-            throw SyntaxException("Exactly one property must be used for existence constraints.");
-          }
-          constraint_notification.title =
-              fmt::format("Dropped EXISTS constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     properties = std::move(properties)](Notification &constraint_notification) {
-            if (!interpreter_context->db->DropExistenceConstraint(label, properties[0])) {
-              constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-              constraint_notification.title = fmt::format(
-                  "Constraint EXISTS on label {} on properties {} doesn't exist.", label_name, properties_stringified);
-            }
-            return std::vector<std::vector<TypedValue>>();
-          };
-          break;
-        case Constraint::Type::UNIQUE:
-          std::set<storage::v3::PropertyId> property_set;
-          for (const auto &property : properties) {
-            property_set.insert(property);
-          }
-          if (property_set.size() != properties.size()) {
-            throw SyntaxException("The given set of properties contains duplicates.");
-          }
-          constraint_notification.title =
-              fmt::format("Dropped UNIQUE constraint on label {} on properties {}.",
-                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [interpreter_context, label, label_name = constraint_query->constraint_.label.name,
-                     properties_stringified = std::move(properties_stringified),
-                     property_set = std::move(property_set)](Notification &constraint_notification) {
-            auto res = interpreter_context->db->DropUniqueConstraint(label, property_set);
-            switch (res) {
-              case storage::v3::UniqueConstraints::DeletionStatus::EMPTY_PROPERTIES:
-                throw SyntaxException(
-                    "At least one property must be used for unique "
-                    "constraints.");
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED:
-                throw SyntaxException(
-                    "Too many properties specified. Limit of {} properties for "
-                    "unique constraints is exceeded.",
-                    storage::v3::kUniqueConstraintsMaxProperties);
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::NOT_FOUND:
-                constraint_notification.code = NotificationCode::NONEXISTANT_CONSTRAINT;
-                constraint_notification.title =
-                    fmt::format("Constraint UNIQUE on label {} on properties {} doesn't exist.", label_name,
-                                properties_stringified);
-                break;
-              case storage::v3::UniqueConstraints::DeletionStatus::SUCCESS:
-                break;
-            }
-            return std::vector<std::vector<TypedValue>>();
-          };
-      }
-    } break;
-  }
-
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [handler = std::move(handler), constraint_notification = std::move(constraint_notification),
-                        notifications](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
-                         handler(constraint_notification);
-                         notifications->push_back(constraint_notification);
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
+  throw SemanticException("Constraint query is not supported!");
 }
 
 PreparedQuery PrepareSchemaQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -2262,8 +1909,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
          utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
          utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::v3::Storage::Accessor>(
-          interpreter_context_->db->Access(GetIsolationLevelOverride()));
+      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
+          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
       execution_db_accessor_.emplace(db_accessor_.get());
 
       if (utils::Downcast<CypherQuery>(parsed_query.query) && interpreter_context_->trigger_store.HasTriggers()) {
@@ -2345,13 +1992,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     UpdateTypeCount(rw_type);
 
-    if (const auto query_type = query_execution->prepared_query->rw_type;
-        interpreter_context_->db->GetReplicationRole() == storage::v3::ReplicationRole::REPLICA &&
-        (query_type == RWType::W || query_type == RWType::RW)) {
-      query_execution = nullptr;
-      throw QueryException("Write query forbidden on the replica!");
-    }
-
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid};
   } catch (const utils::BasicException &) {
     EventCounter::IncrementCounter(EventCounter::FailedQuery);
@@ -2378,7 +2018,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
     utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
 
     // create a new transaction for each trigger
-    auto storage_acc = interpreter_context->db->Access();
+    auto storage_acc = interpreter_context->db->Access(coordinator::Hlc{});
     DbAccessor db_accessor{&storage_acc};
 
     trigger_context.AdaptForAccessor(&db_accessor);
@@ -2391,29 +2031,7 @@ void RunTriggersIndividually(const utils::SkipList<Trigger> &triggers, Interpret
       continue;
     }
 
-    auto maybe_constraint_violation = db_accessor.Commit();
-    if (maybe_constraint_violation.HasError()) {
-      const auto &constraint_violation = maybe_constraint_violation.GetError();
-      switch (constraint_violation.type) {
-        case storage::v3::ConstraintViolation::Type::EXISTENCE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          MG_ASSERT(constraint_violation.properties.size() == 1U);
-          const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-          spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_name);
-          break;
-        }
-        case storage::v3::ConstraintViolation::Type::UNIQUE: {
-          const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
-          std::stringstream property_names_stream;
-          utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
-                               [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
-          spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})", trigger.Name(),
-                       label_name, property_names_stream.str());
-          break;
-        }
-      }
-    }
+    db_accessor.Commit();
   }
 }
 }  // namespace
@@ -2454,33 +2072,7 @@ void Interpreter::Commit() {
     trigger_context_collector_.reset();
   };
 
-  auto maybe_constraint_violation = db_accessor_->Commit();
-  if (maybe_constraint_violation.HasError()) {
-    const auto &constraint_violation = maybe_constraint_violation.GetError();
-    switch (constraint_violation.type) {
-      case storage::v3::ConstraintViolation::Type::EXISTENCE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        MG_ASSERT(constraint_violation.properties.size() == 1U);
-        auto property_name = execution_db_accessor_->PropertyToName(*constraint_violation.properties.begin());
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
-                             property_name);
-        break;
-      }
-      case storage::v3::ConstraintViolation::Type::UNIQUE: {
-        auto label_name = execution_db_accessor_->LabelToName(constraint_violation.label);
-        std::stringstream property_names_stream;
-        utils::PrintIterable(
-            property_names_stream, constraint_violation.properties, ", ",
-            [this](auto &stream, const auto &prop) { stream << execution_db_accessor_->PropertyToName(prop); });
-        reset_necessary_members();
-        throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
-                             property_names_stream.str());
-        break;
-      }
-    }
-  }
-
+  db_accessor_->Commit(coordinator::Hlc{});
   // The ordered execution of after commit triggers is heavily depending on the exclusiveness of db_accessor_->Commit():
   // only one of the transactions can be commiting at the same time, so when the commit is finished, that transaction
   // probably will schedule its after commit triggers, because the other transactions that want to commit are still
@@ -2492,7 +2084,6 @@ void Interpreter::Commit() {
          user_transaction = std::shared_ptr(std::move(db_accessor_))]() mutable {
           RunTriggersIndividually(interpreter_context->trigger_store.AfterCommitTriggers(), interpreter_context,
                                   std::move(trigger_context));
-          user_transaction->FinalizeTransaction();
           SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
         });
   }

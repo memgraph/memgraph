@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -19,6 +20,7 @@
 
 #include "query/v2/exceptions.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
 
@@ -109,13 +111,17 @@ class VertexAccessor final {
 
   auto PrimaryLabel(storage::v3::View view) const { return impl_.PrimaryLabel(view); }
 
-  storage::v3::Result<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabel(label); }
+  auto PrimaryKey(storage::v3::View view) const { return impl_.PrimaryKey(view); }
+
+  storage::v3::ResultSchema<bool> AddLabel(storage::v3::LabelId label) { return impl_.AddLabelAndValidate(label); }
 
   storage::v3::ResultSchema<bool> AddLabelAndValidate(storage::v3::LabelId label) {
     return impl_.AddLabelAndValidate(label);
   }
 
-  storage::v3::Result<bool> RemoveLabel(storage::v3::LabelId label) { return impl_.RemoveLabel(label); }
+  storage::v3::ResultSchema<bool> RemoveLabel(storage::v3::LabelId label) {
+    return impl_.RemoveLabelAndValidate(label);
+  }
 
   storage::v3::ResultSchema<bool> RemoveLabelAndValidate(storage::v3::LabelId label) {
     return impl_.RemoveLabelAndValidate(label);
@@ -132,9 +138,9 @@ class VertexAccessor final {
     return impl_.GetProperty(key, view);
   }
 
-  storage::v3::Result<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
-                                                              const storage::v3::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::v3::ResultSchema<storage::v3::PropertyValue> SetProperty(storage::v3::PropertyId key,
+                                                                    const storage::v3::PropertyValue &value) {
+    return impl_.SetPropertyAndValidate(key, value);
   }
 
   storage::v3::ResultSchema<storage::v3::PropertyValue> SetPropertyAndValidate(
@@ -162,7 +168,8 @@ class VertexAccessor final {
   auto InEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
-    auto maybe_edges = impl_.InEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.InEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -179,7 +186,8 @@ class VertexAccessor final {
   auto OutEdges(storage::v3::View view, const std::vector<storage::v3::EdgeTypeId> &edge_types,
                 const VertexAccessor &dest) const
       -> storage::v3::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.OutEdges(view)))> {
-    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest.impl_);
+    const auto dest_id = dest.impl_.Id(view).GetValue();
+    auto maybe_edges = impl_.OutEdges(view, edge_types, &dest_id);
     if (maybe_edges.HasError()) return maybe_edges.GetError();
     return iter::imap(MakeEdgeAccessor, std::move(*maybe_edges));
   }
@@ -188,9 +196,8 @@ class VertexAccessor final {
 
   storage::v3::Result<size_t> OutDegree(storage::v3::View view) const { return impl_.OutDegree(view); }
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
-
-  storage::v3::Gid Gid() const noexcept { return impl_.Gid(); }
+  // TODO(jbajic) Fix Remove Gid
+  static int64_t CypherId() { return 1; }
 
   bool operator==(const VertexAccessor &v) const noexcept {
     static_assert(noexcept(impl_ == v.impl_));
@@ -200,14 +207,19 @@ class VertexAccessor final {
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
 
-inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnull-dereference"
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
+inline VertexAccessor EdgeAccessor::To() const { return *static_cast<VertexAccessor *>(nullptr); }
 
-inline VertexAccessor EdgeAccessor::From() const { return VertexAccessor(impl_.FromVertex()); }
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static,clang-analyzer-core.NonNullParamChecker)
+inline VertexAccessor EdgeAccessor::From() const { return *static_cast<VertexAccessor *>(nullptr); }
+#pragma clang diagnostic pop
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class DbAccessor final {
-  storage::v3::Storage::Accessor *accessor_;
+  storage::v3::Shard::Accessor *accessor_;
 
   class VerticesIterable final {
     storage::v3::VerticesIterable iterable_;
@@ -239,15 +251,17 @@ class DbAccessor final {
   };
 
  public:
-  explicit DbAccessor(storage::v3::Storage::Accessor *accessor) : accessor_(accessor) {}
+  explicit DbAccessor(storage::v3::Shard::Accessor *accessor) : accessor_(accessor) {}
 
-  std::optional<VertexAccessor> FindVertex(storage::v3::Gid gid, storage::v3::View view) {
-    auto maybe_vertex = accessor_->FindVertex(gid, view);
+  // TODO(jbajic) Fix Remove Gid
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { return std::nullopt; }
+
+  std::optional<VertexAccessor> FindVertex(storage::v3::PrimaryKey &primary_key, storage::v3::View view) {
+    auto maybe_vertex = accessor_->FindVertex(primary_key, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
     return std::nullopt;
   }
-
-  void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   VerticesIterable Vertices(storage::v3::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
@@ -270,9 +284,6 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  // TODO Remove when query modules have been fixed
-  [[deprecated]] VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
-
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
       const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
@@ -285,13 +296,15 @@ class DbAccessor final {
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
-    auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
+    static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);
+    auto maybe_edge = accessor_->CreateEdge(from->impl_.Id(storage::v3::View::NEW).GetValue(),
+                                            to->impl_.Id(storage::v3::View::NEW).GetValue(), edge_type, kDummyGid);
     if (maybe_edge.HasError()) return storage::v3::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    auto res = accessor_->DeleteEdge(&edge->impl_);
+    auto res = accessor_->DeleteEdge(edge->impl_.FromVertex(), edge->impl_.ToVertex(), edge->impl_.Gid());
     if (res.HasError()) {
       return res.GetError();
     }
@@ -342,10 +355,15 @@ class DbAccessor final {
     return {std::make_optional<VertexAccessor>(*value)};
   }
 
+  // TODO(jbajic) Query engine should have a map of labels, properties and edge
+  // types
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::PropertyId NameToProperty(const std::string_view name) { return accessor_->NameToProperty(name); }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::LabelId NameToLabel(const std::string_view name) { return accessor_->NameToLabel(name); }
 
+  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
   storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { return accessor_->NameToEdgeType(name); }
 
   const std::string &PropertyToName(storage::v3::PropertyId prop) const { return accessor_->PropertyToName(prop); }
@@ -356,7 +374,7 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::v3::ConstraintViolation, void> Commit() { return accessor_->Commit(); }
+  void Commit() { return accessor_->Commit(coordinator::Hlc{}); }
 
   void Abort() { accessor_->Abort(); }
 
@@ -386,8 +404,6 @@ class DbAccessor final {
   }
 
   storage::v3::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
-
-  storage::v3::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const storage::v3::SchemaValidator &GetSchemaValidator() const { return accessor_->GetSchemaValidator(); }
 

@@ -84,7 +84,7 @@ std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformation
 
 template <typename TMessage>
 void CallCustomTransformation(const std::string &transformation_name, const std::vector<TMessage> &messages,
-                              mgp_result &result, storage::v3::Storage::Accessor &storage_accessor,
+                              mgp_result &result, storage::v3::Shard::Accessor &storage_accessor,
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
@@ -490,7 +490,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
                             total_retries = interpreter_context_->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context_->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
-    auto accessor = interpreter_context->db->Access();
+    auto accessor = interpreter_context->db->Access(coordinator::Hlc{});
     EventCounter::IncrementCounter(EventCounter::MessagesConsumed, messages.size());
     CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
@@ -738,7 +738,7 @@ TransformationResult Streams::Check(const std::string &stream_name, std::optiona
         auto consumer_function = [interpreter_context = interpreter_context_, memory_resource, &stream_name,
                                   &transformation_name = transformation_name, &result,
                                   &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = interpreter_context->db->Access();
+          auto accessor = interpreter_context->db->Access(coordinator::Hlc{});
           CallCustomTransformation(transformation_name, messages, result, accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();

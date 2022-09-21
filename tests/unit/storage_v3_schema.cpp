@@ -34,13 +34,12 @@ namespace memgraph::storage::v3::tests {
 
 class SchemaTest : public testing::Test {
  private:
-  NameIdMapper label_mapper_;
-  NameIdMapper property_mapper_;
+  NameIdMapper id_mapper_{{{1, "label1"}, {2, "label2"}, {3, "prop1"}, {4, "prop2"}}};
 
  protected:
-  LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(label_mapper_.NameToId(name)); }
+  LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(id_mapper_.NameToId(name)); }
 
-  PropertyId NameToProperty(const std::string &name) { return PropertyId::FromUint(property_mapper_.NameToId(name)); }
+  PropertyId NameToProperty(const std::string &name) { return PropertyId::FromUint(id_mapper_.NameToId(name)); }
 
   PropertyId prop1{NameToProperty("prop1")};
   PropertyId prop2{NameToProperty("prop2")};
@@ -150,19 +149,18 @@ TEST_F(SchemaTest, TestSchemaDrop) {
 }
 
 class SchemaValidatorTest : public testing::Test {
+ private:
+  NameIdMapper id_mapper_{{{1, "label1"}, {2, "label2"}, {3, "prop1"}, {4, "prop2"}, {5, "prop3"}}};
+
  protected:
   void SetUp() override {
     ASSERT_TRUE(schemas.CreateSchema(label1, {schema_prop_string}));
     ASSERT_TRUE(schemas.CreateSchema(label2, {schema_prop_string, schema_prop_int, schema_prop_duration}));
   }
 
-  LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(label_mapper_.NameToId(name)); }
+  LabelId NameToLabel(const std::string &name) { return LabelId::FromUint(id_mapper_.NameToId(name)); }
 
-  PropertyId NameToProperty(const std::string &name) { return PropertyId::FromUint(property_mapper_.NameToId(name)); }
-
- private:
-  NameIdMapper label_mapper_;
-  NameIdMapper property_mapper_;
+  PropertyId NameToProperty(const std::string &name) { return PropertyId::FromUint(id_mapper_.NameToId(name)); }
 
  protected:
   Schemas schemas;
@@ -281,13 +279,13 @@ TEST_F(SchemaValidatorTest, TestSchemaValidatePropertyUpdateLabel) {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label1);
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL, label1));
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label1));
   }
   {
     const auto schema_violation = schema_validator.ValidateLabelUpdate(label2);
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL, label2));
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label2));
   }
   EXPECT_EQ(schema_validator.ValidateLabelUpdate(NameToLabel("test")), std::nullopt);
 }

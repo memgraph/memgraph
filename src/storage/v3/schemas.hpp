@@ -53,11 +53,15 @@ class Schemas {
 
   // Returns true if it was successfully created or false if the schema
   // already exists
-  [[nodiscard]] bool CreateSchema(LabelId label, const std::vector<SchemaProperty> &schemas_types);
+  [[nodiscard]] bool CreateSchema(LabelId primary_label, const std::vector<SchemaProperty> &schemas_types);
 
   // Returns true if it was successfully dropped or false if the schema
   // does not exist
-  [[nodiscard]] bool DropSchema(LabelId label);
+  [[nodiscard]] bool DropSchema(LabelId primary_label);
+
+  // Returns true if property is part of schema defined
+  // by primary label
+  [[nodiscard]] bool IsPropertyKey(LabelId primary_label, PropertyId property_id) const;
 
  private:
   SchemasMap schemas_;

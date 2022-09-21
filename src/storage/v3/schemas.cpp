@@ -11,10 +11,12 @@
 
 #include "storage/v3/schemas.hpp"
 
+#include <algorithm>
 #include <unordered_map>
 #include <vector>
 
 #include "storage/v3/property_value.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -46,6 +48,15 @@ bool Schemas::CreateSchema(const LabelId primary_label, const std::vector<Schema
 }
 
 bool Schemas::DropSchema(const LabelId primary_label) { return schemas_.erase(primary_label); }
+
+bool Schemas::IsPropertyKey(const LabelId primary_label, const PropertyId property_id) const {
+  if (const auto schema = schemas_.find(primary_label); schema != schemas_.end()) {
+    return std::ranges::find_if(schema->second, [property_id](const auto &elem) {
+             return elem.property_id == property_id;
+           }) != schema->second.end();
+  }
+  throw utils::BasicException("Schema not found!");
+}
 
 std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value) {
   switch (property_value.type()) {

@@ -14,6 +14,9 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+
+#include "io/time.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/transaction.hpp"
 
@@ -23,34 +26,13 @@ namespace memgraph::storage::v3 {
 /// the storage. This class also defines the default behavior.
 struct Config {
   struct Gc {
-    enum class Type { NONE, PERIODIC };
-
-    Type type{Type::PERIODIC};
-    std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
+    // Interval after which the committed deltas are cleaned up
+    io::Duration reclamation_interval{};
   } gc;
 
   struct Items {
     bool properties_on_edges{true};
   } items;
-
-  struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
-
-    std::filesystem::path storage_directory{"storage"};
-
-    bool recover_on_startup{false};
-
-    SnapshotWalMode snapshot_wal_mode{SnapshotWalMode::DISABLED};
-
-    std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};
-    uint64_t snapshot_retention_count{3};
-
-    uint64_t wal_file_size_kibibytes{static_cast<uint64_t>(20 * 1024)};
-    uint64_t wal_file_flush_every_n_tx{100000};
-
-    bool snapshot_on_exit{false};
-
-  } durability;
 
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};

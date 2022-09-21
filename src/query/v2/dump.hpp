@@ -32,7 +32,6 @@ struct PullPlanDump {
   query::v2::DbAccessor *dba_ = nullptr;
 
   std::optional<storage::v3::IndicesInfo> indices_info_ = std::nullopt;
-  std::optional<storage::v3::ConstraintsInfo> constraints_info_ = std::nullopt;
 
   using VertexAccessorIterable = decltype(std::declval<query::v2::DbAccessor>().Vertices(storage::v3::View::OLD));
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
@@ -55,8 +54,6 @@ struct PullPlanDump {
 
   PullChunk CreateLabelIndicesPullChunk();
   PullChunk CreateLabelPropertyIndicesPullChunk();
-  PullChunk CreateExistenceConstraintsPullChunk();
-  PullChunk CreateUniqueConstraintsPullChunk();
   PullChunk CreateInternalIndexPullChunk();
   PullChunk CreateVertexPullChunk();
   PullChunk CreateEdgePullChunk();

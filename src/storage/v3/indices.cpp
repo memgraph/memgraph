@@ -13,9 +13,10 @@
 
 #include <limits>
 
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
-#include "storage/v3/schema_validator.hpp"
+#include "storage/v3/schemas.hpp"
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -31,16 +32,16 @@ namespace {
 template <typename TCallback>
 bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
-    auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto commit_info = *delta->commit_info;
     // This is a committed change that we see so we shouldn't undo it.
-    if (ts < timestamp) {
+    if (commit_info.is_locally_committed && commit_info.start_or_commit_timestamp.logical_id < timestamp) {
       break;
     }
     if (predicate(*delta)) {
       return true;
     }
     // Move to the next delta.
-    delta = delta->next.load(std::memory_order_acquire);
+    delta = delta->next;
   }
   return false;
 }
@@ -52,7 +53,6 @@ bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t timestamp)
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     deleted = vertex.deleted;
     delta = vertex.delta;
@@ -105,7 +105,6 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId 
   bool deleted{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
     deleted = vertex.deleted;
@@ -164,7 +163,6 @@ bool CurrentVersionHasLabel(const Vertex &vertex, LabelId label, Transaction *tr
   bool has_label{false};
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     delta = vertex.delta;
@@ -216,7 +214,6 @@ bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, Propert
   bool current_value_equal_to_value = value.IsNull();
   const Delta *delta{nullptr};
   {
-    std::lock_guard<utils::SpinLock> guard(vertex.lock);
     deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
@@ -269,10 +266,10 @@ void LabelIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transacti
   auto it = index_.find(label);
   if (it == index_.end()) return;
   auto acc = it->second.access();
-  acc.insert(Entry{vertex, tx.start_timestamp});
+  acc.insert(Entry{vertex, tx.start_timestamp.logical_id});
 }
 
-bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelIndex::CreateIndex(LabelId label, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] = index_.emplace(std::piecewise_construct, std::forward_as_tuple(label), std::forward_as_tuple());
   if (!emplaced) {
@@ -281,7 +278,8 @@ bool LabelIndex::CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor ve
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -304,20 +302,20 @@ std::vector<LabelId> LabelIndex::ListIndices() const {
   return ret;
 }
 
-void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void LabelIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp) {
   for (auto &label_storage : index_) {
     auto vertices_acc = label_storage.second.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (it->timestamp >= clean_up_before_timestamp) {
         it = next_it;
         continue;
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
+          !AnyVersionHasLabel(*it->vertex, label_storage.first, clean_up_before_timestamp)) {
         vertices_acc.remove(*it);
       }
 
@@ -329,7 +327,7 @@ void LabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
 LabelIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -347,24 +345,23 @@ void LabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
     if (CurrentVersionHasLabel(*index_iterator_->vertex, self_->label_, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor{current_vertex_,     self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_,      *self_->schema_validator_};
+      current_vertex_accessor_ = VertexAccessor{current_vertex_, self_->transaction_, self_->indices_, self_->config_,
+                                                *self_->vertex_validator_};
       break;
     }
   }
 }
 
 LabelIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, LabelId label, View view,
-                               Transaction *transaction, Indices *indices, Constraints *constraints,
-                               Config::Items config, const SchemaValidator &schema_validator)
+                               Transaction *transaction, Indices *indices, Config::Items config,
+                               const VertexValidator &vertex_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       view_(view),
       transaction_(transaction),
       indices_(indices),
-      constraints_(constraints),
       config_(config),
-      schema_validator_(&schema_validator) {}
+      vertex_validator_(&vertex_validator) {}
 
 void LabelIndex::RunGC() {
   for (auto &index_entry : index_) {
@@ -398,7 +395,7 @@ void LabelPropertyIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const T
     auto prop_value = vertex->properties.GetProperty(label_prop.second);
     if (!prop_value.IsNull()) {
       auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp});
+      acc.insert(Entry{std::move(prop_value), vertex, tx.start_timestamp.logical_id});
     }
   }
 }
@@ -414,12 +411,12 @@ void LabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const Property
     }
     if (utils::Contains(vertex->labels, label_prop.first)) {
       auto acc = storage.access();
-      acc.insert(Entry{value, vertex, tx.start_timestamp});
+      acc.insert(Entry{value, vertex, tx.start_timestamp.logical_id});
     }
   }
 }
 
-bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, VerticesSkipList::Accessor vertices) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
@@ -429,7 +426,8 @@ bool LabelPropertyIndex::CreateIndex(LabelId label, PropertyId property, utils::
   }
   try {
     auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
+    for (auto &lgo_vertex : vertices) {
+      auto &vertex = lgo_vertex.vertex;
       if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
         continue;
       }
@@ -456,21 +454,21 @@ std::vector<std::pair<LabelId, PropertyId>> LabelPropertyIndex::ListIndices() co
   return ret;
 }
 
-void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp) {
+void LabelPropertyIndex::RemoveObsoleteEntries(const uint64_t clean_up_before_timestamp) {
   for (auto &[label_property, index] : index_) {
     auto index_acc = index.access();
     for (auto it = index_acc.begin(); it != index_acc.end();) {
       auto next_it = it;
       ++next_it;
 
-      if (it->timestamp >= oldest_active_start_timestamp) {
+      if (it->timestamp >= clean_up_before_timestamp) {
         it = next_it;
         continue;
       }
 
       if ((next_it != index_acc.end() && it->vertex == next_it->vertex && it->value == next_it->value) ||
           !AnyVersionHasLabelProperty(*it->vertex, label_property.first, label_property.second, it->value,
-                                      oldest_active_start_timestamp)) {
+                                      clean_up_before_timestamp)) {
         index_acc.remove(*it);
       }
       it = next_it;
@@ -481,7 +479,7 @@ void LabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
 LabelPropertyIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_vertex_accessor_(nullptr, nullptr, nullptr, nullptr, self_->config_, *self_->schema_validator_),
+      current_vertex_accessor_(nullptr, nullptr, nullptr, self_->config_, *self_->vertex_validator_),
       current_vertex_(nullptr) {
   AdvanceUntilValid();
 }
@@ -520,8 +518,8 @@ void LabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
-      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_,
-                                                self_->constraints_, self_->config_, *self_->schema_validator_);
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->transaction_, self_->indices_, self_->config_,
+                                                *self_->vertex_validator_);
       break;
     }
   }
@@ -543,8 +541,8 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
                                        PropertyId property,
                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                       Transaction *transaction, Indices *indices, Constraints *constraints,
-                                       Config::Items config, const SchemaValidator &schema_validator)
+                                       Transaction *transaction, Indices *indices, Config::Items config,
+                                       const VertexValidator &vertex_validator)
     : index_accessor_(std::move(index_accessor)),
       label_(label),
       property_(property),
@@ -553,9 +551,8 @@ LabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_ac
       view_(view),
       transaction_(transaction),
       indices_(indices),
-      constraints_(constraints),
       config_(config),
-      schema_validator_(&schema_validator) {
+      vertex_validator_(&vertex_validator) {
   // We have to fix the bounds that the user provided to us. If the user
   // provided only one bound we should make sure that only values of that type
   // are returned by the iterator. We ensure this by supplying either an
@@ -699,9 +696,9 @@ void LabelPropertyIndex::RunGC() {
   }
 }
 
-void RemoveObsoleteEntries(Indices *indices, uint64_t oldest_active_start_timestamp) {
-  indices->label_index.RemoveObsoleteEntries(oldest_active_start_timestamp);
-  indices->label_property_index.RemoveObsoleteEntries(oldest_active_start_timestamp);
+void RemoveObsoleteEntries(Indices *indices, const uint64_t clean_up_before_timestamp) {
+  indices->label_index.RemoveObsoleteEntries(clean_up_before_timestamp);
+  indices->label_property_index.RemoveObsoleteEntries(clean_up_before_timestamp);
 }
 
 void UpdateOnAddLabel(Indices *indices, LabelId label, Vertex *vertex, const Transaction &tx) {
