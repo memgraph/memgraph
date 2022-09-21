@@ -17,18 +17,24 @@
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/context.hpp"
 #include "query/v2/db_accessor.hpp"
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_store.hpp"
 #include "storage/v3/view.hpp"
-#include "storage/v3/conversions.hpp"
 
 namespace memgraph::query::v2 {
 
-inline const auto lam = [](const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); };
+struct PropertyToTypedValueConverter {
+  TypedValue operator()(const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); }
+
+  TypedValue operator()(const auto &val, utils::MemoryResource *mem) {
+    return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val, mem);
+  }
+};
 
 using ExpressionEvaluator =
     memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
-                                        storage::v3::LabelId, storage::v3::PropertyStore, decltype(lam),
+                                        storage::v3::LabelId, storage::v3::PropertyStore, PropertyToTypedValueConverter,
                                         memgraph::storage::v3::Error>;
 
 }  // namespace memgraph::query::v2

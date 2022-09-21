@@ -850,7 +850,6 @@ Callback HandleSchemaQuery(SchemaQuery *schema_query, InterpreterContext *interp
       callback.fn = [interpreter_context, primary_label = schema_query->label_]() {
         auto *db = interpreter_context->db;
         const auto label = interpreter_context->NameToLabelId(primary_label.name);
-
         if (!db->DropSchema(label)) {
           throw QueryException(fmt::format("Schema on label :{} does not exist!", primary_label.name));
         }
@@ -1321,7 +1320,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
   };
 
-  auto label = interpreter_context->NameToLabelId(index_query->label_.name);
+  const auto label = interpreter_context->NameToLabelId(index_query->label_.name);
 
   std::vector<storage::v3::PropertyId> properties;
   std::vector<std::string> properties_string;

@@ -32,4 +32,21 @@ class ExpressionRuntimeException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+class RedeclareVariableError : public SemanticException {
+ public:
+  explicit RedeclareVariableError(const std::string &name) : SemanticException("Redeclaring variable: " + name + ".") {}
+};
+
+class UnboundVariableError : public SemanticException {
+ public:
+  explicit UnboundVariableError(const std::string &name) : SemanticException("Unbound variable: " + name + ".") {}
+};
+
+class TypeMismatchError : public SemanticException {
+ public:
+  TypeMismatchError(const std::string &name, const std::string &datum, const std::string &expected)
+      : SemanticException(fmt::format("Type mismatch: {} already defined as {}, expected {}.", name, datum, expected)) {
+  }
+};
+
 }  // namespace memgraph::expr

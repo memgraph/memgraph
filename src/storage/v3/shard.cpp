@@ -679,6 +679,12 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
                                           transaction_, &shard_->indices_, config_, true);
 }
 
+LabelId Shard::Accessor::NameToLabel(std::string_view name) const { return shard_->NameToLabel(name); }
+
+PropertyId Shard::Accessor::NameToProperty(std::string_view name) const { return shard_->NameToProperty(name); }
+
+EdgeTypeId Shard::Accessor::NameToEdgeType(std::string_view name) const { return shard_->NameToEdgeType(name); }
+
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
 
 const std::string &Shard::Accessor::PropertyToName(PropertyId property) const {
@@ -855,6 +861,16 @@ void Shard::Accessor::Abort() {
 
   transaction_->is_aborted = true;
   shard_->has_any_transaction_aborted_since_last_gc = true;
+}
+
+LabelId Shard::NameToLabel(std::string_view name) const { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+
+PropertyId Shard::NameToProperty(std::string_view name) const {
+  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+EdgeTypeId Shard::NameToEdgeType(std::string_view name) const {
+  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 const std::string &Shard::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
@@ -1068,6 +1084,10 @@ Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, Isola
       start_timestamp.logical_id, std::make_unique<Transaction>(start_timestamp, isolation_level));
   MG_ASSERT(insert_result.second, "Transaction creation failed!");
   return *insert_result.first->second;
+}
+
+void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
+  name_id_mapper_.StoreMapping(std::move(id_to_name));
 }
 
 bool Shard::IsVertexBelongToShard(const VertexId &vertex_id) const {

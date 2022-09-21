@@ -38,6 +38,7 @@ namespace memgraph::storage::v3::tests {
 class StorageV3 : public ::testing::TestWithParam<bool> {
  protected:
   void SetUp() override {
+    store.StoreMapping({{1, "label"}, {2, "property"}});
     ASSERT_TRUE(
         store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
@@ -52,15 +53,11 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
     return *vtx;
   }
 
-  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+  LabelId NameToLabelId(std::string_view label_name) { return store.NameToLabel(label_name); }
 
-  PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(id_mapper.NameToId(property_name));
-  }
+  PropertyId NameToPropertyId(std::string_view property_name) { return store.NameToProperty(property_name); }
 
-  EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) {
-    return EdgeTypeId::FromUint(id_mapper.NameToId(edge_type_name));
-  }
+  EdgeTypeId NameToEdgeTypeId(std::string_view edge_type_name) { return store.NameToEdgeType(edge_type_name); }
 
   coordinator::Hlc GetNextHlc() {
     ++last_hlc.logical_id;
@@ -78,11 +75,10 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
   static constexpr std::chrono::seconds wall_clock_increment{10};
   static constexpr std::chrono::seconds reclamation_interval{wall_clock_increment / 2};
   static constexpr io::Duration one_time_unit{1};
-  NameIdMapper id_mapper;
   const std::vector<PropertyValue> pk{PropertyValue{0}};
-  const LabelId primary_label{NameToLabelId("label")};
+  const LabelId primary_label{LabelId::FromUint(1)};
+  const PropertyId primary_property{PropertyId::FromUint(2)};
   Shard store{primary_label, pk, std::nullopt, Config{.gc = {.reclamation_interval = reclamation_interval}}};
-  const PropertyId primary_property{NameToPropertyId("property")};
   coordinator::Hlc last_hlc{0, io::Time{}};
 };
 INSTANTIATE_TEST_CASE_P(WithGc, StorageV3, ::testing::Values(true));
@@ -951,6 +947,7 @@ TEST_P(StorageV3, VertexDeleteProperty) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexLabelCommit) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "other"}});
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1063,6 +1060,7 @@ TEST_P(StorageV3, VertexLabelCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexLabelAbort) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "other"}});
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
@@ -1307,6 +1305,7 @@ TEST_P(StorageV3, VertexLabelAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexLabelSerializationError) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}});
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1411,6 +1410,7 @@ TEST_P(StorageV3, VertexLabelSerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexPropertyCommit) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property5"}, {4, "other"}});
   {
     auto acc = store.Access(GetNextHlc());
     auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1530,6 +1530,7 @@ TEST_P(StorageV3, VertexPropertyCommit) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexPropertyAbort) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property5"}, {4, "other"}});
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
@@ -1804,6 +1805,7 @@ TEST_P(StorageV3, VertexPropertyAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexPropertySerializationError) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property1"}, {4, "property2"}});
   {
     auto acc = store.Access(GetNextHlc());
     CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
@@ -1902,6 +1904,7 @@ TEST_P(StorageV3, VertexPropertySerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageV3, VertexLabelPropertyMixed) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "property5"}});
   auto acc = store.Access(GetNextHlc());
   auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
 
@@ -2140,6 +2143,7 @@ TEST_P(StorageV3, VertexLabelPropertyMixed) {
 }
 
 TEST_P(StorageV3, VertexPropertyClear) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property1"}, {4, "property2"}});
   auto property1 = NameToPropertyId("property1");
   auto property2 = NameToPropertyId("property2");
   {
@@ -2242,6 +2246,8 @@ TEST_P(StorageV3, VertexPropertyClear) {
 }
 
 TEST_P(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
+  store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "property1"}, {5, "edge"}});
+
   auto label1 = NameToLabelId("label1");
   auto property1 = NameToPropertyId("property1");
 

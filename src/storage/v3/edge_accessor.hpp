@@ -65,6 +65,8 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 

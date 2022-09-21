@@ -32,6 +32,7 @@ namespace memgraph::storage::v3::tests {
 class StorageV3Accessor : public ::testing::Test {
  protected:
   void SetUp() override {
+    storage.StoreMapping({{1, "label"}, {2, "property"}});
     ASSERT_TRUE(storage.CreateSchema(primary_label, {SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
@@ -43,11 +44,9 @@ class StorageV3Accessor : public ::testing::Test {
     return *vtx;
   }
 
-  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+  LabelId NameToLabelId(std::string_view label_name) { return storage.NameToLabel(label_name); }
 
-  PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(id_mapper.NameToId(property_name));
-  }
+  PropertyId NameToPropertyId(std::string_view property_name) { return storage.NameToProperty(property_name); }
 
   coordinator::Hlc GetNextHlc() {
     ++last_hlc.logical_id;
@@ -56,10 +55,9 @@ class StorageV3Accessor : public ::testing::Test {
   }
 
   const std::vector<PropertyValue> pk{PropertyValue{0}};
-  NameIdMapper id_mapper;
-  Shard storage{NameToLabelId("label"), pk, std::nullopt};
-  const LabelId primary_label{NameToLabelId("label")};
-  const PropertyId primary_property{NameToPropertyId("property")};
+  const LabelId primary_label{LabelId::FromUint(1)};
+  const PropertyId primary_property{PropertyId::FromUint(2)};
+  Shard storage{primary_label, pk, std::nullopt};
   coordinator::Hlc last_hlc{0, io::Time{}};
 };
 
@@ -98,6 +96,7 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
 }
 
 TEST_F(StorageV3Accessor, TestAddLabels) {
+  storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}, {5, "label3"}});
   {
     auto acc = storage.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label1");
@@ -147,6 +146,8 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
 }
 
 TEST_F(StorageV3Accessor, TestRemoveLabels) {
+  storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}, {5, "label3"}});
+
   {
     auto acc = storage.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label1");
@@ -192,6 +193,8 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
 }
 
 TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
+  storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "prop1"}});
+  storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "prop1"}});
   {
     auto acc = storage.Access(GetNextHlc());
     const PropertyId prop1{NameToPropertyId("prop1")};
