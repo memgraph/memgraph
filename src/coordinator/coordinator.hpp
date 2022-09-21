@@ -33,8 +33,9 @@ namespace memgraph::coordinator {
 using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
-using SimT = memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::SchemaProperty;
+using SimT = memgraph::io::simulator::SimulatorTransport;
+using PrimaryKey = std::vector<PropertyValue>;
 
 struct HlcRequest {
   Hlc last_shard_map_version;
@@ -79,7 +80,7 @@ struct AllocatePropertyIdsResponse {
 struct SplitShardRequest {
   Hlc previous_shard_map_version;
   LabelId label_id;
-  CompoundKey split_key;
+  PrimaryKey split_key;
 };
 
 struct SplitShardResponse {
@@ -121,7 +122,7 @@ struct HeartbeatRequest {
 };
 
 struct HeartbeatResponse {
-  std::vector<boost::uuids::uuid> create_storage_rsms;
+  std::vector<ShardToInitialize> shards_to_initialize;
 };
 
 using CoordinatorWriteRequests =
@@ -172,7 +173,7 @@ class Coordinator {
         shard_map_.AssignShards(heartbeat_request.from_storage_manager, heartbeat_request.initialized_rsms);
 
     return HeartbeatResponse{
-        .create_storage_rsms = initializing_rsms_for_shard_manager,
+        .shards_to_initialize = initializing_rsms_for_shard_manager,
     };
   }
 

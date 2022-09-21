@@ -21,6 +21,7 @@
 #include "common/types.hpp"
 #include "coordinator/hybrid_logical_clock.hpp"
 #include "io/address.hpp"
+#include "storage/v3/config.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
@@ -30,6 +31,7 @@ namespace memgraph::coordinator {
 
 using memgraph::common::SchemaType;
 using memgraph::io::Address;
+using memgraph::storage::v3::Config;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
 using memgraph::storage::v3::PropertyValue;
@@ -50,15 +52,23 @@ struct AddressAndStatus {
   Status status;
 };
 
-using CompoundKey = std::vector<PropertyValue>;
+using PrimaryKey = std::vector<PropertyValue>;
 using Shard = std::vector<AddressAndStatus>;
-using Shards = std::map<CompoundKey, Shard>;
+using Shards = std::map<PrimaryKey, Shard>;
 using LabelName = std::string;
 using PropertyName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
 
-CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
-  CompoundKey ret{};
+struct ShardToInitialize {
+  boost::uuids::uuid uuid;
+  LabelId label_id;
+  PrimaryKey min_key;
+  std::optional<PrimaryKey> max_key;
+  Config config;
+};
+
+PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
+  PrimaryKey ret{};
 
   const int64_t min_int = std::numeric_limits<int64_t>::min();
 
@@ -98,7 +108,7 @@ CompoundKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
 
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
-  std::map<CompoundKey, Shard> shards;
+  std::map<PrimaryKey, Shard> shards;
   size_t replication_factor;
 };
 
@@ -121,8 +131,8 @@ struct ShardMap {
   Hlc GetHlc() const noexcept { return shard_map_version; }
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
-  std::vector<boost::uuids::uuid> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
-    std::vector<boost::uuids::uuid> ret{};
+  std::vector<ShardToInitialize> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized) {
+    std::vector<ShardToInitialize> ret{};
 
     bool mutated = false;
 
@@ -137,11 +147,17 @@ struct ShardMap {
             aas.status = Status::CONSENSUS_PARTICIPANT;
             machine_contains_shard = true;
           } else {
-            bool same_machine = aas.address.last_known_ip == storage_manager.last_known_ip &&
-                                aas.address.last_known_port == storage_manager.last_known_port;
+            const bool same_machine = aas.address.last_known_ip == storage_manager.last_known_ip &&
+                                      aas.address.last_known_port == storage_manager.last_known_port;
             if (same_machine) {
               machine_contains_shard = true;
-              ret.push_back(aas.address.unique_id);
+              ret.push_back(ShardToInitialize{
+                  .uuid = aas.address.unique_id,
+                  .label_id = label_id,
+                  .min_key = low_key,
+                  .max_key = std::nullopt,
+                  .config = Config{},
+              });
             }
           }
         }
@@ -152,7 +168,13 @@ struct ShardMap {
           // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
           address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
 
-          ret.push_back(address.unique_id);
+          ret.push_back(ShardToInitialize{
+              .uuid = address.unique_id,
+              .label_id = label_id,
+              .min_key = low_key,
+              .max_key = std::nullopt,
+              .config = Config{},
+          });
 
           AddressAndStatus aas = {
               .address = address,
@@ -171,7 +193,7 @@ struct ShardMap {
     return ret;
   }
 
-  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const CompoundKey &key) {
+  bool SplitShard(Hlc previous_shard_map_version, LabelId label_id, const PrimaryKey &key) {
     if (previous_shard_map_version != shard_map_version) {
       return false;
     }
@@ -183,7 +205,7 @@ struct ShardMap {
     MG_ASSERT(!shards_in_map.contains(key));
     MG_ASSERT(label_spaces.contains(label_id));
 
-    // Finding the Shard that the new CompoundKey should map to.
+    // Finding the Shard that the new PrimaryKey should map to.
     auto prev = std::prev(shards_in_map.upper_bound(key));
     Shard duplicated_shard = prev->second;
 
@@ -203,7 +225,7 @@ struct ShardMap {
 
     labels.emplace(std::move(label_name), label_id);
 
-    CompoundKey initial_key = SchemaToMinKey(schema);
+    PrimaryKey initial_key = SchemaToMinKey(schema);
     Shard empty_shard = {};
 
     Shards shards = {
@@ -227,8 +249,7 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  Shards GetShardsForRange(const LabelName &label_name, const CompoundKey &start_key,
-                           const CompoundKey &end_key) const {
+  Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
 
@@ -251,7 +272,7 @@ struct ShardMap {
     return shards;
   }
 
-  Shard GetShardForKey(const LabelName &label_name, const CompoundKey &key) const {
+  Shard GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
     MG_ASSERT(labels.contains(label_name));
 
     LabelId label_id = labels.at(label_name);
