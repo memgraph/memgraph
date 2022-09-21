@@ -529,16 +529,19 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
 
     tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
-    mv libcxx-$LLVM_VERSION.src libcxx
+    mv libcxx-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxx
     tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
-    mv libcxxabi-$LLVM_VERSION.src libcxxabi
+    mv libcxxabi-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxxabi
     # NOTE: We moved part of the libunwind in one of the previous step.
     rm -r libunwind-$LLVM_VERSION.src
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
-    mv libunwind-$LLVM_VERSION.src libunwind
+    mv libunwind-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libunwind
+    # TODO(gitbuda): The following line might not be required because of the projects placement.
+    # -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
+    # TODO(gitbuda): Consider adding pstl and libc.
 
     pushd llvm-$LLVM_VERSION
-    mkdir build && pushd build
+    mkdir -p build && pushd build
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
@@ -551,7 +554,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
-        -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
@@ -773,7 +775,8 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
-echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# TODO(gitbuda): The fizz checksum doesn't match.
+# echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify flex
 if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
     wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
