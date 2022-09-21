@@ -1001,7 +1001,7 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
   }
 }
 
-TEST_F(IndexTest, CollectGarbage) {
+TEST_F(IndexTest, CollectGarbageDeleteVertex) {
   // First part
   // T1 (start 1, commit 3) Creates the vertex, adds label and property
   // T2 (start 2, no commit) reads nothing
@@ -1086,6 +1086,96 @@ TEST_F(IndexTest, CollectGarbage) {
   // As T3 got cleaned up, it will delete the vertex from the actual storage and the index
   EXPECT_THAT(GetIds(acc4.Vertices(View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc4.Vertices(View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  check_t5();
+}
+
+TEST_F(IndexTest, CollectGarbageRemoveLabel) {
+  // First part
+  // T1 (start 1, commit 3) Creates the vertex, adds label and property
+  // T2 (start 2, no commit) reads nothing
+  // T3 (start 4, commit 6) removes label
+  // T4 (start 5, no commit) reads the vertex
+  // T5 (start 7, no commit) reads nothing
+
+  auto t1_start = GetNextHlc();
+  auto t2_start = GetNextHlc();
+  auto t1_commit = GetNextHlc();
+  auto t3_start = GetNextHlc();
+  auto t4_start = GetNextHlc();
+  auto t3_commit = GetNextHlc();
+  auto t5_start = GetNextHlc();
+
+  ASSERT_TRUE(storage.CreateIndex(label1, prop_val));
+
+  auto acc1 = storage.Access(t1_start);
+  {
+    auto vertex = CreateVertex(acc1);
+    ASSERT_NO_ERROR(vertex.AddLabelAndValidate(label1));
+    ASSERT_NO_ERROR(vertex.SetPropertyAndValidate(prop_val, PropertyValue(42)));
+  }
+  acc1.Commit(t1_commit);
+  EXPECT_THAT(GetIds(acc1.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc1.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
+
+  auto acc2 = storage.Access(t2_start);
+  EXPECT_THAT(GetIds(acc2.Vertices(View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc2.Vertices(View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(GetIds(acc2.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(GetIds(acc2.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+
+  auto acc3 = storage.Access(t3_start);
+  {
+    auto vertices = acc3.Vertices(label1, prop_val, View::OLD);
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
+    auto vertex = *vertices.begin();
+    ASSERT_NO_ERROR(vertex.RemoveLabelAndValidate(label1));
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  }
+  acc3.Commit(t3_commit);
+  auto check_t3 = [this, &acc3]() {
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+    EXPECT_THAT(GetIds(acc3.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  };
+  check_t3();
+
+  auto acc4 = storage.Access(t4_start);
+  EXPECT_THAT(GetIds(acc4.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
+
+  auto acc5 = storage.Access(t5_start);
+  auto check_t5 = [this, &acc5]() {
+    EXPECT_THAT(GetIds(acc5.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
+    EXPECT_THAT(GetIds(acc5.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
+    EXPECT_THAT(GetIds(acc5.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
+    EXPECT_THAT(GetIds(acc5.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
+  };
+  check_t5();
+
+  // Second part
+  // Start to clean up things.
+  CleanupHlc(t1_start);
+  // As the deltas of T1 is cleaned up, T2 will see the vertex as an existing one
+  EXPECT_THAT(GetIds(acc2.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc2.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc2.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc2.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
+  check_t3();
+  EXPECT_THAT(GetIds(acc4.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::NEW), View::NEW), UnorderedElementsAre(0));
+  check_t5();
+
+  CleanupHlc(t3_start);
+  // As T3 got cleaned up, it will delete the vertex from the index but not from the actual storage
+  EXPECT_THAT(GetIds(acc4.Vertices(View::OLD), View::OLD), UnorderedElementsAre(0));
+  EXPECT_THAT(GetIds(acc4.Vertices(View::NEW), View::NEW), UnorderedElementsAre(0));
   EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(GetIds(acc4.Vertices(label1, prop_val, View::NEW), View::NEW), IsEmpty());
   check_t5();
