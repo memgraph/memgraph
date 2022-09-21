@@ -386,7 +386,7 @@ struct ScanVerticesRequest {
 };
 
 struct ScanResultRow {
-  Value vertex;
+  Vertex vertex;
   // empty() is no properties returned
   std::vector<std::pair<PropertyId, Value>> props;
 };

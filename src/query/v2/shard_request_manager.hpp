@@ -268,7 +268,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
       for (auto &result_row : response.results) {
-        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex.vertex_v), std::move(result_row.props)));
+        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props)));
       }
     }
     return accessors;

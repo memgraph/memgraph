@@ -295,10 +295,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool did_reach_starting_point = false;
   uint64_t sample_counter = 0;
 
+  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
+
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (ConvertPropertyVector(std::move(req.start_id.second)) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -315,8 +317,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         continue;
       }
 
-      results.emplace_back(
-          msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view), .props = FromMap(found_props.value())});
+      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                               .props = FromMap(found_props.value())});
 
       ++sample_counter;
       if (sample_counter == req.batch_limit) {
