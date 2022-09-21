@@ -820,6 +820,12 @@ Result<std::optional<EdgeAccessor>> Shard::Accessor::DeleteEdge(VertexId from_ve
                                           &transaction_, &shard_->indices_, &shard_->constraints_, config_, true);
 }
 
+LabelId Shard::Accessor::NameToLabel(std::string_view name) const { return shard_->NameToLabel(name); }
+
+PropertyId Shard::Accessor::NameToProperty(std::string_view name) const { return shard_->NameToProperty(name); }
+
+EdgeTypeId Shard::Accessor::NameToEdgeType(std::string_view name) const { return shard_->NameToEdgeType(name); }
+
 const std::string &Shard::Accessor::LabelToName(LabelId label) const { return shard_->LabelToName(label); }
 
 const std::string &Shard::Accessor::PropertyToName(PropertyId property) const {
@@ -1094,6 +1100,16 @@ void Shard::Accessor::FinalizeTransaction() {
     shard_->committed_transactions_.emplace_back(std::move(transaction_));
     commit_timestamp_.reset();
   }
+}
+
+LabelId Shard::NameToLabel(std::string_view name) const { return LabelId::FromUint(name_id_mapper_.NameToId(name)); }
+
+PropertyId Shard::NameToProperty(std::string_view name) const {
+  return PropertyId::FromUint(name_id_mapper_.NameToId(name));
+}
+
+EdgeTypeId Shard::NameToEdgeType(std::string_view name) const {
+  return EdgeTypeId::FromUint(name_id_mapper_.NameToId(name));
 }
 
 const std::string &Shard::LabelToName(LabelId label) const { return name_id_mapper_.IdToName(label.AsUint()); }
@@ -1732,6 +1748,10 @@ utils::BasicResult<Shard::CreateSnapshotError> Shard::CreateSnapshot() {
   // Finalize snapshot transaction.
   commit_log_->MarkFinished(transaction.start_timestamp);
   return {};
+}
+
+void Shard::StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
+  name_id_mapper_.StoreMapping(std::move(id_to_name));
 }
 
 bool Shard::LockPath() {

@@ -316,8 +316,16 @@ class Shard final {
     /// @throw std::bad_alloc
     Result<std::optional<EdgeAccessor>> DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id, Gid edge_id);
 
+    LabelId NameToLabel(std::string_view name) const;
+
+    PropertyId NameToProperty(std::string_view name) const;
+
+    EdgeTypeId NameToEdgeType(std::string_view name) const;
+
     const std::string &LabelToName(LabelId label) const;
+
     const std::string &PropertyToName(PropertyId property) const;
+
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     bool LabelIndexExists(LabelId label) const { return shard_->indices_.label_index.IndexExists(label); }
@@ -367,18 +375,17 @@ class Shard final {
     return Accessor{this, override_isolation_level.value_or(isolation_level_)};
   }
 
+  LabelId NameToLabel(std::string_view name) const;
+
+  PropertyId NameToProperty(std::string_view name) const;
+
+  EdgeTypeId NameToEdgeType(std::string_view name) const;
+
   const std::string &LabelToName(LabelId label) const;
+
   const std::string &PropertyToName(PropertyId property) const;
+
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(std::string_view name);
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(std::string_view name);
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
@@ -484,6 +491,8 @@ class Shard final {
   enum class CreateSnapshotError : uint8_t { DisabledForReplica };
 
   utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+
+  void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
  private:
   Transaction CreateTransaction(IsolationLevel isolation_level);

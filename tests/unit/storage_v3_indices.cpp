@@ -34,28 +34,26 @@ namespace memgraph::storage::v3::tests {
 class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
+    storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}, {5, "id"}, {6, "val"}});
     ASSERT_TRUE(
         storage.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  NameIdMapper id_mapper;
   const std::vector<PropertyValue> pk{PropertyValue{0}};
-  const LabelId primary_label{NameToLabelId("label")};
+  const LabelId primary_label{LabelId::FromUint(1)};
   Shard storage{primary_label, pk, std::nullopt};
-  const PropertyId primary_property{NameToPropertyId("property")};
+  const PropertyId primary_property{PropertyId::FromUint(2)};
 
-  const PropertyId prop_id{NameToPropertyId("id")};
-  const PropertyId prop_val{NameToPropertyId("val")};
-  const LabelId label1{NameToLabelId("label1")};
-  const LabelId label2{NameToLabelId("label2")};
+  const LabelId label1{LabelId::FromUint(3)};
+  const LabelId label2{LabelId::FromUint(4)};
+  const PropertyId prop_id{PropertyId::FromUint(5)};
+  const PropertyId prop_val{PropertyId::FromUint(6)};
   int primary_key_id{0};
   int vertex_id{0};
 
-  LabelId NameToLabelId(std::string_view label_name) { return LabelId::FromUint(id_mapper.NameToId(label_name)); }
+  LabelId NameToLabelId(std::string_view label_name) { return storage.NameToLabel(label_name); }
 
-  PropertyId NameToPropertyId(std::string_view property_name) {
-    return PropertyId::FromUint(id_mapper.NameToId(property_name));
-  }
+  PropertyId NameToPropertyId(std::string_view property_name) { return storage.NameToProperty(property_name); }
 
   VertexAccessor CreateVertex(Shard::Accessor *accessor) {
     auto vertex = *accessor->CreateVertexAndValidate(

@@ -325,6 +325,9 @@ target_link_libraries(storage_v3_test_utils mg-storage-v3)
 add_unit_test(storage_v3.cpp)
 target_link_libraries(${test_prefix}storage_v3 mg-storage-v3 storage_v3_test_utils)
 
+add_unit_test(storage_v3_expr.cpp)
+target_link_libraries(${test_prefix}storage_v3_expr mg-storage-v3 mg-expr)
+
 add_unit_test(storage_v3_schema.cpp)
 target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
 

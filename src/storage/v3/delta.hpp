@@ -220,6 +220,7 @@ struct Delta {
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
         std::destroy_at(&vertex_edge.vertex_id);
+        break;
       case Action::SET_PROPERTY:
         property.value.~PropertyValue();
         break;
