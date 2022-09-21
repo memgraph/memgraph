@@ -37,7 +37,7 @@
 #include "utils/result.hpp"
 
 using memgraph::coordinator::AddressAndStatus;
-using memgraph::coordinator::CompoundKey;
+using CompoundKey = memgraph::coordinator::PrimaryKey;
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorClient;
 using memgraph::coordinator::CoordinatorRsm;
@@ -98,7 +98,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
       SchemaProperty{.property_id = property_id_2, .type = type_2},
   };
 
-  bool label_success = sm.InitializeNewLabel(label_name, schema, sm.shard_map_version);
+  auto label_success = sm.InitializeNewLabel(label_name, schema, 1, sm.shard_map_version);
   MG_ASSERT(label_success);
 
   const LabelId label_id = sm.labels.at(label_name);

@@ -36,6 +36,13 @@ class LocalTransportHandle {
   std::vector<OpaqueMessage> can_receive_;
 
  public:
+  ~LocalTransportHandle() {
+    for (auto &&[pk, promise] : promises_) {
+      std::move(promise.promise).TimeOut();
+    }
+    promises_.clear();
+  }
+
   void ShutDown() {
     std::unique_lock<std::mutex> lock(mu_);
     should_shut_down_ = true;
@@ -53,10 +60,12 @@ class LocalTransportHandle {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Duration timeout) {
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address /* receiver_address */, Duration timeout) {
     std::unique_lock lock(mu_);
 
     Time before = Now();
+
+    spdlog::info("can_receive_ size: {}", can_receive_.size());
 
     while (can_receive_.empty()) {
       Time now = Now();
@@ -89,23 +98,26 @@ class LocalTransportHandle {
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
     std::any message_any(std::forward<M>(message));
-    OpaqueMessage opaque_message{
-        .from_address = from_address, .request_id = request_id, .message = std::move(message_any)};
+    OpaqueMessage opaque_message{.to_address = to_address,
+                                 .from_address = from_address,
+                                 .request_id = request_id,
+                                 .message = std::move(message_any)};
 
-    PromiseKey promise_key{.requester_address = to_address,
-                           .request_id = opaque_message.request_id,
-                           .replier_address = opaque_message.from_address};
+    PromiseKey promise_key{
+        .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};
 
     {
       std::unique_lock<std::mutex> lock(mu_);
 
       if (promises_.contains(promise_key)) {
+        spdlog::info("using message to fill promise");
         // complete waiting promise if it's there
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
         promises_.erase(promise_key);
 
         dop.promise.Fill(std::move(opaque_message));
       } else {
+        spdlog::info("placing message in can_receive_");
         can_receive_.emplace_back(std::move(opaque_message));
       }
     }  // lock dropped

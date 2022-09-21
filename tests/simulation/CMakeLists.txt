@@ -11,6 +11,7 @@ function(add_simulation_test test_cpp)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
   add_executable(${target_name} ${test_cpp})
+
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
@@ -20,7 +21,8 @@ function(add_simulation_test test_cpp)
   target_compile_options(${target_name} PRIVATE -fsanitize=${san})
   target_link_options(${target_name} PRIVATE -fsanitize=${san})
 
-  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator Boost::headers mg-query-v2)
+  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator mg-coordinator Boost::headers mg-query-v2)
+
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__simulation ${target_name})

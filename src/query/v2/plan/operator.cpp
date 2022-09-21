@@ -49,6 +49,7 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/message.hpp"
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"

@@ -14,7 +14,6 @@
 #include <memory>
 #include <variant>
 
-#include <openssl/ec.h>
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -38,6 +37,8 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::CreateEdgesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::DeleteEdgesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::UpdateEdgesRequest &&req);
+
+  msgs::WriteResponses ApplyWrite(msgs::CommitRequest &&req);
 
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};

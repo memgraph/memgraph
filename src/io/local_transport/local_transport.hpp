@@ -25,17 +25,15 @@ namespace memgraph::io::local_transport {
 
 class LocalTransport {
   std::shared_ptr<LocalTransportHandle> local_transport_handle_;
-  const Address address_;
 
  public:
-  LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle, Address address)
-      : local_transport_handle_(std::move(local_transport_handle)), address_(address) {}
+  explicit LocalTransport(std::shared_ptr<LocalTransportHandle> local_transport_handle)
+      : local_transport_handle_(std::move(local_transport_handle)) {}
 
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, RequestId request_id, RequestT request, Duration timeout) {
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestId request_id, RequestT request,
+                                    Duration timeout) {
     auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
-
-    Address from_address = address_;
 
     local_transport_handle_->SubmitRequest(to_address, from_address, request_id, std::move(request), timeout,
                                            std::move(promise));
@@ -44,9 +42,8 @@ class LocalTransport {
   }
 
   template <Message... Ms>
-  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Duration timeout) {
-    Address from_address = address_;
-    return local_transport_handle_->template Receive<Ms...>(timeout);
+  requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(Address receiver_address, Duration timeout) {
+    return local_transport_handle_->template Receive<Ms...>(receiver_address, timeout);
   }
 
   template <Message M>

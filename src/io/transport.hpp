@@ -83,23 +83,26 @@ class Io {
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> RequestWithTimeout(Address address, RequestT request, Duration timeout) {
     const RequestId request_id = ++request_id_counter_;
-    return implementation_.template Request<RequestT, ResponseT>(address, request_id, request, timeout);
+    const Address from_address = address_;
+    return implementation_.template Request<RequestT, ResponseT>(address, from_address, request_id, request, timeout);
   }
 
   /// Issue a request that times out after the default timeout. This tends
   /// to be used by clients.
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address address, RequestT request) {
+  ResponseFuture<ResponseT> Request(Address to_address, RequestT request) {
     const RequestId request_id = ++request_id_counter_;
     const Duration timeout = default_timeout_;
-    return implementation_.template Request<RequestT, ResponseT>(address, request_id, std::move(request), timeout);
+    const Address from_address = address_;
+    return implementation_.template Request<RequestT, ResponseT>(to_address, from_address, request_id,
+                                                                 std::move(request), timeout);
   }
 
   /// Wait for an explicit number of microseconds for a request of one of the
   /// provided types to arrive. This tends to be used by servers.
   template <Message... Ms>
   RequestResult<Ms...> ReceiveWithTimeout(Duration timeout) {
-    return implementation_.template Receive<Ms...>(timeout);
+    return implementation_.template Receive<Ms...>(address_, timeout);
   }
 
   /// Wait the default number of microseconds for a request of one of the
@@ -107,7 +110,7 @@ class Io {
   template <Message... Ms>
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive() {
     const Duration timeout = default_timeout_;
-    return implementation_.template Receive<Ms...>(timeout);
+    return implementation_.template Receive<Ms...>(address_, timeout);
   }
 
   /// Send a message in a best-effort fashion. This is used for messaging where
@@ -134,5 +137,8 @@ class Io {
   }
 
   Address GetAddress() { return address_; }
+  void SetAddress(Address address) { address_ = address; }
+
+  Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
 };
 };  // namespace memgraph::io

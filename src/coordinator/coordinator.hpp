@@ -12,26 +12,30 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <unordered_set>
 #include <variant>
 #include <vector>
 
-#include "coordinator/hybrid_logical_clock.hpp"
-#include "coordinator/shard_map.hpp"
-#include "io/simulator/simulator.hpp"
-#include "io/time.hpp"
-#include "io/transport.hpp"
-#include "storage/v3/id_types.hpp"
-#include "storage/v3/schemas.hpp"
+#include <boost/uuid/uuid.hpp>
+
+#include <coordinator/hybrid_logical_clock.hpp>
+#include <coordinator/shard_map.hpp>
+#include <io/simulator/simulator.hpp>
+#include <io/time.hpp>
+#include <io/transport.hpp>
+#include <storage/v3/id_types.hpp>
+#include <storage/v3/schemas.hpp>
 
 namespace memgraph::coordinator {
 
+using memgraph::io::Address;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
-using Address = memgraph::io::Address;
-using SimT = memgraph::io::simulator::SimulatorTransport;
 using memgraph::storage::v3::SchemaProperty;
+using SimT = memgraph::io::simulator::SimulatorTransport;
+using PrimaryKey = std::vector<PropertyValue>;
 
 struct HlcRequest {
   Hlc last_shard_map_version;
@@ -81,7 +85,7 @@ struct AllocatePropertyIdsResponse {
 struct SplitShardRequest {
   Hlc previous_shard_map_version;
   LabelId label_id;
-  CompoundKey split_key;
+  PrimaryKey split_key;
 };
 
 struct SplitShardResponse {
@@ -107,26 +111,34 @@ struct DeregisterStorageEngineResponse {
 struct InitializeLabelRequest {
   std::string label_name;
   std::vector<SchemaProperty> schema;
+  size_t replication_factor;
   Hlc last_shard_map_version;
 };
 
 struct InitializeLabelResponse {
   bool success;
+  LabelId new_label_id;
   std::optional<ShardMap> fresher_shard_map;
 };
 
-struct HeartbeatRequest {};
-struct HeartbeatResponse {};
+struct HeartbeatRequest {
+  Address from_storage_manager;
+  std::set<boost::uuids::uuid> initialized_rsms;
+};
+
+struct HeartbeatResponse {
+  std::vector<ShardToInitialize> shards_to_initialize;
+};
 
 using CoordinatorWriteRequests =
     std::variant<HlcRequest, AllocateEdgeIdBatchRequest, SplitShardRequest, RegisterStorageEngineRequest,
-                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest>;
-using CoordinatorWriteResponses =
-    std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse, RegisterStorageEngineResponse,
-                 DeregisterStorageEngineResponse, InitializeLabelResponse, AllocatePropertyIdsResponse>;
+                 DeregisterStorageEngineRequest, InitializeLabelRequest, AllocatePropertyIdsRequest, HeartbeatRequest>;
+using CoordinatorWriteResponses = std::variant<HlcResponse, AllocateEdgeIdBatchResponse, SplitShardResponse,
+                                               RegisterStorageEngineResponse, DeregisterStorageEngineResponse,
+                                               InitializeLabelResponse, AllocatePropertyIdsResponse, HeartbeatResponse>;
 
-using CoordinatorReadRequests = std::variant<GetShardMapRequest, HeartbeatRequest>;
-using CoordinatorReadResponses = std::variant<GetShardMapResponse, HeartbeatResponse>;
+using CoordinatorReadRequests = std::variant<GetShardMapRequest>;
+using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
  public:
@@ -151,114 +163,34 @@ class Coordinator {
   /// Query engines need to periodically request batches of unique edge IDs.
   uint64_t highest_allocated_edge_id_;
 
-  static CoordinatorReadResponses HandleRead(HeartbeatRequest && /* heartbeat_request */) {
-    return HeartbeatResponse{};
-  }
-
   CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;
     res.shard_map = shard_map_;
     return res;
   }
 
-  CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request) {
-    HlcResponse res{};
+  CoordinatorWriteResponses ApplyWrite(HeartbeatRequest &&heartbeat_request);
 
-    auto hlc_shard_map = shard_map_.GetHlc();
+  CoordinatorWriteResponses ApplyWrite(HlcRequest &&hlc_request);
 
-    MG_ASSERT(!(hlc_request.last_shard_map_version.logical_id > hlc_shard_map.logical_id));
-
-    res.new_hlc = Hlc{
-        .logical_id = ++highest_allocated_timestamp_,
-        // TODO(tyler) probably pass some more context to the Coordinator here
-        // so that we can use our wall clock and enforce monotonicity.
-        // .coordinator_wall_clock = io_.Now(),
-    };
-
-    // Allways return fresher shard_map for now.
-    res.fresher_shard_map = std::make_optional(shard_map_);
-
-    return res;
-  }
-
-  CoordinatorWriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr) {
-    AllocateEdgeIdBatchResponse res{};
-
-    uint64_t low = highest_allocated_edge_id_;
-
-    highest_allocated_edge_id_ += ahr.batch_size;
-
-    uint64_t high = highest_allocated_edge_id_;
-
-    res.low = low;
-    res.high = high;
-
-    return res;
-  }
+  CoordinatorWriteResponses ApplyWrite(AllocateEdgeIdBatchRequest &&ahr);
 
   /// This splits the shard immediately beneath the provided
   /// split key, keeping the assigned peers identical for now,
   /// but letting them be gradually migrated over time.
-  CoordinatorWriteResponses ApplyWrite(SplitShardRequest &&split_shard_request) {
-    SplitShardResponse res{};
-
-    if (split_shard_request.previous_shard_map_version != shard_map_.shard_map_version) {
-      res.success = false;
-    } else {
-      res.success = shard_map_.SplitShard(split_shard_request.previous_shard_map_version, split_shard_request.label_id,
-                                          split_shard_request.split_key);
-    }
-
-    return res;
-  }
+  CoordinatorWriteResponses ApplyWrite(SplitShardRequest &&split_shard_request);
 
   /// This adds the provided storage engine to the standby storage engine pool,
   /// which can be used to rebalance storage over time.
-  static CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */) {
-    RegisterStorageEngineResponse res{};
-    // TODO
-
-    return res;
-  }
+  static CoordinatorWriteResponses ApplyWrite(RegisterStorageEngineRequest && /* register_storage_engine_request */);
 
   /// This begins the process of draining the provided storage engine from all raft
   /// clusters that it might be participating in.
-  static CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */) {
-    DeregisterStorageEngineResponse res{};
-    // TODO
-    // const Address &address = register_storage_engine_request.address;
-    // storage_engine_pool_.erase(address);
-    // res.success = true;
+  static CoordinatorWriteResponses ApplyWrite(DeregisterStorageEngineRequest && /* register_storage_engine_request */);
 
-    return res;
-  }
+  CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request);
 
-  CoordinatorWriteResponses ApplyWrite(InitializeLabelRequest &&initialize_label_request) {
-    InitializeLabelResponse res{};
-
-    bool success = shard_map_.InitializeNewLabel(initialize_label_request.label_name, initialize_label_request.schema,
-                                                 initialize_label_request.last_shard_map_version);
-
-    if (success) {
-      res.fresher_shard_map = shard_map_;
-      res.success = false;
-    } else {
-      res.fresher_shard_map = std::nullopt;
-      res.success = true;
-    }
-
-    return res;
-  }
-
-  CoordinatorWriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request) {
-    AllocatePropertyIdsResponse res{};
-
-    auto property_ids = shard_map_.AllocatePropertyIds(allocate_property_ids_request.property_names);
-
-    res.property_ids = property_ids;
-
-    return res;
-  }
+  CoordinatorWriteResponses ApplyWrite(AllocatePropertyIdsRequest &&allocate_property_ids_request);
 };
 
 }  // namespace memgraph::coordinator

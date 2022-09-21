@@ -12,6 +12,7 @@
 #include <iterator>
 #include <utility>
 
+#include "query/v2/requests.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -113,7 +114,7 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 namespace memgraph::storage::v3 {
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   // Workaround untill we have access to CreateVertexAndValidate()
   // with the new signature that does not require the primary label.
@@ -163,23 +164,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
-  msgs::CreateVerticesResponse resp{};
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                          .logical_id]);
-    }
-  }
-  return resp;
+  return msgs::CreateVerticesResponse{action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   bool action_successful = true;
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   for (auto &propval : req.primary_keys) {
     if (!action_successful) {
@@ -189,9 +179,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
-      spdlog::debug(
-          &"Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: "[req.transaction_id
-                                                                                                        .logical_id]);
+      spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       action_successful = false;
     } else {
       // TODO(gvolfing)
@@ -202,7 +191,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(&"Error while trying to delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to delete vertex. Transaction id: {}", req.transaction_id.logical_id);
           }
 
           break;
@@ -211,8 +200,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(
-                &"Error while trying to detach and delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to detach and delete vertex. Transaction id: {}",
+                          req.transaction_id.logical_id);
           }
 
           break;
@@ -221,23 +210,11 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     }
   }
 
-  msgs::DeleteVerticesResponse resp{};
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                          .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::DeleteVerticesResponse{action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   for (auto &edge : req.edges) {
@@ -249,8 +226,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (!vertex_from_acc || !vertex_to_acc) {
       action_successful = false;
-      spdlog::debug(
-          &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       break;
     }
 
@@ -261,30 +238,16 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (edge_acc.HasError()) {
       action_successful = false;
-      spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
   }
 
-  msgs::CreateEdgesResponse resp{};
-
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(
-          &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                     .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::CreateEdgesResponse{action_successful};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   std::vector<msgs::ScanResultRow> results;
@@ -342,6 +305,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 
   return resp;
 }
+
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
+  shard_->Access(req.transaction_id).Commit(req.commit_timestamp);
+  return msgs::CommitResponse{true};
+};
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest && /*req*/) {

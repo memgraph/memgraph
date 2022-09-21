@@ -325,6 +325,9 @@ target_link_libraries(storage_v3_test_utils mg-storage-v3)
 add_unit_test(storage_v3.cpp)
 target_link_libraries(${test_prefix}storage_v3 mg-storage-v3 storage_v3_test_utils)
 
+add_unit_test(storage_v3_expr.cpp)
+target_link_libraries(${test_prefix}storage_v3_expr mg-storage-v3 mg-expr)
+
 add_unit_test(storage_v3_schema.cpp)
 target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
 
@@ -378,6 +381,9 @@ target_link_libraries(${test_prefix}storage_v3_vertex_accessors mg-storage-v3)
 add_unit_test(storage_v3_edge.cpp)
 target_link_libraries(${test_prefix}storage_v3_edge mg-storage-v3)
 
+add_unit_test(storage_v3_isolation_level.cpp)
+target_link_libraries(${test_prefix}storage_v3_isolation_level mg-storage-v3)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 
@@ -416,10 +422,14 @@ add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_dependencies(memgraph__unit test_lcp)
 
-# Test future
+# Test Future
 add_unit_test(future.cpp)
 target_link_libraries(${test_prefix}future mg-io)
 
-# Test Local Transport
+# Test LocalTransport
 add_unit_test(local_transport.cpp)
 target_link_libraries(${test_prefix}local_transport mg-io)
+
+# Test MachineManager with LocalTransport
+add_unit_test(machine_manager.cpp)
+target_link_libraries(${test_prefix}machine_manager mg-io mg-coordinator mg-storage-v3)

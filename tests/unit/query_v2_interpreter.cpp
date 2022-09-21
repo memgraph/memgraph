@@ -591,8 +591,10 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   ASSERT_NO_THROW(Interpret("CREATE SCHEMA ON :A(a INTEGER);"));
 
 //   // Empty property list should result with syntax exception.
-//   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
-//   ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::v2::SyntaxException);
+//   ASSERT_THROW(Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+//  memgraph::frontend::opencypher::SyntaxException);
+//   ASSERT_THROW(Interpret("DROP CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"),
+//  memgraph::frontend::opencypher::SyntaxException);
 
 //   // Too large list of properties should also result with syntax exception.
 //   {
@@ -750,7 +752,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
 //   auto stream =
-//       Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue(42)}});
+//       Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id",
+//       memgraph::storage::v3::PropertyValue(42)}});
 //   ASSERT_EQ(stream.GetHeader().size(), 1U);
 //   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
 //   std::vector<std::string> expected_rows{" * Produce {n}", " * Filter", " * ScanAll (n)", " * Once"};
@@ -765,9 +768,10 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
 //   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
-//   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue("something
-//   else")}}); EXPECT_EQ(interpreter_context.plan_cache.size(), 1U); EXPECT_EQ(interpreter_context.ast_cache.size(),
-//   2U);
+//   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id",
+//   memgraph::storage::v3::PropertyValue("something else")}});
+//   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+//   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 // }
 
 // TEST_F(InterpreterTest, ProfileQuery) {
@@ -776,12 +780,10 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
 //   auto stream = Interpret("PROFILE MATCH (n) RETURN *;");
-//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
-//   EXPECT_EQ(stream.GetHeader(), expected_header);
-//   std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
-//   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
-//   auto expected_it = expected_rows.begin();
-//   for (const auto &row : stream.GetResults()) {
+//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE
+//   TIME"}; EXPECT_EQ(stream.GetHeader(), expected_header); std::vector<std::string> expected_rows{"*
+//   Produce", "* ScanAll", "* Once"}; ASSERT_EQ(stream.GetResults().size(), expected_rows.size()); auto
+//   expected_it = expected_rows.begin(); for (const auto &row : stream.GetResults()) {
 //     ASSERT_EQ(row.size(), 4U);
 //     EXPECT_EQ(row.front().ValueString(), *expected_it);
 //     ++expected_it;
@@ -801,8 +803,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
 //   auto [stream, qid] = Prepare("PROFILE MATCH (n) RETURN *;");
-//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
-//   EXPECT_EQ(stream.GetHeader(), expected_header);
+//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE
+//   TIME"}; EXPECT_EQ(stream.GetHeader(), expected_header);
 
 //   std::vector<std::string> expected_rows{"* Produce", "* ScanAll", "* Once"};
 //   auto expected_it = expected_rows.begin();
@@ -835,8 +837,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 
 // TEST_F(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 //   Interpret("BEGIN");
-//   ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"), memgraph::query::v2::ProfileInMulticommandTxException);
-//   Interpret("ROLLBACK");
+//   ASSERT_THROW(Interpret("PROFILE MATCH (n) RETURN *;"),
+//   memgraph::query::v2::ProfileInMulticommandTxException); Interpret("ROLLBACK");
 // }
 
 // TEST_F(InterpreterTest, ProfileQueryWithParams) {
@@ -845,13 +847,13 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 0U);
 //   auto stream =
-//       Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue(42)}});
-//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
-//   EXPECT_EQ(stream.GetHeader(), expected_header);
-//   std::vector<std::string> expected_rows{"* Produce", "* Filter", "* ScanAll", "* Once"};
-//   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
-//   auto expected_it = expected_rows.begin();
-//   for (const auto &row : stream.GetResults()) {
+//       Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id",
+//       memgraph::storage::v3::PropertyValue(42)}});
+//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE
+//   TIME"}; EXPECT_EQ(stream.GetHeader(), expected_header); std::vector<std::string> expected_rows{"*
+//   Produce", "* Filter", "* ScanAll", "* Once"}; ASSERT_EQ(stream.GetResults().size(),
+//   expected_rows.size()); auto expected_it = expected_rows.begin(); for (const auto &row :
+//   stream.GetResults()) {
 //     ASSERT_EQ(row.size(), 4U);
 //     EXPECT_EQ(row.front().ValueString(), *expected_it);
 //     ++expected_it;
@@ -860,9 +862,10 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
 //   // We should have AST cache for PROFILE ... and for inner MATCH ...
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
-//   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::v3::PropertyValue("something
-//   else")}}); EXPECT_EQ(interpreter_context.plan_cache.size(), 1U); EXPECT_EQ(interpreter_context.ast_cache.size(),
-//   2U);
+//   Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id",
+//   memgraph::storage::v3::PropertyValue("something else")}});
+//   EXPECT_EQ(interpreter_context.plan_cache.size(), 1U);
+//   EXPECT_EQ(interpreter_context.ast_cache.size(), 2U);
 // }
 
 // TEST_F(InterpreterTest, ProfileQueryWithLiterals) {
@@ -872,10 +875,9 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_EQ(interpreter_context.plan_cache.size(), 0U);
 //   EXPECT_EQ(interpreter_context.ast_cache.size(), 1U);
 //   auto stream = Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
-//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
-//   EXPECT_EQ(stream.GetHeader(), expected_header);
-//   std::vector<std::string> expected_rows{"* CreateNode", "* Unwind", "* Once"};
-//   ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
+//   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE
+//   TIME"}; EXPECT_EQ(stream.GetHeader(), expected_header); std::vector<std::string> expected_rows{"*
+//   CreateNode", "* Unwind", "* Once"}; ASSERT_EQ(stream.GetResults().size(), expected_rows.size());
 //   auto expected_it = expected_rows.begin();
 //   for (const auto &row : stream.GetResults()) {
 //     ASSERT_EQ(row.size(), 4U);
@@ -894,11 +896,12 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 // TEST_F(InterpreterTest, Transactions) {
 //   auto &interpreter = default_interpreter.interpreter;
 //   {
-//     ASSERT_THROW(interpreter.CommitTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
-//     ASSERT_THROW(interpreter.RollbackTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
-//     interpreter.BeginTransaction();
-//     ASSERT_THROW(interpreter.BeginTransaction(), memgraph::query::v2::ExplicitTransactionUsageException);
-//     auto [stream, qid] = Prepare("RETURN 2");
+//     ASSERT_THROW(interpreter.CommitTransaction(),
+//     memgraph::query::v2::ExplicitTransactionUsageException);
+//     ASSERT_THROW(interpreter.RollbackTransaction(),
+//     memgraph::query::v2::ExplicitTransactionUsageException); interpreter.BeginTransaction();
+//     ASSERT_THROW(interpreter.BeginTransaction(),
+//     memgraph::query::v2::ExplicitTransactionUsageException); auto [stream, qid] = Prepare("RETURN 2");
 //     ASSERT_EQ(stream.GetHeader().size(), 1U);
 //     EXPECT_EQ(stream.GetHeader()[0], "2");
 //     Pull(&stream, 1);
@@ -1072,8 +1075,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   writer.Close();
 
 //   {
-//     const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN
-//     x.A)",
+//     const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}"
+//     AS x RETURN x.A)",
 //                                           csv_path.string(), delimiter);
 //     auto [stream, qid] = Prepare(query);
 //     ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -1093,8 +1096,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   }
 
 //   {
-//     const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN
-//     x.C)",
+//     const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}"
+//     AS x RETURN x.C)",
 //                                           csv_path.string(), delimiter);
 //     auto [stream, qid] = Prepare(query);
 //     ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -1140,8 +1143,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 
 //     const std::array<std::string, 2> queries = {
 //         fmt::format("LOAD CSV FROM \"{}\" WITH HEADER AS row RETURN row", csv_path.string()),
-//         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER AS row RETURN "
-//         "row"};
+//         "CREATE TRIGGER trigger ON CREATE BEFORE COMMIT EXECUTE LOAD CSV FROM 'file.csv' WITH HEADER
+//         AS row RETURN " "row"};
 
 //     InterpreterFaker interpreter_faker{&db_, {.query = {.allow_load_csv = allow_load_csv}},
 //     directory_manager.Path()}; for (const auto &query : queries) {
@@ -1164,8 +1167,9 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 // void AssertAllValuesAreZero(const std::map<std::string, memgraph::communication::bolt::Value> &map,
 //                             const std::vector<std::string> &exceptions) {
 //   for (const auto &[key, value] : map) {
-//     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
-//     ASSERT_EQ(value.ValueInt(), 0) << "Value " << key << " actual: " << value.ValueInt() << ", expected 0";
+//     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end())
+//     continue; ASSERT_EQ(value.ValueInt(), 0) << "Value " << key << " actual: " << value.ValueInt() <<
+//     ", expected 0";
 //   }
 // }
 
@@ -1178,7 +1182,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   }
 //   {
 //     EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
-//     std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
+//     std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created",
+//     "relationships-deleted",
 //                           "properties-set", "labels-added",  "labels-removed"};
 //     auto [stream, qid] = Prepare("CREATE (:L1 {name: 'name1'});");
 //     Pull(&stream);
@@ -1187,7 +1192,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     ASSERT_TRUE(stream.GetSummary().at("stats").IsMap());
 //     auto stats = stream.GetSummary().at("stats").ValueMap();
 //     ASSERT_TRUE(
-//         std::all_of(stats_keys.begin(), stats_keys.end(), [&stats](const auto &key) { return stats.contains(key);
+//         std::all_of(stats_keys.begin(), stats_keys.end(), [&stats](const auto &key) { return
+//         stats.contains(key);
 //         }));
 //     AssertAllValuesAreZero(stats, {"nodes-created"});
 //   }
@@ -1197,7 +1203,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   EXPECT_NO_THROW(Interpret("CREATE SCHEMA ON :L1(name STRING)"));
 //   {
 //     auto [stream, qid] =
-//         Prepare("CREATE (:L1{name: 'name1'}),(:L1{name: 'name2'}),(:L1{name: 'name3'}),(:L1{name: 'name4'});");
+//         Prepare("CREATE (:L1{name: 'name1'}),(:L1{name: 'name2'}),(:L1{name: 'name3'}),(:L1{name:
+//         'name4'});");
 
 //     Pull(&stream);
 //     auto stats = stream.GetSummary().at("stats").ValueMap();
@@ -1214,7 +1221,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   }
 //   {
 //     auto [stream, qid] =
-//         Prepare("CREATE (n:L1 {name: 'name5'})-[:TO]->(m:L1{name: 'name6'}), (n)-[:TO]->(m), (n)-[:TO]->(m);");
+//         Prepare("CREATE (n:L1 {name: 'name5'})-[:TO]->(m:L1{name: 'name6'}), (n)-[:TO]->(m),
+//         (n)-[:TO]->(m);");
 
 //     Pull(&stream);
 
@@ -1319,8 +1327,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "IndexAlreadyExists");
-//     ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id already exists.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id already
+//     exists."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 //   {
 //     auto [stream, qid] = Prepare("DROP INDEX ON :Person(id);");
@@ -1345,8 +1353,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "IndexDoesNotExist");
-//     ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id doesn't exist.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Index on label Person on properties id doesn't
+//     exist."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 // }
 
@@ -1420,8 +1428,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "CreateConstraint");
-//     ASSERT_EQ(notification["title"].ValueString(), "Created EXISTS constraint on label L1 on properties name.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Created EXISTS constraint on label L1 on
+//     properties name."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 //   {
 //     auto [stream, qid] = Prepare("CREATE CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
@@ -1433,8 +1441,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "ConstraintAlreadyExists");
-//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name already
-//     exists."); ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name
+//     already exists."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 //   {
 //     auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
@@ -1446,8 +1454,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "DropConstraint");
-//     ASSERT_EQ(notification["title"].ValueString(), "Dropped EXISTS constraint on label L1 on properties name.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Dropped EXISTS constraint on label L1 on
+//     properties name."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 //   {
 //     auto [stream, qid] = Prepare("DROP CONSTRAINT ON (n:L1) ASSERT EXISTS (n.name);");
@@ -1459,8 +1467,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     auto notification = notifications[0].ValueMap();
 //     ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //     ASSERT_EQ(notification["code"].ValueString(), "ConstraintDoesNotExist");
-//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name doesn'texist.");
-//     ASSERT_EQ(notification["description"].ValueString(), "");
+//     ASSERT_EQ(notification["title"].ValueString(), "Constraint EXISTS on label L1 on properties name
+//     doesn'texist."); ASSERT_EQ(notification["description"].ValueString(), "");
 //   }
 // }
 
@@ -1510,7 +1518,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 
 //   writer.Close();
 
-//   const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)",
+//   const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS
+//   x RETURN x;)",
 //                                         csv_path.string(), delimiter);
 //   auto [stream, qid] = Prepare(query);
 //   Pull(&stream);
@@ -1522,9 +1531,9 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //   ASSERT_EQ(notification["severity"].ValueString(), "INFO");
 //   ASSERT_EQ(notification["code"].ValueString(), "LoadCSVTip");
 //   ASSERT_EQ(notification["title"].ValueString(),
-//             "It's important to note that the parser parses the values as strings. It's up to the user to "
-//             "convert the parsed row values to the appropriate type. This can be done using the built-in "
-//             "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
+//             "It's important to note that the parser parses the values as strings. It's up to the user
+//             to " "convert the parsed row values to the appropriate type. This can be done using the
+//             built-in " "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
 //   ASSERT_EQ(notification["description"].ValueString(), "");
 // }
 
@@ -1543,30 +1552,32 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 
 // TEST_F(InterpreterTest, ShowSchemaMulticommandTransaction) {
 //   Interpret("BEGIN");
-//   ASSERT_THROW(Interpret("SHOW SCHEMA ON :label"), memgraph::query::v2::ConstraintInMulticommandTxException);
-//   Interpret("ROLLBACK");
+//   ASSERT_THROW(Interpret("SHOW SCHEMA ON :label"),
+//   memgraph::query::v2::ConstraintInMulticommandTxException); Interpret("ROLLBACK");
 // }
 
 // TEST_F(InterpreterTest, DropSchemaMulticommandTransaction) {
 //   Interpret("BEGIN");
-//   ASSERT_THROW(Interpret("DROP SCHEMA ON :label"), memgraph::query::v2::ConstraintInMulticommandTxException);
-//   Interpret("ROLLBACK");
+//   ASSERT_THROW(Interpret("DROP SCHEMA ON :label"),
+//   memgraph::query::v2::ConstraintInMulticommandTxException); Interpret("ROLLBACK");
 // }
 
 // TEST_F(InterpreterTest, SchemaTestCreateAndShow) {
 //   // Empty schema type map should result with syntax exception.
-//   ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
+//   ASSERT_THROW(Interpret("CREATE SCHEMA ON :label();"),
+//   memgraph::frontend::opencypher::SyntaxException);
 
 //   // Duplicate properties are should also cause an exception
 //   ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name STRING);"),
-//   memgraph::query::v2::SemanticException); ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING, name
-//   INTEGER);"),
+//   memgraph::query::v2::SemanticException); ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name
+//   STRING, name INTEGER);"),
 //                memgraph::query::v2::SemanticException);
 
 //   {
 //     // Cannot create same schema twice
 //     Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
-//     ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING);"), memgraph::query::v2::QueryException);
+//     ASSERT_THROW(Interpret("CREATE SCHEMA ON :label(name STRING);"),
+//     memgraph::query::v2::QueryException);
 //   }
 //   // Show schema
 //   {
@@ -1610,7 +1621,8 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     ASSERT_TRUE(result_table.contains(key1));
 //     const auto primary_key_split = StringToUnorderedSet(result[1].ValueString());
 //     ASSERT_EQ(primary_key_split.size(), 2);
-//     ASSERT_TRUE(primary_key_split == result_table[key1]) << "actual value is: " << result[1].ValueString();
+//     ASSERT_TRUE(primary_key_split == result_table[key1]) << "actual value is: " <<
+//     result[1].ValueString();
 
 //     const auto &result2 = stream.GetResults().front();
 //     ASSERT_EQ(result2.size(), 2U);
@@ -1618,14 +1630,16 @@ TEST_F(InterpreterTest, DummyTestToForceQueryV2Compilation) {
 //     ASSERT_TRUE(result_table.contains(key2));
 //     const auto primary_key_split2 = StringToUnorderedSet(result2[1].ValueString());
 //     ASSERT_EQ(primary_key_split2.size(), 2);
-//     ASSERT_TRUE(primary_key_split2 == result_table[key2]) << "Real value is: " << result[1].ValueString();
+//     ASSERT_TRUE(primary_key_split2 == result_table[key2]) << "Real value is: " <<
+//     result[1].ValueString();
 //   }
 // }
 
 // TEST_F(InterpreterTest, SchemaTestCreateDropAndShow) {
 //   Interpret("CREATE SCHEMA ON :label(name STRING, age INTEGER)");
 //   // Wrong syntax for dropping schema.
-//   ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"), memgraph::query::v2::SyntaxException);
+//   ASSERT_THROW(Interpret("DROP SCHEMA ON :label();"),
+//   memgraph::frontend::opencypher::SyntaxException);
 //   // Cannot drop non existant schema.
 //   ASSERT_THROW(Interpret("DROP SCHEMA ON :label1;"), memgraph::query::v2::QueryException);
 

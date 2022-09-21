@@ -54,6 +54,7 @@ src/distributed/token_sharing_rpc_messages.hpp
 src/distributed/updates_rpc_messages.hpp
 src/query/v2/frontend/ast/ast.hpp
 src/query/frontend/ast/ast.hpp
+src/storage/v3/bindings/ast/ast.hpp
 src/query/distributed/frontend/ast/ast_serialization.hpp
 src/query/v2/distributed/frontend/ast/ast_serialization.hpp
 src/durability/distributed/state_delta.hpp
@@ -61,12 +62,15 @@ src/durability/single_node/state_delta.hpp
 src/durability/single_node_ha/state_delta.hpp
 src/query/frontend/semantic/symbol.hpp
 src/query/v2/frontend/semantic/symbol.hpp
+src/expr/semantic/symbol.hpp
 src/query/distributed/frontend/semantic/symbol_serialization.hpp
 src/query/v2/distributed/frontend/semantic/symbol_serialization.hpp
 src/query/distributed/plan/ops.hpp
 src/query/v2/distributed/plan/ops.hpp
 src/query/plan/operator.hpp
 src/query/v2/plan/operator.hpp
+src/parser/opencypher/generated
+src/expr/semantic/symbol.hpp
 src/raft/log_entry.hpp
 src/raft/raft_rpc_messages.hpp
 src/raft/snapshot_metadata.hpp

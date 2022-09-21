@@ -37,7 +37,7 @@ namespace memgraph::logging {
 // compilers
 inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
   spdlog::critical(
-      "\nAssertion failed in file {} at line {}."
+      "\nAssertion failed at {}:{}."
       "\n\tExpression: '{}'"
       "{}",
       file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");

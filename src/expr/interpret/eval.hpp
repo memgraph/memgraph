@@ -32,7 +32,7 @@ struct StorageTag {};
 struct QueryEngineTag {};
 
 template <typename TypedValue, typename EvaluationContext, typename DbAccessor, typename StorageView, typename LabelId,
-          typename PropertyValue, typename ConvFunction, typename Error, typename Tag = StorageTag>
+          typename PropertyValue, typename ConvFunctor, typename Error, typename Tag = StorageTag>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
@@ -729,6 +729,62 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return conv_(maybe_prop);
   }
 
+  template <class TRecordAccessor, class TTag = Tag,
+            class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
+  TypedValue GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
+      // This is a very nasty and temporary hack in order to make MERGE work.
+      // The old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't
+      // exist, it returned the NEW view. With this hack we simulate that
+      // behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+      maybe_prop = record_accessor.GetProperty(StorageView::NEW, ctx_->properties[prop.ix]);
+    }
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case Error::DELETED_OBJECT:
+          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
+        case Error::NONEXISTENT_OBJECT:
+          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
+        case Error::SERIALIZATION_ERROR:
+        case Error::VERTEX_HAS_EDGES:
+        case Error::PROPERTIES_DISABLED:
+          throw ExpressionRuntimeException("Unexpected error when getting a property.");
+      }
+    }
+    return conv_(*maybe_prop, ctx_->memory);
+  }
+
+  template <class TRecordAccessor, class TTag = Tag,
+            class TReturnType = std::enable_if_t<std::is_same_v<TTag, StorageTag>, TypedValue>>
+  TypedValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
+    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    if (maybe_prop.HasError() && maybe_prop.GetError() == Error::NONEXISTENT_OBJECT) {
+      // This is a very nasty and temporary hack in order to make MERGE work.
+      // The old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't
+      // exist, it returned the NEW view. With this hack we simulate that
+      // behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+    }
+    if (maybe_prop.HasError()) {
+      switch (maybe_prop.GetError()) {
+        case Error::DELETED_OBJECT:
+          throw ExpressionRuntimeException("Trying to get a property from a deleted object.");
+        case Error::NONEXISTENT_OBJECT:
+          throw ExpressionRuntimeException("Trying to get a property from an object that doesn't exist.");
+        case Error::SERIALIZATION_ERROR:
+        case Error::VERTEX_HAS_EDGES:
+        case Error::PROPERTIES_DISABLED:
+          throw ExpressionRuntimeException("Unexpected error when getting a property.");
+      }
+    }
+    return conv_(*maybe_prop, ctx_->memory);
+  }
+
   LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
 
   Frame<TypedValue> *frame_;
@@ -737,7 +793,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   StorageView view_;
-  ConvFunction conv_;
+  ConvFunctor conv_;
 };
 
 /// A helper function for evaluating an expression that's an int.

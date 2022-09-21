@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -21,13 +20,11 @@
 #include <variant>
 #include <vector>
 
+#include "coordinator/hybrid_logical_clock.hpp"
 #include "io/network/endpoint.hpp"
+#include "io/time.hpp"
 #include "kvstore/kvstore.hpp"
-#include "storage/v3/commit_log.hpp"
 #include "storage/v3/config.hpp"
-#include "storage/v3/constraints.hpp"
-#include "storage/v3/durability/metadata.hpp"
-#include "storage/v3/durability/wal.hpp"
 #include "storage/v3/edge.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
@@ -46,6 +43,7 @@
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/vertex_id.hpp"
 #include "storage/v3/vertices_skip_list.hpp"
+#include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -54,13 +52,6 @@
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
-
-/// REPLICATION ///
-#include "rpc/server.hpp"
-#include "storage/v3/replication/config.hpp"
-#include "storage/v3/replication/enums.hpp"
-#include "storage/v3/replication/rpc.hpp"
-#include "storage/v3/replication/serialization.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -78,7 +69,6 @@ class AllVerticesIterable final {
   Transaction *transaction_;
   View view_;
   Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
   const Schemas *schemas_;
@@ -102,13 +92,11 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(VerticesSkipList::Accessor vertices_accessor, Transaction *transaction, View view,
-                      Indices *indices, Constraints *constraints, Config::Items config,
-                      const VertexValidator &vertex_validator)
+                      Indices *indices, Config::Items config, const VertexValidator &vertex_validator)
       : vertices_accessor_(std::move(vertices_accessor)),
         transaction_(transaction),
         view_(view),
         indices_(indices),
-        constraints_(constraints),
         config_(config),
         vertex_validator_{&vertex_validator} {}
 
@@ -184,13 +172,6 @@ struct IndicesInfo {
   std::vector<std::pair<LabelId, PropertyId>> label_property;
 };
 
-/// Structure used to return information about existing constraints in the
-/// storage.
-struct ConstraintsInfo {
-  std::vector<std::pair<LabelId, PropertyId>> existence;
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
-};
-
 /// Structure used to return information about existing schemas in the storage
 struct SchemasInfo {
   Schemas::SchemasList schemas;
@@ -202,10 +183,7 @@ struct StorageInfo {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_usage;
-  uint64_t disk_usage;
 };
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
 class Shard final {
  public:
@@ -224,19 +202,9 @@ class Shard final {
    private:
     friend class Shard;
 
-    explicit Accessor(Shard *shard, IsolationLevel isolation_level);
+    Accessor(Shard &shard, Transaction &transaction);
 
    public:
-    Accessor(const Accessor &) = delete;
-    Accessor &operator=(const Accessor &) = delete;
-    Accessor &operator=(Accessor &&other) = delete;
-
-    // NOTE: After the accessor is moved, all objects derived from it (accessors
-    // and iterators) are *invalid*. You have to get all derived objects again.
-    Accessor(Accessor &&other) noexcept;
-
-    ~Accessor();
-
     // TODO(gvolfing) this is just a workaround for stitching remove this later.
     LabelId GetPrimaryLabel() const noexcept { return shard_->primary_label_; }
 
@@ -253,9 +221,8 @@ class Shard final {
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
 
     VerticesIterable Vertices(View view) {
-      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), &transaction_, view, &shard_->indices_,
-                                                  &shard_->constraints_, shard_->config_.items,
-                                                  shard_->vertex_validator_));
+      return VerticesIterable(AllVerticesIterable(shard_->vertices_.access(), transaction_, view, &shard_->indices_,
+                                                  shard_->config_.items, shard_->vertex_validator_));
     }
 
     VerticesIterable Vertices(LabelId label, View view);
@@ -316,8 +283,16 @@ class Shard final {
     /// @throw std::bad_alloc
     Result<std::optional<EdgeAccessor>> DeleteEdge(VertexId from_vertex_id, VertexId to_vertex_id, Gid edge_id);
 
+    LabelId NameToLabel(std::string_view name) const;
+
+    PropertyId NameToProperty(std::string_view name) const;
+
+    EdgeTypeId NameToEdgeType(std::string_view name) const;
+
     const std::string &LabelToName(LabelId label) const;
+
     const std::string &PropertyToName(PropertyId property) const;
+
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
     bool LabelIndexExists(LabelId label) const { return shard_->indices_.label_index.IndexExists(label); }
@@ -330,55 +305,41 @@ class Shard final {
       return {shard_->indices_.label_index.ListIndices(), shard_->indices_.label_property_index.ListIndices()};
     }
 
-    ConstraintsInfo ListAllConstraints() const {
-      return {ListExistenceConstraints(shard_->constraints_),
-              shard_->constraints_.unique_constraints.ListConstraints()};
-    }
-
     const SchemaValidator &GetSchemaValidator() const;
 
     SchemasInfo ListAllSchemas() const { return {shard_->schemas_.ListSchemas()}; }
 
     void AdvanceCommand();
 
-    /// Commit returns `ConstraintViolation` if the changes made by this
-    /// transaction violate an existence or unique constraint. In that case the
-    /// transaction is automatically aborted. Otherwise, void is returned.
-    /// @throw std::bad_alloc
-    utils::BasicResult<ConstraintViolation, void> Commit(std::optional<uint64_t> desired_commit_timestamp = {});
+    void Commit(coordinator::Hlc commit_timestamp);
 
     /// @throw std::bad_alloc
     void Abort();
-
-    void FinalizeTransaction();
 
    private:
     /// @throw std::bad_alloc
     VertexAccessor CreateVertex(Gid gid, LabelId primary_label);
 
     Shard *shard_;
-    Transaction transaction_;
-    std::optional<uint64_t> commit_timestamp_;
-    bool is_transaction_active_;
+    Transaction *transaction_;
     Config::Items config_;
   };
 
-  Accessor Access(std::optional<IsolationLevel> override_isolation_level = {}) {
-    return Accessor{this, override_isolation_level.value_or(isolation_level_)};
+  Accessor Access(coordinator::Hlc start_timestamp, std::optional<IsolationLevel> override_isolation_level = {}) {
+    return Accessor{*this, GetTransaction(start_timestamp, override_isolation_level.value_or(isolation_level_))};
   }
 
+  LabelId NameToLabel(std::string_view name) const;
+
+  PropertyId NameToProperty(std::string_view name) const;
+
+  EdgeTypeId NameToEdgeType(std::string_view name) const;
+
   const std::string &LabelToName(LabelId label) const;
+
   const std::string &PropertyToName(PropertyId property) const;
+
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  LabelId NameToLabel(std::string_view name);
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  PropertyId NameToProperty(std::string_view name);
-
-  /// @throw std::bad_alloc if unable to insert a new mapping
-  EdgeTypeId NameToEdgeType(std::string_view name);
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
@@ -392,45 +353,6 @@ class Shard final {
 
   IndicesInfo ListAllIndices() const;
 
-  /// Creates an existence constraint. Returns true if the constraint was
-  /// successfully added, false if it already exists and a `ConstraintViolation`
-  /// if there is an existing vertex violating the constraint.
-  ///
-  /// @throw std::bad_alloc
-  /// @throw std::length_error
-  utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-      LabelId label, PropertyId property, std::optional<uint64_t> desired_commit_timestamp = {});
-
-  /// Removes an existence constraint. Returns true if the constraint was
-  /// removed, and false if it doesn't exist.
-  bool DropExistenceConstraint(LabelId label, PropertyId property,
-                               std::optional<uint64_t> desired_commit_timestamp = {});
-
-  /// Creates a unique constraint. In the case of two vertices violating the
-  /// constraint, it returns `ConstraintViolation`. Otherwise returns a
-  /// `UniqueConstraints::CreationStatus` enum with the following possibilities:
-  ///     * `SUCCESS` if the constraint was successfully created,
-  ///     * `ALREADY_EXISTS` if the constraint already existed,
-  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
-  //      * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
-  //        limit of maximum number of properties.
-  ///
-  /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, UniqueConstraints::CreationStatus> CreateUniqueConstraint(
-      LabelId label, const std::set<PropertyId> &properties, std::optional<uint64_t> desired_commit_timestamp = {});
-
-  /// Removes a unique constraint. Returns `UniqueConstraints::DeletionStatus`
-  /// enum with the following possibilities:
-  ///     * `SUCCESS` if constraint was successfully removed,
-  ///     * `NOT_FOUND` if the specified constraint was not found,
-  ///     * `EMPTY_PROPERTIES` if the property set is empty, or
-  ///     * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the
-  //        limit of maximum number of properties.
-  UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
-                                                         std::optional<uint64_t> desired_commit_timestamp = {});
-
-  ConstraintsInfo ListAllConstraints() const;
-
   SchemasInfo ListAllSchemas() const;
 
   const Schemas::Schema *GetSchema(LabelId primary_label) const;
@@ -441,73 +363,15 @@ class Shard final {
 
   StorageInfo GetInfo() const;
 
-  bool LockPath();
-  bool UnlockPath();
-
-  bool SetReplicaRole(io::network::Endpoint endpoint, const replication::ReplicationServerConfig &config = {});
-
-  bool SetMainReplicationRole();
-
-  enum class RegisterReplicaError : uint8_t {
-    NAME_EXISTS,
-    END_POINT_EXISTS,
-    CONNECTION_FAILED,
-    COULD_NOT_BE_PERSISTED
-  };
-
-  /// @pre The instance should have a MAIN role
-  /// @pre Timeout can only be set for SYNC replication
-  utils::BasicResult<RegisterReplicaError, void> RegisterReplica(
-      std::string name, io::network::Endpoint endpoint, replication::ReplicationMode replication_mode,
-      const replication::ReplicationClientConfig &config = {});
-  /// @pre The instance should have a MAIN role
-  bool UnregisterReplica(std::string_view name);
-
-  std::optional<replication::ReplicaState> GetReplicaState(std::string_view name);
-
-  ReplicationRole GetReplicationRole() const;
-
-  struct ReplicaInfo {
-    std::string name;
-    replication::ReplicationMode mode;
-    std::optional<double> timeout;
-    io::network::Endpoint endpoint;
-    replication::ReplicaState state;
-  };
-
-  std::vector<ReplicaInfo> ReplicasInfo();
-
-  void FreeMemory();
-
   void SetIsolationLevel(IsolationLevel isolation_level);
 
-  enum class CreateSnapshotError : uint8_t { DisabledForReplica };
+  // Might invalidate accessors
+  void CollectGarbage(io::Time current_time);
 
-  utils::BasicResult<CreateSnapshotError> CreateSnapshot();
+  void StoreMapping(std::unordered_map<uint64_t, std::string> id_to_name);
 
  private:
-  Transaction CreateTransaction(IsolationLevel isolation_level);
-
-  /// The force parameter determines the behaviour of the garbage collector.
-  /// If it's set to true, it will behave as a global operation, i.e. it can't
-  /// be part of a transaction, and no other transaction can be active at the same time.
-  /// This allows it to delete immediately vertices without worrying that some other
-  /// transaction is possibly using it. If there are active transactions when this method
-  /// is called with force set to true, it will fallback to the same method with the force
-  /// set to false.
-  /// If it's set to false, it will execute in parallel with other transactions, ensuring
-  /// that no object in use can be deleted.
-  /// @throw std::system_error
-  /// @throw std::bad_alloc
-  template <bool force>
-  void CollectGarbage();
-
-  bool InitializeWalFile();
-  void FinalizeWalFile();
-
-  void AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp);
-  void AppendToWal(durability::StorageGlobalOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                   uint64_t final_commit_timestamp);
+  Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
@@ -528,44 +392,21 @@ class Shard final {
 
   SchemaValidator schema_validator_;
   VertexValidator vertex_validator_;
-  Constraints constraints_;
   Indices indices_;
   Schemas schemas_;
 
-  // Transaction engine
-  uint64_t timestamp_{kTimestampInitialId};
-  uint64_t transaction_id_{kTransactionInitialId};
-  // TODO: This isn't really a commit log, it doesn't even care if a
-  // transaction commited or aborted. We could probably combine this with
-  // `timestamp_` in a sensible unit, something like TransactionClock or
-  // whatever.
-  std::optional<CommitLog> commit_log_;
-
-  std::list<Transaction> committed_transactions_;
+  std::list<Transaction *> committed_transactions_;
   IsolationLevel isolation_level_;
 
   Config config_;
-
-  // Undo buffers that were unlinked and now are waiting to be freed.
-  std::list<std::pair<uint64_t, std::list<Delta>>> garbage_undo_buffers_;
 
   // Vertices that are logically deleted but still have to be removed from
   // indices before removing them from the main storage.
   std::list<PrimaryKey> deleted_vertices_;
 
-  // Vertices that are logically deleted and removed from indices and now wait
-  // to be removed from the main storage.
-  std::list<std::pair<uint64_t, PrimaryKey>> garbage_vertices_;
-
   // Edges that are logically deleted and wait to be removed from the main
   // storage.
   std::list<Gid> deleted_edges_;
-
-  // Durability
-  std::filesystem::path snapshot_directory_;
-  std::filesystem::path wal_directory_;
-  std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
 
   // UUID used to distinguish snapshots and to link snapshots to WALs
   std::string uuid_;
@@ -592,7 +433,6 @@ class Shard final {
   // epoch.
   std::deque<std::pair<std::string, uint64_t>> epoch_history_;
 
-  std::optional<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;
@@ -600,27 +440,10 @@ class Shard final {
   // Global locker that is used for clients file locking
   utils::FileRetainer::FileLocker global_locker_;
 
-  // Last commited timestamp
-  uint64_t last_commit_timestamp_{kTimestampInitialId};
-
-  class ReplicationServer;
-  std::unique_ptr<ReplicationServer> replication_server_{nullptr};
-
-  class ReplicationClient;
-  // We create ReplicationClient using unique_ptr so we can move
-  // newly created client into the vector.
-  // We cannot move the client directly because it contains ThreadPool
-  // which cannot be moved. Also, the move is necessary because
-  // we don't want to create the client directly inside the vector
-  // because that would require the lock on the list putting all
-  // commits (they iterate list of clients) to halt.
-  // This way we can initialize client in main thread which means
-  // that we can immediately notify the user if the initialization
-  // failed.
-  using ReplicationClientList = utils::Synchronized<std::vector<std::unique_ptr<ReplicationClient>>, utils::SpinLock>;
-  ReplicationClientList replication_clients_;
-
-  ReplicationRole replication_role_{ReplicationRole::MAIN};
+  // Holds all of the (in progress, committed and aborted) transactions that are read or write to this shard, but
+  // haven't been cleaned up yet
+  std::map<uint64_t, std::unique_ptr<Transaction>> start_logical_id_to_transaction_{};
+  bool has_any_transaction_aborted_since_last_gc{false};
 };
 
 }  // namespace memgraph::storage::v3

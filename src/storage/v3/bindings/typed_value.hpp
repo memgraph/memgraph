@@ -11,13 +11,18 @@
 
 #pragma once
 
-#include "utils/exceptions.hpp"
+#include "expr/typed_value.hpp"
 
-namespace memgraph::storage::v3::durability {
+#include "storage/v3/bindings/bindings.hpp"
+#include "storage/v3/edge_accessor.hpp"
+#include "storage/v3/path.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 
-/// Exception used to handle errors during recovery.
-class RecoveryFailure : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
+namespace memgraph::expr {
+namespace v3 = memgraph::storage::v3;
+extern template class memgraph::expr::TypedValueT<v3::VertexAccessor, v3::EdgeAccessor, v3::Path>;
+}  // namespace memgraph::expr
 
-}  // namespace memgraph::storage::v3::durability
+namespace memgraph::storage::v3 {
+using TypedValue = memgraph::expr::TypedValueT<VertexAccessor, EdgeAccessor, Path>;
+}  // namespace memgraph::storage::v3

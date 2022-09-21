@@ -12,6 +12,7 @@
 #include "expr/typed_value.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/property_value.hpp"
+#include "utils/memory.hpp"
 
 #pragma once
 
@@ -61,6 +62,57 @@ TTypedValue PropertyToTypedValue(const PropertyValue &value) {
         }
         case storage::v3::TemporalType::Duration: {
           return TTypedValue(utils::Duration(temporal_data.microseconds));
+        }
+      }
+    }
+  }
+  LOG_FATAL("Unsupported type");
+}
+
+template <typename TTypedValue>
+TTypedValue PropertyToTypedValue(const PropertyValue &value, utils::MemoryResource *mem) {
+  switch (value.type()) {
+    case storage::v3::PropertyValue::Type::Null:
+      return TTypedValue(mem);
+    case storage::v3::PropertyValue::Type::Bool:
+      return TTypedValue(value.ValueBool(), mem);
+    case storage::v3::PropertyValue::Type::Int:
+      return TTypedValue(value.ValueInt(), mem);
+    case storage::v3::PropertyValue::Type::Double:
+      return TTypedValue(value.ValueDouble(), mem);
+    case storage::v3::PropertyValue::Type::String:
+      return TTypedValue(value.ValueString(), mem);
+    case storage::v3::PropertyValue::Type::List: {
+      const auto &src = value.ValueList();
+      std::vector<TTypedValue> dst;
+      dst.reserve(src.size());
+      for (const auto &elem : src) {
+        dst.push_back(PropertyToTypedValue<TTypedValue>(elem, mem));
+      }
+      return TTypedValue(std::move(dst), mem);
+    }
+    case storage::v3::PropertyValue::Type::Map: {
+      const auto &src = value.ValueMap();
+      std::map<std::string, TTypedValue> dst;
+      for (const auto &elem : src) {
+        dst.insert({std::string(elem.first), PropertyToTypedValue<TTypedValue>(elem.second, mem)});
+      }
+      return TTypedValue(std::move(dst), mem);
+    }
+    case storage::v3::PropertyValue::Type::TemporalData: {
+      const auto &temporal_data = value.ValueTemporalData();
+      switch (temporal_data.type) {
+        case storage::v3::TemporalType::Date: {
+          return TTypedValue(utils::Date(temporal_data.microseconds), mem);
+        }
+        case storage::v3::TemporalType::LocalTime: {
+          return TTypedValue(utils::LocalTime(temporal_data.microseconds), mem);
+        }
+        case storage::v3::TemporalType::LocalDateTime: {
+          return TTypedValue(utils::LocalDateTime(temporal_data.microseconds), mem);
+        }
+        case storage::v3::TemporalType::Duration: {
+          return TTypedValue(utils::Duration(temporal_data.microseconds), mem);
         }
       }
     }

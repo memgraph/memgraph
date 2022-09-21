@@ -27,9 +27,6 @@
 
 #include "query/v2/plan/operator.hpp"
 #include "query_v2_query_plan_common.hpp"
-#include "storage/v3/conversions.hpp"
-#include "storage/v3/id_types.hpp"
-#include "storage/v3/property_value.hpp"
 
 class Dummy : public testing::Test {
  protected:

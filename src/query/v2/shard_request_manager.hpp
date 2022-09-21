@@ -127,7 +127,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   using Address = memgraph::io::Address;
   using Shard = memgraph::coordinator::Shard;
   using ShardMap = memgraph::coordinator::ShardMap;
-  using CompoundKey = memgraph::coordinator::CompoundKey;
+  using CompoundKey = memgraph::coordinator::PrimaryKey;
   using VertexAccessor = memgraph::query::v2::accessors::VertexAccessor;
   ShardRequestManager(CoordinatorClient coord, memgraph::io::Io<TTransport> &&io)
       : coord_cli_(std::move(coord)), io_(std::move(io)) {}
