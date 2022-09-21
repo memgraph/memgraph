@@ -57,13 +57,13 @@ class NameIdMapper final {
   // Necessary for comparison with string_view nad string
   // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0919r1.html
   // https://www.cppstories.com/2021/heterogeneous-access-cpp20/
-  struct string_hash {
+  struct StringHash {
     using is_transparent = void;
     [[nodiscard]] size_t operator()(const char *txt) const { return std::hash<std::string_view>{}(txt); }
     [[nodiscard]] size_t operator()(std::string_view txt) const { return std::hash<std::string_view>{}(txt); }
     [[nodiscard]] size_t operator()(const std::string &txt) const { return std::hash<std::string>{}(txt); }
   };
   std::unordered_map<uint64_t, std::string> id_to_name_;
-  std::unordered_map<std::string, uint64_t, string_hash, std::equal_to<>> name_to_id_;
+  std::unordered_map<std::string, uint64_t, StringHash, std::equal_to<>> name_to_id_;
 };
 }  // namespace memgraph::storage::v3
