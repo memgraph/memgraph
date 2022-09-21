@@ -27,7 +27,7 @@
  */
 class ResultStreamFaker {
  public:
-  explicit ResultStreamFaker(memgraph::storage::v3::Storage *store) : store_(store) {}
+  explicit ResultStreamFaker(memgraph::storage::v3::Shard *store) : store_(store) {}
 
   ResultStreamFaker(const ResultStreamFaker &) = delete;
   ResultStreamFaker &operator=(const ResultStreamFaker &) = delete;
@@ -125,7 +125,7 @@ class ResultStreamFaker {
   }
 
  private:
-  memgraph::storage::v3::Storage *store_;
+  memgraph::storage::v3::Shard *store_;
   // the data that the record stream can accept
   std::vector<std::string> header_;
   std::vector<std::vector<memgraph::communication::bolt::Value>> results_;

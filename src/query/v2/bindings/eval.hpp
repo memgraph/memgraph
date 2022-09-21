@@ -34,13 +34,13 @@ class Callable {
   auto operator()(const memgraph::storage::v3::PropertyValue &val) const {
     return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val);
   };
-  auto operator()(const requests::Value &val) const { return ValueToTypedValue(val); };
+  auto operator()(const msgs::Value &val) const { return ValueToTypedValue(val); };
 };
 
 }  // namespace detail
 using ExpressionEvaluator =
     memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
-                                        storage::v3::LabelId, requests::Value, detail::Callable,
+                                        storage::v3::LabelId, msgs::Value, detail::Callable,
                                         memgraph::storage::v3::Error, memgraph::expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2

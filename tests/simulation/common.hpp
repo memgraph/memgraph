@@ -40,6 +40,7 @@
 #include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "utils/logging.hpp"
 
 using memgraph::coordinator::Hlc;
@@ -49,17 +50,17 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+using memgraph::msgs::CreateVerticesRequest;
+using memgraph::msgs::CreateVerticesResponse;
+using memgraph::msgs::ExpandOneRequest;
+using memgraph::msgs::ExpandOneResponse;
+using memgraph::msgs::ListedValues;
+using memgraph::msgs::ScanVerticesRequest;
+using memgraph::msgs::ScanVerticesResponse;
+using memgraph::msgs::Value;
+using memgraph::msgs::VertexId;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyValue;
-using requests::CreateVerticesRequest;
-using requests::CreateVerticesResponse;
-using requests::ExpandOneRequest;
-using requests::ExpandOneResponse;
-using requests::ListedValues;
-using requests::ScanVerticesRequest;
-using requests::ScanVerticesResponse;
-using requests::Value;
-using requests::VertexId;
 
 using ShardRsmKey = std::vector<memgraph::storage::v3::PropertyValue>;
 
@@ -82,26 +83,28 @@ class MockedShardRsm {
   //  GetPropertiesResponse Read(GetPropertiesRequest rqst);
   ScanVerticesResponse ReadImpl(ScanVerticesRequest rqst) {
     ScanVerticesResponse ret;
-    if (!IsKeyInRange(rqst.start_id.primary_key)) {
+    auto as_prop_val = memgraph::storage::conversions::ConvertPropertyVector(rqst.start_id.second);
+    if (!IsKeyInRange(as_prop_val)) {
       ret.success = false;
-    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
+    } else if (as_prop_val == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
       Value val(int64_t(0));
       ret.next_start_id = std::make_optional<VertexId>();
-      ret.next_start_id->primary_key = ShardRsmKey{PropertyValue(1), PropertyValue(0)};
-      requests::ScanResultRow result;
-      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      ret.next_start_id->second =
+          memgraph::storage::conversions::ConvertValueVector(ShardRsmKey{PropertyValue(1), PropertyValue(0)});
+      memgraph::msgs::ScanResultRow result;
+      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
-    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
-      requests::ScanResultRow result;
+    } else if (as_prop_val == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
+      memgraph::msgs::ScanResultRow result;
       Value val(int64_t(1));
-      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
-    } else if (rqst.start_id.primary_key == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
-      requests::ScanResultRow result;
+    } else if (as_prop_val == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
+      memgraph::msgs::ScanResultRow result;
       Value val(int64_t(444));
-      result.props.insert(std::make_pair(requests::PropertyId::FromUint(0), val));
+      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
     } else {

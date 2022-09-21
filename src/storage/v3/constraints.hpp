@@ -18,6 +18,7 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/transaction.hpp"
 #include "storage/v3/vertex.hpp"
+#include "storage/v3/vertices_skip_list.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/skip_list.hpp"
@@ -108,7 +109,7 @@ class UniqueConstraints {
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(LabelId label,
                                                                            const std::set<PropertyId> &properties,
-                                                                           utils::SkipList<Vertex>::Accessor vertices);
+                                                                           VerticesSkipList::Accessor vertices);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,
@@ -152,12 +153,14 @@ struct Constraints {
 ///
 /// @throw std::bad_alloc
 /// @throw std::length_error
-inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(
-    Constraints *constraints, LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices) {
+inline utils::BasicResult<ConstraintViolation, bool> CreateExistenceConstraint(Constraints *constraints, LabelId label,
+                                                                               PropertyId property,
+                                                                               VerticesSkipList::Accessor vertices) {
   if (utils::Contains(constraints->existence_constraints, std::make_pair(label, property))) {
     return false;
   }
-  for (const auto &vertex : vertices) {
+  for (const auto &lgo_vertex : vertices) {
+    const auto &vertex = lgo_vertex.vertex;
     if (!vertex.deleted && VertexHasLabel(vertex, label) && !vertex.properties.HasProperty(property)) {
       return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
     }

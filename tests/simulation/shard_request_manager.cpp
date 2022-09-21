@@ -66,15 +66,15 @@ using memgraph::io::simulator::Simulator;
 using memgraph::io::simulator::SimulatorConfig;
 using memgraph::io::simulator::SimulatorStats;
 using memgraph::io::simulator::SimulatorTransport;
+using memgraph::msgs::CreateVerticesRequest;
+using memgraph::msgs::CreateVerticesResponse;
+using memgraph::msgs::ListedValues;
+using memgraph::msgs::NewVertexLabel;
+using memgraph::msgs::ScanVerticesRequest;
+using memgraph::msgs::ScanVerticesResponse;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::SchemaProperty;
 using memgraph::utils::BasicResult;
-using requests::CreateVerticesRequest;
-using requests::CreateVerticesResponse;
-using requests::ListedValues;
-using requests::NewVertexLabel;
-using requests::ScanVerticesRequest;
-using requests::ScanVerticesResponse;
 
 namespace {
 
@@ -150,21 +150,21 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &io) {
-  requests::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
+  memgraph::msgs::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
   auto result = io.Request(state);
   MG_ASSERT(result.size() == 2);
   {
-    auto prop = result[0].GetProperty(requests::PropertyId::FromUint(0));
+    auto prop = result[0].GetProperty(memgraph::msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 0);
-    prop = result[1].GetProperty(requests::PropertyId::FromUint(0));
+    prop = result[1].GetProperty(memgraph::msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 444);
   }
 
   result = io.Request(state);
   {
     MG_ASSERT(result.size() == 1);
-    auto prop = result[0].GetProperty(requests::PropertyId::FromUint(0));
+    auto prop = result[0].GetProperty(memgraph::msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 1);
   }
 
@@ -175,12 +175,14 @@ void TestScanAll(ShardRequestManager &io) {
 
 template <typename ShardRequestManager>
 void TestCreateVertices(ShardRequestManager &io) {
-  using PropVal = memgraph::storage::v3::PropertyValue;
-  requests::ExecutionState<CreateVerticesRequest> state;
-  std::vector<requests::NewVertex> new_vertices;
+  using PropVal = memgraph::msgs::Value;
+  memgraph::msgs::ExecutionState<CreateVerticesRequest> state;
+  std::vector<memgraph::msgs::NewVertex> new_vertices;
   auto label_id = io.LabelNameToLabelId("test_label");
-  requests::NewVertex a1{.label_ids = label_id, .primary_key = {PropVal(1), PropVal(0)}};
-  requests::NewVertex a2{.label_ids = label_id, .primary_key = {PropVal(13), PropVal(13)}};
+  memgraph::msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  a1.label_ids.push_back({label_id});
+  memgraph::msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+  a2.label_ids.push_back({label_id});
   new_vertices.push_back(std::move(a1));
   new_vertices.push_back(std::move(a2));
 
@@ -205,17 +207,25 @@ int main() {
   };
 
   auto simulator = Simulator(config);
+  const auto one_second = std::chrono::seconds(1);
 
   Io<SimulatorTransport> cli_io = simulator.RegisterNew();
+  cli_io.SetDefaultTimeout(one_second);
 
   // Register
   Io<SimulatorTransport> a_io_1 = simulator.RegisterNew();
+  a_io_1.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> a_io_2 = simulator.RegisterNew();
+  a_io_2.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> a_io_3 = simulator.RegisterNew();
+  a_io_3.SetDefaultTimeout(one_second);
 
   Io<SimulatorTransport> b_io_1 = simulator.RegisterNew();
+  b_io_1.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> b_io_2 = simulator.RegisterNew();
+  b_io_2.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> b_io_3 = simulator.RegisterNew();
+  b_io_3.SetDefaultTimeout(one_second);
 
   // Preconfigure coordinator with kv shard 'A' and 'B'
   auto sm1 = CreateDummyShardmap(a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress(), b_io_1.GetAddress(),
@@ -268,8 +278,11 @@ int main() {
   // Spin up coordinators
 
   Io<SimulatorTransport> c_io_1 = simulator.RegisterNew();
+  c_io_1.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> c_io_2 = simulator.RegisterNew();
+  c_io_2.SetDefaultTimeout(one_second);
   Io<SimulatorTransport> c_io_3 = simulator.RegisterNew();
+  c_io_3.SetDefaultTimeout(one_second);
 
   std::vector<Address> c_addrs = {c_io_1.GetAddress(), c_io_2.GetAddress(), c_io_3.GetAddress()};
 
@@ -296,7 +309,7 @@ int main() {
   // also get the current shard map
   CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, c_addrs[0], c_addrs);
 
-  requests::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
+  memgraph::msgs::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
 
   io.StartTransaction();
   TestScanAll(io);

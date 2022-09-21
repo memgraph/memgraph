@@ -12,6 +12,8 @@
 #pragma once
 
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "query/exceptions.hpp"
 #include "query/v2/requests.hpp"
@@ -23,24 +25,25 @@
 
 namespace memgraph::query::v2::accessors {
 
-using Value = requests::Value;
-using Edge = requests::Edge;
-using Vertex = requests::Vertex;
-using Label = requests::Label;
+using Value = memgraph::msgs::Value;
+using Edge = memgraph::msgs::Edge;
+using Vertex = memgraph::msgs::Vertex;
+using Label = memgraph::msgs::Label;
+using PropertyId = memgraph::msgs::PropertyId;
 
 class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  EdgeAccessor(Edge edge, std::map<std::string, Value> props);
+  EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props);
 
-  std::string EdgeType() const;
+  uint64_t EdgeType() const;
 
-  std::map<std::string, Value> Properties() const;
+  std::vector<std::pair<PropertyId, Value>> Properties() const;
 
   Value GetProperty(const std::string &prop_name) const;
 
-  requests::Edge GetEdge() const;
+  Edge GetEdge() const;
 
   // Dummy function
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
@@ -60,24 +63,25 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
-  mutable std::map<std::string, Value> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 class VertexAccessor final {
  public:
-  using PropertyId = requests::PropertyId;
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> props);
+  using PropertyId = msgs::PropertyId;
+  using Label = msgs::Label;
+  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props);
 
   std::vector<Label> Labels() const;
 
   bool HasLabel(Label &label) const;
 
-  std::map<PropertyId, Value> Properties() const;
+  std::vector<std::pair<PropertyId, Value>> Properties() const;
 
   Value GetProperty(PropertyId prop_id) const;
   Value GetProperty(const std::string &prop_name) const;
 
-  requests::Vertex GetVertex() const;
+  msgs::Vertex GetVertex() const;
 
   // Dummy function
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
@@ -130,7 +134,7 @@ class VertexAccessor final {
 
  private:
   Vertex vertex;
-  mutable std::map<PropertyId, Value> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

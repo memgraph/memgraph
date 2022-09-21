@@ -16,20 +16,20 @@
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const requests::Value &value) {
-  using Value = requests::Value;
+inline TypedValue ValueToTypedValue(const msgs::Value &value) {
+  using Value = msgs::Value;
   switch (value.type) {
-    case Value::NILL:
+    case Value::Type::Null:
       return {};
-    case Value::BOOL:
+    case Value::Type::Bool:
       return TypedValue(value.bool_v);
-    case Value::INT64:
+    case Value::Type::Int64:
       return TypedValue(value.int_v);
-    case Value::DOUBLE:
+    case Value::Type::Double:
       return TypedValue(value.double_v);
-    case Value::STRING:
+    case Value::Type::String:
       return TypedValue(value.string_v);
-    case Value::LIST: {
+    case Value::Type::List: {
       const auto &lst = value.list_v;
       std::vector<TypedValue> dst;
       dst.reserve(lst.size());
@@ -38,7 +38,7 @@ inline TypedValue ValueToTypedValue(const requests::Value &value) {
       }
       return TypedValue(std::move(dst));
     }
-    case Value::MAP: {
+    case Value::Type::Map: {
       const auto &value_map = value.map_v;
       std::map<std::string, TypedValue> dst;
       for (const auto &[key, val] : value_map) {
@@ -46,18 +46,18 @@ inline TypedValue ValueToTypedValue(const requests::Value &value) {
       }
       return TypedValue(std::move(dst));
     }
-    case Value::VERTEX:
+    case Value::Type::Vertex:
       return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
-    case Value::EDGE:
+    case Value::Type::Edge:
       return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
-    case Value::PATH:
+    case Value::Type::Path:
       break;
   }
   throw std::runtime_error("Incorrect type in conversion");
 }
 
-inline requests::Value TypedValueToValue(const TypedValue &value) {
-  using Value = requests::Value;
+inline msgs::Value TypedValueToValue(const TypedValue &value) {
+  using Value = msgs::Value;
   switch (value.type()) {
     case TypedValue::Type::Null:
       return {};

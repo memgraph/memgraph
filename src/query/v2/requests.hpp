@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -24,35 +25,35 @@
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/property_value.hpp"
 
-namespace requests {
+namespace memgraph::msgs {
+
+using coordinator::Hlc;
+using storage::v3::LabelId;
+
+struct Value;
 
 struct Label {
-  using LabelId = memgraph::storage::v3::LabelId;
   LabelId id;
   friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
-using PrimaryKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using PrimaryKey = std::vector<Value>;
+using VertexId = std::pair<Label, PrimaryKey>;
 
-struct VertexId {
-  Label primary_label;
-  PrimaryKey primary_key;
-  friend bool operator==(const VertexId &lhs, const VertexId &rhs) {
-    return (lhs.primary_label == rhs.primary_label) && (lhs.primary_key == rhs.primary_key);
-  }
-};
+inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
+  return (lhs.first == rhs.first) && (lhs.second == rhs.second);
+}
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
-  std::string name;
+  uint64_t id;
   friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
 struct EdgeId {
-  VertexId id;
   Gid gid;
 };
 
@@ -67,6 +68,7 @@ struct Vertex {
 struct Edge {
   VertexId src;
   VertexId dst;
+  EdgeId id;
   EdgeType type;
   friend bool operator==(const Edge &lhs, const Edge &rhs) {
     return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
@@ -86,7 +88,221 @@ struct Path {
 struct Null {};
 
 struct Value {
-  enum Type { NILL, BOOL, INT64, DOUBLE, STRING, LIST, MAP, VERTEX, EDGE, PATH };
+  Value() : null_v{} {}
+
+  explicit Value(const bool val) : type(Type::Bool), bool_v(val) {}
+  explicit Value(const int64_t val) : type(Type::Int64), int_v(val) {}
+  explicit Value(const double val) : type(Type::Double), double_v(val) {}
+
+  explicit Value(const Vertex val) : type(Type::Vertex), vertex_v(val) {}
+  explicit Value(const Edge val) : type(Type::Edge), edge_v(val) {}
+
+  explicit Value(const std::string &val) : type(Type::String) { new (&string_v) std::string(val); }
+  explicit Value(const char *val) : type(Type::String) { new (&string_v) std::string(val); }
+
+  explicit Value(const std::vector<Value> &val) : type(Type::List) { new (&list_v) std::vector<Value>(val); }
+
+  explicit Value(const std::map<std::string, Value> &val) : type(Type::Map) {
+    new (&map_v) std::map<std::string, Value>(val);
+  }
+
+  explicit Value(std::string &&val) noexcept : type(Type::String) { new (&string_v) std::string(std::move(val)); }
+
+  explicit Value(std::vector<Value> &&val) noexcept : type(Type::List) {
+    new (&list_v) std::vector<Value>(std::move(val));
+  }
+  explicit Value(std::map<std::string, Value> &&val) noexcept : type(Type::Map) {
+    new (&map_v) std::map<std::string, Value>(std::move(val));
+  }
+
+  ~Value() { DestroyValue(); }
+
+  void DestroyValue() noexcept {
+    switch (type) {
+      case Type::Null:
+      case Type::Bool:
+      case Type::Int64:
+      case Type::Double:
+        return;
+
+      case Type::String:
+        std::destroy_at(&string_v);
+        return;
+      case Type::List:
+        std::destroy_at(&list_v);
+        return;
+      case Type::Map:
+        std::destroy_at(&map_v);
+        return;
+
+      case Type::Vertex:
+        std::destroy_at(&vertex_v);
+        return;
+      case Type::Path:
+        std::destroy_at(&path_v);
+        return;
+      case Type::Edge:
+        std::destroy_at(&edge_v);
+    }
+  }
+
+  Value(const Value &other) : type(other.type) {
+    switch (other.type) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        return;
+      case Type::Int64:
+        this->int_v = other.int_v;
+        return;
+      case Type::Double:
+        this->double_v = other.double_v;
+        return;
+      case Type::String:
+        new (&string_v) std::string(other.string_v);
+        return;
+      case Type::List:
+        new (&list_v) std::vector<Value>(other.list_v);
+        return;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(other.map_v);
+        return;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(other.vertex_v);
+        return;
+      case Type::Edge:
+        new (&edge_v) Edge(other.edge_v);
+        return;
+      case Type::Path:
+        new (&path_v) Path(other.path_v);
+        return;
+    }
+  }
+
+  Value(Value &&other) noexcept : type(other.type) {
+    switch (other.type) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        break;
+      case Type::Int64:
+        this->int_v = other.int_v;
+        break;
+      case Type::Double:
+        this->double_v = other.double_v;
+        break;
+      case Type::String:
+        new (&string_v) std::string(std::move(other.string_v));
+        break;
+      case Type::List:
+        new (&list_v) std::vector<Value>(std::move(other.list_v));
+        break;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        break;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
+        break;
+      case Type::Edge:
+        new (&edge_v) Edge(std::move(other.edge_v));
+        break;
+      case Type::Path:
+        new (&path_v) Path(std::move(other.path_v));
+        break;
+    }
+
+    other.DestroyValue();
+    other.type = Type::Null;
+  }
+
+  Value &operator=(const Value &other) {
+    if (this == &other) return *this;
+
+    DestroyValue();
+    type = other.type;
+
+    switch (other.type) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        break;
+      case Type::Int64:
+        this->int_v = other.int_v;
+        break;
+      case Type::Double:
+        this->double_v = other.double_v;
+        break;
+      case Type::String:
+        new (&string_v) std::string(other.string_v);
+        break;
+      case Type::List:
+        new (&list_v) std::vector<Value>(other.list_v);
+        break;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(other.map_v);
+        break;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(other.vertex_v);
+        break;
+      case Type::Edge:
+        new (&edge_v) Edge(other.edge_v);
+        break;
+      case Type::Path:
+        new (&path_v) Path(other.path_v);
+        break;
+    }
+
+    return *this;
+  }
+
+  Value &operator=(Value &&other) noexcept {
+    if (this == &other) return *this;
+
+    DestroyValue();
+    type = other.type;
+
+    switch (other.type) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        break;
+      case Type::Int64:
+        this->int_v = other.int_v;
+        break;
+      case Type::Double:
+        this->double_v = other.double_v;
+        break;
+      case Type::String:
+        new (&string_v) std::string(std::move(other.string_v));
+        break;
+      case Type::List:
+        new (&list_v) std::vector<Value>(std::move(other.list_v));
+        break;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        break;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
+        break;
+      case Type::Edge:
+        new (&edge_v) Edge(std::move(other.edge_v));
+        break;
+      case Type::Path:
+        new (&path_v) Path(std::move(other.path_v));
+        break;
+    }
+
+    other.DestroyValue();
+    other.type = Type::Null;
+
+    return *this;
+  }
+  enum class Type : uint8_t { Null, Bool, Int64, Double, String, List, Map, Vertex, Edge, Path };
+  Type type{Type::Null};
   union {
     Null null_v;
     bool bool_v;
@@ -100,192 +316,31 @@ struct Value {
     Path path_v;
   };
 
-  Type type;
-
-  Value() : null_v{}, type(NILL) {}
-
-  // copy ctor needed.
-  Value(const Value &value) : type(value.type) {
-    switch (value.type) {
-      case NILL:
-        null_v = {};
-        break;
-      case BOOL:
-        bool_v = value.bool_v;
-        break;
-      case INT64:
-        int_v = value.int_v;
-        break;
-      case DOUBLE:
-        double_v = value.double_v;
-        break;
-      case STRING:
-        string_v = value.string_v;
-        break;
-      case LIST:
-        list_v = value.list_v;
-        break;
-      case MAP:
-        map_v = value.map_v;
-        break;
-      case VERTEX:
-        vertex_v = value.vertex_v;
-        break;
-      case EDGE:
-        edge_v = value.edge_v;
-        break;
-      case PATH:
-        path_v = value.path_v;
-        break;
-    }
-  }
-
-  Value(Value &&other) noexcept : type(other.type) {
-    switch (other.type) {
-      case Type::NILL:
-        break;
-      case Type::BOOL:
-        this->bool_v = other.bool_v;
-        break;
-      case Type::INT64:
-        this->int_v = other.int_v;
-        break;
-      case Type::DOUBLE:
-        this->double_v = other.double_v;
-        break;
-      case Type::STRING:
-        new (&string_v) std::string(std::move(other.string_v));
-        break;
-      case Type::LIST:
-        new (&list_v) std::vector<Value>(std::move(other.list_v));
-        break;
-      case Type::MAP:
-        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
-        break;
-      case Type::VERTEX:
-        new (&vertex_v) Vertex(std::move(other.vertex_v));
-        break;
-      case Type::EDGE:
-        new (&edge_v) Edge(std::move(other.edge_v));
-        break;
-      case Type::PATH:
-        new (&path_v) Path(std::move(other.path_v));
-        break;
-    }
-    other.type = Type::NILL;
-  }
-
-  explicit Value(const bool val) : bool_v(val), type(BOOL){};
-  explicit Value(const int64_t val) : int_v(val), type(INT64){};
-  explicit Value(const double val) : double_v(val), type(DOUBLE){};
-  explicit Value(const std::string &val) : string_v(val), type(STRING){};
-
-  explicit Value(std::vector<Value> &&val) : list_v(std::move(val)), type(LIST){};
-  explicit Value(std::map<std::string, Value> &&val) : map_v(std::move(val)), type(MAP){};
-
-  explicit Value(const Vertex &val) : vertex_v(val), type(VERTEX){};
-  explicit Value(const Edge &val) : edge_v(val), type(EDGE){};
-  explicit Value(const Path &val) : path_v(val), type(PATH){};
-
-  Value &operator=(const Value &value) {
-    if (&value == this) {
-      return *this;
-    }
-    type = value.type;
-    switch (value.type) {
-      case NILL:
-        null_v = {};
-        break;
-      case BOOL:
-        bool_v = value.bool_v;
-        break;
-      case INT64:
-        int_v = value.int_v;
-        break;
-      case DOUBLE:
-        double_v = value.double_v;
-        break;
-      case STRING:
-        string_v = value.string_v;
-        break;
-      case LIST:
-        list_v = value.list_v;
-        break;
-      case MAP:
-        map_v = value.map_v;
-        break;
-      case VERTEX:
-        vertex_v = value.vertex_v;
-        break;
-      case EDGE:
-        edge_v = value.edge_v;
-        break;
-      case PATH:
-        path_v = value.path_v;
-        break;
-    }
-    return *this;
-  }
-
   friend bool operator==(const Value &lhs, const Value &rhs) {
     if (lhs.type != rhs.type) {
       return false;
     }
     switch (lhs.type) {
-      case NILL:
+      case Value::Type::Null:
         return true;
-      case BOOL:
+      case Value::Type::Bool:
         return lhs.bool_v == rhs.bool_v;
-      case INT64:
+      case Value::Type::Int64:
         return lhs.int_v == rhs.int_v;
-      case DOUBLE:
+      case Value::Type::Double:
         return lhs.double_v == rhs.double_v;
-      case STRING:
+      case Value::Type::String:
         return lhs.string_v == rhs.string_v;
-      case LIST:
+      case Value::Type::List:
         return lhs.list_v == rhs.list_v;
-      case MAP:
+      case Value::Type::Map:
         return lhs.map_v == rhs.map_v;
-      case VERTEX:
+      case Value::Type::Vertex:
         return lhs.vertex_v == rhs.vertex_v;
-      case EDGE:
+      case Value::Type::Edge:
         return lhs.edge_v == rhs.edge_v;
-      case PATH:
+      case Value::Type::Path:
         return true;
-    }
-  }
-
-  ~Value() {
-    switch (type) {
-      // destructor for primitive types does nothing
-      case Type::NILL:
-      case Type::BOOL:
-      case Type::INT64:
-      case Type::DOUBLE:
-        return;
-
-      // destructor for non primitive types since we used placement new
-      case Type::STRING:
-        std::destroy_at(&string_v);
-        return;
-      case Type::LIST:
-        std::destroy_at(&list_v);
-        return;
-      case Type::MAP:
-        std::destroy_at(&map_v);
-        return;
-
-      // are these needed to be defined?
-      case Type::VERTEX:
-        std::destroy_at(&vertex_v);
-        return;
-      case Type::PATH:
-        std::destroy_at(&path_v);
-        return;
-      case Type::EDGE:
-        std::destroy_at(&edge_v);
-      default:
-        return;
     }
   }
 };
@@ -322,19 +377,18 @@ struct OrderBy {
 enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
-  using Hlc = memgraph::coordinator::Hlc;
   Hlc transaction_id;
   VertexId start_id;
-  std::optional<std::vector<std::string>> props_to_return;
+  std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view;
 };
 
 struct ScanResultRow {
-  Vertex vertex;
-  // empty is no properties returned
-  std::map<PropertyId, Value> props;
+  Value vertex;
+  // empty() is no properties returned
+  std::vector<std::pair<PropertyId, Value>> props;
 };
 
 struct ScanVerticesResponse {
@@ -346,7 +400,6 @@ struct ScanVerticesResponse {
 using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
 
 struct GetPropertiesRequest {
-  using Hlc = memgraph::coordinator::Hlc;
   Hlc transaction_id;
   VertexOrEdgeIds vertex_or_edge_ids;
   std::vector<PropertyId> property_ids;
@@ -369,7 +422,6 @@ struct VertexEdgeId {
   std::optional<EdgeId> next_id;
 };
 
-using Hlc = memgraph::coordinator::Hlc;
 struct ExpandOneRequest {
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
@@ -414,20 +466,32 @@ struct ExpandOneResponse {
   std::vector<ExpandOneResultRow> result;
 };
 
+struct UpdateVertexProp {
+  VertexId primary_key;
+  std::vector<std::pair<PropertyId, Value>> property_updates;
+};
+
+struct UpdateEdgeProp {
+  Edge edge;
+  std::vector<std::pair<PropertyId, Value>> property_updates;
+};
+
+/*
+ * Vertices
+ */
 struct NewVertex {
-  Label label_ids;
+  std::vector<Label> label_ids;
   PrimaryKey primary_key;
-  std::map<PropertyId, Value> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 struct NewVertexLabel {
   std::string label;
   PrimaryKey primary_key;
-  std::map<PropertyId, Value> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 struct CreateVerticesRequest {
-  using Hlc = memgraph::coordinator::Hlc;
   std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
@@ -437,9 +501,62 @@ struct CreateVerticesResponse {
   bool success;
 };
 
+struct DeleteVerticesRequest {
+  enum class DeletionType { DELETE, DETACH_DELETE };
+  Hlc transaction_id;
+  std::vector<std::vector<Value>> primary_keys;
+  DeletionType deletion_type;
+};
+
+struct DeleteVerticesResponse {
+  bool success;
+};
+
+struct UpdateVerticesRequest {
+  Hlc transaction_id;
+  std::vector<UpdateVertexProp> new_properties;
+};
+
+struct UpdateVerticesResponse {
+  bool success;
+};
+
+/*
+ * Edges
+ */
+struct CreateEdgesRequest {
+  Hlc transaction_id;
+  std::vector<Edge> edges;
+};
+
+struct CreateEdgesResponse {
+  bool success;
+};
+
+struct DeleteEdgesRequest {
+  Hlc transaction_id;
+  std::vector<Edge> edges;
+};
+
+struct DeleteEdgesResponse {
+  bool success;
+};
+
+struct UpdateEdgesRequest {
+  Hlc transaction_id;
+  std::vector<UpdateEdgeProp> new_properties;
+};
+
+struct UpdateEdgesResponse {
+  bool success;
+};
+
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
-using WriteRequests = CreateVerticesRequest;
-using WriteResponses = CreateVerticesResponse;
-}  // namespace requests
+using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
+                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest>;
+using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
+                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
+
+}  // namespace memgraph::msgs

@@ -117,10 +117,8 @@ class TypedValueT {
         }
         case TypedValueT::Type::Vertex:
           return 34;
-          // return value.ValueVertex().Gid().AsUint();
         case TypedValueT::Type::Edge:
           return 35;
-          // return value.ValueEdge().Gid().AsUint();
         case TypedValueT::Type::Path: {
           // const auto &vertices = value.ValuePath().vertices();
           // const auto &edges = value.ValuePath().edges();

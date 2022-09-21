@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/transaction.hpp"
 
@@ -23,9 +24,10 @@ namespace memgraph::storage::v3 {
 /// the storage. This class also defines the default behavior.
 struct Config {
   struct Gc {
-    enum class Type { NONE, PERIODIC };
+    // TODO(antaljanosbenjamin): How to handle garbage collection?
+    enum class Type { NONE };
 
-    Type type{Type::PERIODIC};
+    Type type{Type::NONE};
     std::chrono::milliseconds interval{std::chrono::milliseconds(1000)};
   } gc;
 

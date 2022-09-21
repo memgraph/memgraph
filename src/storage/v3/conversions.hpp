@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "expr/typed_value.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/property_value.hpp"
 
 #pragma once
@@ -108,6 +109,42 @@ storage::v3::PropertyValue TypedToPropertyValue(const TTypedValue &value) {
     case TTypedValue::Type::Duration:
       return storage::v3::PropertyValue(
           storage::v3::TemporalData{storage::v3::TemporalType::Duration, value.ValueDuration().microseconds});
+    default:
+      break;
+  }
+  throw expr::TypedValueException("Unsupported conversion from TTypedValue to PropertyValue");
+}
+
+template <typename TTypedValue>
+msgs::Value TypedValueToValue(const TTypedValue &value) {
+  using Value = msgs::Value;
+  switch (value.type()) {
+    case TTypedValue::Type::Null:
+      return {};
+    case TTypedValue::Type::Bool:
+      return Value(value.ValueBool());
+    case TTypedValue::Type::Int:
+      return Value(value.ValueInt());
+    case TTypedValue::Type::Double:
+      return Value(value.ValueDouble());
+    case TTypedValue::Type::String:
+      return Value(std::string(value.ValueString()));
+    case TTypedValue::Type::List: {
+      const auto &src = value.ValueList();
+      std::vector<msgs::Value> dst;
+      dst.reserve(src.size());
+      std::transform(src.begin(), src.end(), std::back_inserter(dst),
+                     [](const auto &val) { return TypedValueToValue(val); });
+      return Value(std::move(dst));
+    }
+    case TTypedValue::Type::Map: {
+      const auto &src = value.ValueMap();
+      std::map<std::string, Value> dst;
+      for (const auto &elem : src) {
+        dst.insert({std::string(elem.first), TypedValueToValue(elem.second)});
+      }
+      return Value(std::move(dst));
+    }
     default:
       break;
   }

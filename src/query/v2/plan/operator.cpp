@@ -26,6 +26,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "expr/exceptions.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
@@ -261,8 +262,8 @@ class ScanAllCursor : public Cursor {
   std::optional<typename std::result_of<TVerticesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
   std::optional<decltype(vertices_.value().begin())> vertices_it_;
   const char *op_name_;
-  std::vector<requests::ScanVerticesResponse> current_batch;
-  requests::ExecutionState<requests::ScanVerticesRequest> request_state;
+  std::vector<msgs::ScanVerticesResponse> current_batch;
+  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state;
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
@@ -429,17 +430,16 @@ ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-
+  // TODO Reimplement when we have reliable conversion between hash value and pk
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (!value.IsNumeric()) return std::nullopt;
-    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
-    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
-    auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_);
-    if (!maybe_vertex) return std::nullopt;
-    return std::vector<VertexAccessor>{*maybe_vertex};
+    // auto *db = context.db_accessor;
+    // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+    // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =
+    // value.IsInt() ? value.ValueInt() : value.ValueDouble(); if (value.IsDouble() && id != value.ValueDouble()) return
+    // std::nullopt; auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_); auto maybe_vertex =
+    // nullptr; if (!maybe_vertex) return std::nullopt;
+    return std::nullopt;
+    // return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllById");
@@ -981,102 +981,6 @@ concept AccessorWithProperties = requires(T value, storage::v3::PropertyId prope
     } -> std::same_as<storage::v3::Result<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>>>;
   {value.SetProperty(property_id, property_value)};
 };
-
-/// Helper function that sets the given values on either a Vertex or an Edge.
-///
-/// @tparam TRecordAccessor Either RecordAccessor<Vertex> or
-///     RecordAccessor<Edge>
-template <AccessorWithProperties TRecordAccessor>
-void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetProperties::Op op,
-                           ExecutionContext *context) {
-  std::optional<std::map<storage::v3::PropertyId, storage::v3::PropertyValue>> old_values;
-  if (op == SetProperties::Op::REPLACE) {
-    auto maybe_value = record->ClearProperties();
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting properties.");
-      }
-    }
-  }
-
-  auto get_props = [](const auto &record) {
-    auto maybe_props = record.Properties(storage::v3::View::NEW);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    return *maybe_props;
-  };
-
-  auto register_set_property = [&](auto &&returned_old_value, auto key, auto &&new_value) {
-    auto old_value = storage::v3::PropertyToTypedValue<TypedValue>([&]() -> storage::v3::PropertyValue {
-      if (!old_values) {
-        return std::forward<decltype(returned_old_value)>(returned_old_value);
-      }
-
-      if (auto it = old_values->find(key); it != old_values->end()) {
-        return std::move(it->second);
-      }
-
-      return {};
-    }());
-  };
-
-  auto set_props = [&, record](auto properties) {
-    for (auto &kv : properties) {
-      auto maybe_error = record->SetProperty(kv.first, kv.second);
-      if (maybe_error.HasError()) {
-        switch (maybe_error.GetError()) {
-          case storage::v3::Error::DELETED_OBJECT:
-            throw QueryRuntimeException("Trying to set properties on a deleted graph element.");
-          case storage::v3::Error::SERIALIZATION_ERROR:
-            throw TransactionSerializationException();
-          case storage::v3::Error::PROPERTIES_DISABLED:
-            throw QueryRuntimeException("Can't set property because properties on edges are disabled.");
-          case storage::v3::Error::VERTEX_HAS_EDGES:
-          case storage::v3::Error::NONEXISTENT_OBJECT:
-            throw QueryRuntimeException("Unexpected error when setting properties.");
-        }
-      }
-    }
-  };
-
-  switch (rhs.type()) {
-    case TypedValue::Type::Edge:
-      set_props(get_props(rhs.ValueEdge()));
-      break;
-    case TypedValue::Type::Vertex:
-      set_props(get_props(rhs.ValueVertex()));
-      break;
-    case TypedValue::Type::Map: {
-      for (const auto &kv : rhs.ValueMap()) {
-        auto key = context->db_accessor->NameToProperty(kv.first);
-        auto old_value = PropsSetChecked(record, *context->db_accessor, key, kv.second);
-      }
-      break;
-    }
-    default:
-      throw QueryRuntimeException(
-          "Right-hand side in SET expression must be a node, an edge or a "
-          "map.");
-  }
-}
 
 }  // namespace
 
@@ -2805,7 +2709,7 @@ class DistributedScanAllCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(requests::ShardRequestManagerInterface &shard_manager) {
+  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
     current_batch = shard_manager.Request(request_state_);
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
@@ -2815,7 +2719,7 @@ class DistributedScanAllCursor : public Cursor {
     SCOPED_PROFILE_OP(op_name_);
     auto &shard_manager = *context.shard_request_manager;
     if (MustAbort(context)) throw HintedAbortError();
-    using State = requests::ExecutionState<requests::ScanVerticesRequest>;
+    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
 
     if (request_state_.state == State::INITIALIZING) {
       if (!input_cursor_->Pull(frame, context)) return false;
@@ -2838,7 +2742,7 @@ class DistributedScanAllCursor : public Cursor {
   void ResetExecutionState() {
     current_batch.clear();
     current_vertex_it = current_batch.end();
-    request_state_ = requests::ExecutionState<requests::ScanVerticesRequest>{};
+    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
   }
 
   void Reset() override {
@@ -2852,7 +2756,7 @@ class DistributedScanAllCursor : public Cursor {
   const char *op_name_;
   std::vector<VertexAccessor> current_batch;
   decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
-  requests::ExecutionState<requests::ScanVerticesRequest> request_state_;
+  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
 };
 
 class DistributedCreateNodeCursor : public Cursor {
@@ -2877,11 +2781,11 @@ class DistributedCreateNodeCursor : public Cursor {
 
   void Reset() override { state_ = {}; }
 
-  std::vector<requests::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
-    std::vector<requests::NewVertex> requests;
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
-      requests::NewVertex rqst;
-      std::map<requests::PropertyId, requests::Value> properties;
+      msgs::NewVertex rqst;
+      std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
@@ -2889,7 +2793,7 @@ class DistributedCreateNodeCursor : public Cursor {
           TypedValue val = value_expression->Accept(evaluator);
           properties[key] = TypedValueToValue(val);
           if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedToPropertyValue(val));
+            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
           }
         }
       } else {
@@ -2899,7 +2803,7 @@ class DistributedCreateNodeCursor : public Cursor {
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
           properties[property_id] = TypedValueToValue(value);
           if (context.shard_request_manager->IsPrimaryKey(property_id)) {
-            rqst.primary_key.push_back(storage::v3::TypedToPropertyValue(value));
+            rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
           }
         }
       }
@@ -2907,7 +2811,8 @@ class DistributedCreateNodeCursor : public Cursor {
       if (node_info.labels.empty()) {
         throw QueryRuntimeException("Primary label must be defined!");
       }
-      rqst.label_ids = requests::Label{node_info.labels[0]};
+      // TODO(kostasrim) Copy non primary labels as well
+      rqst.label_ids.push_back(msgs::Label{node_info.labels[0]});
       requests.push_back(std::move(rqst));
     }
     return requests;
@@ -2916,6 +2821,6 @@ class DistributedCreateNodeCursor : public Cursor {
  private:
   const UniqueCursorPtr input_cursor_;
   std::vector<NodeCreationInfo> nodes_info_;
-  requests::ExecutionState<requests::CreateVerticesRequest> state_;
+  msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
 };
 }  // namespace memgraph::query::v2::plan

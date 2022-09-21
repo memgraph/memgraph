@@ -73,7 +73,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   //  TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
-  std::unique_ptr<requests::ShardRequestManagerInterface> shard_request_manager{nullptr};
+  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

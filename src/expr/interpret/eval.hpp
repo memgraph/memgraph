@@ -413,7 +413,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   template <typename VertexAccessor, typename TTag = Tag,
             typename TReturnType = std::enable_if_t<std::is_same_v<TTag, QueryEngineTag>, bool>>
   TReturnType HasLabelImpl(const VertexAccessor &vertex, const LabelIx &label_ix, QueryEngineTag /*tag*/) {
-    auto label = requests::Label{.id = LabelId::FromUint(label_ix.ix)};
+    auto label = typename VertexAccessor::Label{LabelId::FromUint(label_ix.ix)};
     auto has_label = vertex.HasLabel(label);
     return !has_label;
   }

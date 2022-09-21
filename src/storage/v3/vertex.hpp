@@ -13,53 +13,39 @@
 
 #include <limits>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 #include "storage/v3/delta.hpp"
 #include "storage/v3/edge_ref.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_store.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::storage::v3 {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta, LabelId primary_label)
-      : gid(gid), primary_label{primary_label}, deleted(false), delta(delta) {
+  using EdgeLink = std::tuple<EdgeTypeId, VertexId, EdgeRef>;
+
+  Vertex(Delta *delta, const std::vector<PropertyValue> &primary_properties) : keys{primary_properties}, delta{delta} {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  // TODO remove this when import replication is solved
-  Vertex(Gid gid, LabelId primary_label) : gid(gid), primary_label{primary_label}, deleted(false) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
+  friend bool operator==(const Vertex &vertex, const PrimaryKey &primary_key) { return vertex.keys == primary_key; }
 
-  // TODO remove this when import csv is solved
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
+  KeyStore keys;
 
-  // TODO remove this when import replication is solved
-  explicit Vertex(Gid gid) : gid(gid), deleted(false) {
-    MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
-              "Vertex must be created with an initial DELETE_OBJECT delta!");
-  }
-
-  Gid gid;
-
-  LabelId primary_label;
   std::vector<LabelId> labels;
   PropertyStore properties;
+  std::vector<EdgeLink> in_edges;
+  std::vector<EdgeLink> out_edges;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
-
-  mutable utils::SpinLock lock;
-  bool deleted;
+  bool deleted{false};
   // uint8_t PAD;
   // uint16_t PAD;
 
@@ -68,13 +54,6 @@ struct Vertex {
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
 
-inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
-inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
-inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
-inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
-
-inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) {
-  return vertex.primary_label == label || utils::Contains(vertex.labels, label);
-}
+inline bool VertexHasLabel(const Vertex &vertex, const LabelId label) { return utils::Contains(vertex.labels, label); }
 
 }  // namespace memgraph::storage::v3

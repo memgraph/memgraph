@@ -98,9 +98,24 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateLabelUpdate(const LabelId label) const {
   const auto *schema = schemas_.GetSchema(label);
   if (schema) {
-    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_MODIFY_PRIMARY_LABEL, label);
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL, label);
   }
   return std::nullopt;
+}
+
+VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
+    : schema_validator{&schema_validator}, primary_label_{primary_label} {}
+
+[[nodiscard]] std::optional<SchemaViolation> VertexValidator::ValidatePropertyUpdate(PropertyId property_id) const {
+  return schema_validator->ValidatePropertyUpdate(primary_label_, property_id);
+};
+
+[[nodiscard]] std::optional<SchemaViolation> VertexValidator::ValidateAddLabel(LabelId label) const {
+  return schema_validator->ValidateLabelUpdate(label);
+}
+
+[[nodiscard]] std::optional<SchemaViolation> VertexValidator::ValidateRemoveLabel(LabelId label) const {
+  return schema_validator->ValidateLabelUpdate(label);
 }
 
 }  // namespace memgraph::storage::v3
