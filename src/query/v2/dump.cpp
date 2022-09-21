@@ -269,10 +269,6 @@ PullPlanDump::PullPlanDump(DbAccessor *dba)
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
                    CreateLabelPropertyIndicesPullChunk(),
-                   // Dump all existence constraints
-                   CreateExistenceConstraintsPullChunk(),
-                   // Dump all unique constraints
-                   CreateUniqueConstraintsPullChunk(),
                    // Create internal index for faster edge creation
                    CreateInternalIndexPullChunk(),
                    // Dump all vertices
@@ -357,60 +353,6 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     }
 
     if (global_index == label_property.size()) {
-      return local_counter;
-    }
-
-    return std::nullopt;
-  };
-}
-
-PullPlanDump::PullChunk PullPlanDump::CreateExistenceConstraintsPullChunk() {
-  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
-    // Delay the construction of constraint vectors
-    if (!constraints_info_) {
-      constraints_info_.emplace(dba_->ListAllConstraints());
-    }
-
-    const auto &existence = constraints_info_->existence;
-    size_t local_counter = 0;
-    while (global_index < existence.size() && (!n || local_counter < *n)) {
-      const auto &constraint = existence[global_index];
-      std::ostringstream os;
-      DumpExistenceConstraint(&os, dba_, constraint.first, constraint.second);
-      stream->Result({TypedValue(os.str())});
-
-      ++global_index;
-      ++local_counter;
-    }
-
-    if (global_index == existence.size()) {
-      return local_counter;
-    }
-
-    return std::nullopt;
-  };
-}
-
-PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
-  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
-    // Delay the construction of constraint vectors
-    if (!constraints_info_) {
-      constraints_info_.emplace(dba_->ListAllConstraints());
-    }
-
-    const auto &unique = constraints_info_->unique;
-    size_t local_counter = 0;
-    while (global_index < unique.size() && (!n || local_counter < *n)) {
-      const auto &constraint = unique[global_index];
-      std::ostringstream os;
-      DumpUniqueConstraint(&os, dba_, constraint.first, constraint.second);
-      stream->Result({TypedValue(os.str())});
-
-      ++global_index;
-      ++local_counter;
-    }
-
-    if (global_index == unique.size()) {
       return local_counter;
     }
 

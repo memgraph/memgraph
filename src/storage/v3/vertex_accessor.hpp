@@ -28,7 +28,6 @@ namespace memgraph::storage::v3 {
 class EdgeAccessor;
 class Shard;
 struct Indices;
-struct Constraints;
 
 class VertexAccessor final {
  private:
@@ -37,19 +36,17 @@ class VertexAccessor final {
  public:
   // Be careful when using VertexAccessor since it can be instantiated with
   // nullptr values
-  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Constraints *constraints,
-                 Config::Items config, const VertexValidator &vertex_validator, bool for_deleted = false)
+  VertexAccessor(Vertex *vertex, Transaction *transaction, Indices *indices, Config::Items config,
+                 const VertexValidator &vertex_validator, bool for_deleted = false)
       : vertex_(vertex),
         transaction_(transaction),
         indices_(indices),
-        constraints_(constraints),
         config_(config),
         vertex_validator_{&vertex_validator},
         for_deleted_(for_deleted) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                              Constraints *constraints, Config::Items config,
-                                              const VertexValidator &vertex_validator, View view);
+                                              Config::Items config, const VertexValidator &vertex_validator, View view);
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
@@ -65,6 +62,8 @@ class VertexAccessor final {
   /// if adding the label has violated one of the schema constraints.
   /// @throw std::bad_alloc
   ResultSchema<bool> RemoveLabelAndValidate(LabelId label);
+
+  Result<bool> HasLabel(View view, LabelId label) const;
 
   Result<bool> HasLabel(LabelId label, View view) const;
 
@@ -89,6 +88,9 @@ class VertexAccessor final {
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+
+  // TODO Remove this
+  Result<PropertyValue> GetProperty(View view, PropertyId property) const;
 
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
@@ -136,7 +138,6 @@ class VertexAccessor final {
   Vertex *vertex_;
   Transaction *transaction_;
   Indices *indices_;
-  Constraints *constraints_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
 

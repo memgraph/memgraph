@@ -28,7 +28,7 @@
 namespace memgraph::expr {
 
 template <typename TypedValue, typename EvaluationContext, typename DbAccessor, typename StorageView, typename LabelId,
-          typename PropertyValue, typename ConvFunction, typename Error>
+          typename PropertyValue, typename ConvFunctor, typename Error>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame<TypedValue> *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx,
@@ -719,7 +719,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw ExpressionRuntimeException("Unexpected error when getting a property.");
       }
     }
-    return conv_(*maybe_prop);
+    return conv_(*maybe_prop, ctx_->memory);
   }
 
   template <class TRecordAccessor>
@@ -746,7 +746,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           throw ExpressionRuntimeException("Unexpected error when getting a property.");
       }
     }
-    return conv_(*maybe_prop);
+    return conv_(*maybe_prop, ctx_->memory);
   }
 
   LabelId GetLabel(LabelIx label) { return ctx_->labels[label.ix]; }
@@ -757,7 +757,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   DbAccessor *dba_;
   // which switching approach should be used when evaluating
   StorageView view_;
-  ConvFunction conv_;
+  ConvFunctor conv_;
 };
 
 /// A helper function for evaluating an expression that's an int.

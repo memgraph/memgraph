@@ -496,12 +496,21 @@ struct UpdateEdgesResponse {
   bool success;
 };
 
+struct CommitRequest {
+  Hlc transaction_id;
+  Hlc commit_timestamp;
+};
+
+struct CommitResponse {
+  bool success;
+};
+
 using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVerticesRequest>;
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
 using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
-                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest>;
+                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
-                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse>;
+                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs
