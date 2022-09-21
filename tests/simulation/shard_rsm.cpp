@@ -725,33 +725,110 @@ void TestScanAllWithSmallBatchSize(ShardClient &client) {
 }
 
 void TestExpandOne(ShardClient &client) {
-  // ExpandOneSimple
-  auto unique_prop_val_1 = GetUniqueInteger();
-  auto unique_prop_val_2 = GetUniqueInteger();
-  auto unique_prop_val_3 = GetUniqueInteger();
+  {
+    // ExpandOneSimple
+    auto unique_prop_val_1 = GetUniqueInteger();
+    auto unique_prop_val_2 = GetUniqueInteger();
+    auto unique_prop_val_3 = GetUniqueInteger();
 
-  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
-  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
-  MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
 
-  auto edge_type_id = GetUniqueInteger();
-  auto edge_gid_1 = GetUniqueInteger();
-  auto edge_gid_2 = GetUniqueInteger();
+    auto edge_type_id = GetUniqueInteger();
 
-  auto edge_prop_id = GetUniqueInteger();
-  auto edge_prop_val = GetUniqueInteger();
+    auto edge_gid_1 = GetUniqueInteger();
+    auto edge_gid_2 = GetUniqueInteger();
 
-  // (V1)-[edge_type_id]->(V2)
-  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
-                                           edge_prop_val, {edge_type_id}));
-  // (V1)-[edge_type_id]->(V3)
-  MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
-                                           edge_prop_val, {edge_type_id}));
+    auto edge_prop_id = GetUniqueInteger();
+    auto edge_prop_val = GetUniqueInteger();
 
-  AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
-  AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, edge_type_id);
-  AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
-  AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
+    // (V1)-[edge_type_id]->(V2)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+    // (V1)-[edge_type_id]->(V3)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
+    AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, edge_type_id);
+    AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
+    AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
+  }
+  {
+    // Multiple sourve vertices
+    auto unique_prop_val_1 = GetUniqueInteger();
+    auto unique_prop_val_2 = GetUniqueInteger();
+    auto unique_prop_val_3 = GetUniqueInteger();
+    auto unique_prop_val_4 = GetUniqueInteger();
+    auto unique_prop_val_5 = GetUniqueInteger();
+    auto unique_prop_val_6 = GetUniqueInteger();
+    auto unique_prop_val_7 = GetUniqueInteger();
+    auto unique_prop_val_8 = GetUniqueInteger();
+    auto unique_prop_val_9 = GetUniqueInteger();
+
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_1));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_4));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_5));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_6));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_7));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_8));
+    MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_9));
+
+    auto edge_type_id = GetUniqueInteger();
+
+    auto edge_gid_1 = GetUniqueInteger();
+    auto edge_gid_2 = GetUniqueInteger();
+    auto edge_gid_3 = GetUniqueInteger();
+    auto edge_gid_4 = GetUniqueInteger();
+    auto edge_gid_5 = GetUniqueInteger();
+    auto edge_gid_6 = GetUniqueInteger();
+    auto edge_gid_7 = GetUniqueInteger();
+    auto edge_gid_8 = GetUniqueInteger();
+    auto edge_gid_9 = GetUniqueInteger();
+
+    auto edge_prop_id = GetUniqueInteger();
+    auto edge_prop_val = GetUniqueInteger();
+
+    // (V1)-[edge_type_id]->(V2)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_2, edge_gid_1, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+    // (V1)-[edge_type_id]->(V3)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_3, edge_gid_2, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V1)-[edge_type_id]->(V4)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_4, edge_gid_3, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V1)-[edge_type_id]->(V5)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_1, unique_prop_val_5, edge_gid_4, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V2)-[edge_type_id]->(V5)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_5, edge_gid_5, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V2)-[edge_type_id]->(V6)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_6, edge_gid_6, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V2)-[edge_type_id]->(V7)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_7, edge_gid_7, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V2)-[edge_type_id]->(V8)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_8, edge_gid_8, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // (V2)-[edge_type_id]->(V9)
+    MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_9, edge_gid_9, edge_prop_id,
+                                             edge_prop_val, {edge_type_id}));
+
+    // AttemptTo
+  }
 }
 
 }  // namespace
