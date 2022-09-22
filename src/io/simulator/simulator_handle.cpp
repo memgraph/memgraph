@@ -38,7 +38,7 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   server_addresses_.insert(address);
 
   while (true) {
-    const size_t blocked_servers = blocked_on_receive_;
+    const size_t blocked_servers = blocked_on_receive_.size();
 
     const bool all_servers_blocked = blocked_servers == server_addresses_.size();
 
@@ -53,7 +53,7 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
 
-  const size_t blocked_servers = blocked_on_receive_;
+  const size_t blocked_servers = blocked_on_receive_.size();
 
   if (blocked_servers < server_addresses_.size()) {
     // we only need to advance the simulator when all
