@@ -130,8 +130,8 @@ namespace memgraph::storage::v3::test {
 
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
-  LabelId primary_label{LabelId::FromInt(0)};
-  PropertyId primary_property{PropertyId::FromInt(1)};
+  LabelId primary_label{LabelId::FromInt(1)};
+  PropertyId primary_property{PropertyId::FromInt(2)};
   PrimaryKey min_pk{PropertyValue(0)};
 
   Shard db{primary_label, min_pk, std::nullopt};
