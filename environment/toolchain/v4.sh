@@ -101,6 +101,7 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libc-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -515,6 +516,9 @@ if [ ! -f $PREFIX/bin/clang ]; then
     if [ -d libunwind ]; then
         rm -rf libunwind
     fi
+    if [ -d libc ]; then
+        rm -rf libc
+    fi
     tar -xvf ../archives/llvm-$LLVM_VERSION.src.tar.xz
     mv llvm-$LLVM_VERSION.src llvm-$LLVM_VERSION
     tar -xvf ../archives/clang-$LLVM_VERSION.src.tar.xz
@@ -528,6 +532,8 @@ if [ ! -f $PREFIX/bin/clang ]; then
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
     mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
 
+    tar -xvf ../archives/libc-$LLVM_VERSION.src.tar.xz
+    mv libc-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libc
     tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
     mv libcxx-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxx
     tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
@@ -847,7 +853,8 @@ source $PREFIX/activate
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
 export CFLAGS="$CFLAGS -fPIC"
-export CXXFLAGS="$CXXFLAGS -fPIC"
+# TODO(gitbuda): Add an option to compile all libs with libc++.
+export CXXFLAGS="$CXXFLAGS -fPIC -stdlib=libc++"
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
                     -DCMAKE_BUILD_TYPE=Release
@@ -985,7 +992,9 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     popd && popd
 fi
 
-# install gflags
+echo ""
+echo "#### GFLAGS ####"
+echo ""
 if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags ]; then
         rm -rf gflags
