@@ -27,6 +27,7 @@
 #include <machine_manager/machine_manager.hpp>
 #include <query/v2/requests.hpp>
 #include "io/rsm/rsm_client.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/schemas.hpp"
 
@@ -105,6 +106,54 @@ ShardMap TestShardMap() {
   return sm;
 }
 
+template <typename ShardRequestManager>
+void TestScanAll(ShardRequestManager &shard_request_manager) {
+  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "test_label"};
+
+  auto result = shard_request_manager.Request(state);
+  MG_ASSERT(result.size() == 2);
+  {
+    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 0);
+    prop = result[1].GetProperty(msgs::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 444);
+  }
+
+  result = shard_request_manager.Request(state);
+  {
+    MG_ASSERT(result.size() == 1);
+    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
+    MG_ASSERT(prop.int_v == 1);
+  }
+
+  // Exhaust it, request should be empty
+  result = shard_request_manager.Request(state);
+  MG_ASSERT(result.size() == 0);
+}
+
+template <typename ShardRequestManager>
+void TestCreateVertices(ShardRequestManager &shard_request_manager) {
+  using PropVal = msgs::Value;
+  msgs::ExecutionState<msgs::CreateVerticesRequest> state;
+  std::vector<msgs::NewVertex> new_vertices;
+  auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
+  msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  a1.label_ids.push_back({label_id});
+  msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+  a2.label_ids.push_back({label_id});
+  new_vertices.push_back(std::move(a1));
+  new_vertices.push_back(std::move(a2));
+
+  auto result = shard_request_manager.Request(state, std::move(new_vertices));
+  MG_ASSERT(result.size() == 2);
+}
+
+template <typename ShardRequestManager>
+void TestExpand(ShardRequestManager &shard_request_manager) {}
+
+template <typename ShardRequestManager>
+void TestAggregate(ShardRequestManager &shard_request_manager) {}
+
 MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Address> coordinator_addresses, Address addr,
                                     ShardMap shard_map) {
   MachineConfig config{
@@ -128,6 +177,9 @@ void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &cc) {
   // TODO(tyler) call coordinator client's read method for GetShardMap
   // and keep reading it until the shard map contains proper replicas
   // for each shard in the label space.
+
+  using namespace std::chrono_literals;
+  std::this_thread::sleep_for(2010ms);
 }
 
 TEST(MachineManager, BasicFunctionality) {
@@ -153,17 +205,15 @@ TEST(MachineManager, BasicFunctionality) {
   CoordinatorClient<LocalTransport> cc{cli_io, coordinator_address, {coordinator_address}};
 
   WaitForShardsToInitialize(cc);
-
-  using namespace std::chrono_literals;
-  std::this_thread::sleep_for(2010ms);
+  /*
 
   // get ShardMap from coordinator
-  memgraph::coordinator::HlcRequest req;
+  coordinator::HlcRequest req;
   req.last_shard_map_version = Hlc{
       .logical_id = 0,
   };
 
-  BasicResult<TimedOut, memgraph::coordinator::CoordinatorWriteResponses> read_res = cc.SendWriteRequest(req);
+  BasicResult<TimedOut, coordinator::CoordinatorWriteResponses> read_res = cc.SendWriteRequest(req);
   MG_ASSERT(!read_res.HasError(), "HLC request unexpectedly timed out");
 
   auto coordinator_read_response = read_res.GetValue();
@@ -171,8 +221,8 @@ TEST(MachineManager, BasicFunctionality) {
   ShardMap sm = hlc_response.fresher_shard_map.value();
 
   // Get shard for key and create rsm client
-  const auto cm_key_1 = memgraph::storage::v3::PropertyValue(3);
-  const auto cm_key_2 = memgraph::storage::v3::PropertyValue(4);
+  const auto cm_key_1 = storage::v3::PropertyValue(3);
+  const auto cm_key_2 = storage::v3::PropertyValue(4);
 
   const CompoundKey compound_key = {cm_key_1, cm_key_2};
 
@@ -194,21 +244,27 @@ TEST(MachineManager, BasicFunctionality) {
   LabelId label_id = sm.labels.at(label_name);
 
   ReadRequests storage_get_req;
-  /*
   TODO(tyler,kostas) set this to a real request
   storage_get_req.label_id = label_id;
   storage_get_req.key = compound_key;
   storage_get_req.transaction_id = hlc_response.new_hlc;
   */
 
+  /*
   auto get_response_result = shard_client.SendReadRequest(storage_get_req);
   auto get_response = get_response_result.GetValue();
-  /*
   auto val = get_response.value;
 
   MG_ASSERT(!val.has_value());
   */
 
+  CoordinatorClient<LocalTransport> coordinator_client(cli_io, coordinator_addresses[0], coordinator_addresses);
+
+  msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+
+  shard_request_manager.StartTransaction();
+  TestScanAll(shard_request_manager);
+  TestCreateVertices(shard_request_manager);
   local_system.ShutDown();
 };
 
