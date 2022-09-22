@@ -67,7 +67,7 @@ class Io {
   I implementation_;
   Address address_;
   RequestId request_id_counter_ = 0;
-  Duration default_timeout_ = std::chrono::microseconds{50000};
+  Duration default_timeout_ = std::chrono::microseconds{100000};
 
  public:
   Io(I io, Address address) : implementation_(io), address_(address) {}

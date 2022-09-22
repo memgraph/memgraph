@@ -16,15 +16,21 @@ function(add_simulation_test test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator mg-coordinator Boost::headers)
+
+  # sanitize
+  target_compile_options(${target_name} PRIVATE -fsanitize=${san})
+  target_link_options(${target_name} PRIVATE -fsanitize=${san})
+
+  target_link_libraries(${target_name} mg-storage-v3 mg-communication gtest gmock mg-utils mg-io mg-io-simulator mg-coordinator Boost::headers mg-query-v2)
 
   # register test
   add_test(${target_name} ${exec_name})
   add_dependencies(memgraph__simulation ${target_name})
 endfunction(add_simulation_test)
 
-add_simulation_test(basic_request.cpp)
-add_simulation_test(raft.cpp)
-add_simulation_test(trial_query_storage/query_storage_test.cpp)
-add_simulation_test(sharded_map.cpp)
+add_simulation_test(basic_request.cpp address)
+add_simulation_test(raft.cpp address)
+add_simulation_test(trial_query_storage/query_storage_test.cpp address)
+add_simulation_test(sharded_map.cpp address)
+add_simulation_test(shard_request_manager.cpp address)
 add_simulation_test(shard_rsm.cpp)

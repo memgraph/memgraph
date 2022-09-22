@@ -21,5 +21,4 @@ using memgraph::io::rsm::RsmClient;
 template <typename IoImpl>
 using CoordinatorClient = RsmClient<IoImpl, CoordinatorWriteRequests, CoordinatorWriteResponses,
                                     CoordinatorReadRequests, CoordinatorReadResponses>;
-
 }  // namespace memgraph::coordinator

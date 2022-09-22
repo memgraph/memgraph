@@ -14,6 +14,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -33,20 +34,35 @@ struct Value;
 
 struct Label {
   LabelId id;
+  friend bool operator==(const Label &lhs, const Label &rhs) { return lhs.id == rhs.id; }
 };
 
 // TODO(kostasrim) update this with CompoundKey, same for the rest of the file.
 using PrimaryKey = std::vector<Value>;
 using VertexId = std::pair<Label, PrimaryKey>;
+
+inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
+  return (lhs.first == rhs.first) && (lhs.second == rhs.second);
+}
+
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
 
 struct EdgeType {
   uint64_t id;
+  friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
 struct EdgeId {
   Gid gid;
+};
+
+struct Vertex {
+  VertexId id;
+  std::vector<Label> labels;
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) {
+    return (lhs.id == rhs.id) && (lhs.labels == rhs.labels);
+  }
 };
 
 struct Edge {
@@ -54,11 +70,9 @@ struct Edge {
   VertexId dst;
   EdgeId id;
   EdgeType type;
-};
-
-struct Vertex {
-  VertexId id;
-  std::vector<Label> labels;
+  friend bool operator==(const Edge &lhs, const Edge &rhs) {
+    return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
+  }
 };
 
 struct PathPart {
@@ -81,6 +95,7 @@ struct Value {
   explicit Value(const double val) : type(Type::Double), double_v(val) {}
 
   explicit Value(const Vertex val) : type(Type::Vertex), vertex_v(val) {}
+  explicit Value(const Edge val) : type(Type::Edge), edge_v(val) {}
 
   explicit Value(const std::string &val) : type(Type::String) { new (&string_v) std::string(val); }
   explicit Value(const char *val) : type(Type::String) { new (&string_v) std::string(val); }
@@ -300,6 +315,34 @@ struct Value {
     Edge edge_v;
     Path path_v;
   };
+
+  friend bool operator==(const Value &lhs, const Value &rhs) {
+    if (lhs.type != rhs.type) {
+      return false;
+    }
+    switch (lhs.type) {
+      case Value::Type::Null:
+        return true;
+      case Value::Type::Bool:
+        return lhs.bool_v == rhs.bool_v;
+      case Value::Type::Int64:
+        return lhs.int_v == rhs.int_v;
+      case Value::Type::Double:
+        return lhs.double_v == rhs.double_v;
+      case Value::Type::String:
+        return lhs.string_v == rhs.string_v;
+      case Value::Type::List:
+        return lhs.list_v == rhs.list_v;
+      case Value::Type::Map:
+        return lhs.map_v == rhs.map_v;
+      case Value::Type::Vertex:
+        return lhs.vertex_v == rhs.vertex_v;
+      case Value::Type::Edge:
+        return lhs.edge_v == rhs.edge_v;
+      case Value::Type::Path:
+        return true;
+    }
+  }
 };
 
 struct ValuesMap {
@@ -343,9 +386,9 @@ struct ScanVerticesRequest {
 };
 
 struct ScanResultRow {
-  Value vertex;
+  Vertex vertex;
   // empty() is no properties returned
-  std::map<PropertyId, Value> props;
+  std::vector<std::pair<PropertyId, Value>> props;
 };
 
 struct ScanVerticesResponse {
@@ -373,6 +416,11 @@ struct GetPropertiesResponse {
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
+
+struct VertexEdgeId {
+  VertexId vertex_id;
+  std::optional<EdgeId> next_id;
+};
 
 struct ExpandOneRequest {
   Hlc transaction_id;
@@ -437,7 +485,14 @@ struct NewVertex {
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 
+struct NewVertexLabel {
+  std::string label;
+  PrimaryKey primary_key;
+  std::vector<std::pair<PropertyId, Value>> properties;
+};
+
 struct CreateVerticesRequest {
+  std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
 };

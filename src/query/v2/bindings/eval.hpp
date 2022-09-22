@@ -16,25 +16,29 @@
 #include "expr/interpret/eval.hpp"
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/context.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/conversions.hpp"
-#include "storage/v3/id_types.hpp"
-#include "storage/v3/property_store.hpp"
+#include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::query::v2 {
 
-struct PropertyToTypedValueConverter {
-  TypedValue operator()(const auto &val) { return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val); }
-
-  TypedValue operator()(const auto &val, utils::MemoryResource *mem) {
-    return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val, mem);
-  }
+inline const auto lam = [](const auto &val) { return ValueToTypedValue(val); };
+namespace detail {
+class Callable {
+ public:
+  auto operator()(const memgraph::storage::v3::PropertyValue &val) const {
+    return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val);
+  };
+  auto operator()(const msgs::Value &val) const { return ValueToTypedValue(val); };
 };
 
+}  // namespace detail
 using ExpressionEvaluator =
-    memgraph::expr::ExpressionEvaluator<TypedValue, EvaluationContext, DbAccessor, storage::v3::View,
-                                        storage::v3::LabelId, storage::v3::PropertyStore, PropertyToTypedValueConverter,
-                                        memgraph::storage::v3::Error>;
+    memgraph::expr::ExpressionEvaluator<TypedValue, memgraph::query::v2::EvaluationContext, DbAccessor,
+                                        storage::v3::View, storage::v3::LabelId, msgs::Value, detail::Callable,
+                                        memgraph::storage::v3::Error, memgraph::expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2

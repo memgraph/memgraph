@@ -14,6 +14,7 @@
 
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
 using memgraph::msgs::Label;
@@ -21,83 +22,12 @@ using memgraph::msgs::PropertyId;
 using memgraph::msgs::Value;
 using memgraph::msgs::VertexId;
 
+using memgraph::storage::conversions::ConvertPropertyVector;
+using memgraph::storage::conversions::ConvertValueVector;
+using memgraph::storage::conversions::ToPropertyValue;
+using memgraph::storage::conversions::ToValue;
+
 namespace {
-// TODO(gvolfing use come algorithm instead of explicit for loops)
-memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
-  using PV = memgraph::storage::v3::PropertyValue;
-  PV ret;
-  switch (value.type) {
-    case Value::Type::Null:
-      return PV{};
-    case Value::Type::Bool:
-      return PV(value.bool_v);
-    case Value::Type::Int64:
-      return PV(static_cast<int64_t>(value.int_v));
-    case Value::Type::Double:
-      return PV(value.double_v);
-    case Value::Type::String:
-      return PV(value.string_v);
-    case Value::Type::List: {
-      std::vector<PV> list;
-      for (auto &elem : value.list_v) {
-        list.emplace_back(ToPropertyValue(std::move(elem)));
-      }
-      return PV(list);
-    }
-    case Value::Type::Map: {
-      std::map<std::string, PV> map;
-      for (auto &[key, value] : value.map_v) {
-        map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
-      }
-      return PV(map);
-    }
-    // These are not PropertyValues
-    case Value::Type::Vertex:
-    case Value::Type::Edge:
-    case Value::Type::Path:
-      MG_ASSERT(false, "Not PropertyValue");
-  }
-  return ret;
-}
-
-Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
-  using memgraph::storage::v3::PropertyValue;
-
-  switch (pv.type()) {
-    case PropertyValue::Type::Bool:
-      return Value(pv.ValueBool());
-    case PropertyValue::Type::Double:
-      return Value(pv.ValueDouble());
-    case PropertyValue::Type::Int:
-      return Value(pv.ValueInt());
-    case PropertyValue::Type::List: {
-      std::vector<Value> list(pv.ValueList().size());
-      for (const auto &elem : pv.ValueList()) {
-        list.emplace_back(ToValue(elem));
-      }
-
-      return Value(list);
-    }
-    case PropertyValue::Type::Map: {
-      std::map<std::string, Value> map;
-      for (const auto &[key, val] : pv.ValueMap()) {
-        // maybe use std::make_pair once the && issue is resolved.
-        map.emplace(key, ToValue(val));
-      }
-
-      return Value(map);
-    }
-    case PropertyValue::Type::Null:
-      return Value{};
-    case PropertyValue::Type::String:
-      return Value(pv.ValueString());
-    case PropertyValue::Type::TemporalData: {
-      // TBD -> we need to specify this in the messages, not a priority.
-      MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
-      return Value{};
-    }
-  }
-}
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
@@ -111,23 +41,13 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
-  std::vector<memgraph::storage::v3::PropertyValue> ret;
-  ret.reserve(vec.size());
+std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
+    const std::map<PropertyId, Value> &properties) {
+  std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> ret;
+  ret.reserve(properties.size());
 
-  for (auto &elem : vec) {
-    ret.push_back(ToPropertyValue(std::move(elem)));
-  }
-
-  return ret;
-}
-
-std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::PropertyValue> &vec) {
-  std::vector<Value> ret;
-  ret.reserve(vec.size());
-
-  for (const auto &elem : vec) {
-    ret.push_back(ToValue(elem));
+  for (const auto &[key, value] : properties) {
+    ret.emplace_back(std::make_pair(key, value));
   }
 
   return ret;
@@ -338,10 +258,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool did_reach_starting_point = false;
   uint64_t sample_counter = 0;
 
+  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
+
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (ConvertPropertyVector(std::move(req.start_id.second)) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -358,8 +280,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         continue;
       }
 
-      results.emplace_back(
-          msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view), .props = found_props.value()});
+      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                               .props = FromMap(found_props.value())});
 
       ++sample_counter;
       if (sample_counter == req.batch_limit) {
