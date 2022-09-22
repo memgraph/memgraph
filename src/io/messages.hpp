@@ -15,7 +15,7 @@
 
 #include <coordinator/coordinator.hpp>
 #include <io/rsm/raft.hpp>
-#include <io/rsm/shard_rsm.hpp>
+#include "query/v2/requests.hpp"
 #include "utils/concepts.hpp"
 
 namespace memgraph::io::messages {
@@ -23,10 +23,8 @@ namespace memgraph::io::messages {
 using memgraph::coordinator::CoordinatorReadRequests;
 using memgraph::coordinator::CoordinatorWriteRequests;
 using memgraph::coordinator::CoordinatorWriteResponses;
-
-// TODO(everbody) change these to the real shard messages
-using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageWriteRequest;
+using StorageReadRequest = msgs::ReadRequests;
+using StorageWriteRequest = msgs::WriteRequests;
 
 using memgraph::io::rsm::AppendRequest;
 using memgraph::io::rsm::AppendResponse;

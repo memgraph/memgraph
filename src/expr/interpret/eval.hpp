@@ -425,12 +425,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          if (HasLabelImpl(vertex, label, Tag{})) {
-            return TypedValue(false, ctx_->memory);
-          }
+        if (std::ranges::all_of(labels_test.labels_, [&vertex, this](const auto label_test) {
+              return this->HasLabelImpl(vertex, label_test, Tag{});
+            })) {
+          return TypedValue(true, ctx_->memory);
         }
-        return TypedValue(true, ctx_->memory);
+        return TypedValue(false, ctx_->memory);
       }
       default:
         throw ExpressionRuntimeException("Only nodes have labels.");
