@@ -13,6 +13,7 @@
 #include <iterator>
 #include <utility>
 
+#include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/value_conversions.hpp"
@@ -29,84 +30,6 @@ using memgraph::storage::conversions::ToPropertyValue;
 using memgraph::storage::conversions::ToValue;
 
 namespace {
-// TODO(gvolfing) use come algorithm instead of explicit for loops
-// TODO(gvolfing) make this use rvalue& again instead of copy!!!!
-// memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
-//   using PV = memgraph::storage::v3::PropertyValue;
-//   PV ret;
-//   switch (value.type) {
-//     case Value::Type::Null:
-//       return PV{};
-//     case Value::Type::Bool:
-//       return PV(value.bool_v);
-//     case Value::Type::Int64:
-//       return PV(static_cast<int64_t>(value.int_v));
-//     case Value::Type::Double:
-//       return PV(value.double_v);
-//     case Value::Type::String:
-//       return PV(value.string_v);
-//     case Value::Type::List: {
-//       std::vector<PV> list;
-//       for (auto &elem : value.list_v) {
-//         list.emplace_back(ToPropertyValue(std::move(elem)));
-//       }
-//       return PV(list);
-//     }
-//     case Value::Type::Map: {
-//       std::map<std::string, PV> map;
-//       for (auto &[key, value] : value.map_v) {
-//         map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
-//       }
-//       return PV(map);
-//     }
-//     // These are not PropertyValues
-//     case Value::Type::Vertex:
-//     case Value::Type::Edge:
-//     case Value::Type::Path:
-//       MG_ASSERT(false, "Not PropertyValue");
-//   }
-//   return ret;
-// }
-
-// Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
-//   using memgraph::storage::v3::PropertyValue;
-
-//   switch (pv.type()) {
-//     case PropertyValue::Type::Bool:
-//       return Value(pv.ValueBool());
-//     case PropertyValue::Type::Double:
-//       return Value(pv.ValueDouble());
-//     case PropertyValue::Type::Int:
-//       return Value(pv.ValueInt());
-//     case PropertyValue::Type::List: {
-//       std::vector<Value> list(pv.ValueList().size());
-//       for (const auto &elem : pv.ValueList()) {
-//         list.emplace_back(ToValue(elem));
-//       }
-
-//       return Value(list);
-//     }
-//     case PropertyValue::Type::Map: {
-//       std::map<std::string, Value> map;
-//       for (const auto &[key, val] : pv.ValueMap()) {
-//         // maybe use std::make_pair once the && issue is resolved.
-//         map.emplace(std::make_pair(key, ToValue(val)));
-//       }
-
-//       return Value(map);
-//     }
-//     case PropertyValue::Type::Null:
-//       return Value{};
-//     case PropertyValue::Type::String:
-//       return Value(pv.ValueString());
-//     case PropertyValue::Type::TemporalData: {
-//       // TBD -> we need to specify this in the messages, not a priority.
-//       MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
-//       return Value{};
-//     }
-//   }
-// }
-
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
@@ -119,23 +42,6 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-// std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
-//   std::vector<memgraph::storage::v3::PropertyValue> ret;
-//   ret.reserve(vec.size());
-
-//   for (auto &elem : vec) {
-//     ret.push_back(ToPropertyValue(std::move(elem)));
-//   }
-
-//   return ret;
-// }
-
-// std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::PropertyValue> &vec) {
-//   std::vector<Value> ret;
-//   ret.reserve(vec.size());
-
-//   for (const auto &elem : vec) {
-//     ret.push_back(ToValue(elem));
 std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
     const std::map<PropertyId, Value> &properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> ret;
@@ -364,20 +270,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     }
   }
 
-  msgs::DeleteVerticesResponse resp{.success = action_successful};
-  // resp.success = action_successful;
-
-  // if (action_successful) {
-  //   auto result = acc.Commit(req.transaction_id);
-  //   if (result.HasError()) {
-  //     resp.success = false;
-  //     spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id:
-  //     "[req.transaction_id
-  //                                                                                                         .logical_id]);
-  //   }
-  // }
-
-  return resp;
+  return msgs::DeleteVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
@@ -536,6 +429,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
+      // TODO(gvolfing) -VERIFY- Is this actually correct here?
+      // Vertex is seperated from the properties in the response.
+      // Is it useful to return just a vertex without the properties?
+      // If so, this logic here is incorrect.
       if (!found_props) {
         continue;
       }
@@ -544,6 +441,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
                                                .props = FromMap(found_props.value())});
 
       ++sample_counter;
+      // TODO(gvolfing) -VERIFY- is it safe to check against an optional
+      // like that? if it is std::nullopt the ScanVertices should return
+      // all of the vertices in the shard.
       if (sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
@@ -855,7 +755,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       edges_with_all_properties = {};
     }
 
-    results.emplace_back(msgs::ExpandOneResultRow{.src_vertex = src_vertex,
+    results.emplace_back(msgs::ExpandOneResultRow{.src_vertex = source_vertex,
                                                   .src_vertex_properties = src_vertex_properties,
                                                   .edges_with_all_properties = edges_with_all_properties,
                                                   .edges_with_specific_properties = edges_with_specific_properties});
@@ -868,14 +768,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   return resp;
 }
-
-// msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest && /*req*/) {
-//   return msgs::UpdateVerticesResponse{};
-// }
-// msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest && /*req*/) { return msgs::DeleteEdgesResponse{};
-// } msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest && /*req*/) { return
-// msgs::UpdateEdgesResponse{}; } msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest && /*req*/) { return
-// msgs::ExpandOneResponse{}; } NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
   shard_->Access(req.transaction_id).Commit(req.commit_timestamp);

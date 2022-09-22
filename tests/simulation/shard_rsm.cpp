@@ -392,6 +392,31 @@ bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
   }
 }
 
+std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithoutBatchLimit(ShardClient &client,
+                                                                                    msgs::VertexId start_id) {
+  msgs::ScanVerticesRequest scan_req{};
+  scan_req.batch_limit = {};
+  scan_req.filter_expressions = std::nullopt;
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::OLD;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+
+    return {write_response.results.size(), write_response.next_start_id};
+  }
+}
+
 std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit(ShardClient &client,
                                                                                  msgs::VertexId start_id,
                                                                                  uint64_t batch_limit) {
@@ -732,8 +757,11 @@ void TestScanAllOneGo(ShardClient &client) {
 
   msgs::VertexId v_id = {prim_label, prim_key};
 
-  auto [result_size, next_id] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
-  MG_ASSERT(result_size == 5);
+  auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
+  auto [result_size_without_batch, next_id_without_batch] = AttemptToScanAllWithoutBatchLimit(client, v_id);
+
+  MG_ASSERT(result_size_with_batch == 5);
+  MG_ASSERT(result_size_without_batch == 5);
 }
 
 void TestScanAllWithSmallBatchSize(ShardClient &client) {
