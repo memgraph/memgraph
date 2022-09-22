@@ -18,7 +18,8 @@
 #include "query/v2/metadata.hpp"
 #include "query/v2/parameters.hpp"
 #include "query/v2/plan/profile.hpp"
-#include "query/v2/trigger.hpp"
+//#include "query/v2/trigger.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "utils/async_timer.hpp"
 
 namespace memgraph::query::v2 {
@@ -70,8 +71,9 @@ struct ExecutionContext {
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
-  TriggerContextCollector *trigger_context_collector{nullptr};
+  //  TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
+  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

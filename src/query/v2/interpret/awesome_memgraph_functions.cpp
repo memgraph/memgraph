@@ -21,11 +21,12 @@
 #include <type_traits>
 
 #include "query/v2/bindings/typed_value.hpp"
+#include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/procedure/cypher_types.hpp"
-#include "query/v2/procedure/mg_procedure_impl.hpp"
-#include "query/v2/procedure/module.hpp"
+//#include "query/v2/procedure/mg_procedure_impl.hpp"
+//#include "query/v2/procedure/module.hpp"
 #include "storage/v3/conversions.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -387,39 +388,7 @@ TypedValue Last(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   return TypedValue(list.back(), ctx.memory);
 }
 
-TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("properties", args, nargs);
-  auto *dba = ctx.db_accessor;
-  auto get_properties = [&](const auto &record_accessor) {
-    TypedValue::TMap properties(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::v2::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    for (const auto &property : *maybe_props) {
-      properties.emplace(dba->PropertyToName(property.first),
-                         storage::v3::PropertyToTypedValue<TypedValue>(property.second));
-    }
-    return TypedValue(std::move(properties));
-  };
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_properties(value.ValueVertex());
-  } else {
-    return get_properties(value.ValueEdge());
-  }
-}
+TypedValue Properties(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext & /*ctx*/) { return {}; }
 
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
@@ -435,7 +404,8 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
     // to do it.
     return TypedValue(static_cast<int64_t>(value.ValueMap().size()), ctx.memory);
   } else {
-    return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
+    // TODO(kostasrim) Fix the dummy return
+    return TypedValue(int64_t(0), ctx.memory);
   }
 }
 
@@ -469,25 +439,22 @@ TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(out_degree + in_degree), ctx.memory);
+  // TODO(kostasrim) Fix dummy values
+  return TypedValue(int64_t(0), ctx.memory);
 }
 
 TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("inDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t in_degree = UnwrapDegreeResult(vertex.InDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(in_degree), ctx.memory);
+  return TypedValue(int64_t(0), ctx.memory);
 }
 
 TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("outDegree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
   const auto &vertex = args[0].ValueVertex();
-  size_t out_degree = UnwrapDegreeResult(vertex.OutDegree(ctx.view));
-  return TypedValue(static_cast<int64_t>(out_degree), ctx.memory);
+  return TypedValue(int64_t(0), ctx.memory);
 }
 
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -553,7 +520,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(dba->EdgeTypeToName(args[0].ValueEdge().EdgeType()), ctx.memory);
+  return TypedValue(static_cast<int64_t>(args[0].ValueEdge().EdgeType()), ctx.memory);
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -593,81 +560,27 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 // TODO: How is Keys different from Properties function?
-TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext & /*ctx*/) {
   FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
-  auto *dba = ctx.db_accessor;
-  auto get_keys = [&](const auto &record_accessor) {
-    TypedValue::TVector keys(ctx.memory);
-    auto maybe_props = record_accessor.Properties(ctx.view);
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::v3::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get keys from a deleted object.");
-        case storage::v3::Error::NONEXISTENT_OBJECT:
-          throw query::v2::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
-        case storage::v3::Error::SERIALIZATION_ERROR:
-        case storage::v3::Error::VERTEX_HAS_EDGES:
-        case storage::v3::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting keys.");
-      }
-    }
-    for (const auto &property : *maybe_props) {
-      keys.emplace_back(dba->PropertyToName(property.first));
-    }
-    return TypedValue(std::move(keys));
-  };
-  const auto &value = args[0];
-  if (value.IsNull()) {
-    return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
-    return get_keys(value.ValueVertex());
-  } else {
-    return get_keys(value.ValueEdge());
-  }
+  return {};
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("labels", args, nargs);
-  auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  TypedValue::TVector labels(ctx.memory);
-  auto maybe_labels = args[0].ValueVertex().Labels(ctx.view);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::v2::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting labels.");
-    }
-  }
-  for (const auto &label : *maybe_labels) {
-    labels.emplace_back(dba->LabelToName(label));
-  }
-  return TypedValue(std::move(labels));
+  return {};
 }
 
 TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertices = args[0].ValuePath().vertices();
-  TypedValue::TVector values(ctx.memory);
-  values.reserve(vertices.size());
-  for (const auto &v : vertices) values.emplace_back(v);
-  return TypedValue(std::move(values));
+  return {};
 }
 
 TypedValue Relationships(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("relationships", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &edges = args[0].ValuePath().edges();
-  TypedValue::TVector values(ctx.memory);
-  values.reserve(edges.size());
-  for (const auto &e : edges) values.emplace_back(e);
-  return TypedValue(std::move(values));
+  return {};
 }
 
 TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -877,9 +790,9 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   } else if (arg.IsVertex()) {
-    return TypedValue(arg.ValueVertex().CypherId(), ctx.memory);
+    return TypedValue(int64_t(arg.ValueVertex().CypherId()), ctx.memory);
   } else {
-    return TypedValue(arg.ValueEdge().CypherId(), ctx.memory);
+    return TypedValue(int64_t(arg.ValueEdge().CypherId()), ctx.memory);
   }
 }
 
@@ -1180,49 +1093,6 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
-std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const mgp_func &func, const std::string &fully_qualified_name) {
-  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
-    const auto &maybe_found =
-        procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw QueryRuntimeException(
-          "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
-          fully_qualified_name);
-    }
-
-    const auto &func_cb = func.cb;
-    mgp_memory memory{ctx.memory};
-    mgp_func_context functx{ctx.db_accessor, ctx.view};
-    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-
-    std::vector<TypedValue> args_list;
-    args_list.reserve(nargs);
-    for (std::size_t i = 0; i < nargs; ++i) {
-      args_list.emplace_back(args[i]);
-    }
-
-    auto function_argument_list = mgp_list(ctx.memory);
-    procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
-
-    mgp_func_result maybe_res;
-    func_cb(&function_argument_list, &functx, &maybe_res, &memory);
-    if (maybe_res.error_msg) {
-      throw QueryRuntimeException(*maybe_res.error_msg);
-    }
-
-    if (!maybe_res.value) {
-      throw QueryRuntimeException(
-          "Function '{}' didn't set the result nor the error message. Please either set the result by using "
-          "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
-          fully_qualified_name);
-    }
-
-    return {*(maybe_res.value), ctx.memory};
-  };
-}
-
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1308,14 +1178,6 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DURATION") return Duration;
-
-  const auto &maybe_found =
-      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
-
-  if (maybe_found) {
-    const auto *func = (*maybe_found).second;
-    return UserFunction(*func, function_name);
-  }
 
   return nullptr;
 }

@@ -13,6 +13,7 @@
 
 #include <memory>
 
+#include "storage/v3/conversions.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/indices.hpp"
@@ -63,13 +64,13 @@ std::pair<bool, bool> IsVisible(Vertex *vertex, Transaction *transaction, View v
 }  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Transaction *transaction, Indices *indices,
-                                                     Constraints *constraints, Config::Items config,
-                                                     const VertexValidator &vertex_validator, View view) {
+                                                     Config::Items config, const VertexValidator &vertex_validator,
+                                                     View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
-  return VertexAccessor{vertex, transaction, indices, constraints, config, vertex_validator};
+  return VertexAccessor{vertex, transaction, indices, config, vertex_validator};
 }
 
 bool VertexAccessor::IsVisible(View view) const {
@@ -149,6 +150,8 @@ ResultSchema<bool> VertexAccessor::RemoveLabelAndValidate(LabelId label) {
   vertex_->labels.pop_back();
   return true;
 }
+
+Result<bool> VertexAccessor::HasLabel(View view, LabelId label) const { return HasLabel(label, view); }
 
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   bool exists = true;
@@ -371,6 +374,10 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return std::move(properties);
 }
 
+Result<PropertyValue> VertexAccessor::GetProperty(View view, PropertyId property) const {
+  return GetProperty(property, view).GetValue();
+}
+
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
@@ -537,7 +544,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::InEdges(View view, const std::
   const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : in_edges) {
     const auto &[edge_type, from_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, from_vertex, id, transaction_, indices_, config_);
   }
   return ret;
 }
@@ -617,7 +624,7 @@ Result<std::vector<EdgeAccessor>> VertexAccessor::OutEdges(View view, const std:
   const auto id = VertexId{vertex_validator_->primary_label_, vertex_->keys.Keys()};
   for (const auto &item : out_edges) {
     const auto &[edge_type, to_vertex, edge] = item;
-    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, constraints_, config_);
+    ret.emplace_back(edge, edge_type, id, to_vertex, transaction_, indices_, config_);
   }
   return ret;
 }

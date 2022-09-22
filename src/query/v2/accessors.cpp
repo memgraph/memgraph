@@ -1,0 +1,75 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "query/v2/accessors.hpp"
+#include "query/v2/requests.hpp"
+
+namespace memgraph::query::v2::accessors {
+EdgeAccessor::EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props)
+    : edge(std::move(edge)), properties(std::move(props)) {}
+
+uint64_t EdgeAccessor::EdgeType() const { return edge.type.id; }
+
+std::vector<std::pair<PropertyId, Value>> EdgeAccessor::Properties() const {
+  return properties;
+  //    std::map<std::string, TypedValue> res;
+  //    for (const auto &[name, value] : *properties) {
+  //      res[name] = ValueToTypedValue(value);
+  //    }
+  //    return res;
+}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+Value EdgeAccessor::GetProperty(const std::string & /*prop_name*/) const {
+  // TODO(kostasrim) fix this
+  return {};
+}
+
+Edge EdgeAccessor::GetEdge() const { return edge; }
+
+VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}, {}); }
+
+VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.src}, {}); }
+
+VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props)
+    : vertex(std::move(v)), properties(std::move(props)) {}
+
+std::vector<Label> VertexAccessor::Labels() const { return vertex.labels; }
+
+bool VertexAccessor::HasLabel(Label &label) const {
+  return std::find_if(vertex.labels.begin(), vertex.labels.end(),
+                      [label](const auto &l) { return l.id == label.id; }) != vertex.labels.end();
+}
+
+std::vector<std::pair<PropertyId, Value>> VertexAccessor::Properties() const {
+  //    std::map<std::string, TypedValue> res;
+  //    for (const auto &[name, value] : *properties) {
+  //      res[name] = ValueToTypedValue(value);
+  //    }
+  //    return res;
+  return properties;
+}
+
+Value VertexAccessor::GetProperty(PropertyId prop_id) const {
+  return std::find_if(properties.begin(), properties.end(), [&](auto &pr) { return prop_id == pr.first; })->second;
+  //    return ValueToTypedValue(properties[prop_name]);
+}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+Value VertexAccessor::GetProperty(const std::string & /*prop_name*/) const {
+  // TODO(kostasrim) Add string mapping
+  return {};
+  //    return ValueToTypedValue(properties[prop_name]);
+}
+
+msgs::Vertex VertexAccessor::GetVertex() const { return vertex; }
+
+}  // namespace memgraph::query::v2::accessors

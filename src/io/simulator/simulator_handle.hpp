@@ -48,7 +48,7 @@ class SimulatorHandle {
   Time cluster_wide_time_microseconds_;
   bool should_shut_down_ = false;
   SimulatorStats stats_;
-  size_t blocked_on_receive_ = 0;
+  std::set<Address> blocked_on_receive_;
   std::set<Address> server_addresses_;
   std::mt19937 rng_;
   SimulatorConfig config_;
@@ -115,7 +115,7 @@ class SimulatorHandle {
   requires(sizeof...(Ms) > 0) RequestResult<Ms...> Receive(const Address &receiver, Duration timeout) {
     std::unique_lock<std::mutex> lock(mu_);
 
-    blocked_on_receive_ += 1;
+    blocked_on_receive_.emplace(receiver);
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
@@ -130,7 +130,7 @@ class SimulatorHandle {
           // than asserting that the last item in can_rx matches.
           auto m_opt = std::move(message).Take<Ms...>();
 
-          blocked_on_receive_ -= 1;
+          blocked_on_receive_.erase(receiver);
 
           return std::move(m_opt).value();
         }
@@ -144,7 +144,7 @@ class SimulatorHandle {
       }
     }
 
-    blocked_on_receive_ -= 1;
+    blocked_on_receive_.erase(receiver);
 
     return TimedOut{};
   }

@@ -39,6 +39,8 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::DeleteEdgesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::UpdateEdgesRequest &&req);
 
+  msgs::WriteResponses ApplyWrite(msgs::CommitRequest &&req);
+
  public:
   explicit ShardRsm(std::unique_ptr<Shard> &&shard) : shard_(std::move(shard)){};
 

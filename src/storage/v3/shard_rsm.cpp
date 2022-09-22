@@ -15,6 +15,7 @@
 
 #include "query/v2/requests.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
 using memgraph::msgs::Label;
@@ -22,84 +23,89 @@ using memgraph::msgs::PropertyId;
 using memgraph::msgs::Value;
 using memgraph::msgs::VertexId;
 
+using memgraph::storage::conversions::ConvertPropertyVector;
+using memgraph::storage::conversions::ConvertValueVector;
+using memgraph::storage::conversions::ToPropertyValue;
+using memgraph::storage::conversions::ToValue;
+
 namespace {
 // TODO(gvolfing) use come algorithm instead of explicit for loops
 // TODO(gvolfing) make this use rvalue& again instead of copy!!!!
-memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
-  using PV = memgraph::storage::v3::PropertyValue;
-  PV ret;
-  switch (value.type) {
-    case Value::Type::Null:
-      return PV{};
-    case Value::Type::Bool:
-      return PV(value.bool_v);
-    case Value::Type::Int64:
-      return PV(static_cast<int64_t>(value.int_v));
-    case Value::Type::Double:
-      return PV(value.double_v);
-    case Value::Type::String:
-      return PV(value.string_v);
-    case Value::Type::List: {
-      std::vector<PV> list;
-      for (auto &elem : value.list_v) {
-        list.emplace_back(ToPropertyValue(std::move(elem)));
-      }
-      return PV(list);
-    }
-    case Value::Type::Map: {
-      std::map<std::string, PV> map;
-      for (auto &[key, value] : value.map_v) {
-        map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
-      }
-      return PV(map);
-    }
-    // These are not PropertyValues
-    case Value::Type::Vertex:
-    case Value::Type::Edge:
-    case Value::Type::Path:
-      MG_ASSERT(false, "Not PropertyValue");
-  }
-  return ret;
-}
+// memgraph::storage::v3::PropertyValue ToPropertyValue(Value &&value) {
+//   using PV = memgraph::storage::v3::PropertyValue;
+//   PV ret;
+//   switch (value.type) {
+//     case Value::Type::Null:
+//       return PV{};
+//     case Value::Type::Bool:
+//       return PV(value.bool_v);
+//     case Value::Type::Int64:
+//       return PV(static_cast<int64_t>(value.int_v));
+//     case Value::Type::Double:
+//       return PV(value.double_v);
+//     case Value::Type::String:
+//       return PV(value.string_v);
+//     case Value::Type::List: {
+//       std::vector<PV> list;
+//       for (auto &elem : value.list_v) {
+//         list.emplace_back(ToPropertyValue(std::move(elem)));
+//       }
+//       return PV(list);
+//     }
+//     case Value::Type::Map: {
+//       std::map<std::string, PV> map;
+//       for (auto &[key, value] : value.map_v) {
+//         map.emplace(std::make_pair(key, ToPropertyValue(std::move(value))));
+//       }
+//       return PV(map);
+//     }
+//     // These are not PropertyValues
+//     case Value::Type::Vertex:
+//     case Value::Type::Edge:
+//     case Value::Type::Path:
+//       MG_ASSERT(false, "Not PropertyValue");
+//   }
+//   return ret;
+// }
 
-Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
-  using memgraph::storage::v3::PropertyValue;
+// Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
+//   using memgraph::storage::v3::PropertyValue;
 
-  switch (pv.type()) {
-    case PropertyValue::Type::Bool:
-      return Value(pv.ValueBool());
-    case PropertyValue::Type::Double:
-      return Value(pv.ValueDouble());
-    case PropertyValue::Type::Int:
-      return Value(pv.ValueInt());
-    case PropertyValue::Type::List: {
-      std::vector<Value> list(pv.ValueList().size());
-      for (const auto &elem : pv.ValueList()) {
-        list.emplace_back(ToValue(elem));
-      }
+//   switch (pv.type()) {
+//     case PropertyValue::Type::Bool:
+//       return Value(pv.ValueBool());
+//     case PropertyValue::Type::Double:
+//       return Value(pv.ValueDouble());
+//     case PropertyValue::Type::Int:
+//       return Value(pv.ValueInt());
+//     case PropertyValue::Type::List: {
+//       std::vector<Value> list(pv.ValueList().size());
+//       for (const auto &elem : pv.ValueList()) {
+//         list.emplace_back(ToValue(elem));
+//       }
 
-      return Value(list);
-    }
-    case PropertyValue::Type::Map: {
-      std::map<std::string, Value> map;
-      for (const auto &[key, val] : pv.ValueMap()) {
-        // maybe use std::make_pair once the && issue is resolved.
-        map.emplace(std::make_pair(key, ToValue(val)));
-      }
+//       return Value(list);
+//     }
+//     case PropertyValue::Type::Map: {
+//       std::map<std::string, Value> map;
+//       for (const auto &[key, val] : pv.ValueMap()) {
+//         // maybe use std::make_pair once the && issue is resolved.
+//         map.emplace(std::make_pair(key, ToValue(val)));
+//       }
 
-      return Value(map);
-    }
-    case PropertyValue::Type::Null:
-      return Value{};
-    case PropertyValue::Type::String:
-      return Value(pv.ValueString());
-    case PropertyValue::Type::TemporalData: {
-      // TBD -> we need to specify this in the messages, not a priority.
-      MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
-      return Value{};
-    }
-  }
-}
+//       return Value(map);
+//     }
+//     case PropertyValue::Type::Null:
+//       return Value{};
+//     case PropertyValue::Type::String:
+//       return Value(pv.ValueString());
+//     case PropertyValue::Type::TemporalData: {
+//       // TBD -> we need to specify this in the messages, not a priority.
+//       MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
+//       return Value{};
+//     }
+//   }
+// }
 
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
@@ -113,23 +119,30 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   return ret;
 }
 
-std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
-  std::vector<memgraph::storage::v3::PropertyValue> ret;
-  ret.reserve(vec.size());
+// std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> &&vec) {
+//   std::vector<memgraph::storage::v3::PropertyValue> ret;
+//   ret.reserve(vec.size());
 
-  for (auto &elem : vec) {
-    ret.push_back(ToPropertyValue(std::move(elem)));
-  }
+//   for (auto &elem : vec) {
+//     ret.push_back(ToPropertyValue(std::move(elem)));
+//   }
 
-  return ret;
-}
+//   return ret;
+// }
 
-std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::PropertyValue> &vec) {
-  std::vector<Value> ret;
-  ret.reserve(vec.size());
+// std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::PropertyValue> &vec) {
+//   std::vector<Value> ret;
+//   ret.reserve(vec.size());
 
-  for (const auto &elem : vec) {
-    ret.push_back(ToValue(elem));
+//   for (const auto &elem : vec) {
+//     ret.push_back(ToValue(elem));
+std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
+    const std::map<PropertyId, Value> &properties) {
+  std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> ret;
+  ret.reserve(properties.size());
+
+  for (const auto &[key, value] : properties) {
+    ret.emplace_back(std::make_pair(key, value));
   }
 
   return ret;
@@ -205,7 +218,7 @@ bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgra
 namespace memgraph::storage::v3 {
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   // Workaround untill we have access to CreateVertexAndValidate()
   // with the new signature that does not require the primary label.
@@ -255,22 +268,11 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
-  msgs::CreateVerticesResponse resp{};
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                          .logical_id]);
-    }
-  }
-  return resp;
+  return msgs::CreateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
 
@@ -316,25 +318,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     }
   }
 
-  msgs::UpdateVerticesResponse resp{};
-
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id:"[req.transaction_id
-                                                                                                         .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::UpdateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   bool action_successful = true;
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   for (auto &propval : req.primary_keys) {
     if (!action_successful) {
@@ -344,9 +333,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(propval)), View::OLD);
 
     if (!vertex_acc) {
-      spdlog::debug(
-          &"Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: "[req.transaction_id
-                                                                                                        .logical_id]);
+      spdlog::debug("Error while trying to delete vertex. Vertex to delete does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       action_successful = false;
     } else {
       // TODO(gvolfing)
@@ -357,7 +345,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(&"Error while trying to delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to delete vertex. Transaction id: {}", req.transaction_id.logical_id);
           }
 
           break;
@@ -366,8 +354,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
-            spdlog::debug(
-                &"Error while trying to detach and delete vertex. Transaction id: "[req.transaction_id.logical_id]);
+            spdlog::debug("Error while trying to detach and delete vertex. Transaction id: {}",
+                          req.transaction_id.logical_id);
           }
 
           break;
@@ -376,23 +364,24 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     }
   }
 
-  msgs::DeleteVerticesResponse resp{};
-  resp.success = action_successful;
+  msgs::DeleteVerticesResponse resp{.success = action_successful};
+  // resp.success = action_successful;
 
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                          .logical_id]);
-    }
-  }
+  // if (action_successful) {
+  //   auto result = acc.Commit(req.transaction_id);
+  //   if (result.HasError()) {
+  //     resp.success = false;
+  //     spdlog::debug(&"ConstraintViolation, commiting vertices was unsuccesfull with transaction id:
+  //     "[req.transaction_id
+  //                                                                                                         .logical_id]);
+  //   }
+  // }
 
   return resp;
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   for (auto &edge : req.edges) {
@@ -404,8 +393,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (!vertex_from_acc || !vertex_to_acc) {
       action_successful = false;
-      spdlog::debug(
-          &"Error while trying to insert edge, vertex does not exist. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
+                    req.transaction_id.logical_id);
       break;
     }
 
@@ -433,26 +422,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
     }
   }
 
-  msgs::CreateEdgesResponse resp{};
-
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(
-          &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                     .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::CreateEdgesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
   bool action_successful = true;
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   for (auto &edge : req.edges) {
     if (!action_successful) {
@@ -469,25 +444,11 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
     }
   }
 
-  msgs::DeleteEdgesResponse resp{};
-
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(
-          &"ConstraintViolation, commiting edge creation was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                     .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::DeleteEdgesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;
 
@@ -542,25 +503,11 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     }
   }
 
-  msgs::UpdateEdgesResponse resp{};
-
-  resp.success = action_successful;
-
-  if (action_successful) {
-    auto result = acc.Commit(req.transaction_id.logical_id);
-    if (result.HasError()) {
-      resp.success = false;
-      spdlog::debug(
-          &"ConstraintViolation, commiting edge update was unsuccesfull with transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
-    }
-  }
-
-  return resp;
+  return msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   std::vector<msgs::ScanResultRow> results;
@@ -571,10 +518,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool did_reach_starting_point = false;
   uint64_t sample_counter = 0;
 
+  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
+
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (ConvertPropertyVector(std::move(req.start_id.second)) == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -591,8 +540,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         continue;
       }
 
-      results.emplace_back(
-          msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view), .props = found_props.value()});
+      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                               .props = FromMap(found_props.value())});
 
       ++sample_counter;
       if (sample_counter == req.batch_limit) {
@@ -618,7 +567,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
-  auto acc = shard_->Access();
+  auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   using EdgeProperties = std::variant<std::map<PropertyId, msgs::Value>, std::vector<msgs::Value>>;
@@ -927,6 +876,13 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 // } msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest && /*req*/) { return
 // msgs::UpdateEdgesResponse{}; } msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest && /*req*/) { return
 // msgs::ExpandOneResponse{}; } NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
+  shard_->Access(req.transaction_id).Commit(req.commit_timestamp);
+  return msgs::CommitResponse{true};
+};
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) {
   return msgs::GetPropertiesResponse{};
 }
