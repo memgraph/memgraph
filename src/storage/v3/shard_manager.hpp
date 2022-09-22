@@ -21,9 +21,12 @@
 #include <io/message_conversion.hpp>
 #include <io/messages.hpp>
 #include <io/rsm/raft.hpp>
-#include <io/rsm/shard_rsm.hpp>
 #include <io/time.hpp>
 #include <io/transport.hpp>
+#include <query/v2/requests.hpp>
+#include <storage/v3/shard.hpp>
+#include <storage/v3/shard_rsm.hpp>
+#include "storage/v3/config.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -43,20 +46,19 @@ using memgraph::io::messages::CoordinatorMessages;
 using memgraph::io::messages::ShardManagerMessages;
 using memgraph::io::messages::ShardMessages;
 using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::ShardRsm;
-using memgraph::io::rsm::StorageReadRequest;
-using memgraph::io::rsm::StorageReadResponse;
-using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
 using memgraph::io::rsm::WriteRequest;
 using memgraph::io::rsm::WriteResponse;
+using memgraph::msgs::ReadRequests;
+using memgraph::msgs::ReadResponses;
+using memgraph::msgs::WriteRequests;
+using memgraph::msgs::WriteResponses;
+using memgraph::storage::v3::ShardRsm;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
 using TimeUuidPair = std::pair<Time, uuid>;
 
 template <typename IoImpl>
-using ShardRaft =
-    Raft<IoImpl, ShardRsm, StorageWriteRequest, StorageWriteResponse, StorageReadRequest, StorageReadResponse>;
+using ShardRaft = Raft<IoImpl, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 using namespace std::chrono_literals;
 static constexpr Duration kMinimumCronInterval = 1000ms;
@@ -208,8 +210,10 @@ class ShardManager {
     // TODO(tyler) get geers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
 
-    // TODO(everbody) change this to storage::Shard
-    ShardRsm rsm_state{};
+    std::unique_ptr<Shard> shard =
+        std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.config);
+
+    ShardRsm rsm_state{std::move(shard)};
 
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
