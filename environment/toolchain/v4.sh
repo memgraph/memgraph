@@ -961,7 +961,9 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     popd
 fi
 
-# install boost
+echo ""
+echo "#### BOOST ####"
+echo ""
 if [ ! -d $PREFIX/include/boost ]; then
     if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
         rm -rf boost_$BOOST_VERSION_UNDERSCORES
@@ -970,6 +972,7 @@ if [ ! -d $PREFIX/include/boost ]; then
     pushd boost_$BOOST_VERSION_UNDERSCORES
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3  --without-icu
     ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+        cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
         -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
         -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
         -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
