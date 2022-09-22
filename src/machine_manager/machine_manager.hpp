@@ -156,7 +156,7 @@ class MachineManager {
                          AppendResponse, WriteRequest<StorageWriteRequest>, VoteRequest, VoteResponse>(
               std::move(request_envelope.message));
 
-      MG_ASSERT(conversion_attempt.has_value(), "shard rsm message conversion failed for {}",
+      MG_ASSERT(conversion_attempt.has_value(), "shard rsm message conversion failed for {} - incorrect message type",
                 request_envelope.to_address.ToString());
 
       spdlog::info("got shard rsm message");
