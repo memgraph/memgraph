@@ -2824,4 +2824,62 @@ class DistributedCreateNodeCursor : public Cursor {
   std::vector<NodeCreationInfo> nodes_info_;
   msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
 };
+
+class DistributedUnwindCursor : public Cursor {
+ public:
+  DistributedUnwindCursor(const Unwind &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), input_value_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("Unwind");
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
+      }
+      // if we reached the end of our list of values
+      // pull from the input
+      if (input_value_it_ == input_value_.end()) {
+        if (!input_cursor_->Pull(frame, context)) {
+          return false;
+        }
+
+        // successful pull from input, initialize value and iterator
+        ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                      storage::v3::View::OLD);
+        TypedValue input_value = self_.input_expression_->Accept(evaluator);
+        if (input_value.type() != TypedValue::Type::List) {
+          throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
+        }
+        // Copy the evaluted input_value_list to our vector.
+        input_value_ = input_value.ValueList();
+        input_value_it_ = input_value_.begin();
+      }
+
+      // if we reached the end of our list of values goto back to top
+      if (input_value_it_ == input_value_.end()) {
+        continue;
+      }
+
+      frame[self_.output_symbol_] = *input_value_it_++;
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    input_value_.clear();
+    input_value_it_ = input_value_.end();
+  }
+
+ private:
+  const Unwind &self_;
+  const UniqueCursorPtr input_cursor_;
+  // typed values we are unwinding and yielding
+  utils::pmr::vector<TypedValue> input_value_;
+  // current position in input_value_
+  decltype(input_value_)::iterator input_value_it_ = input_value_.end();
+};
+
 }  // namespace memgraph::query::v2::plan
