@@ -201,16 +201,23 @@ for dataset, tests in benchmarks:
     dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
     # Prepare runners and import the dataset.
-    memgraph = runners.Memgraph(
-        args.memgraph_binary,
-        args.temporary_directory,
-        not args.no_properties_on_edges,
-        args.bolt_port,
-    )
+    # memgraph = runners.Memgraph(
+    #     args.memgraph_binary,
+    #     args.temporary_directory,
+    #     not args.no_properties_on_edges,
+    #     args.bolt_port,
+    # )
+    neo4j = runners.Neo4j(
+        args.memgraph_binary, 
+        args.temporary_directory, 
+        args.bolt_port, 
+        "config/path"
+        )
+
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
-    memgraph.start_preparation()
+    #memgraph.start_preparation()
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-    usage = memgraph.stop()
+    usage = neo4j.stop()
 
     # Display import statistics.
     print()
