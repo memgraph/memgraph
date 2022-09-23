@@ -27,6 +27,7 @@
 #include <machine_manager/machine_manager.hpp>
 #include "common/types.hpp"
 #include "exceptions.hpp"
+#include "expr/semantic/symbol_generator.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
@@ -43,6 +44,8 @@
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "utils/string.hpp"
+
+// #include "query_common.hpp"
 
 namespace memgraph::storage::v3::test {
 
@@ -62,7 +65,7 @@ class ExpressionEvaluatorUsageTest : public ::testing::Test {
   SymbolTable symbol_table;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::NEW};
 
   coordinator::Hlc last_hlc{0, io::Time{}};
 
@@ -204,20 +207,29 @@ TEST_F(ExpressionEvaluatorUsageTest, PropertyLookup) {
 
   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop2, PropertyValue(5)).HasValue());
+
   // Property filtering
-  const std::string expr1{"n.prop > 0"};
-  const std::string expr2{"n.prop > 0 && n.prop < 10"};
+  // const std::string expr1{"n.prop2 > 0"};
+  const std::string expr1{"n.prop2 > 0 AND n.prop2 < 10"};
 
   // Parse stuff
-  memgraph::frontend::opencypher::Parser<frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr1);
+  memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr1);
   expr::ParsingContext pc;
   CypherMainVisitor visitor(pc, &storage);
 
   auto *ast = parser.tree();
   auto expr = visitor.visit(ast);
+
+  auto ident = Identifier(std::string("n"), false);
+  Symbol m_symbol("", 0, false);
+
+  expr::SymbolGenerator symbol_generator(&symbol_table, {&ident});
+  (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
+
+  frame[m_symbol] = v1;
+
   auto res1 = Eval(std::any_cast<Expression *>(expr));
-  ASSERT_TRUE(res1.ValueVertex().PrimaryKey(View::NEW).HasValue());
-  EXPECT_EQ(res1.ValueVertex().PrimaryKey(View::NEW).GetValue(), std::vector<PropertyValue>{PropertyValue(5)});
+  ASSERT_TRUE(res1.ValueBool());
 }
 
 }  // namespace memgraph::storage::v3::test
