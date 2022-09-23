@@ -433,3 +433,7 @@ target_link_libraries(${test_prefix}local_transport mg-io)
 # Test MachineManager with LocalTransport
 add_unit_test(machine_manager.cpp)
 target_link_libraries(${test_prefix}machine_manager mg-io mg-coordinator mg-storage-v3)
+
+# Test ExpressionEvaluator with expressions
+add_unit_test(storage_v3_expr_usage.cpp)
+target_link_libraries(${test_prefix}storage_v3_expr_usage mg-io mg-expr mg-storage-v3)
