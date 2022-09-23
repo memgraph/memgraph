@@ -210,8 +210,8 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp = QueryTimestamp();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
-  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
-  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
+  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, nullptr);
+  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, nullptr);
   ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;

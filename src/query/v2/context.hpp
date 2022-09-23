@@ -43,21 +43,22 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters;
 };
 
-inline std::vector<storage::v3::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
-                                                              DbAccessor *dba) {
+inline std::vector<storage::v3::PropertyId> NamesToProperties(
+    const std::vector<std::string> &property_names, msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::PropertyId> properties;
   properties.reserve(property_names.size());
   for (const auto &name : property_names) {
-    properties.push_back(dba->NameToProperty(name));
+    properties.push_back(shard_request_manager->NameToProperty(name));
   }
   return properties;
 }
 
-inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba) {
+inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
+                                                       msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
   for (const auto &name : label_names) {
-    labels.push_back(dba->NameToLabel(name));
+    labels.push_back(shard_request_manager->LabelNameToLabelId(name));
   }
   return labels;
 }

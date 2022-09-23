@@ -255,79 +255,79 @@ class DbAccessor final {
 
   // TODO(jbajic) Fix Remove Gid
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { throw std::runtime_error("DbAccessor"); }
+  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { throw std::runtime_error("DbAccessor1"); }
 
   std::optional<VertexAccessor> FindVertex(storage::v3::PrimaryKey &primary_key, storage::v3::View view) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor2");
   }
 
-  VerticesIterable Vertices(storage::v3::View view) { throw std::runtime_error("DbAccessor"); }
+  VerticesIterable Vertices(storage::v3::View view) { throw std::runtime_error("DbAccessor3"); }
 
   VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor4");
   }
 
   VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor5");
   }
 
   VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property,
                             const storage::v3::PropertyValue &value) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor6");
   }
 
   VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property,
                             const std::optional<utils::Bound<storage::v3::PropertyValue>> &lower,
                             const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor7");
   }
 
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
       const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor8");
   }
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor9");
   }
 
   storage::v3::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor10");
   }
 
   storage::v3::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       VertexAccessor *vertex_accessor) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor11");
   }
 
   storage::v3::Result<std::optional<VertexAccessor>> RemoveVertex(VertexAccessor *vertex_accessor) {
-    throw std::runtime_error("DbAccessor");
+    throw std::runtime_error("DbAccessor12");
   }
 
   // TODO(jbajic) Query engine should have a map of labels, properties and edge
   // types
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  storage::v3::PropertyId NameToProperty(const std::string_view name) { throw std::runtime_error("DbAccessor"); }
+  // storage::v3::PropertyId NameToProperty(const std::string_view name) { throw std::runtime_error("DbAccessor13"); }
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  storage::v3::LabelId NameToLabel(const std::string_view name) { throw std::runtime_error("DbAccessor"); }
+  // // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  // storage::v3::LabelId NameToLabel(const std::string_view name) { throw std::runtime_error("DbAccessor14"); }
 
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { throw std::runtime_error("DbAccessor"); }
+  // // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+  // storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { throw std::runtime_error("DbAccessor15"); }
 
-  const std::string &PropertyToName(storage::v3::PropertyId prop) const { throw std::runtime_error("DbAccessor"); }
+  const std::string &PropertyToName(storage::v3::PropertyId prop) const { throw std::runtime_error("DbAccessor16"); }
 
-  const std::string &LabelToName(storage::v3::LabelId label) const { throw std::runtime_error("DbAccessor"); }
+  const std::string &LabelToName(storage::v3::LabelId label) const { throw std::runtime_error("DbAccessor17"); }
 
-  const std::string &EdgeTypeToName(storage::v3::EdgeTypeId type) const { throw std::runtime_error("DbAccessor"); }
+  const std::string &EdgeTypeToName(storage::v3::EdgeTypeId type) const { throw std::runtime_error("DbAccessor18"); }
 
-  void AdvanceCommand() { throw std::runtime_error("DbAccessor"); }
+  void AdvanceCommand() { throw std::runtime_error("DbAccessor19"); }
 
-  void Commit() { throw std::runtime_error("DbAccessor"); }
+  void Commit() { throw std::runtime_error("DbAccessor20"); }
 
-  void Abort() { throw std::runtime_error("DbAccessor"); }
+  void Abort() { throw std::runtime_error("DbAccessor21"); }
 
   bool LabelIndexExists(storage::v3::LabelId label) const {
     spdlog::error("DbAccessor LabelIndexExists");
@@ -367,11 +367,11 @@ class DbAccessor final {
     return 0;
   }
 
-  storage::v3::IndicesInfo ListAllIndices() const { throw std::runtime_error("DbAccessor"); }
+  storage::v3::IndicesInfo ListAllIndices() const { throw std::runtime_error("DbAccessor22"); }
 
-  const storage::v3::SchemaValidator &GetSchemaValidator() const { throw std::runtime_error("DbAccessor"); }
+  const storage::v3::SchemaValidator &GetSchemaValidator() const { throw std::runtime_error("DbAccessor23"); }
 
-  storage::v3::SchemasInfo ListAllSchemas() const { throw std::runtime_error("DbAccessor"); }
+  storage::v3::SchemasInfo ListAllSchemas() const { throw std::runtime_error("DbAccessor24"); }
 };
 
 }  // namespace memgraph::query::v2

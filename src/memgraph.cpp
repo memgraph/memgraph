@@ -678,14 +678,16 @@ int main(int argc, char **argv) {
   };
 
   auto *shard = (memgraph::storage::v3::Shard *)(nullptr);
-  std::vector<memgraph::storage::v3::SchemaProperty> schema{
-      {memgraph::storage::v3::PropertyId::FromUint(2), memgraph::common::SchemaType::INT}};
   memgraph::coordinator::ShardMap sm;
+  auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{"property"});
+  std::vector<memgraph::storage::v3::SchemaProperty> schema{
+      {prop_map.at("property"), memgraph::common::SchemaType::INT}};
   sm.InitializeNewLabel("label", schema, 1, sm.shard_map_version);
 
   memgraph::coordinator::Coordinator coordinator{sm};
 
   memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
+  std::jthread mm_thread([&mm] { mm.Run(); });
   auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
 
   memgraph::query::v2::InterpreterContext interpreter_context{

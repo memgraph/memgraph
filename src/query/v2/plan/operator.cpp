@@ -2773,6 +2773,7 @@ class DistributedScanAllCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
+    request_state_.label = "label";
     current_batch = shard_manager.Request(request_state_);
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();

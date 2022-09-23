@@ -105,6 +105,7 @@ class ShardRequestManagerInterface {
   virtual ~ShardRequestManagerInterface() = default;
 
   virtual void StartTransaction() = 0;
+  virtual void Commit() = 0;
   virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
@@ -152,6 +153,43 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
+    }
+  }
+
+  void Commit() override {
+    memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
+    CoordinatorWriteRequests write_req = req;
+    auto write_res = coord_cli_.SendWriteRequest(write_req);
+    if (write_res.HasError()) {
+      throw std::runtime_error("HLC request for commit failed");
+    }
+    auto coordinator_write_response = write_res.GetValue();
+    auto hlc_response = std::get<memgraph::coordinator::HlcResponse>(coordinator_write_response);
+
+    if (hlc_response.fresher_shard_map) {
+      shards_map_ = hlc_response.fresher_shard_map.value();
+    }
+    auto commit_timestamp = hlc_response.new_hlc;
+
+    msgs::CommitRequest commit_req{.commit_timestamp = commit_timestamp, .transaction_id = transaction_id_};
+
+    for (const auto &[label, space] : shards_map_.label_spaces) {
+      for (const auto &[key, shard] : space.shards) {
+        auto &storage_client = GetStorageClientForShard(shard, label);
+        // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
+        // instead.
+        auto commit_response = storage_client.SendWriteRequest(commit_req);
+        // RETRY on timeouts?
+        // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
+        if (commit_response.HasError()) {
+          throw std::runtime_error("Commit request timed out");
+        }
+        WriteResponses write_response_variant = commit_response.GetValue();
+        auto &response = std::get<CommitResponse>(write_response_variant);
+        if (!response.success) {
+          throw std::runtime_error("Commit request did not succeed");
+        }
+      }
     }
   }
 
@@ -336,13 +374,25 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       return;
     }
     state.transaction_id = transaction_id_;
-    auto shards = shards_map_.GetShards(*state.label);
-    for (auto &[key, shard] : shards) {
-      state.shard_cache.push_back(std::move(shard));
-      ScanVerticesRequest rqst;
-      rqst.transaction_id = transaction_id_;
-      rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-      state.requests.push_back(std::move(rqst));
+    if (state.label.has_value()) {
+      auto shards = shards_map_.GetShards(*state.label);
+      for (auto &[key, shard] : shards) {
+        state.shard_cache.push_back(std::move(shard));
+        ScanVerticesRequest rqst;
+        rqst.transaction_id = transaction_id_;
+        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
+        state.requests.push_back(std::move(rqst));
+      }
+    } else {
+      for (const auto &[label, space] : shards_map_.label_spaces) {
+        for (auto &[key, shard] : space.shards) {
+          state.shard_cache.push_back(std::move(shard));
+          ScanVerticesRequest rqst;
+          rqst.transaction_id = transaction_id_;
+          rqst.start_id.second = storage::conversions::ConvertValueVector(key);
+          state.requests.push_back(std::move(rqst));
+        }
+      }
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
   }
