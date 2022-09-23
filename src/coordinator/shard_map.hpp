@@ -30,6 +30,8 @@
 
 namespace memgraph::coordinator {
 
+constexpr int64_t kNotExistingId{0};
+
 using memgraph::io::Address;
 using memgraph::storage::v3::Config;
 using memgraph::storage::v3::LabelId;
@@ -63,6 +65,7 @@ struct ShardToInitialize {
   LabelId label_id;
   PrimaryKey min_key;
   std::optional<PrimaryKey> max_key;
+  std::vector<SchemaProperty> schema;
   Config config;
 };
 
@@ -76,9 +79,9 @@ struct LabelSpace {
 
 struct ShardMap {
   Hlc shard_map_version;
-  uint64_t max_property_id;
+  uint64_t max_property_id{kNotExistingId};
   std::map<PropertyName, PropertyId> properties;
-  uint64_t max_label_id;
+  uint64_t max_label_id{kNotExistingId};
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
@@ -124,6 +127,7 @@ struct ShardMap {
                   .label_id = label_id,
                   .min_key = low_key,
                   .max_key = std::nullopt,
+                  .schema = label_space.schema,
                   .config = Config{},
               });
             }

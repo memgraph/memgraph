@@ -158,10 +158,10 @@ class Coordinator {
 
  private:
   ShardMap shard_map_;
-  uint64_t highest_allocated_timestamp_;
+  uint64_t highest_allocated_timestamp_{0};
 
   /// Query engines need to periodically request batches of unique edge IDs.
-  uint64_t highest_allocated_edge_id_;
+  uint64_t highest_allocated_edge_id_{0};
 
   CoordinatorReadResponses HandleRead(GetShardMapRequest && /* get_shard_map_request */) {
     GetShardMapResponse res;

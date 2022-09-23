@@ -21,8 +21,8 @@ using Time = memgraph::io::Time;
 
 /// Hybrid-logical clock
 struct Hlc {
-  uint64_t logical_id;
-  Time coordinator_wall_clock;
+  uint64_t logical_id = 0;
+  Time coordinator_wall_clock = Time::min();
 
   auto operator<=>(const Hlc &other) const { return logical_id <=> other.logical_id; }
 
