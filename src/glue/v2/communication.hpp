@@ -16,6 +16,7 @@
 #include "query/v2/bindings/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/result.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/view.hpp"
 
 namespace memgraph::storage::v3 {
@@ -48,8 +49,8 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::Edg
 /// @param storage::v3::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::Path &path, const storage::v3::Shard &db,
-                                                          storage::v3::View view);
+storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path &path,
+                                                          const storage::v3::Shard &db, storage::v3::View view);
 
 /// @param query::v2::TypedValue for converting to communication::bolt::Value.
 /// @param storage::v3::Shard for ToBoltVertex and ToBoltEdge.

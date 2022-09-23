@@ -63,14 +63,14 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
   }
 }
 
-storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const query::v2::VertexAccessor &vertex,
+storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
                                                               const storage::v3::Shard &db, storage::v3::View view) {
-  return ToBoltVertex(vertex.impl_, db, view);
+  return ToBoltVertex(vertex, db, view);
 }
 
-storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::EdgeAccessor &edge,
+storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
                                                           const storage::v3::Shard &db, storage::v3::View view) {
-  return ToBoltEdge(edge.impl_, db, view);
+  return ToBoltEdge(edge, db, view);
 }
 
 storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value, const storage::v3::Shard &db,
@@ -167,23 +167,24 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const storage::v3::Edg
   return communication::bolt::Edge{id, from, to, type, properties};
 }
 
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::Path &path, const storage::v3::Shard &db,
-                                                          storage::v3::View view) {
-  std::vector<communication::bolt::Vertex> vertices;
-  vertices.reserve(path.vertices().size());
-  for (const auto &v : path.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-    vertices.emplace_back(std::move(*maybe_vertex));
-  }
-  std::vector<communication::bolt::Edge> edges;
-  edges.reserve(path.edges().size());
-  for (const auto &e : path.edges()) {
-    auto maybe_edge = ToBoltEdge(e, db, view);
-    if (maybe_edge.HasError()) return maybe_edge.GetError();
-    edges.emplace_back(std::move(*maybe_edge));
-  }
-  return communication::bolt::Path(vertices, edges);
+storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path &path,
+                                                          const storage::v3::Shard &db, storage::v3::View view) {
+  // std::vector<communication::bolt::Vertex> vertices;
+  // vertices.reserve(path.vertices().size());
+  // for (const auto &v : path.vertices()) {
+  //   auto maybe_vertex = ToBoltVertex(v, db, view);
+  //   if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+  //   vertices.emplace_back(std::move(*maybe_vertex));
+  // }
+  // std::vector<communication::bolt::Edge> edges;
+  // edges.reserve(path.edges().size());
+  // for (const auto &e : path.edges()) {
+  //   auto maybe_edge = ToBoltEdge(e, db, view);
+  //   if (maybe_edge.HasError()) return maybe_edge.GetError();
+  //   edges.emplace_back(std::move(*maybe_edge));
+  // }
+  // return communication::bolt::Path(vertices, edges);
+  return communication::bolt::Path();
 }
 
 storage::v3::PropertyValue ToPropertyValue(const Value &value) {

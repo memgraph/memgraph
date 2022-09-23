@@ -13,6 +13,7 @@
 
 #include <gflags/gflags.h>
 
+#include "io/local_transport/local_system.hpp"
 #include "query/v2/auth_checker.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
 #include "query/v2/bindings/typed_value.hpp"
@@ -165,7 +166,8 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory,
+                              io::local_transport::LocalSystem local_system, coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;
 
@@ -179,6 +181,9 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   const InterpreterConfig config;
+
+  io::local_transport::LocalSystem local_system;
+  coordinator::Address coordinator_address;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
     return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));

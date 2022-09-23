@@ -22,6 +22,7 @@
 #include <optional>
 
 #include "expr/ast/ast_visitor.hpp"
+#include "io/local_transport/local_system.hpp"
 #include "memory/memory_control.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/eval.hpp"
@@ -813,10 +814,12 @@ using RWType = plan::ReadWriteTypeChecker::RWType;
 }  // namespace
 
 InterpreterContext::InterpreterContext(storage::v3::Shard *db, const InterpreterConfig config,
-                                       const std::filesystem::path &data_directory)
-    //    : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory /
+                                       const std::filesystem::path & /*data_directory*/,
+                                       io::local_transport::LocalSystem local_system,
+                                       coordinator::Address coordinator_addr)
+    //  : db(db), trigger_store(data_directory / "triggers"), config(config), streams{this, data_directory /
     //    "streams"} {}
-    : db(db), config(config) {}
+    : db(db), config(config), local_system{std::move(local_system)}, coordinator_address{coordinator_addr} {}
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
