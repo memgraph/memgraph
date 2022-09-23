@@ -23,6 +23,10 @@ fi
 os="$1"
 
 # toolchain version
+# TODO(gitbuda): Update toolchain with all configurable options.
+TOOLCHAIN_ARCHITECTURE="x86"
+TOOLCHAIN_OS="Linux"
+TOOLCHAIN_STDCXX="libc++"
 TOOLCHAIN_VERSION=4
 
 # package versions used
