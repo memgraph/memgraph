@@ -137,7 +137,7 @@ void TestCreateVertices(ShardRequestManager &shard_request_manager) {
   msgs::ExecutionState<msgs::CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
   auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
-  msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  msgs::NewVertex a1{.primary_key = {PropVal(int64_t(0)), PropVal(int64_t(0))}};
   a1.label_ids.push_back({label_id});
   msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
   a2.label_ids.push_back({label_id});
@@ -145,7 +145,7 @@ void TestCreateVertices(ShardRequestManager &shard_request_manager) {
   new_vertices.push_back(std::move(a2));
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
-  MG_ASSERT(result.size() == 2);
+  MG_ASSERT(result.size() == 1);
 }
 
 template <typename ShardRequestManager>
@@ -211,8 +211,8 @@ TEST(MachineManager, BasicFunctionality) {
   msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
 
   shard_request_manager.StartTransaction();
-  TestScanAll(shard_request_manager);
   TestCreateVertices(shard_request_manager);
+  TestScanAll(shard_request_manager);
   local_system.ShutDown();
 };
 

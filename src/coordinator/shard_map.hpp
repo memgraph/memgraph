@@ -63,6 +63,7 @@ struct ShardToInitialize {
   LabelId label_id;
   PrimaryKey min_key;
   std::optional<PrimaryKey> max_key;
+  std::vector<SchemaProperty> schema;
   Config config;
 };
 
@@ -124,6 +125,7 @@ struct ShardMap {
                   .label_id = label_id,
                   .min_key = low_key,
                   .max_key = std::nullopt,
+                  .schema = label_space.schema,
                   .config = Config{},
               });
             }

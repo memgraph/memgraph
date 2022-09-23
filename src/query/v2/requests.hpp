@@ -492,7 +492,6 @@ struct NewVertexLabel {
 };
 
 struct CreateVerticesRequest {
-  std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
 };

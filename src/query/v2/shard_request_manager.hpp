@@ -216,9 +216,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
       const auto labels = state.requests[id].new_vertices[0].label_ids;
+      for (auto &new_vertex : state.requests[id].new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      }
+      state.requests[id].new_vertices.erase(state.requests[id].new_vertices.begin());
       auto primary_key = state.requests[id].new_vertices[0].primary_key;
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
       WriteRequests req = state.requests[id];
+      auto ladaksd = std::get<CreateVerticesRequest>(req);
       auto write_response_result = storage_client.SendWriteRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
@@ -309,6 +314,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::map<Shard, CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
+      MG_ASSERT(!new_vertex.label_ids.empty(), "This is error!");
       auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
                                               storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
