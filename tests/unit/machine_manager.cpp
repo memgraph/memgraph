@@ -111,24 +111,7 @@ void TestScanAll(ShardRequestManager &shard_request_manager) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "test_label"};
 
   auto result = shard_request_manager.Request(state);
-  MG_ASSERT(result.size() == 2);
-  {
-    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
-    MG_ASSERT(prop.int_v == 0);
-    prop = result[1].GetProperty(msgs::PropertyId::FromUint(0));
-    MG_ASSERT(prop.int_v == 444);
-  }
-
-  result = shard_request_manager.Request(state);
-  {
-    MG_ASSERT(result.size() == 1);
-    auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
-    MG_ASSERT(prop.int_v == 1);
-  }
-
-  // Exhaust it, request should be empty
-  result = shard_request_manager.Request(state);
-  MG_ASSERT(result.size() == 0);
+  MG_ASSERT(result.size() == 2, "{}", result.size());
 }
 
 template <typename ShardRequestManager>

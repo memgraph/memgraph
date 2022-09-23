@@ -219,7 +219,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       for (auto &new_vertex : state.requests[id].new_vertices) {
         new_vertex.label_ids.erase(new_vertex.label_ids.begin());
       }
-      state.requests[id].new_vertices.erase(state.requests[id].new_vertices.begin());
       auto primary_key = state.requests[id].new_vertices[0].primary_key;
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
       WriteRequests req = state.requests[id];
