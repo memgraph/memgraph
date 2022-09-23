@@ -1530,16 +1530,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
 
-    // Some queries require an active transaction in order to be prepared.
-    if (!in_explicit_transaction_ &&
-        (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
-         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-         utils::Downcast<TriggerQuery>(parsed_query.query))) {
-      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
-          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
-      execution_db_accessor_.emplace(db_accessor_.get());
-    }
-
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
 

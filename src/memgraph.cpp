@@ -56,6 +56,7 @@
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/view.hpp"
 #include "telemetry/telemetry.hpp"
@@ -677,7 +678,11 @@ int main(int argc, char **argv) {
   };
 
   auto *shard = (memgraph::storage::v3::Shard *)(nullptr);
-  memgraph::coordinator::ShardMap sm{};
+  std::vector<memgraph::storage::v3::SchemaProperty> schema{
+      {memgraph::storage::v3::PropertyId::FromUint(2), memgraph::common::SchemaType::INT}};
+  memgraph::coordinator::ShardMap sm;
+  sm.InitializeNewLabel("label", schema, 1, sm.shard_map_version);
+
   memgraph::coordinator::Coordinator coordinator{sm};
 
   memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
