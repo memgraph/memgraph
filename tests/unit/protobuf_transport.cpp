@@ -23,7 +23,6 @@
 namespace memgraph::io::tests {
 
 using memgraph::protobuf::Address;
-using memgraph::protobuf::Content;
 using memgraph::protobuf::TestRequest;
 using memgraph::protobuf::UberMessage;
 
@@ -32,18 +31,27 @@ TEST(ProtobufTransport, Echo) {
 
   std::string out;
 
-  TestRequest req;
-  req.set_request_id(1);
-  req.set_content("ping");
+  Address to_addr;
+  to_addr.set_last_known_port(1);
 
-  bool success = req.SerializeToString(&out);
+  Address from_addr;
+  to_addr.set_last_known_port(2);
+
+  auto req = new TestRequest{};
+  req->set_content("ping");
+
+  UberMessage um;
+  um.set_request_id(1);
+  um.set_allocated_test_request(req);
+
+  bool success = req->SerializeToString(&out);
 
   MG_ASSERT(success);
 
   TestRequest rt;
   rt.ParseFromString(out);
 
-  MG_ASSERT(rt.content() == req.content());
+  MG_ASSERT(rt.content() == req->content());
 }
 
 }  // namespace memgraph::io::tests

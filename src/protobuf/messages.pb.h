@@ -46,7 +46,7 @@ struct TableStruct_src_2fprotobuf_2fmessages_2eproto {
   static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTableField entries[] PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::AuxillaryParseTableField aux[] PROTOBUF_SECTION_VARIABLE(
       protodesc_cold);
-  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[4] PROTOBUF_SECTION_VARIABLE(protodesc_cold);
+  static const ::PROTOBUF_NAMESPACE_ID::internal::ParseTable schema[3] PROTOBUF_SECTION_VARIABLE(protodesc_cold);
   static const ::PROTOBUF_NAMESPACE_ID::internal::FieldMetadata field_metadata[];
   static const ::PROTOBUF_NAMESPACE_ID::internal::SerializationTable serialization_table[];
   static const ::PROTOBUF_NAMESPACE_ID::uint32 offsets[];
@@ -57,9 +57,6 @@ namespace protobuf {
 class Address;
 class AddressDefaultTypeInternal;
 extern AddressDefaultTypeInternal _Address_default_instance_;
-class Content;
-class ContentDefaultTypeInternal;
-extern ContentDefaultTypeInternal _Content_default_instance_;
 class TestRequest;
 class TestRequestDefaultTypeInternal;
 extern TestRequestDefaultTypeInternal _TestRequest_default_instance_;
@@ -71,8 +68,6 @@ extern UberMessageDefaultTypeInternal _UberMessage_default_instance_;
 PROTOBUF_NAMESPACE_OPEN
 template <>
 ::memgraph::protobuf::Address *Arena::CreateMaybeMessage<::memgraph::protobuf::Address>(Arena *);
-template <>
-::memgraph::protobuf::Content *Arena::CreateMaybeMessage<::memgraph::protobuf::Content>(Arena *);
 template <>
 ::memgraph::protobuf::TestRequest *Arena::CreateMaybeMessage<::memgraph::protobuf::TestRequest>(Arena *);
 template <>
@@ -415,155 +410,6 @@ class TestRequest PROTOBUF_FINAL
 };
 // -------------------------------------------------------------------
 
-class Content PROTOBUF_FINAL : public ::PROTOBUF_NAMESPACE_ID::
-                                   Message /* @@protoc_insertion_point(class_definition:memgraph.protobuf.Content) */ {
- public:
-  inline Content() : Content(nullptr){};
-  virtual ~Content();
-
-  Content(const Content &from);
-  Content(Content &&from) noexcept : Content() { *this = ::std::move(from); }
-
-  inline Content &operator=(const Content &from) {
-    CopyFrom(from);
-    return *this;
-  }
-  inline Content &operator=(Content &&from) noexcept {
-    if (GetArena() == from.GetArena()) {
-      if (this != &from) InternalSwap(&from);
-    } else {
-      CopyFrom(from);
-    }
-    return *this;
-  }
-
-  static const ::PROTOBUF_NAMESPACE_ID::Descriptor *descriptor() { return GetDescriptor(); }
-  static const ::PROTOBUF_NAMESPACE_ID::Descriptor *GetDescriptor() { return GetMetadataStatic().descriptor; }
-  static const ::PROTOBUF_NAMESPACE_ID::Reflection *GetReflection() { return GetMetadataStatic().reflection; }
-  static const Content &default_instance();
-
-  enum ContentCase {
-    kTestRequest = 1,
-    CONTENT_NOT_SET = 0,
-  };
-
-  static void InitAsDefaultInstance();  // FOR INTERNAL USE ONLY
-  static inline const Content *internal_default_instance() {
-    return reinterpret_cast<const Content *>(&_Content_default_instance_);
-  }
-  static constexpr int kIndexInFileMessages = 2;
-
-  friend void swap(Content &a, Content &b) { a.Swap(&b); }
-  inline void Swap(Content *other) {
-    if (other == this) return;
-    if (GetArena() == other->GetArena()) {
-      InternalSwap(other);
-    } else {
-      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
-    }
-  }
-  void UnsafeArenaSwap(Content *other) {
-    if (other == this) return;
-    GOOGLE_DCHECK(GetArena() == other->GetArena());
-    InternalSwap(other);
-  }
-
-  // implements Message ----------------------------------------------
-
-  inline Content *New() const final { return CreateMaybeMessage<Content>(nullptr); }
-
-  Content *New(::PROTOBUF_NAMESPACE_ID::Arena *arena) const final { return CreateMaybeMessage<Content>(arena); }
-  void CopyFrom(const ::PROTOBUF_NAMESPACE_ID::Message &from) final;
-  void MergeFrom(const ::PROTOBUF_NAMESPACE_ID::Message &from) final;
-  void CopyFrom(const Content &from);
-  void MergeFrom(const Content &from);
-  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
-  bool IsInitialized() const final;
-
-  size_t ByteSizeLong() const final;
-  const char *_InternalParse(const char *ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext *ctx) final;
-  ::PROTOBUF_NAMESPACE_ID::uint8 *_InternalSerialize(
-      ::PROTOBUF_NAMESPACE_ID::uint8 *target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream *stream) const final;
-  int GetCachedSize() const final { return _cached_size_.Get(); }
-
- private:
-  inline void SharedCtor();
-  inline void SharedDtor();
-  void SetCachedSize(int size) const final;
-  void InternalSwap(Content *other);
-  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
-  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() { return "memgraph.protobuf.Content"; }
-
- protected:
-  explicit Content(::PROTOBUF_NAMESPACE_ID::Arena *arena);
-
- private:
-  static void ArenaDtor(void *object);
-  inline void RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena *arena);
-
- public:
-  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
-
- private:
-  static ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadataStatic() {
-    ::PROTOBUF_NAMESPACE_ID::internal::AssignDescriptors(&::descriptor_table_src_2fprotobuf_2fmessages_2eproto);
-    return ::descriptor_table_src_2fprotobuf_2fmessages_2eproto.file_level_metadata[kIndexInFileMessages];
-  }
-
- public:
-  // nested types ----------------------------------------------------
-
-  // accessors -------------------------------------------------------
-
-  enum : int {
-    kTestRequestFieldNumber = 1,
-  };
-  // .memgraph.protobuf.TestRequest test_request = 1;
-  bool has_test_request() const;
-
- private:
-  bool _internal_has_test_request() const;
-
- public:
-  void clear_test_request();
-  const ::memgraph::protobuf::TestRequest &test_request() const;
-  ::memgraph::protobuf::TestRequest *release_test_request();
-  ::memgraph::protobuf::TestRequest *mutable_test_request();
-  void set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request);
-
- private:
-  const ::memgraph::protobuf::TestRequest &_internal_test_request() const;
-  ::memgraph::protobuf::TestRequest *_internal_mutable_test_request();
-
- public:
-  void unsafe_arena_set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request);
-  ::memgraph::protobuf::TestRequest *unsafe_arena_release_test_request();
-
-  void clear_content();
-  ContentCase content_case() const;
-  // @@protoc_insertion_point(class_scope:memgraph.protobuf.Content)
- private:
-  class _Internal;
-  void set_has_test_request();
-
-  inline bool has_content() const;
-  inline void clear_has_content();
-
-  template <typename T>
-  friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
-  typedef void InternalArenaConstructable_;
-  typedef void DestructorSkippable_;
-  union ContentUnion {
-    ContentUnion() {}
-    ::memgraph::protobuf::TestRequest *test_request_;
-  } content_;
-  mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
-  ::PROTOBUF_NAMESPACE_ID::uint32 _oneof_case_[1];
-
-  friend struct ::TableStruct_src_2fprotobuf_2fmessages_2eproto;
-};
-// -------------------------------------------------------------------
-
 class UberMessage PROTOBUF_FINAL
     : public ::PROTOBUF_NAMESPACE_ID::
           Message /* @@protoc_insertion_point(class_definition:memgraph.protobuf.UberMessage) */ {
@@ -592,11 +438,16 @@ class UberMessage PROTOBUF_FINAL
   static const ::PROTOBUF_NAMESPACE_ID::Reflection *GetReflection() { return GetMetadataStatic().reflection; }
   static const UberMessage &default_instance();
 
+  enum ContentCase {
+    kTestRequest = 4,
+    CONTENT_NOT_SET = 0,
+  };
+
   static void InitAsDefaultInstance();  // FOR INTERNAL USE ONLY
   static inline const UberMessage *internal_default_instance() {
     return reinterpret_cast<const UberMessage *>(&_UberMessage_default_instance_);
   }
-  static constexpr int kIndexInFileMessages = 3;
+  static constexpr int kIndexInFileMessages = 2;
 
   friend void swap(UberMessage &a, UberMessage &b) { a.Swap(&b); }
   inline void Swap(UberMessage *other) {
@@ -663,8 +514,8 @@ class UberMessage PROTOBUF_FINAL
   enum : int {
     kToAddressFieldNumber = 2,
     kFromAddressFieldNumber = 3,
-    kContentFieldNumber = 4,
     kRequestIdFieldNumber = 1,
+    kTestRequestFieldNumber = 4,
   };
   // .memgraph.protobuf.Address to_address = 2;
   bool has_to_address() const;
@@ -708,27 +559,6 @@ class UberMessage PROTOBUF_FINAL
   void unsafe_arena_set_allocated_from_address(::memgraph::protobuf::Address *from_address);
   ::memgraph::protobuf::Address *unsafe_arena_release_from_address();
 
-  // .memgraph.protobuf.Content content = 4;
-  bool has_content() const;
-
- private:
-  bool _internal_has_content() const;
-
- public:
-  void clear_content();
-  const ::memgraph::protobuf::Content &content() const;
-  ::memgraph::protobuf::Content *release_content();
-  ::memgraph::protobuf::Content *mutable_content();
-  void set_allocated_content(::memgraph::protobuf::Content *content);
-
- private:
-  const ::memgraph::protobuf::Content &_internal_content() const;
-  ::memgraph::protobuf::Content *_internal_mutable_content();
-
- public:
-  void unsafe_arena_set_allocated_content(::memgraph::protobuf::Content *content);
-  ::memgraph::protobuf::Content *unsafe_arena_release_content();
-
   // uint64 request_id = 1;
   void clear_request_id();
   ::PROTOBUF_NAMESPACE_ID::uint64 request_id() const;
@@ -739,9 +569,36 @@ class UberMessage PROTOBUF_FINAL
   void _internal_set_request_id(::PROTOBUF_NAMESPACE_ID::uint64 value);
 
  public:
+  // .memgraph.protobuf.TestRequest test_request = 4;
+  bool has_test_request() const;
+
+ private:
+  bool _internal_has_test_request() const;
+
+ public:
+  void clear_test_request();
+  const ::memgraph::protobuf::TestRequest &test_request() const;
+  ::memgraph::protobuf::TestRequest *release_test_request();
+  ::memgraph::protobuf::TestRequest *mutable_test_request();
+  void set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request);
+
+ private:
+  const ::memgraph::protobuf::TestRequest &_internal_test_request() const;
+  ::memgraph::protobuf::TestRequest *_internal_mutable_test_request();
+
+ public:
+  void unsafe_arena_set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request);
+  ::memgraph::protobuf::TestRequest *unsafe_arena_release_test_request();
+
+  void clear_content();
+  ContentCase content_case() const;
   // @@protoc_insertion_point(class_scope:memgraph.protobuf.UberMessage)
  private:
   class _Internal;
+  void set_has_test_request();
+
+  inline bool has_content() const;
+  inline void clear_has_content();
 
   template <typename T>
   friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
@@ -749,9 +606,14 @@ class UberMessage PROTOBUF_FINAL
   typedef void DestructorSkippable_;
   ::memgraph::protobuf::Address *to_address_;
   ::memgraph::protobuf::Address *from_address_;
-  ::memgraph::protobuf::Content *content_;
   ::PROTOBUF_NAMESPACE_ID::uint64 request_id_;
+  union ContentUnion {
+    ContentUnion() {}
+    ::memgraph::protobuf::TestRequest *test_request_;
+  } content_;
   mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  ::PROTOBUF_NAMESPACE_ID::uint32 _oneof_case_[1];
+
   friend struct ::TableStruct_src_2fprotobuf_2fmessages_2eproto;
 };
 // ===================================================================
@@ -994,80 +856,6 @@ inline void TestRequest::unsafe_arena_set_allocated_content(std::string *content
 
 // -------------------------------------------------------------------
 
-// Content
-
-// .memgraph.protobuf.TestRequest test_request = 1;
-inline bool Content::_internal_has_test_request() const { return content_case() == kTestRequest; }
-inline bool Content::has_test_request() const { return _internal_has_test_request(); }
-inline void Content::set_has_test_request() { _oneof_case_[0] = kTestRequest; }
-inline void Content::clear_test_request() {
-  if (_internal_has_test_request()) {
-    if (GetArena() == nullptr) {
-      delete content_.test_request_;
-    }
-    clear_has_content();
-  }
-}
-inline ::memgraph::protobuf::TestRequest *Content::release_test_request() {
-  // @@protoc_insertion_point(field_release:memgraph.protobuf.Content.test_request)
-  if (_internal_has_test_request()) {
-    clear_has_content();
-    ::memgraph::protobuf::TestRequest *temp = content_.test_request_;
-    if (GetArena() != nullptr) {
-      temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
-    }
-    content_.test_request_ = nullptr;
-    return temp;
-  } else {
-    return nullptr;
-  }
-}
-inline const ::memgraph::protobuf::TestRequest &Content::_internal_test_request() const {
-  return _internal_has_test_request() ? *content_.test_request_
-                                      : *reinterpret_cast<::memgraph::protobuf::TestRequest *>(
-                                            &::memgraph::protobuf::_TestRequest_default_instance_);
-}
-inline const ::memgraph::protobuf::TestRequest &Content::test_request() const {
-  // @@protoc_insertion_point(field_get:memgraph.protobuf.Content.test_request)
-  return _internal_test_request();
-}
-inline ::memgraph::protobuf::TestRequest *Content::unsafe_arena_release_test_request() {
-  // @@protoc_insertion_point(field_unsafe_arena_release:memgraph.protobuf.Content.test_request)
-  if (_internal_has_test_request()) {
-    clear_has_content();
-    ::memgraph::protobuf::TestRequest *temp = content_.test_request_;
-    content_.test_request_ = nullptr;
-    return temp;
-  } else {
-    return nullptr;
-  }
-}
-inline void Content::unsafe_arena_set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request) {
-  clear_content();
-  if (test_request) {
-    set_has_test_request();
-    content_.test_request_ = test_request;
-  }
-  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:memgraph.protobuf.Content.test_request)
-}
-inline ::memgraph::protobuf::TestRequest *Content::_internal_mutable_test_request() {
-  if (!_internal_has_test_request()) {
-    clear_content();
-    set_has_test_request();
-    content_.test_request_ = CreateMaybeMessage<::memgraph::protobuf::TestRequest>(GetArena());
-  }
-  return content_.test_request_;
-}
-inline ::memgraph::protobuf::TestRequest *Content::mutable_test_request() {
-  // @@protoc_insertion_point(field_mutable:memgraph.protobuf.Content.test_request)
-  return _internal_mutable_test_request();
-}
-
-inline bool Content::has_content() const { return content_case() != CONTENT_NOT_SET; }
-inline void Content::clear_has_content() { _oneof_case_[0] = CONTENT_NOT_SET; }
-inline Content::ContentCase Content::content_case() const { return Content::ContentCase(_oneof_case_[0]); }
-// -------------------------------------------------------------------
-
 // UberMessage
 
 // uint64 request_id = 1;
@@ -1229,84 +1017,79 @@ inline void UberMessage::set_allocated_from_address(::memgraph::protobuf::Addres
   // @@protoc_insertion_point(field_set_allocated:memgraph.protobuf.UberMessage.from_address)
 }
 
-// .memgraph.protobuf.Content content = 4;
-inline bool UberMessage::_internal_has_content() const {
-  return this != internal_default_instance() && content_ != nullptr;
-}
-inline bool UberMessage::has_content() const { return _internal_has_content(); }
-inline void UberMessage::clear_content() {
-  if (GetArena() == nullptr && content_ != nullptr) {
-    delete content_;
-  }
-  content_ = nullptr;
-}
-inline const ::memgraph::protobuf::Content &UberMessage::_internal_content() const {
-  const ::memgraph::protobuf::Content *p = content_;
-  return p != nullptr ? *p
-                      : *reinterpret_cast<const ::memgraph::protobuf::Content *>(
-                            &::memgraph::protobuf::_Content_default_instance_);
-}
-inline const ::memgraph::protobuf::Content &UberMessage::content() const {
-  // @@protoc_insertion_point(field_get:memgraph.protobuf.UberMessage.content)
-  return _internal_content();
-}
-inline void UberMessage::unsafe_arena_set_allocated_content(::memgraph::protobuf::Content *content) {
-  if (GetArena() == nullptr) {
-    delete reinterpret_cast<::PROTOBUF_NAMESPACE_ID::MessageLite *>(content_);
-  }
-  content_ = content;
-  if (content) {
-  } else {
-  }
-  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:memgraph.protobuf.UberMessage.content)
-}
-inline ::memgraph::protobuf::Content *UberMessage::release_content() {
-  auto temp = unsafe_arena_release_content();
-  if (GetArena() != nullptr) {
-    temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
-  }
-  return temp;
-}
-inline ::memgraph::protobuf::Content *UberMessage::unsafe_arena_release_content() {
-  // @@protoc_insertion_point(field_release:memgraph.protobuf.UberMessage.content)
-
-  ::memgraph::protobuf::Content *temp = content_;
-  content_ = nullptr;
-  return temp;
-}
-inline ::memgraph::protobuf::Content *UberMessage::_internal_mutable_content() {
-  if (content_ == nullptr) {
-    auto *p = CreateMaybeMessage<::memgraph::protobuf::Content>(GetArena());
-    content_ = p;
-  }
-  return content_;
-}
-inline ::memgraph::protobuf::Content *UberMessage::mutable_content() {
-  // @@protoc_insertion_point(field_mutable:memgraph.protobuf.UberMessage.content)
-  return _internal_mutable_content();
-}
-inline void UberMessage::set_allocated_content(::memgraph::protobuf::Content *content) {
-  ::PROTOBUF_NAMESPACE_ID::Arena *message_arena = GetArena();
-  if (message_arena == nullptr) {
-    delete content_;
-  }
-  if (content) {
-    ::PROTOBUF_NAMESPACE_ID::Arena *submessage_arena = ::PROTOBUF_NAMESPACE_ID::Arena::GetArena(content);
-    if (message_arena != submessage_arena) {
-      content = ::PROTOBUF_NAMESPACE_ID::internal::GetOwnedMessage(message_arena, content, submessage_arena);
+// .memgraph.protobuf.TestRequest test_request = 4;
+inline bool UberMessage::_internal_has_test_request() const { return content_case() == kTestRequest; }
+inline bool UberMessage::has_test_request() const { return _internal_has_test_request(); }
+inline void UberMessage::set_has_test_request() { _oneof_case_[0] = kTestRequest; }
+inline void UberMessage::clear_test_request() {
+  if (_internal_has_test_request()) {
+    if (GetArena() == nullptr) {
+      delete content_.test_request_;
     }
-
-  } else {
+    clear_has_content();
   }
-  content_ = content;
-  // @@protoc_insertion_point(field_set_allocated:memgraph.protobuf.UberMessage.content)
+}
+inline ::memgraph::protobuf::TestRequest *UberMessage::release_test_request() {
+  // @@protoc_insertion_point(field_release:memgraph.protobuf.UberMessage.test_request)
+  if (_internal_has_test_request()) {
+    clear_has_content();
+    ::memgraph::protobuf::TestRequest *temp = content_.test_request_;
+    if (GetArena() != nullptr) {
+      temp = ::PROTOBUF_NAMESPACE_ID::internal::DuplicateIfNonNull(temp);
+    }
+    content_.test_request_ = nullptr;
+    return temp;
+  } else {
+    return nullptr;
+  }
+}
+inline const ::memgraph::protobuf::TestRequest &UberMessage::_internal_test_request() const {
+  return _internal_has_test_request() ? *content_.test_request_
+                                      : *reinterpret_cast<::memgraph::protobuf::TestRequest *>(
+                                            &::memgraph::protobuf::_TestRequest_default_instance_);
+}
+inline const ::memgraph::protobuf::TestRequest &UberMessage::test_request() const {
+  // @@protoc_insertion_point(field_get:memgraph.protobuf.UberMessage.test_request)
+  return _internal_test_request();
+}
+inline ::memgraph::protobuf::TestRequest *UberMessage::unsafe_arena_release_test_request() {
+  // @@protoc_insertion_point(field_unsafe_arena_release:memgraph.protobuf.UberMessage.test_request)
+  if (_internal_has_test_request()) {
+    clear_has_content();
+    ::memgraph::protobuf::TestRequest *temp = content_.test_request_;
+    content_.test_request_ = nullptr;
+    return temp;
+  } else {
+    return nullptr;
+  }
+}
+inline void UberMessage::unsafe_arena_set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request) {
+  clear_content();
+  if (test_request) {
+    set_has_test_request();
+    content_.test_request_ = test_request;
+  }
+  // @@protoc_insertion_point(field_unsafe_arena_set_allocated:memgraph.protobuf.UberMessage.test_request)
+}
+inline ::memgraph::protobuf::TestRequest *UberMessage::_internal_mutable_test_request() {
+  if (!_internal_has_test_request()) {
+    clear_content();
+    set_has_test_request();
+    content_.test_request_ = CreateMaybeMessage<::memgraph::protobuf::TestRequest>(GetArena());
+  }
+  return content_.test_request_;
+}
+inline ::memgraph::protobuf::TestRequest *UberMessage::mutable_test_request() {
+  // @@protoc_insertion_point(field_mutable:memgraph.protobuf.UberMessage.test_request)
+  return _internal_mutable_test_request();
 }
 
+inline bool UberMessage::has_content() const { return content_case() != CONTENT_NOT_SET; }
+inline void UberMessage::clear_has_content() { _oneof_case_[0] = CONTENT_NOT_SET; }
+inline UberMessage::ContentCase UberMessage::content_case() const { return UberMessage::ContentCase(_oneof_case_[0]); }
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif  // __GNUC__
-// -------------------------------------------------------------------
-
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

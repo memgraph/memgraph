@@ -16,8 +16,6 @@
 #include <google/protobuf/port_def.inc>
 extern PROTOBUF_INTERNAL_EXPORT_src_2fprotobuf_2fmessages_2eproto ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0>
     scc_info_Address_src_2fprotobuf_2fmessages_2eproto;
-extern PROTOBUF_INTERNAL_EXPORT_src_2fprotobuf_2fmessages_2eproto ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1>
-    scc_info_Content_src_2fprotobuf_2fmessages_2eproto;
 extern PROTOBUF_INTERNAL_EXPORT_src_2fprotobuf_2fmessages_2eproto ::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<0>
     scc_info_TestRequest_src_2fprotobuf_2fmessages_2eproto;
 namespace memgraph {
@@ -30,14 +28,10 @@ class TestRequestDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<TestRequest> _instance;
 } _TestRequest_default_instance_;
-class ContentDefaultTypeInternal {
- public:
-  ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<Content> _instance;
-  const ::memgraph::protobuf::TestRequest *test_request_;
-} _Content_default_instance_;
 class UberMessageDefaultTypeInternal {
  public:
   ::PROTOBUF_NAMESPACE_ID::internal::ExplicitlyConstructed<UberMessage> _instance;
+  const ::memgraph::protobuf::TestRequest *test_request_;
 } _UberMessage_default_instance_;
 }  // namespace protobuf
 }  // namespace memgraph
@@ -56,24 +50,6 @@ static void InitDefaultsscc_info_Address_src_2fprotobuf_2fmessages_2eproto() {
     {ATOMIC_VAR_INIT(::PROTOBUF_NAMESPACE_ID::internal::SCCInfoBase::kUninitialized), 0, 0,
      InitDefaultsscc_info_Address_src_2fprotobuf_2fmessages_2eproto},
     {}};
-
-static void InitDefaultsscc_info_Content_src_2fprotobuf_2fmessages_2eproto() {
-  GOOGLE_PROTOBUF_VERIFY_VERSION;
-
-  {
-    void *ptr = &::memgraph::protobuf::_Content_default_instance_;
-    new (ptr)::memgraph::protobuf::Content();
-    ::PROTOBUF_NAMESPACE_ID::internal::OnShutdownDestroyMessage(ptr);
-  }
-  ::memgraph::protobuf::Content::InitAsDefaultInstance();
-}
-
-::PROTOBUF_NAMESPACE_ID::internal::SCCInfo<1> scc_info_Content_src_2fprotobuf_2fmessages_2eproto = {
-    {ATOMIC_VAR_INIT(::PROTOBUF_NAMESPACE_ID::internal::SCCInfoBase::kUninitialized), 1, 0,
-     InitDefaultsscc_info_Content_src_2fprotobuf_2fmessages_2eproto},
-    {
-        &scc_info_TestRequest_src_2fprotobuf_2fmessages_2eproto.base,
-    }};
 
 static void InitDefaultsscc_info_TestRequest_src_2fprotobuf_2fmessages_2eproto() {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
@@ -107,10 +83,10 @@ static void InitDefaultsscc_info_UberMessage_src_2fprotobuf_2fmessages_2eproto()
      InitDefaultsscc_info_UberMessage_src_2fprotobuf_2fmessages_2eproto},
     {
         &scc_info_Address_src_2fprotobuf_2fmessages_2eproto.base,
-        &scc_info_Content_src_2fprotobuf_2fmessages_2eproto.base,
+        &scc_info_TestRequest_src_2fprotobuf_2fmessages_2eproto.base,
     }};
 
-static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_src_2fprotobuf_2fmessages_2eproto[4];
+static ::PROTOBUF_NAMESPACE_ID::Metadata file_level_metadata_src_2fprotobuf_2fmessages_2eproto[3];
 static constexpr ::PROTOBUF_NAMESPACE_ID::EnumDescriptor const *
     *file_level_enum_descriptors_src_2fprotobuf_2fmessages_2eproto = nullptr;
 static constexpr ::PROTOBUF_NAMESPACE_ID::ServiceDescriptor const *
@@ -134,33 +110,25 @@ const ::PROTOBUF_NAMESPACE_ID::uint32
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::TestRequest, request_id_),
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::TestRequest, content_),
         ~0u,  // no _has_bits_
-        PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::Content, _internal_metadata_),
-        ~0u,  // no _extensions_
-        PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::Content, _oneof_case_[0]),
-        ~0u,  // no _weak_field_map_
-        offsetof(::memgraph::protobuf::ContentDefaultTypeInternal, test_request_),
-        PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::Content, content_),
-        ~0u,  // no _has_bits_
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, _internal_metadata_),
         ~0u,  // no _extensions_
-        ~0u,  // no _oneof_case_
+        PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, _oneof_case_[0]),
         ~0u,  // no _weak_field_map_
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, request_id_),
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, to_address_),
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, from_address_),
+        offsetof(::memgraph::protobuf::UberMessageDefaultTypeInternal, test_request_),
         PROTOBUF_FIELD_OFFSET(::memgraph::protobuf::UberMessage, content_),
 };
 static const ::PROTOBUF_NAMESPACE_ID::internal::MigrationSchema schemas[] PROTOBUF_SECTION_VARIABLE(protodesc_cold) = {
     {0, -1, sizeof(::memgraph::protobuf::Address)},
     {8, -1, sizeof(::memgraph::protobuf::TestRequest)},
-    {15, -1, sizeof(::memgraph::protobuf::Content)},
-    {22, -1, sizeof(::memgraph::protobuf::UberMessage)},
+    {15, -1, sizeof(::memgraph::protobuf::UberMessage)},
 };
 
 static ::PROTOBUF_NAMESPACE_ID::Message const *const file_default_instances[] = {
     reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message *>(&::memgraph::protobuf::_Address_default_instance_),
     reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message *>(&::memgraph::protobuf::_TestRequest_default_instance_),
-    reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message *>(&::memgraph::protobuf::_Content_default_instance_),
     reinterpret_cast<const ::PROTOBUF_NAMESPACE_ID::Message *>(&::memgraph::protobuf::_UberMessage_default_instance_),
 };
 
@@ -169,20 +137,17 @@ const char descriptor_table_protodef_src_2fprotobuf_2fmessages_2eproto[] PROTOBU
     "protobuf\"L\n\007Address\022\021\n\tunique_id\030\001 \001(\014\022\025"
     "\n\rlast_known_ip\030\002 \001(\014\022\027\n\017last_known_port"
     "\030\003 \001(\r\"2\n\013TestRequest\022\022\n\nrequest_id\030\001 \001("
-    "\004\022\017\n\007content\030\002 \001(\t\"L\n\007Content\0226\n\014test_re"
-    "quest\030\001 \001(\0132\036.memgraph.protobuf.TestRequ"
-    "estH\000B\t\n\007content\"\260\001\n\013UberMessage\022\022\n\nrequ"
-    "est_id\030\001 \001(\004\022.\n\nto_address\030\002 \001(\0132\032.memgr"
-    "aph.protobuf.Address\0220\n\014from_address\030\003 \001"
-    "(\0132\032.memgraph.protobuf.Address\022+\n\007conten"
-    "t\030\004 \001(\0132\032.memgraph.protobuf.Contentb\006pro"
-    "to3";
+    "\004\022\017\n\007content\030\002 \001(\t\"\306\001\n\013UberMessage\022\022\n\nre"
+    "quest_id\030\001 \001(\004\022.\n\nto_address\030\002 \001(\0132\032.mem"
+    "graph.protobuf.Address\0220\n\014from_address\030\003"
+    " \001(\0132\032.memgraph.protobuf.Address\0226\n\014test"
+    "_request\030\004 \001(\0132\036.memgraph.protobuf.TestR"
+    "equestH\000B\t\n\007contentb\006proto3";
 static const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable
     *const descriptor_table_src_2fprotobuf_2fmessages_2eproto_deps[1] = {};
 static ::PROTOBUF_NAMESPACE_ID::internal::SCCInfoBase
-    *const descriptor_table_src_2fprotobuf_2fmessages_2eproto_sccs[4] = {
+    *const descriptor_table_src_2fprotobuf_2fmessages_2eproto_sccs[3] = {
         &scc_info_Address_src_2fprotobuf_2fmessages_2eproto.base,
-        &scc_info_Content_src_2fprotobuf_2fmessages_2eproto.base,
         &scc_info_TestRequest_src_2fprotobuf_2fmessages_2eproto.base,
         &scc_info_UberMessage_src_2fprotobuf_2fmessages_2eproto.base,
 };
@@ -192,17 +157,17 @@ const ::PROTOBUF_NAMESPACE_ID::internal::DescriptorTable descriptor_table_src_2f
     false,
     descriptor_table_protodef_src_2fprotobuf_2fmessages_2eproto,
     "src/protobuf/messages.proto",
-    443,
+    387,
     &descriptor_table_src_2fprotobuf_2fmessages_2eproto_once,
     descriptor_table_src_2fprotobuf_2fmessages_2eproto_sccs,
     descriptor_table_src_2fprotobuf_2fmessages_2eproto_deps,
-    4,
+    3,
     0,
     schemas,
     file_default_instances,
     TableStruct_src_2fprotobuf_2fmessages_2eproto::offsets,
     file_level_metadata_src_2fprotobuf_2fmessages_2eproto,
-    4,
+    3,
     file_level_enum_descriptors_src_2fprotobuf_2fmessages_2eproto,
     file_level_service_descriptors_src_2fprotobuf_2fmessages_2eproto,
 };
@@ -687,19 +652,31 @@ void TestRequest::InternalSwap(TestRequest *other) {
 
 // ===================================================================
 
-void Content::InitAsDefaultInstance() {
-  ::memgraph::protobuf::_Content_default_instance_.test_request_ =
+void UberMessage::InitAsDefaultInstance() {
+  ::memgraph::protobuf::_UberMessage_default_instance_._instance.get_mutable()->to_address_ =
+      const_cast<::memgraph::protobuf::Address *>(::memgraph::protobuf::Address::internal_default_instance());
+  ::memgraph::protobuf::_UberMessage_default_instance_._instance.get_mutable()->from_address_ =
+      const_cast<::memgraph::protobuf::Address *>(::memgraph::protobuf::Address::internal_default_instance());
+  ::memgraph::protobuf::_UberMessage_default_instance_.test_request_ =
       const_cast<::memgraph::protobuf::TestRequest *>(::memgraph::protobuf::TestRequest::internal_default_instance());
 }
-class Content::_Internal {
+class UberMessage::_Internal {
  public:
-  static const ::memgraph::protobuf::TestRequest &test_request(const Content *msg);
+  static const ::memgraph::protobuf::Address &to_address(const UberMessage *msg);
+  static const ::memgraph::protobuf::Address &from_address(const UberMessage *msg);
+  static const ::memgraph::protobuf::TestRequest &test_request(const UberMessage *msg);
 };
 
-const ::memgraph::protobuf::TestRequest &Content::_Internal::test_request(const Content *msg) {
+const ::memgraph::protobuf::Address &UberMessage::_Internal::to_address(const UberMessage *msg) {
+  return *msg->to_address_;
+}
+const ::memgraph::protobuf::Address &UberMessage::_Internal::from_address(const UberMessage *msg) {
+  return *msg->from_address_;
+}
+const ::memgraph::protobuf::TestRequest &UberMessage::_Internal::test_request(const UberMessage *msg) {
   return *msg->content_.test_request_;
 }
-void Content::set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request) {
+void UberMessage::set_allocated_test_request(::memgraph::protobuf::TestRequest *test_request) {
   ::PROTOBUF_NAMESPACE_ID::Arena *message_arena = GetArena();
   clear_content();
   if (test_request) {
@@ -710,251 +687,8 @@ void Content::set_allocated_test_request(::memgraph::protobuf::TestRequest *test
     set_has_test_request();
     content_.test_request_ = test_request;
   }
-  // @@protoc_insertion_point(field_set_allocated:memgraph.protobuf.Content.test_request)
+  // @@protoc_insertion_point(field_set_allocated:memgraph.protobuf.UberMessage.test_request)
 }
-Content::Content(::PROTOBUF_NAMESPACE_ID::Arena *arena) : ::PROTOBUF_NAMESPACE_ID::Message(arena) {
-  SharedCtor();
-  RegisterArenaDtor(arena);
-  // @@protoc_insertion_point(arena_constructor:memgraph.protobuf.Content)
-}
-Content::Content(const Content &from) : ::PROTOBUF_NAMESPACE_ID::Message() {
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
-  clear_has_content();
-  switch (from.content_case()) {
-    case kTestRequest: {
-      _internal_mutable_test_request()->::memgraph::protobuf::TestRequest::MergeFrom(from._internal_test_request());
-      break;
-    }
-    case CONTENT_NOT_SET: {
-      break;
-    }
-  }
-  // @@protoc_insertion_point(copy_constructor:memgraph.protobuf.Content)
-}
-
-void Content::SharedCtor() {
-  ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&scc_info_Content_src_2fprotobuf_2fmessages_2eproto.base);
-  clear_has_content();
-}
-
-Content::~Content() {
-  // @@protoc_insertion_point(destructor:memgraph.protobuf.Content)
-  SharedDtor();
-  _internal_metadata_.Delete<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
-}
-
-void Content::SharedDtor() {
-  GOOGLE_DCHECK(GetArena() == nullptr);
-  if (has_content()) {
-    clear_content();
-  }
-}
-
-void Content::ArenaDtor(void *object) {
-  Content *_this = reinterpret_cast<Content *>(object);
-  (void)_this;
-}
-void Content::RegisterArenaDtor(::PROTOBUF_NAMESPACE_ID::Arena *) {}
-void Content::SetCachedSize(int size) const { _cached_size_.Set(size); }
-const Content &Content::default_instance() {
-  ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&::scc_info_Content_src_2fprotobuf_2fmessages_2eproto.base);
-  return *internal_default_instance();
-}
-
-void Content::clear_content() {
-  // @@protoc_insertion_point(one_of_clear_start:memgraph.protobuf.Content)
-  switch (content_case()) {
-    case kTestRequest: {
-      if (GetArena() == nullptr) {
-        delete content_.test_request_;
-      }
-      break;
-    }
-    case CONTENT_NOT_SET: {
-      break;
-    }
-  }
-  _oneof_case_[0] = CONTENT_NOT_SET;
-}
-
-void Content::Clear() {
-  // @@protoc_insertion_point(message_clear_start:memgraph.protobuf.Content)
-  ::PROTOBUF_NAMESPACE_ID::uint32 cached_has_bits = 0;
-  // Prevent compiler warnings about cached_has_bits being unused
-  (void)cached_has_bits;
-
-  clear_content();
-  _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
-}
-
-const char *Content::_InternalParse(const char *ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext *ctx) {
-#define CHK_(x) \
-  if (PROTOBUF_PREDICT_FALSE(!(x))) goto failure
-  ::PROTOBUF_NAMESPACE_ID::Arena *arena = GetArena();
-  (void)arena;
-  while (!ctx->Done(&ptr)) {
-    ::PROTOBUF_NAMESPACE_ID::uint32 tag;
-    ptr = ::PROTOBUF_NAMESPACE_ID::internal::ReadTag(ptr, &tag);
-    CHK_(ptr);
-    switch (tag >> 3) {
-      // .memgraph.protobuf.TestRequest test_request = 1;
-      case 1:
-        if (PROTOBUF_PREDICT_TRUE(static_cast<::PROTOBUF_NAMESPACE_ID::uint8>(tag) == 10)) {
-          ptr = ctx->ParseMessage(_internal_mutable_test_request(), ptr);
-          CHK_(ptr);
-        } else
-          goto handle_unusual;
-        continue;
-      default: {
-      handle_unusual:
-        if ((tag & 7) == 4 || tag == 0) {
-          ctx->SetLastTag(tag);
-          goto success;
-        }
-        ptr = UnknownFieldParse(
-            tag, _internal_metadata_.mutable_unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(), ptr, ctx);
-        CHK_(ptr != nullptr);
-        continue;
-      }
-    }  // switch
-  }    // while
-success:
-  return ptr;
-failure:
-  ptr = nullptr;
-  goto success;
-#undef CHK_
-}
-
-::PROTOBUF_NAMESPACE_ID::uint8 *Content::_InternalSerialize(
-    ::PROTOBUF_NAMESPACE_ID::uint8 *target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream *stream) const {
-  // @@protoc_insertion_point(serialize_to_array_start:memgraph.protobuf.Content)
-  ::PROTOBUF_NAMESPACE_ID::uint32 cached_has_bits = 0;
-  (void)cached_has_bits;
-
-  // .memgraph.protobuf.TestRequest test_request = 1;
-  if (_internal_has_test_request()) {
-    target = stream->EnsureSpace(target);
-    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::InternalWriteMessage(1, _Internal::test_request(this),
-                                                                                     target, stream);
-  }
-
-  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
-    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormat::InternalSerializeUnknownFieldsToArray(
-        _internal_metadata_.unknown_fields<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(
-            ::PROTOBUF_NAMESPACE_ID::UnknownFieldSet::default_instance),
-        target, stream);
-  }
-  // @@protoc_insertion_point(serialize_to_array_end:memgraph.protobuf.Content)
-  return target;
-}
-
-size_t Content::ByteSizeLong() const {
-  // @@protoc_insertion_point(message_byte_size_start:memgraph.protobuf.Content)
-  size_t total_size = 0;
-
-  ::PROTOBUF_NAMESPACE_ID::uint32 cached_has_bits = 0;
-  // Prevent compiler warnings about cached_has_bits being unused
-  (void)cached_has_bits;
-
-  switch (content_case()) {
-    // .memgraph.protobuf.TestRequest test_request = 1;
-    case kTestRequest: {
-      total_size += 1 + ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(*content_.test_request_);
-      break;
-    }
-    case CONTENT_NOT_SET: {
-      break;
-    }
-  }
-  if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
-    return ::PROTOBUF_NAMESPACE_ID::internal::ComputeUnknownFieldsSize(_internal_metadata_, total_size, &_cached_size_);
-  }
-  int cached_size = ::PROTOBUF_NAMESPACE_ID::internal::ToCachedSize(total_size);
-  SetCachedSize(cached_size);
-  return total_size;
-}
-
-void Content::MergeFrom(const ::PROTOBUF_NAMESPACE_ID::Message &from) {
-  // @@protoc_insertion_point(generalized_merge_from_start:memgraph.protobuf.Content)
-  GOOGLE_DCHECK_NE(&from, this);
-  const Content *source = ::PROTOBUF_NAMESPACE_ID::DynamicCastToGenerated<Content>(&from);
-  if (source == nullptr) {
-    // @@protoc_insertion_point(generalized_merge_from_cast_fail:memgraph.protobuf.Content)
-    ::PROTOBUF_NAMESPACE_ID::internal::ReflectionOps::Merge(from, this);
-  } else {
-    // @@protoc_insertion_point(generalized_merge_from_cast_success:memgraph.protobuf.Content)
-    MergeFrom(*source);
-  }
-}
-
-void Content::MergeFrom(const Content &from) {
-  // @@protoc_insertion_point(class_specific_merge_from_start:memgraph.protobuf.Content)
-  GOOGLE_DCHECK_NE(&from, this);
-  _internal_metadata_.MergeFrom<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(from._internal_metadata_);
-  ::PROTOBUF_NAMESPACE_ID::uint32 cached_has_bits = 0;
-  (void)cached_has_bits;
-
-  switch (from.content_case()) {
-    case kTestRequest: {
-      _internal_mutable_test_request()->::memgraph::protobuf::TestRequest::MergeFrom(from._internal_test_request());
-      break;
-    }
-    case CONTENT_NOT_SET: {
-      break;
-    }
-  }
-}
-
-void Content::CopyFrom(const ::PROTOBUF_NAMESPACE_ID::Message &from) {
-  // @@protoc_insertion_point(generalized_copy_from_start:memgraph.protobuf.Content)
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-void Content::CopyFrom(const Content &from) {
-  // @@protoc_insertion_point(class_specific_copy_from_start:memgraph.protobuf.Content)
-  if (&from == this) return;
-  Clear();
-  MergeFrom(from);
-}
-
-bool Content::IsInitialized() const { return true; }
-
-void Content::InternalSwap(Content *other) {
-  using std::swap;
-  _internal_metadata_.Swap<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>(&other->_internal_metadata_);
-  swap(content_, other->content_);
-  swap(_oneof_case_[0], other->_oneof_case_[0]);
-}
-
-::PROTOBUF_NAMESPACE_ID::Metadata Content::GetMetadata() const { return GetMetadataStatic(); }
-
-// ===================================================================
-
-void UberMessage::InitAsDefaultInstance() {
-  ::memgraph::protobuf::_UberMessage_default_instance_._instance.get_mutable()->to_address_ =
-      const_cast<::memgraph::protobuf::Address *>(::memgraph::protobuf::Address::internal_default_instance());
-  ::memgraph::protobuf::_UberMessage_default_instance_._instance.get_mutable()->from_address_ =
-      const_cast<::memgraph::protobuf::Address *>(::memgraph::protobuf::Address::internal_default_instance());
-  ::memgraph::protobuf::_UberMessage_default_instance_._instance.get_mutable()->content_ =
-      const_cast<::memgraph::protobuf::Content *>(::memgraph::protobuf::Content::internal_default_instance());
-}
-class UberMessage::_Internal {
- public:
-  static const ::memgraph::protobuf::Address &to_address(const UberMessage *msg);
-  static const ::memgraph::protobuf::Address &from_address(const UberMessage *msg);
-  static const ::memgraph::protobuf::Content &content(const UberMessage *msg);
-};
-
-const ::memgraph::protobuf::Address &UberMessage::_Internal::to_address(const UberMessage *msg) {
-  return *msg->to_address_;
-}
-const ::memgraph::protobuf::Address &UberMessage::_Internal::from_address(const UberMessage *msg) {
-  return *msg->from_address_;
-}
-const ::memgraph::protobuf::Content &UberMessage::_Internal::content(const UberMessage *msg) { return *msg->content_; }
 UberMessage::UberMessage(::PROTOBUF_NAMESPACE_ID::Arena *arena) : ::PROTOBUF_NAMESPACE_ID::Message(arena) {
   SharedCtor();
   RegisterArenaDtor(arena);
@@ -972,12 +706,17 @@ UberMessage::UberMessage(const UberMessage &from) : ::PROTOBUF_NAMESPACE_ID::Mes
   } else {
     from_address_ = nullptr;
   }
-  if (from._internal_has_content()) {
-    content_ = new ::memgraph::protobuf::Content(*from.content_);
-  } else {
-    content_ = nullptr;
-  }
   request_id_ = from.request_id_;
+  clear_has_content();
+  switch (from.content_case()) {
+    case kTestRequest: {
+      _internal_mutable_test_request()->::memgraph::protobuf::TestRequest::MergeFrom(from._internal_test_request());
+      break;
+    }
+    case CONTENT_NOT_SET: {
+      break;
+    }
+  }
   // @@protoc_insertion_point(copy_constructor:memgraph.protobuf.UberMessage)
 }
 
@@ -986,6 +725,7 @@ void UberMessage::SharedCtor() {
   ::memset(&to_address_, 0,
            static_cast<size_t>(reinterpret_cast<char *>(&request_id_) - reinterpret_cast<char *>(&to_address_)) +
                sizeof(request_id_));
+  clear_has_content();
 }
 
 UberMessage::~UberMessage() {
@@ -998,7 +738,9 @@ void UberMessage::SharedDtor() {
   GOOGLE_DCHECK(GetArena() == nullptr);
   if (this != internal_default_instance()) delete to_address_;
   if (this != internal_default_instance()) delete from_address_;
-  if (this != internal_default_instance()) delete content_;
+  if (has_content()) {
+    clear_content();
+  }
 }
 
 void UberMessage::ArenaDtor(void *object) {
@@ -1010,6 +752,22 @@ void UberMessage::SetCachedSize(int size) const { _cached_size_.Set(size); }
 const UberMessage &UberMessage::default_instance() {
   ::PROTOBUF_NAMESPACE_ID::internal::InitSCC(&::scc_info_UberMessage_src_2fprotobuf_2fmessages_2eproto.base);
   return *internal_default_instance();
+}
+
+void UberMessage::clear_content() {
+  // @@protoc_insertion_point(one_of_clear_start:memgraph.protobuf.UberMessage)
+  switch (content_case()) {
+    case kTestRequest: {
+      if (GetArena() == nullptr) {
+        delete content_.test_request_;
+      }
+      break;
+    }
+    case CONTENT_NOT_SET: {
+      break;
+    }
+  }
+  _oneof_case_[0] = CONTENT_NOT_SET;
 }
 
 void UberMessage::Clear() {
@@ -1026,11 +784,8 @@ void UberMessage::Clear() {
     delete from_address_;
   }
   from_address_ = nullptr;
-  if (GetArena() == nullptr && content_ != nullptr) {
-    delete content_;
-  }
-  content_ = nullptr;
   request_id_ = PROTOBUF_ULONGLONG(0);
+  clear_content();
   _internal_metadata_.Clear<::PROTOBUF_NAMESPACE_ID::UnknownFieldSet>();
 }
 
@@ -1068,10 +823,10 @@ const char *UberMessage::_InternalParse(const char *ptr, ::PROTOBUF_NAMESPACE_ID
         } else
           goto handle_unusual;
         continue;
-      // .memgraph.protobuf.Content content = 4;
+      // .memgraph.protobuf.TestRequest test_request = 4;
       case 4:
         if (PROTOBUF_PREDICT_TRUE(static_cast<::PROTOBUF_NAMESPACE_ID::uint8>(tag) == 34)) {
-          ptr = ctx->ParseMessage(_internal_mutable_content(), ptr);
+          ptr = ctx->ParseMessage(_internal_mutable_test_request(), ptr);
           CHK_(ptr);
         } else
           goto handle_unusual;
@@ -1124,10 +879,10 @@ failure:
                                                                                      target, stream);
   }
 
-  // .memgraph.protobuf.Content content = 4;
-  if (this->has_content()) {
+  // .memgraph.protobuf.TestRequest test_request = 4;
+  if (_internal_has_test_request()) {
     target = stream->EnsureSpace(target);
-    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::InternalWriteMessage(4, _Internal::content(this),
+    target = ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::InternalWriteMessage(4, _Internal::test_request(this),
                                                                                      target, stream);
   }
 
@@ -1159,16 +914,21 @@ size_t UberMessage::ByteSizeLong() const {
     total_size += 1 + ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(*from_address_);
   }
 
-  // .memgraph.protobuf.Content content = 4;
-  if (this->has_content()) {
-    total_size += 1 + ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(*content_);
-  }
-
   // uint64 request_id = 1;
   if (this->request_id() != 0) {
     total_size += 1 + ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::UInt64Size(this->_internal_request_id());
   }
 
+  switch (content_case()) {
+    // .memgraph.protobuf.TestRequest test_request = 4;
+    case kTestRequest: {
+      total_size += 1 + ::PROTOBUF_NAMESPACE_ID::internal::WireFormatLite::MessageSize(*content_.test_request_);
+      break;
+    }
+    case CONTENT_NOT_SET: {
+      break;
+    }
+  }
   if (PROTOBUF_PREDICT_FALSE(_internal_metadata_.have_unknown_fields())) {
     return ::PROTOBUF_NAMESPACE_ID::internal::ComputeUnknownFieldsSize(_internal_metadata_, total_size, &_cached_size_);
   }
@@ -1203,11 +963,17 @@ void UberMessage::MergeFrom(const UberMessage &from) {
   if (from.has_from_address()) {
     _internal_mutable_from_address()->::memgraph::protobuf::Address::MergeFrom(from._internal_from_address());
   }
-  if (from.has_content()) {
-    _internal_mutable_content()->::memgraph::protobuf::Content::MergeFrom(from._internal_content());
-  }
   if (from.request_id() != 0) {
     _internal_set_request_id(from._internal_request_id());
+  }
+  switch (from.content_case()) {
+    case kTestRequest: {
+      _internal_mutable_test_request()->::memgraph::protobuf::TestRequest::MergeFrom(from._internal_test_request());
+      break;
+    }
+    case CONTENT_NOT_SET: {
+      break;
+    }
   }
 }
 
@@ -1234,6 +1000,8 @@ void UberMessage::InternalSwap(UberMessage *other) {
                                              sizeof(UberMessage::request_id_) -
                                              PROTOBUF_FIELD_OFFSET(UberMessage, to_address_)>(
       reinterpret_cast<char *>(&to_address_), reinterpret_cast<char *>(&other->to_address_));
+  swap(content_, other->content_);
+  swap(_oneof_case_[0], other->_oneof_case_[0]);
 }
 
 ::PROTOBUF_NAMESPACE_ID::Metadata UberMessage::GetMetadata() const { return GetMetadataStatic(); }
@@ -1251,11 +1019,6 @@ template <>
 PROTOBUF_NOINLINE ::memgraph::protobuf::TestRequest *Arena::CreateMaybeMessage<::memgraph::protobuf::TestRequest>(
     Arena *arena) {
   return Arena::CreateMessageInternal<::memgraph::protobuf::TestRequest>(arena);
-}
-template <>
-PROTOBUF_NOINLINE ::memgraph::protobuf::Content *Arena::CreateMaybeMessage<::memgraph::protobuf::Content>(
-    Arena *arena) {
-  return Arena::CreateMessageInternal<::memgraph::protobuf::Content>(arena);
 }
 template <>
 PROTOBUF_NOINLINE ::memgraph::protobuf::UberMessage *Arena::CreateMaybeMessage<::memgraph::protobuf::UberMessage>(
