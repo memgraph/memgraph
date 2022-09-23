@@ -793,18 +793,14 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         auto streams_status = interpreter_context->streams.GetStreamInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(streams_status.size());
-        auto stream_info_as_typed_stream_info_emplace_in = [](auto &typed_status, const auto &stream_info) {
-          typed_status.emplace_back(stream_info.batch_interval.count());
-          typed_status.emplace_back(stream_info.batch_size);
-          typed_status.emplace_back(stream_info.transformation_name);
-        };
-
         for (const auto &status : streams_status) {
           std::vector<TypedValue> typed_status;
           typed_status.reserve(7);
           typed_status.emplace_back(status.name);
           typed_status.emplace_back(StreamSourceTypeToString(status.type));
-          stream_info_as_typed_stream_info_emplace_in(typed_status, status.info);
+          typed_status.emplace_back(status.info.batch_interval.count());
+          typed_status.emplace_back(status.info.batch_size);
+          typed_status.emplace_back(status.info.transformation_name);
           if (status.owner.has_value()) {
             typed_status.emplace_back(*status.owner);
           } else {

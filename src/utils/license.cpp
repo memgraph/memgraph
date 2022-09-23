@@ -277,7 +277,8 @@ std::optional<License> Decode(std::string_view license_key) {
   }
 
   try {
-    slk::Reader reader(std::bit_cast<uint8_t *>(decoded->c_str()), decoded->size());
+    // TODO(gitbuda): Bitcast comes in clang 14
+    slk::Reader reader((uint8_t *)(decoded->c_str()), decoded->size());
     std::string organization_name;
     slk::Load(&organization_name, &reader);
     int64_t valid_until{0};

@@ -326,11 +326,6 @@ class VariableStartPlanner {
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));
   }
-
-  /// @brief The result of plan generation is an iterable of roots to multiple
-  /// generated operator trees.
-  using PlanResult = typename std::result_of<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
-      VariableStartPlanner<TPlanningContext>, std::vector<SingleQueryPart> &)>::type;
 };
 
 }  // namespace memgraph::query::plan

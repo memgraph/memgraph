@@ -11,6 +11,8 @@
 
 #include "utils/async_timer.hpp"
 
+#include <sys/syscall.h>
+#include <unistd.h>
 #include <csignal>
 
 #include <algorithm>

@@ -222,7 +222,7 @@ repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka
 protobuf_tag="v3.12.4"
 repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
 pushd protobuf
-./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
+./autogen.sh && CXXFLAGS="-stdlib=libc++ -isystem /opt/toolchain-v4/include" ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
 popd
 
 #pulsar

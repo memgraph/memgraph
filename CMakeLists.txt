@@ -184,7 +184,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=switch -Werror=switch-bool -Werror=return-type \
     -Werror=return-stack-address \
-    -Wno-c99-designator \
+    -Wno-c99-designator -stdlib=libc++ \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
@@ -197,7 +197,10 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # Last checked for gcc-10.2 which we are using on the build machines.
 # ** If we change versions, recheck this! **
 # ** Static linking is allowed only for executables! **
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+
+# message(STATUS "${CMAKE_CXX_STANDARD_LIBRARIES}")
+# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lc++experimental")
 
 # Use gold linker to speedup build
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")

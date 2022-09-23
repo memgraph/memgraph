@@ -12,6 +12,7 @@
 #include "storage/v2/replication/replication_server.hpp"
 #include <atomic>
 #include <filesystem>
+#include <sstream>
 
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"

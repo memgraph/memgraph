@@ -44,7 +44,7 @@ struct SnapshotDurabilityInfo {
   std::string uuid;
   uint64_t start_timestamp;
 
-  auto operator<=>(const SnapshotDurabilityInfo &) const = default;
+  // auto operator<=>(const SnapshotDurabilityInfo &) const = default;
 };
 
 /// Get list of snapshot files with their UUID.
@@ -74,7 +74,7 @@ struct WalDurabilityInfo {
   std::string epoch_id;
   std::filesystem::path path;
 
-  auto operator<=>(const WalDurabilityInfo &) const = default;
+  // auto operator<=>(const WalDurabilityInfo &) const = default;
 };
 
 /// Get list of WAL files ordered by the sequence number

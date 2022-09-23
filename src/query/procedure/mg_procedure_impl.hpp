@@ -342,13 +342,13 @@ struct mgp_list {
   explicit mgp_list(memgraph::utils::MemoryResource *memory) : elems(memory) {}
 
   mgp_list(memgraph::utils::pmr::vector<mgp_value> &&elems, memgraph::utils::MemoryResource *memory)
-      : elems(std::move(elems), memory) {}
+      : elems(elems, memory) {}
 
   mgp_list(const mgp_list &other, memgraph::utils::MemoryResource *memory) : elems(other.elems, memory) {}
 
-  mgp_list(mgp_list &&other, memgraph::utils::MemoryResource *memory) : elems(std::move(other.elems), memory) {}
+  mgp_list(mgp_list &&other, memgraph::utils::MemoryResource *memory) : elems(other.elems, memory) {}
 
-  mgp_list(mgp_list &&other) noexcept : elems(std::move(other.elems)) {}
+  mgp_list(mgp_list &&other) noexcept : elems(other.elems) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_list(const mgp_list &) = delete;
@@ -544,9 +544,9 @@ struct mgp_path {
       : vertices(other.vertices, memory), edges(other.edges, memory) {}
 
   mgp_path(mgp_path &&other, memgraph::utils::MemoryResource *memory)
-      : vertices(std::move(other.vertices), memory), edges(std::move(other.edges), memory) {}
+      : vertices(other.vertices, memory), edges(other.edges, memory) {}
 
-  mgp_path(mgp_path &&other) noexcept : vertices(std::move(other.vertices)), edges(std::move(other.edges)) {}
+  mgp_path(mgp_path &&other) noexcept : vertices(other.vertices), edges(other.edges) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_path(const mgp_path &) = delete;
