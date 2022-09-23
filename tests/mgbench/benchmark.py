@@ -213,9 +213,10 @@ for dataset, tests in benchmarks:
         args.bolt_port, 
         "config/path"
         )
-
-    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+ 
+    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port, username="neo4j", password="test")
     #memgraph.start_preparation()
+    neo4j.start_preparation()
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = neo4j.stop()
 

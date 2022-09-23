@@ -131,32 +131,28 @@ class Neo4j:
         self._config = config
         atexit.register(self._cleanup)
 
-        # Determine Neo4j version
-        ret = subprocess.run([neo4j_binary, "--version"], stdout=subprocess.PIPE, check=True)
-        version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
-        self._neo4j_version = tuple(map(int, version.split(".")))
-
     def __del__(self):
         self._cleanup()
         atexit.unregister(self._cleanup)
 
     def _get_args(self, **kwargs):
-        data_directory = os.path.join(self._directory.name, "neo4j")
-        kwargs["bolt_port"] = self._bolt_port
-        return _convert_args_to_flags(self._memgraph_binary, **kwargs)
+        #kwargs["bolt_port"] = self._bolt_port
+        return _convert_args_to_flags(self._neo4j_binary,"start","--verbose",  **kwargs)
 
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:
             raise Exception("The database process is already running!")
         args = self._get_args(**kwargs)
-        self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.DEVNULL)
-        time.sleep(0.2)
-        if self._proc_neo4j.poll() is not None:
-            self._proc_neo4j = None
-            raise Exception("The database process died prematurely!")
+        self._proc_neo4j = subprocess.run(args, capture_output=True, timeout=10, check=True)
+        
+        # #self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
+        # time.sleep(10)
+        # if self._proc_neo4j.returncode != 0: 
+        #     self._proc_neo4j = None
+        #     raise Exception("The database process died prematurely!")
         wait_for_server(self._bolt_port)
-        ret = self._proc_neo4j.poll()
-        assert ret is None, "The database process died prematurely " "({})!".format(ret)
+        # ret = self._proc_neo4j.poll()
+        # assert ret is None, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
         if self._proc_neo4j is None:
@@ -168,16 +164,11 @@ class Neo4j:
         return ret, usage
 
     def start_preparation(self):
-        #self._start(storage_snapshot_on_exit=True)
-        pass
+        self._start()
+
 
     def start_benchmark(self):
-        # TODO: support custom benchmarking config files!
-        # if self._memgraph_version >= (0, 50, 0):
-        #     self._start(storage_recover_on_startup=True)
-        # else:
-        #     self._start(db_recover_on_startup=True)
-        pass
+        self._start()
 
     def stop(self):
         ret, usage = self._cleanup()
