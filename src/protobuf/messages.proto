@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package memgraph.protobuf;
+
+message Address {
+  bytes unique_id = 1;
+  // this is either 4 bytes for ipv4 or 16 bytes for ipv6
+  bytes last_known_ip = 2;
+  uint32 last_known_port = 3;
+}
+
+message TestRequest {
+  uint64 request_id = 1;
+  string content = 2;
+}
+
+
+message Content {
+  oneof content {
+    TestRequest test_request = 1;
+  }
+}
+
+message UberMessage {
+  uint64 request_id = 1;
+  Address to_address = 2;
+  Address from_address = 3;
+  Content content = 4;
+}

@@ -17,13 +17,15 @@
 #include <gtest/gtest.h>
 
 #include "io/protobuf_transport/protobuf_transport.hpp"
-#include "protobuf/echo_test.pb.cc"
-#include "protobuf/echo_test.pb.h"
+#include "protobuf/messages.pb.cc"
+#include "protobuf/messages.pb.h"
 
 namespace memgraph::io::tests {
 
+using memgraph::protobuf::Address;
+using memgraph::protobuf::Content;
 using memgraph::protobuf::TestRequest;
-using memgraph::protobuf::TestResponse;
+using memgraph::protobuf::UberMessage;
 
 TEST(ProtobufTransport, Echo) {
   spdlog::error("ayo");
