@@ -382,7 +382,7 @@ struct ScanVerticesRequest {
   std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
-  StorageView storage_view;
+  StorageView storage_view{StorageView::NEW};
 };
 
 struct ScanResultRow {
@@ -492,7 +492,6 @@ struct NewVertexLabel {
 };
 
 struct CreateVerticesRequest {
-  std::string label;
   Hlc transaction_id;
   std::vector<NewVertex> new_vertices;
 };

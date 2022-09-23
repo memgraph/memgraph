@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
 #include "coordinator/shard_map.hpp"
@@ -117,12 +118,9 @@ class ShardRequestManagerInterface {
 template <typename TTransport>
 class ShardRequestManager : public ShardRequestManagerInterface {
  public:
-  using WriteRequests = CreateVerticesRequest;
-  using WriteResponses = CreateVerticesResponse;
-  using ReadRequests = std::variant<ScanVerticesRequest, ExpandOneRequest>;
-  using ReadResponses = std::variant<ScanVerticesResponse, ExpandOneResponse>;
   using StorageClient =
       memgraph::coordinator::RsmClient<TTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
+  using CoordinatorWriteRequests = memgraph::coordinator::CoordinatorWriteRequests;
   using CoordinatorClient = memgraph::coordinator::CoordinatorClient<TTransport>;
   using Address = memgraph::io::Address;
   using Shard = memgraph::coordinator::Shard;
@@ -141,7 +139,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   void StartTransaction() override {
     memgraph::coordinator::HlcRequest req{.last_shard_map_version = shards_map_.GetHlc()};
-    auto write_res = coord_cli_.SendWriteRequest(req);
+    CoordinatorWriteRequests write_req = req;
+    auto write_res = coord_cli_.SendWriteRequest(write_req);
     if (write_res.HasError()) {
       throw std::runtime_error("HLC request failed");
     }
@@ -180,13 +179,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
           *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
       // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
       // instead.
-      auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
+      ReadRequests req = state.requests[id];
+      auto read_response_result = storage_client.SendReadRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
       if (read_response_result.HasError()) {
         throw std::runtime_error("ScanAll request timedout");
       }
-      auto &response = std::get<ScanVerticesResponse>(read_response_result.GetValue());
+      ReadResponses read_response_variant = read_response_result.GetValue();
+      auto &response = std::get<ScanVerticesResponse>(read_response_variant);
       if (!response.success) {
         throw std::runtime_error("ScanAll request did not succeed");
       }
@@ -215,18 +216,26 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
       const auto labels = state.requests[id].new_vertices[0].label_ids;
+      for (auto &new_vertex : state.requests[id].new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      }
       auto primary_key = state.requests[id].new_vertices[0].primary_key;
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
-      auto write_response_result = storage_client.SendWriteRequest(state.requests[id]);
+      WriteRequests req = state.requests[id];
+      auto ladaksd = std::get<CreateVerticesRequest>(req);
+      auto write_response_result = storage_client.SendWriteRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
       if (write_response_result.HasError()) {
         throw std::runtime_error("CreateVertices request timedout");
       }
-      if (!write_response_result.GetValue().success) {
+      WriteResponses response_variant = write_response_result.GetValue();
+      CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
+
+      if (!mapped_response.success) {
         throw std::runtime_error("CreateVertices request did not succeed");
       }
-      responses.push_back(write_response_result.GetValue());
+      responses.push_back(mapped_response);
       shard_it = shard_cache_ref.erase(shard_it);
     }
     // We are done with this state
@@ -250,7 +259,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       const Label primary_label = state.requests[id].src_vertices[0].first;
       auto &storage_client = GetStorageClientForShard(*shard_it, primary_label.id);
-      auto read_response_result = storage_client.SendReadRequest(state.requests[id]);
+      ReadRequests req = state.requests[id];
+      auto read_response_result = storage_client.SendReadRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map
       if (read_response_result.HasError()) {
@@ -303,6 +313,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::map<Shard, CreateVerticesRequest> per_shard_request_table;
 
     for (auto &new_vertex : new_vertices) {
+      MG_ASSERT(!new_vertex.label_ids.empty(), "This is error!");
       auto shard = shards_map_.GetShardForKey(new_vertex.label_ids[0].id,
                                               storage::conversions::ConvertPropertyVector(new_vertex.primary_key));
       if (!per_shard_request_table.contains(shard)) {
