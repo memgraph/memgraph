@@ -15,18 +15,17 @@
 
 #include <gtest/gtest.h>
 
-#include <coordinator/coordinator.hpp>
-#include <coordinator/coordinator_client.hpp>
-#include <coordinator/hybrid_logical_clock.hpp>
-#include <coordinator/shard_map.hpp>
-#include <io/local_transport/local_system.hpp>
-#include <io/local_transport/local_transport.hpp>
-#include <io/rsm/rsm_client.hpp>
-#include <io/transport.hpp>
-#include <machine_manager/machine_config.hpp>
-#include <machine_manager/machine_manager.hpp>
-#include <query/v2/requests.hpp>
+#include "coordinator/coordinator.hpp"
+#include "coordinator/coordinator_client.hpp"
+#include "coordinator/hybrid_logical_clock.hpp"
+#include "coordinator/shard_map.hpp"
+#include "io/local_transport/local_system.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "io/rsm/rsm_client.hpp"
+#include "io/transport.hpp"
+#include "machine_manager/machine_config.hpp"
+#include "machine_manager/machine_manager.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/schemas.hpp"
 
