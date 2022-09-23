@@ -101,7 +101,6 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libc-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -516,9 +515,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
     if [ -d libunwind ]; then
         rm -rf libunwind
     fi
-    if [ -d libc ]; then
-        rm -rf libc
-    fi
     tar -xvf ../archives/llvm-$LLVM_VERSION.src.tar.xz
     mv llvm-$LLVM_VERSION.src llvm-$LLVM_VERSION
     tar -xvf ../archives/clang-$LLVM_VERSION.src.tar.xz
@@ -544,7 +540,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv libunwind-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libunwind
     # TODO(gitbuda): The following line might not be required because of the projects placement.
     # -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
-    # TODO(gitbuda): Consider adding pstl and libc.
 
     pushd llvm-$LLVM_VERSION
     mkdir -p build && pushd build
@@ -944,7 +939,9 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     popd && popd
 fi
 
-#install jemalloc
+echo ""
+echo "#### JEMALLOC ####"
+echo ""
 if [ ! -d $PREFIX/include/jemalloc ]; then
     if [ -d jemalloc ]; then
         rm -rf jemalloc
@@ -1016,7 +1013,9 @@ if [ ! -d $PREFIX/include/gflags ]; then
     popd && popd
 fi
 
-# install libunwind
+echo ""
+echo "#### LIBUNWIND ####"
+echo ""
 if [ ! -f $PREFIX/include/libunwind.h ]; then
     if [ -d libunwind-$LIBUNWIND_VERSION ]; then
         rm -rf libunwind-$LIBUNWIND_VERSION
