@@ -13,6 +13,7 @@
 
 #include <type_traits>
 
+#include "io/local_transport/local_transport.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/common.hpp"
 #include "query/v2/metadata.hpp"
@@ -73,7 +74,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   //  TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
-  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager{nullptr};
+  msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

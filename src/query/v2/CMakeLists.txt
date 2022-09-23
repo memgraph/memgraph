@@ -9,7 +9,6 @@ set(mg_query_v2_sources
     ${lcp_query_v2_cpp_files}
     common.cpp
     cypher_query_interpreter.cpp
-    dump.cpp
     frontend/semantic/required_privileges.cpp
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp
@@ -23,16 +22,18 @@ set(mg_query_v2_sources
     plan/rewrite/index_lookup.cpp
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
-    #    procedure/mg_procedure_impl.cpp
-    #    procedure/mg_procedure_helpers.cpp
-    #    procedure/module.cpp
-    #    procedure/py_module.cpp
+
+    # procedure/mg_procedure_impl.cpp
+    # procedure/mg_procedure_helpers.cpp
+    # procedure/module.cpp
+    # procedure/py_module.cpp
     serialization/property_value.cpp
-    #    stream/streams.cpp
-    #    stream/sources.cpp
-    #    stream/common.cpp
-    #    trigger.cpp
-    #    trigger_context.cpp
+
+    # stream/streams.cpp
+    # stream/sources.cpp
+    # stream/common.cpp
+    # trigger.cpp
+    # trigger_context.cpp
     bindings/typed_value.cpp
     accessors.cpp)
 

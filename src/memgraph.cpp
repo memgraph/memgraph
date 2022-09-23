@@ -664,11 +664,6 @@ int main(int argc, char **argv) {
                                           .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
                                           .transaction = {.isolation_level = ParseIsolationLevel()}};
 
-  // TODO Benjo
-  memgraph::storage::v3::LabelId pl(memgraph::storage::v3::LabelId::FromUint(1));
-  memgraph::storage::v3::PrimaryKey min_pk{{memgraph::storage::v3::PropertyValue(1)}};
-  memgraph::storage::v3::Shard db(pl, min_pk, std::nullopt, {}, db_config);
-
   memgraph::io::local_transport::LocalSystem ls;
   auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
   auto io = ls.Register(unique_local_addr_query);
@@ -681,6 +676,7 @@ int main(int argc, char **argv) {
       .listen_port = unique_local_addr_query.last_known_port,
   };
 
+  auto *shard = (memgraph::storage::v3::Shard *)(nullptr);
   memgraph::coordinator::ShardMap sm{};
   memgraph::coordinator::Coordinator coordinator{sm};
 
@@ -688,7 +684,7 @@ int main(int argc, char **argv) {
   auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
 
   memgraph::query::v2::InterpreterContext interpreter_context{
-      &db,
+      (memgraph::storage::v3::Shard *)(nullptr),
       {.query = {.allow_load_csv = FLAGS_allow_load_csv},
        .execution_timeout_sec = FLAGS_query_execution_timeout_sec,
        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
@@ -698,9 +694,9 @@ int main(int argc, char **argv) {
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory,
       std::move(io),
-      unique_local_addr_coordinator};
+      mm.CoordinatorAddress()};
 
-  SessionData session_data{&db, &interpreter_context};
+  SessionData session_data{shard, &interpreter_context};
 
   interpreter_context.auth = nullptr;
   interpreter_context.auth_checker = nullptr;
@@ -733,24 +729,6 @@ int main(int argc, char **argv) {
 
   // Setup telemetry
   std::optional<memgraph::telemetry::Telemetry> telemetry;
-  if (FLAGS_telemetry_enabled) {
-    telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
-    telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
-      auto info = db.GetInfo();
-      return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};
-    });
-    telemetry->AddCollector("event_counters", []() -> nlohmann::json {
-      nlohmann::json ret;
-      for (size_t i = 0; i < EventCounter::End(); ++i) {
-        ret[EventCounter::GetName(i)] = EventCounter::global_counters[i].load(std::memory_order_relaxed);
-      }
-      return ret;
-    });
-    telemetry->AddCollector("query_module_counters", []() -> nlohmann::json {
-      return memgraph::query::v2::plan::CallProcedure::GetAndResetCounters();
-    });
-  }
 
   // Handler for regular termination signals
   auto shutdown = [&server, &interpreter_context] {

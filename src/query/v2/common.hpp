@@ -103,34 +103,40 @@ concept RecordAccessor =
 inline void HandleSchemaViolation(const storage::v3::SchemaViolation &schema_violation, const DbAccessor &dba) {
   switch (schema_violation.status) {
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(
           fmt::format("Primary key {} not defined on label :{}",
                       storage::v3::SchemaTypeToString(schema_violation.violated_schema_property->type),
-                      dba.LabelToName(schema_violation.label)));
+                      "dba.LabelToName(schema_violation.label)"));
     }
     case storage::v3::SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(
-          fmt::format("Label :{} is not a primary label", dba.LabelToName(schema_violation.label)));
+          fmt::format("Label :{} is not a primary label", "dba.LabelToName(schema_violation.label)"));
     }
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(
           fmt::format("Wrong type of property {} in schema :{}, should be of type {}",
-                      *schema_violation.violated_property_value, dba.LabelToName(schema_violation.label),
+                      *schema_violation.violated_property_value, "dba.LabelToName(schema_violation.label)",
                       storage::v3::SchemaTypeToString(schema_violation.violated_schema_property->type)));
     }
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_KEY: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(fmt::format("Updating of primary key {} on schema :{} not supported",
                                                  *schema_violation.violated_property_value,
-                                                 dba.LabelToName(schema_violation.label)));
+                                                 "dba.LabelToName(schema_violation.label)"));
     }
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_UPDATE_PRIMARY_LABEL: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(fmt::format(
           "Adding primary label as secondary or removing primary label:", *schema_violation.violated_property_value,
-          dba.LabelToName(schema_violation.label)));
+          "dba.LabelToName(schema_violation.label)"));
     }
     case storage::v3::SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY: {
+      // TODO(antaljanosbenjamin)
       throw SchemaViolationException(fmt::format("Cannot create vertex where primary label is secondary:{}",
-                                                 dba.LabelToName(schema_violation.label)));
+                                                 "dba.LabelToName(schema_violation.label)"));
     }
   }
 }

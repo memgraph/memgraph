@@ -19,10 +19,13 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 
+#include "coordinator/coordinator_client.hpp"
 #include "expr/ast/ast_visitor.hpp"
 #include "io/local_transport/local_system.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "memory/memory_control.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/eval.hpp"
@@ -34,7 +37,6 @@
 #include "query/v2/context.hpp"
 #include "query/v2/cypher_query_interpreter.hpp"
 #include "query/v2/db_accessor.hpp"
-#include "query/v2/dump.hpp"
 #include "query/v2/exceptions.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/frontend/semantic/required_privileges.hpp"
@@ -42,6 +44,7 @@
 #include "query/v2/plan/planner.hpp"
 #include "query/v2/plan/profile.hpp"
 #include "query/v2/plan/vertex_count_cache.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/storage.hpp"
@@ -672,6 +675,7 @@ struct PullPlanVector {
 struct PullPlan {
   explicit PullPlan(std::shared_ptr<CachedPlan> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+                    msgs::ShardRequestManagerInterface *shard_request_manager = nullptr,
                     //                    TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {});
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
@@ -701,7 +705,7 @@ struct PullPlan {
 
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                   const std::optional<size_t> memory_limit)
+                   msgs::ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
     //                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
@@ -719,6 +723,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
   //  ctx_.trigger_context_collector = trigger_context_collector;
+  ctx_.shard_request_manager = shard_request_manager;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -821,6 +826,11 @@ InterpreterContext::InterpreterContext(storage::v3::Shard *db, const Interpreter
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
+  auto query_io = interpreter_context_->io.ForkLocal();
+  shard_request_manager_ = std::make_unique<msgs::ShardRequestManager<io::local_transport::LocalTransport>>(
+      coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
+          query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
+      std::move(query_io));
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {
@@ -887,7 +897,8 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, DbAccessor *dba,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications) {
+                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+                                 msgs::ShardRequestManagerInterface *shard_request_manager) {
   //                                 TriggerContextCollector *trigger_context_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -933,7 +944,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }
   auto pull_plan = std::make_shared<PullPlan>(plan, parsed_query.parameters, false, dba, interpreter_context,
-                                              execution_memory, memory_limit);
+                                              execution_memory, shard_request_manager, memory_limit);
   //                                              execution_memory, trigger_context_collector, memory_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -994,7 +1005,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                                  DbAccessor *dba, utils::MemoryResource *execution_memory) {
+                                  DbAccessor *dba, utils::MemoryResource *execution_memory,
+                                  msgs::ShardRequestManagerInterface *shard_request_manager = nullptr) {
   const std::string kProfileQueryStart = "profile ";
 
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kProfileQueryStart),
@@ -1050,7 +1062,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
                        std::move(parsed_query.required_privileges),
                        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
-                        summary, dba, interpreter_context, execution_memory, memory_limit,
+                        summary, dba, interpreter_context, execution_memory, memory_limit, shard_request_manager,
                         // We want to execute the query we are profiling lazily, so we delay
                         // the construction of the corresponding context.
                         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
@@ -1059,7 +1071,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                          // No output symbols are given so that nothing is streamed.
                          if (!stats_and_total_time) {
                            stats_and_total_time = PullPlan(plan, parameters, true, dba, interpreter_context,
-                                                           execution_memory, memory_limit)
+                                                           execution_memory, shard_request_manager, memory_limit)
                                                       .Pull(stream, {}, {}, summary);
                            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
                          }
@@ -1078,16 +1090,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, DbAccessor *dba,
                                utils::MemoryResource *execution_memory) {
-  return PreparedQuery{{"QUERY"},
-                       std::move(parsed_query.required_privileges),
-                       [pull_plan = std::make_shared<PullPlanDump>(dba)](
-                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::COMMIT;
-                         }
-                         return std::nullopt;
-                       },
-                       RWType::R};
+  throw QueryRuntimeException("Dump query is not supported!");
 }
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -1543,14 +1546,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           &*execution_db_accessor_, &query_execution->execution_memory,
-                                          &query_execution->notifications);
+                                          &query_execution->notifications, shard_request_manager_.get());
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                            &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           interpreter_context_, &*execution_db_accessor_,
-                                           &query_execution->execution_memory_with_exception);
+      prepared_query = PrepareProfileQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, shard_request_manager_.get());
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), &query_execution->summary, &*execution_db_accessor_,
                                         &query_execution->execution_memory);
