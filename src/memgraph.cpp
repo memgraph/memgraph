@@ -35,9 +35,14 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
+#include "coordinator/shard_map.hpp"
 #include "helpers.hpp"
+#include "io/address.hpp"
 #include "io/local_transport/local_system.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "io/simulator/simulator_transport.hpp"
+#include "machine_manager/machine_config.hpp"
+#include "machine_manager/machine_manager.hpp"
 #include "py/py.hpp"
 #include "query/v2/discard_value_stream.hpp"
 #include "query/v2/exceptions.hpp"
@@ -659,13 +664,28 @@ int main(int argc, char **argv) {
                                           .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
                                           .transaction = {.isolation_level = ParseIsolationLevel()}};
 
+  // TODO Benjo
   memgraph::storage::v3::LabelId pl(memgraph::storage::v3::LabelId::FromUint(1));
   memgraph::storage::v3::PrimaryKey min_pk{{memgraph::storage::v3::PropertyValue(1)}};
-  memgraph::storage::v3::Shard db(pl, min_pk, std::nullopt, db_config);
+  memgraph::storage::v3::Shard db(pl, min_pk, std::nullopt, {}, db_config);
+
   memgraph::io::local_transport::LocalSystem ls;
-  auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
   auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
   auto io = ls.Register(unique_local_addr_query);
+
+  memgraph::machine_manager::MachineConfig config{
+      .coordinator_addresses = std::vector<memgraph::io::Address>{unique_local_addr_query},
+      .is_storage = true,
+      .is_coordinator = true,
+      .listen_ip = unique_local_addr_query.last_known_ip,
+      .listen_port = unique_local_addr_query.last_known_port,
+  };
+
+  memgraph::coordinator::ShardMap sm{};
+  memgraph::coordinator::Coordinator coordinator{sm};
+
+  memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
+  auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
 
   memgraph::query::v2::InterpreterContext interpreter_context{
       &db,
