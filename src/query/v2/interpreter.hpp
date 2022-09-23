@@ -167,7 +167,7 @@ struct PreparedQuery {
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
                               const std::filesystem::path &data_directory,
-                              io::local_transport::LocalSystem local_system, coordinator::Address coordinator_addr);
+                              io::Io<io::local_transport::LocalTransport> io, coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;
 
@@ -182,7 +182,7 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
-  io::local_transport::LocalSystem local_system;
+  io::Io<io::local_transport::LocalTransport> io;
   coordinator::Address coordinator_address;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {

@@ -664,6 +664,8 @@ int main(int argc, char **argv) {
   memgraph::storage::v3::Shard db(pl, min_pk, std::nullopt, db_config);
   memgraph::io::local_transport::LocalSystem ls;
   auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
+  auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
+  auto io = ls.Register(unique_local_addr_query);
 
   memgraph::query::v2::InterpreterContext interpreter_context{
       &db,
@@ -675,7 +677,7 @@ int main(int argc, char **argv) {
        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)},
       FLAGS_data_directory,
-      std::move(ls),
+      std::move(io),
       unique_local_addr_coordinator};
 
   SessionData session_data{&db, &interpreter_context};
