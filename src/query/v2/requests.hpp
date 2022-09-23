@@ -376,13 +376,19 @@ struct OrderBy {
 
 enum class StorageView { OLD = 0, NEW = 1 };
 
+// #NoCommit #JBA to modify
 struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
-  std::optional<std::vector<std::string>> filter_expressions;
+  std::optional<std::vector<std::string>> filter_expressions;  // #NoCommit what the use of that exactly?
   std::optional<size_t> batch_limit;
   StorageView storage_view;
+
+  std::optional<Label> label_to_filter_;
+  std::optional<PropertyId> property_to_filter_;
+  std::optional<std::vector<std::pair<storage::v3::PropertyId, std::string>>> property_value_pairs_to_filter_;
+  // #NoCommit not bool but the string version of the ast? to double check
 };
 
 struct ScanResultRow {
