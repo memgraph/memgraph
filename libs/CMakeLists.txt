@@ -127,7 +127,9 @@ mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
 # setup google test
-add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest)
+add_external_project(gtest
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
+  CMAKE_ARGS -DCMAKE_CXX_FLAGS="-stdlib=libc++")
 set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
     CACHE PATH "Path to gtest and gmock include directory" FORCE)
 set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
