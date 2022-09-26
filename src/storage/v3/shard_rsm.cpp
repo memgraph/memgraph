@@ -599,7 +599,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         }
         in_edges = in_edges_result.GetValue();
 
-        auto out_edges_result = v_acc->InEdges(View::OLD);
+        auto out_edges_result = v_acc->OutEdges(View::OLD);
         if (out_edges_result.HasError()) {
           spdlog::debug(
               &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
