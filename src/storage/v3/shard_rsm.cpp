@@ -78,13 +78,22 @@ std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
   std::map<PropertyId, Value> ret;
-  auto iter = acc.Properties(view);
-  if (iter.HasError()) {
+  auto props = acc.Properties(view);
+  if (props.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex properties.");
   }
-
-  for (const auto &[prop_key, prop_val] : iter.GetValue()) {
+  for (const auto &[prop_key, prop_val] : props.GetValue()) {
     ret.emplace(prop_key, ToValue(prop_val));
+  }
+
+  auto pk = acc.PrimaryKey(view);
+  if (pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex primary key.");
+  }
+  // TODO Get primary key id
+  // TODO On shard initialization or change a call StoreMapping
+  for (const auto &prop_val : pk.GetValue()) {
+    ret.emplace(PropertyId::FromInt(1), ToValue(prop_val));
   }
 
   return ret;
@@ -263,7 +272,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -276,15 +285,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
-      if (!found_props) {
-        continue;
-      }
-
       results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
                                                .props = FromMap(found_props.value())});
 
       ++sample_counter;
-      if (sample_counter == req.batch_limit) {
+      if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
         const auto &next_vertex = *(++it);

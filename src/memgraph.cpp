@@ -436,9 +436,9 @@ DEFINE_string(organization_name, "", "Organization name.");
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(memgraph::storage::v3::Shard *db, memgraph::query::v2::InterpreterContext *interpreter_context)
-      : db(db), interpreter_context(interpreter_context) {}
-  memgraph::storage::v3::Shard *db;
+  SessionData(memgraph::coordinator::ShardMap &shard_map, memgraph::query::v2::InterpreterContext *interpreter_context)
+      : shard_map(&shard_map), interpreter_context(interpreter_context) {}
+  memgraph::coordinator::ShardMap *shard_map;
   memgraph::query::v2::InterpreterContext *interpreter_context;
 };
 
@@ -448,13 +448,13 @@ inline constexpr std::string_view default_user_role_regex = "[a-zA-Z0-9_.+-@]+";
 class BoltSession final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                         memgraph::communication::v2::OutputStream> {
  public:
-  BoltSession(SessionData *data, const memgraph::communication::v2::ServerEndpoint &endpoint,
+  BoltSession(SessionData &data, const memgraph::communication::v2::ServerEndpoint &endpoint,
               memgraph::communication::v2::InputStream *input_stream,
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
-        db_(data->db),
-        interpreter_(data->interpreter_context),
+        shard_map_(data.shard_map),
+        interpreter_(data.interpreter_context),
         endpoint_(endpoint) {}
 
   using memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
@@ -484,7 +484,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, db_);
+    TypedValueResultStream stream(encoder, *shard_map_);
     return PullResults(stream, n, qid);
   }
 
@@ -511,7 +511,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, *db_, memgraph::storage::v3::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, *shard_map_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::v3::Error::DELETED_OBJECT:
@@ -536,13 +536,14 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::storage::v3::Shard *db) : encoder_(encoder), db_(db) {}
+    TypedValueResultStream(TEncoder *encoder, const memgraph::coordinator::ShardMap &shard_map)
+        : encoder_(encoder), shard_map_(&shard_map) {}
 
     void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, *db_, memgraph::storage::v3::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, *shard_map_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::v3::Error::DELETED_OBJECT:
@@ -563,11 +564,11 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
    private:
     TEncoder *encoder_;
     // NOTE: Needed only for ToBoltValue conversions
-    const memgraph::storage::v3::Shard *db_;
+    const memgraph::coordinator::ShardMap *shard_map_;
   };
 
   // NOTE: Needed only for ToBoltValue conversions
-  const memgraph::storage::v3::Shard *db_;
+  const memgraph::coordinator::ShardMap *shard_map_;
   memgraph::query::v2::Interpreter interpreter_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };
@@ -688,7 +689,6 @@ int main(int argc, char **argv) {
 
   memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
   std::jthread mm_thread([&mm] { mm.Run(); });
-  auto unique_local_addr_coordinator = memgraph::coordinator::Address::UniqueLocalAddress();
 
   memgraph::query::v2::InterpreterContext interpreter_context{
       (memgraph::storage::v3::Shard *)(nullptr),
@@ -703,7 +703,7 @@ int main(int argc, char **argv) {
       std::move(io),
       mm.CoordinatorAddress()};
 
-  SessionData session_data{shard, &interpreter_context};
+  SessionData session_data{sm, &interpreter_context};
 
   interpreter_context.auth = nullptr;
   interpreter_context.auth_checker = nullptr;
@@ -721,17 +721,7 @@ int main(int argc, char **argv) {
 
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-
-  // auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
-  // auto unique_local_addr_shard = memgraph::coordinator::Address::UniqueLocalAddress();
-
-  // auto io = ls.Register(unique_local_addr_query);
-  // memgraph::coordinator::CoordinatorClient<memgraph::io::local_transport::LocalSystem> coordinator_client(
-  //     unique_local_addr_query, unique_local_addr_coordinator, unique_local_addr_shard);
-  // memgraph::msgs::ShardRequestManager<memgraph::io::local_transport::LocalSystem> io_shard_to_query(
-  //     std::move(coordinator_client), std::move(unique_local_addr_query));
-
-  ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
+  ServerT server(server_endpoint, session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
   // Setup telemetry

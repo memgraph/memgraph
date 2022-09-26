@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <set>
@@ -27,6 +28,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::coordinator {
 
@@ -196,6 +198,15 @@ struct ShardMap {
 
   LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
 
+  std::string GetLabelName(const LabelId label) const {
+    if (const auto it =
+            std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
+        it != labels.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("GetLabelName fails on the given label id!");
+  }
+
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
     MG_ASSERT(labels.contains(label_name));
@@ -274,6 +285,15 @@ struct ShardMap {
     }
 
     return std::nullopt;
+  }
+
+  std::string GetPropertyName(const PropertyId property) const {
+    if (const auto it = std::ranges::find_if(
+            properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
+        it != properties.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("PropertyId not found!");
   }
 };
 
