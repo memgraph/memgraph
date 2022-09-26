@@ -112,6 +112,11 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
 }
 
 bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgraph::storage::v3::EdgeAccessor &edge) {
+  // TODO(gvolfing) This should be checked only once and handled accordingly.
+  if (req.edge_types.empty()) {
+    return true;
+  }
+
   for (const auto &edge_type : req.edge_types) {
     if (memgraph::storage::v3::EdgeTypeId::FromUint(edge_type.id) == edge.EdgeType()) {
       return true;
