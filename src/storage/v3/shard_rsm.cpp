@@ -22,6 +22,7 @@
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
 using memgraph::msgs::Value;
+using memgraph::msgs::Vertex;
 using memgraph::msgs::VertexId;
 
 using memgraph::storage::conversions::ConvertPropertyVector;
@@ -119,6 +120,342 @@ bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgra
   return false;
 }
 
+struct LocalError {};
+
+std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req,
+    memgraph::msgs::VertexId src_vertex) {
+  auto secondary_labels = v_acc->Labels(memgraph::storage::v3::View::OLD);
+  if (secondary_labels.HasError()) {
+    spdlog::debug(&"Encountered an error while trying to get the secondary labels of a vertex. Transaction id: "
+                      [req.transaction_id.logical_id]);
+    return std::nullopt;
+  }
+
+  memgraph::msgs::Vertex source_vertex;
+  source_vertex.id = src_vertex;
+  source_vertex.labels.reserve(secondary_labels.GetValue().size());
+  for (auto label_id : secondary_labels.GetValue()) {
+    source_vertex.labels.push_back({.id = label_id});
+  }
+  return source_vertex;
+}
+
+std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
+  std::map<PropertyId, Value> src_vertex_properties;
+
+  if (!req.src_vertex_properties) {
+    auto props = v_acc->Properties(memgraph::storage::v3::View::OLD);
+    if (props.HasError()) {
+      spdlog::debug(
+          &"Encountered an error while trying to access vertex properties. Transaction id: "[req.transaction_id
+                                                                                                 .logical_id]);
+      return std::nullopt;
+    }
+
+    for (auto &[key, val] : props.GetValue()) {
+      src_vertex_properties.insert(std::make_pair(key, ToValue(val)));
+    }
+
+  } else if (req.src_vertex_properties.value().empty()) {
+    // NOOP
+  } else {
+    for (const auto &prop : req.src_vertex_properties.value()) {
+      const auto &prop_val = v_acc->GetProperty(prop, memgraph::storage::v3::View::OLD);
+      src_vertex_properties.insert(std::make_pair(prop, ToValue(prop_val.GetValue())));
+    }
+  }
+
+  return src_vertex_properties;
+}
+
+std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> FillUpConnectingEdges(
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
+  std::vector<memgraph::storage::v3::EdgeAccessor> in_edges;
+  std::vector<memgraph::storage::v3::EdgeAccessor> out_edges;
+
+  switch (req.direction) {
+    case memgraph::msgs::EdgeDirection::OUT: {
+      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      if (out_edges_result.HasError()) {
+        spdlog::debug(
+            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                      .logical_id]);
+        return std::nullopt;
+      }
+      out_edges = out_edges_result.GetValue();
+      break;
+    }
+    case memgraph::msgs::EdgeDirection::IN: {
+      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      if (in_edges_result.HasError()) {
+        spdlog::debug(
+            &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                     .logical_id]);
+        return std::nullopt;
+      }
+      in_edges = in_edges_result.GetValue();
+      break;
+    }
+    case memgraph::msgs::EdgeDirection::BOTH: {
+      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      if (in_edges_result.HasError()) {
+        spdlog::debug(
+            &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                     .logical_id]);
+        return std::nullopt;
+      }
+      in_edges = in_edges_result.GetValue();
+
+      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      if (out_edges_result.HasError()) {
+        spdlog::debug(
+            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                      .logical_id]);
+        return std::nullopt;
+      }
+      out_edges = out_edges_result.GetValue();
+      break;
+    }
+  }
+  return std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>{in_edges, out_edges};
+}
+
+std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::storage::v3::Shard::Accessor &acc,
+                                                                     memgraph::msgs::VertexId src_vertex,
+                                                                     memgraph::msgs::ExpandOneRequest req) {
+  using EdgeProperties =
+      std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
+  std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
+
+  if (!req.edge_properties) {
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
+      std::map<PropertyId, memgraph::msgs::Value> ret;
+      auto property_results = edge.Properties(memgraph::storage::v3::View::OLD);
+      if (property_results.HasError()) {
+        spdlog::debug(
+            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
+                                                                                                      .logical_id]);
+        return LocalError{};
+      }
+
+      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
+        ret.insert(std::make_pair(prop_key, ToValue(prop_val)));
+      }
+      return ret;
+    };
+  } else {
+    // TODO(gvolfing) - do we want to set the action_successful here?
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
+      std::vector<memgraph::msgs::Value> ret;
+      ret.reserve(req.edge_properties.value().size());
+      for (const auto &edge_prop : req.edge_properties.value()) {
+        // TODO(gvolfing) maybe check for the absence of certain properties
+        ret.push_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::OLD).GetValue()));
+      }
+      return ret;
+    };
+  }
+
+  memgraph::msgs::ExpandOneResultRow current_row;
+  /// The empty optional means return all of the properties, while an empty
+  /// list means do not return any properties.
+
+  /// Fill up source vertex
+  auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), memgraph::storage::v3::View::OLD);
+
+  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
+  if (!source_vertex) {
+    return std::nullopt;
+  }
+
+  /// Fill up source vertex properties
+  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  if (!src_vertex_properties) {
+    return std::nullopt;
+  }
+
+  /// Fill up connecting edges
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req);
+  if (!fill_up_connecting_edges) {
+    return std::nullopt;
+  }
+
+  auto [in_edges, out_edges] = fill_up_connecting_edges.value();
+
+  /// Assemble the edge properties
+  std::optional<std::vector<
+      std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>>>>
+      edges_with_all_properties;
+  std::optional<
+      std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>>>>
+      edges_with_specific_properties;
+
+  if (!req.edge_properties) {
+    std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>>>
+        ret_in;
+    ret_in.reserve(in_edges.size());
+    std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>>>
+        ret_out;
+    ret_out.reserve(out_edges.size());
+
+    for (const auto &edge : in_edges) {
+      if (!DoesEdgeTypeMatch(req, edge)) {
+        continue;
+      }
+
+      std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>> ret_tuple;
+
+      memgraph::msgs::Label label;
+      label.id = edge.FromVertex().primary_label;
+      memgraph::msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
+
+      const auto edge_props_var = get_edge_properties(edge);
+
+      if (std::get_if<LocalError>(&edge_props_var) != nullptr) {
+        return std::nullopt;
+      }
+
+      auto edge_props = std::get<std::map<PropertyId, memgraph::msgs::Value>>(edge_props_var);
+      memgraph::msgs::Gid gid = edge.Gid().AsUint();
+
+      ret_tuple = {other_vertex, gid, edge_props};
+      ret_in.push_back(ret_tuple);
+    }
+
+    for (const auto &edge : out_edges) {
+      if (!DoesEdgeTypeMatch(req, edge)) {
+        continue;
+      }
+
+      std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>> ret_tuple;
+
+      memgraph::msgs::Label label;
+      label.id = edge.FromVertex().primary_label;
+      memgraph::msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
+
+      const auto edge_props_var = get_edge_properties(edge);
+
+      if (std::get_if<LocalError>(&edge_props_var) != nullptr) {
+        return std::nullopt;
+      }
+
+      auto edge_props = std::get<std::map<PropertyId, memgraph::msgs::Value>>(edge_props_var);
+      memgraph::msgs::Gid gid = edge.Gid().AsUint();
+
+      ret_tuple = {other_vertex, gid, edge_props};
+      ret_out.push_back(ret_tuple);
+    }
+
+    // Set one of the options to the actual datastructure and the otherone to nullopt
+    switch (req.direction) {
+      case memgraph::msgs::EdgeDirection::OUT: {
+        edges_with_all_properties = ret_out;
+        break;
+      }
+      case memgraph::msgs::EdgeDirection::IN: {
+        edges_with_all_properties = ret_in;
+        break;
+      }
+      case memgraph::msgs::EdgeDirection::BOTH: {
+        std::vector<
+            std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>>>
+            ret;
+        ret.resize(ret_out.size() + ret_in.size());
+        ret.insert(ret.end(), ret_in.begin(), ret_in.end());
+        ret.insert(ret.end(), ret_out.begin(), ret_out.end());
+
+        edges_with_all_properties = ret;
+        break;
+      }
+    }
+    edges_with_specific_properties = {};
+
+  } else {
+    // when user specifies specific properties, it's enough to return just a vector
+    std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>>> ret_in;
+    ret_in.reserve(in_edges.size());
+    std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>>> ret_out;
+    ret_out.reserve(out_edges.size());
+
+    for (const auto &edge : in_edges) {
+      if (!DoesEdgeTypeMatch(req, edge)) {
+        continue;
+      }
+
+      std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>> ret_tuple;
+
+      memgraph::msgs::Label label;
+      label.id = edge.FromVertex().primary_label;
+      memgraph::msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
+
+      const auto edge_props_var = get_edge_properties(edge);
+
+      if (std::get_if<LocalError>(&edge_props_var) != nullptr) {
+        return std::nullopt;
+      }
+
+      auto edge_props = std::get<std::vector<memgraph::msgs::Value>>(edge_props_var);
+      memgraph::msgs::Gid gid = edge.Gid().AsUint();
+
+      ret_tuple = {other_vertex, gid, edge_props};
+      ret_in.push_back(ret_tuple);
+    }
+
+    for (const auto &edge : out_edges) {
+      if (!DoesEdgeTypeMatch(req, edge)) {
+        continue;
+      }
+
+      std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>> ret_tuple;
+
+      memgraph::msgs::Label label;
+      label.id = edge.FromVertex().primary_label;
+      memgraph::msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
+
+      const auto edge_props_var = get_edge_properties(edge);
+
+      if (std::get_if<LocalError>(&edge_props_var) != nullptr) {
+        return std::nullopt;
+      }
+
+      auto edge_props = std::get<std::vector<memgraph::msgs::Value>>(edge_props_var);
+      memgraph::msgs::Gid gid = edge.Gid().AsUint();
+
+      ret_tuple = {other_vertex, gid, edge_props};
+      ret_out.push_back(ret_tuple);
+    }
+
+    // Set one of the options to the actual datastructure and the otherone to nullopt
+    switch (req.direction) {
+      case memgraph::msgs::EdgeDirection::OUT: {
+        edges_with_specific_properties = ret_out;
+        break;
+      }
+      case memgraph::msgs::EdgeDirection::IN: {
+        edges_with_specific_properties = ret_in;
+        break;
+      }
+      case memgraph::msgs::EdgeDirection::BOTH: {
+        std::vector<std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::vector<memgraph::msgs::Value>>> ret;
+        ret.resize(ret_out.size() + ret_in.size());
+        ret.insert(ret.end(), ret_in.begin(), ret_in.end());
+        ret.insert(ret.end(), ret_out.begin(), ret_out.end());
+
+        edges_with_specific_properties = ret;
+        break;
+      }
+    }
+    edges_with_all_properties = {};
+  }
+
+  return memgraph::msgs::ExpandOneResultRow{.src_vertex = *source_vertex,
+                                            .src_vertex_properties = src_vertex_properties,
+                                            .edges_with_all_properties = edges_with_all_properties,
+                                            .edges_with_specific_properties = edges_with_specific_properties};
+}
+
 }  // namespace
 
 namespace memgraph::storage::v3 {
@@ -174,7 +511,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
-  return msgs::CreateVerticesResponse{.success = action_successful};
+  return memgraph::msgs::CreateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
@@ -224,7 +561,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     }
   }
 
-  return msgs::UpdateVerticesResponse{.success = action_successful};
+  return memgraph::msgs::UpdateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
@@ -247,7 +584,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
       // Since we will not have different kinds of deletion types in one transaction,
       // we dont have to enter the switch statement on every iteration. Optimize this.
       switch (req.deletion_type) {
-        case msgs::DeleteVerticesRequest::DeletionType::DELETE: {
+        case memgraph::msgs::DeleteVerticesRequest::DeletionType::DELETE: {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -256,7 +593,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
 
           break;
         }
-        case msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
+        case memgraph::msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -270,7 +607,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     }
   }
 
-  return msgs::DeleteVerticesResponse{.success = action_successful};
+  return memgraph::msgs::DeleteVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
@@ -315,7 +652,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
     }
   }
 
-  return msgs::CreateEdgesResponse{.success = action_successful};
+  return memgraph::msgs::CreateEdgesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
@@ -337,7 +674,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
     }
   }
 
-  return msgs::DeleteEdgesResponse{.success = action_successful};
+  return memgraph::msgs::DeleteEdgesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
@@ -396,15 +733,15 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     }
   }
 
-  return msgs::UpdateEdgesResponse{.success = action_successful};
+  return memgraph::msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  std::vector<msgs::ScanResultRow> results;
-  std::optional<msgs::VertexId> next_start_id;
+  std::vector<memgraph::msgs::ScanResultRow> results;
+  std::optional<memgraph::msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
@@ -457,7 +794,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  msgs::ScanVerticesResponse resp{};
+  memgraph::msgs::ScanVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -472,298 +809,20 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  using EdgeProperties = std::variant<std::map<PropertyId, msgs::Value>, std::vector<msgs::Value>>;
-  std::function<EdgeProperties(const EdgeAccessor &)> get_edge_properties;
-
-  if (!req.edge_properties) {
-    get_edge_properties = [&req, &action_successful](const EdgeAccessor &edge) {
-      std::map<PropertyId, msgs::Value> ret;
-      auto property_results = edge.Properties(View::OLD);
-      if (property_results.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                      .logical_id]);
-        action_successful = false;
-        return ret;
-      }
-
-      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
-        ret.insert(std::make_pair(prop_key, ToValue(prop_val)));
-      }
-      return ret;
-    };
-  } else {
-    // TODO(gvolfing) - do we want to set the action_successful here?
-    get_edge_properties = [&req, &action_successful](const EdgeAccessor &edge) {
-      std::vector<msgs::Value> ret;
-      ret.reserve(req.edge_properties.value().size());
-      for (const auto &edge_prop : req.edge_properties.value()) {
-        // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.push_back(ToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
-      }
-      return ret;
-    };
-  }
-
-  std::vector<msgs::ExpandOneResultRow> results;
+  std::vector<memgraph::msgs::ExpandOneResultRow> results;
 
   for (auto &src_vertex : req.src_vertices) {
-    msgs::ExpandOneResultRow current_row;
-    msgs::Vertex source_vertex;
-    /// The empty optional means return all of the properties, while an empty
-    /// list means do not return any properties.
-    std::optional<std::map<PropertyId, Value>> src_vertex_properties_opt;
-    std::map<PropertyId, Value> src_vertex_properties;
+    auto result = GetExpandOneResult(acc, src_vertex, req);
 
-    auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
-
-    /// Fill up source vertex
-    auto secondary_labels = v_acc->Labels(View::OLD);
-    if (secondary_labels.HasError()) {
-      spdlog::debug(&"Encountered an error while trying to get the secondary labels of a vertex. Transaction id: "
-                        [req.transaction_id.logical_id]);
+    if (!result) {
       action_successful = false;
       break;
     }
 
-    source_vertex.id = src_vertex;
-    source_vertex.labels.reserve(secondary_labels.GetValue().size());
-    for (auto label_id : secondary_labels.GetValue()) {
-      source_vertex.labels.push_back({.id = label_id});
-    }
-
-    /// Fill up source vertex properties
-    if (!req.src_vertex_properties) {
-      auto props = v_acc->Properties(View::OLD);
-      if (props.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to access vertex properties. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
-        action_successful = false;
-        break;
-      }
-
-      for (auto &[key, val] : props.GetValue()) {
-        src_vertex_properties.insert(std::make_pair(key, ToValue(val)));
-      }
-
-      src_vertex_properties_opt = src_vertex_properties;
-
-    } else if (req.src_vertex_properties.value().empty()) {
-      src_vertex_properties_opt = {};
-    } else {
-      for (const auto &prop : req.src_vertex_properties.value()) {
-        const auto &prop_val = v_acc->GetProperty(prop, View::OLD);
-        src_vertex_properties.insert(std::make_pair(prop, ToValue(prop_val.GetValue())));
-      }
-      src_vertex_properties_opt = src_vertex_properties;
-    }
-
-    /// Fill up connecting edges
-    std::vector<EdgeAccessor> in_edges;
-    std::vector<EdgeAccessor> out_edges;
-
-    switch (req.direction) {
-      case msgs::EdgeDirection::OUT: {
-        auto out_edges_result = v_acc->OutEdges(View::OLD);
-        if (out_edges_result.HasError()) {
-          spdlog::debug(
-              &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                        .logical_id]);
-          action_successful = false;
-          break;
-        }
-        out_edges = out_edges_result.GetValue();
-        break;
-      }
-      case msgs::EdgeDirection::IN: {
-        auto in_edges_result = v_acc->InEdges(View::OLD);
-        if (in_edges_result.HasError()) {
-          spdlog::debug(
-              &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                       .logical_id]);
-          action_successful = false;
-          break;
-        }
-        in_edges = in_edges_result.GetValue();
-        break;
-      }
-      case msgs::EdgeDirection::BOTH: {
-        auto in_edges_result = v_acc->InEdges(View::OLD);
-        if (in_edges_result.HasError()) {
-          spdlog::debug(
-              &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                       .logical_id]);
-          action_successful = false;
-          break;
-        }
-        in_edges = in_edges_result.GetValue();
-
-        auto out_edges_result = v_acc->OutEdges(View::OLD);
-        if (out_edges_result.HasError()) {
-          spdlog::debug(
-              &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                        .logical_id]);
-          action_successful = false;
-          break;
-        }
-        out_edges = out_edges_result.GetValue();
-        break;
-      }
-    }
-
-    // Check for stoppage here because of the switch case
-    if (!action_successful) {
-      break;
-    }
-
-    /// Assemble the edge properties
-    std::optional<std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>>>
-        edges_with_all_properties;
-    std::optional<std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>>>
-        edges_with_specific_properties;
-
-    if (!req.edge_properties) {
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_in;
-      // ret_in.reserve(in_edges.size());
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret_out;
-      // ret_out.reserve(out_edges.size());
-
-      for (const auto &edge : in_edges) {
-        if (!DoesEdgeTypeMatch(req, edge)) {
-          continue;
-        }
-
-        std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
-
-        msgs::Label label;
-        label.id = edge.FromVertex().primary_label;
-        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
-
-        const auto &edge_props_var = get_edge_properties(edge);
-        auto edge_props = std::get<std::map<PropertyId, msgs::Value>>(edge_props_var);
-        msgs::Gid gid = edge.Gid().AsUint();
-
-        ret_tuple = {other_vertex, gid, edge_props};
-        ret_in.push_back(ret_tuple);
-      }
-
-      for (const auto &edge : out_edges) {
-        if (!DoesEdgeTypeMatch(req, edge)) {
-          continue;
-        }
-
-        std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>> ret_tuple;
-
-        msgs::Label label;
-        label.id = edge.FromVertex().primary_label;
-        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
-
-        const auto &edge_props_var = get_edge_properties(edge);
-        auto edge_props = std::get<std::map<PropertyId, msgs::Value>>(edge_props_var);
-        msgs::Gid gid = edge.Gid().AsUint();
-
-        ret_tuple = {other_vertex, gid, edge_props};
-        ret_out.push_back(ret_tuple);
-      }
-
-      // Set one of the options to the actual datastructure and the otherone to nullopt
-      switch (req.direction) {
-        case msgs::EdgeDirection::OUT: {
-          edges_with_all_properties = ret_out;
-          break;
-        }
-        case msgs::EdgeDirection::IN: {
-          edges_with_all_properties = ret_in;
-          break;
-        }
-        case msgs::EdgeDirection::BOTH: {
-          std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::map<PropertyId, msgs::Value>>> ret;
-          ret.resize(ret_out.size() + ret_in.size());
-          ret.insert(ret.end(), ret_in.begin(), ret_in.end());
-          ret.insert(ret.end(), ret_out.begin(), ret_out.end());
-
-          edges_with_all_properties = ret;
-          break;
-        }
-      }
-      edges_with_specific_properties = {};
-
-    } else {
-      // when user specifies specific properties, its enough to return just a vector
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_in;
-      // ret_in.reserve(in_edges.size());
-      std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret_out;
-      // ret_out.reserve(out_edges.size());
-
-      for (const auto &edge : in_edges) {
-        if (!DoesEdgeTypeMatch(req, edge)) {
-          continue;
-        }
-
-        std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
-
-        msgs::Label label;
-        label.id = edge.FromVertex().primary_label;
-        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
-
-        const auto &edge_props_var = get_edge_properties(edge);
-        auto edge_props = std::get<std::vector<msgs::Value>>(edge_props_var);
-        msgs::Gid gid = edge.Gid().AsUint();
-
-        ret_tuple = {other_vertex, gid, edge_props};
-        ret_in.push_back(ret_tuple);
-      }
-
-      for (const auto &edge : out_edges) {
-        if (!DoesEdgeTypeMatch(req, edge)) {
-          continue;
-        }
-
-        std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>> ret_tuple;
-
-        msgs::Label label;
-        label.id = edge.FromVertex().primary_label;
-        msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.ToVertex().primary_key));
-
-        const auto &edge_props_var = get_edge_properties(edge);
-        auto edge_props = std::get<std::vector<msgs::Value>>(edge_props_var);
-        msgs::Gid gid = edge.Gid().AsUint();
-
-        ret_tuple = {other_vertex, gid, edge_props};
-        ret_out.push_back(ret_tuple);
-      }
-
-      // Set one of the options to the actual datastructure and the otherone to nullopt
-      switch (req.direction) {
-        case msgs::EdgeDirection::OUT: {
-          edges_with_specific_properties = ret_out;
-          break;
-        }
-        case msgs::EdgeDirection::IN: {
-          edges_with_specific_properties = ret_in;
-          break;
-        }
-        case msgs::EdgeDirection::BOTH: {
-          std::vector<std::tuple<msgs::VertexId, msgs::Gid, std::vector<msgs::Value>>> ret;
-          ret.resize(ret_out.size() + ret_in.size());
-          ret.insert(ret.end(), ret_in.begin(), ret_in.end());
-          ret.insert(ret.end(), ret_out.begin(), ret_out.end());
-
-          edges_with_specific_properties = ret;
-          break;
-        }
-      }
-      edges_with_all_properties = {};
-    }
-
-    results.emplace_back(msgs::ExpandOneResultRow{.src_vertex = source_vertex,
-                                                  .src_vertex_properties = src_vertex_properties,
-                                                  .edges_with_all_properties = edges_with_all_properties,
-                                                  .edges_with_specific_properties = edges_with_specific_properties});
+    results.emplace_back(result.value());
   }
 
-  msgs::ExpandOneResponse resp{};
+  memgraph::msgs::ExpandOneResponse resp{};
   if (action_successful) {
     resp.result = std::move(results);
   }
@@ -773,12 +832,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
   shard_->Access(req.transaction_id).Commit(req.commit_timestamp);
-  return msgs::CommitResponse{true};
+  return memgraph::msgs::CommitResponse{true};
 };
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) {
-  return msgs::GetPropertiesResponse{};
+  return memgraph::msgs::GetPropertiesResponse{};
 }
 
 }  //    namespace memgraph::storage::v3
