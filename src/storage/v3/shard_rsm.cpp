@@ -433,6 +433,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       // Vertex is seperated from the properties in the response.
       // Is it useful to return just a vertex without the properties?
       // If so, this logic here is incorrect.
+
+      // I don't think this will ever be std::nullopt ...
       if (!found_props) {
         continue;
       }
