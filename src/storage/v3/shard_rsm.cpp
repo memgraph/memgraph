@@ -760,12 +760,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
-      // TODO(gvolfing) -VERIFY- Is this actually correct here?
+      // TODO(gvolfing) -VERIFY-
       // Vertex is seperated from the properties in the response.
       // Is it useful to return just a vertex without the properties?
-      // If so, this logic here is incorrect.
-
-      // I don't think this will ever be std::nullopt ...
       if (!found_props) {
         continue;
       }
@@ -774,9 +771,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
                                                .props = FromMap(found_props.value())});
 
       ++sample_counter;
-      // TODO(gvolfing) -VERIFY- is it safe to check against an optional
-      // like that? if it is std::nullopt the ScanVertices should return
-      // all of the vertices in the shard.
       if (sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.

@@ -27,15 +27,6 @@
 
 namespace memgraph::msgs {
 
-// TODO(gvolfing) introduce structure for property updates
-// TODO(gvolfing) remove tuples from ExpandOne and add specific structs instead
-
-// TODO(gvolfing) discuss with kostas:
-//  - EdgeId
-//  - Everything about ExpandOne
-//  - Edge properties
-//  - Ctors
-
 using coordinator::Hlc;
 using storage::v3::LabelId;
 
@@ -56,11 +47,6 @@ inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
-
-// struct PropertyUpdate{
-//   PropertyId id;
-//   Value value;
-// };
 
 struct EdgeType {
   uint64_t id;
