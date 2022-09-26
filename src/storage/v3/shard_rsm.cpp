@@ -323,8 +323,6 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
     };
   }
 
-  memgraph::msgs::ExpandOneResultRow current_row;
-
   /// Fill up source vertex
   auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), memgraph::storage::v3::View::OLD);
 
@@ -370,30 +368,6 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
     // Set one of the options to the actual datastructure and the otherone to nullopt
     SetFinalEdgeProperties<AllEdgePropertiesVector, SpecificEdgePropertiesVector>(
         edges_with_all_properties, edges_with_specific_properties, ret_out, ret_in, req);
-
-    // switch (req.direction) {
-    //   case memgraph::msgs::EdgeDirection::OUT: {
-    //     edges_with_all_properties = ret_out;
-    //     break;
-    //   }
-    //   case memgraph::msgs::EdgeDirection::IN: {
-    //     edges_with_all_properties = ret_in;
-    //     break;
-    //   }
-    //   case memgraph::msgs::EdgeDirection::BOTH: {
-    //     std::vector<
-    //         std::tuple<memgraph::msgs::VertexId, memgraph::msgs::Gid, std::map<PropertyId, memgraph::msgs::Value>>>
-    //         ret;
-    //     ret.resize(ret_out.size() + ret_in.size());
-    //     ret.insert(ret.end(), ret_in.begin(), ret_in.end());
-    //     ret.insert(ret.end(), ret_out.begin(), ret_out.end());
-
-    //     edges_with_all_properties = ret;
-    //     break;
-    //   }
-    // }
-    // edges_with_specific_properties = {};
-
   } else {
     // when user specifies specific properties, it's enough to return just a vector
     auto ret_in_opt =
