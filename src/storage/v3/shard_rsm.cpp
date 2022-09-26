@@ -127,8 +127,8 @@ std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
     memgraph::msgs::VertexId src_vertex) {
   auto secondary_labels = v_acc->Labels(memgraph::storage::v3::View::OLD);
   if (secondary_labels.HasError()) {
-    spdlog::debug(&"Encountered an error while trying to get the secondary labels of a vertex. Transaction id: "
-                      [req.transaction_id.logical_id]);
+    spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
+                  req.transaction_id.logical_id);
     return std::nullopt;
   }
 
@@ -148,9 +148,8 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
   if (!req.src_vertex_properties) {
     auto props = v_acc->Properties(memgraph::storage::v3::View::OLD);
     if (props.HasError()) {
-      spdlog::debug(
-          &"Encountered an error while trying to access vertex properties. Transaction id: "[req.transaction_id
-                                                                                                 .logical_id]);
+      spdlog::debug("Encountered an error while trying to access vertex properties. Transaction id: {}",
+                    req.transaction_id.logical_id);
       return std::nullopt;
     }
 
@@ -179,9 +178,8 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
     case memgraph::msgs::EdgeDirection::OUT: {
       auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
       if (out_edges_result.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                      .logical_id]);
+        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
         return std::nullopt;
       }
       out_edges = out_edges_result.GetValue();
@@ -191,8 +189,8 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
       if (in_edges_result.HasError()) {
         spdlog::debug(
-            &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                     .logical_id]);
+            "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
+                                                                                                      .logical_id]);
         return std::nullopt;
       }
       in_edges = in_edges_result.GetValue();
@@ -201,18 +199,16 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
     case memgraph::msgs::EdgeDirection::BOTH: {
       auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
       if (in_edges_result.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to get in-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                     .logical_id]);
+        spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
         return std::nullopt;
       }
       in_edges = in_edges_result.GetValue();
 
       auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
       if (out_edges_result.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                      .logical_id]);
+        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
         return std::nullopt;
       }
       out_edges = out_edges_result.GetValue();
@@ -234,9 +230,8 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       std::map<PropertyId, memgraph::msgs::Value> ret;
       auto property_results = edge.Properties(memgraph::storage::v3::View::OLD);
       if (property_results.HasError()) {
-        spdlog::debug(
-            &"Encountered an error while trying to get out-going EdgeAccessors. Transaction id: "[req.transaction_id
-                                                                                                      .logical_id]);
+        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
         return LocalError{};
       }
 
@@ -527,9 +522,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     auto vertex_to_update = acc.FindVertex(ConvertPropertyVector(std::move(vertex.primary_key)), View::OLD);
     if (!vertex_to_update) {
       action_successful = false;
-      spdlog::debug(
-          &"Vertex could not be found while trying to update its properties. Transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+      spdlog::debug("Vertex could not be found while trying to update its properties. Transaction id: {}",
+                    req.transaction_id.logical_id);
       continue;
     }
 
@@ -635,7 +629,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
 
     if (edge_acc.HasError()) {
       action_successful = false;
-      spdlog::debug(&"Creating edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
 
@@ -645,7 +639,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
         auto set_result = edge_acc->SetProperty(edge_prop_key, ToPropertyValue(std::move(edge_prop_val)));
         if (set_result.HasError()) {
           action_successful = false;
-          spdlog::debug(&"Adding property to edge was not successful. Transaction id: "[req.transaction_id.logical_id]);
+          spdlog::debug("Adding property to edge was not successful. Transaction id: {}",
+                        req.transaction_id.logical_id);
           break;
         }
       }
@@ -668,7 +663,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
                                    VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second))),
                                    Gid::FromUint(edge.id.gid));
     if (edge_acc.HasError() || !edge_acc.HasValue()) {
-      spdlog::debug(&"Error while trying to delete edge. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Error while trying to delete edge. Transaction id: {}", req.transaction_id.logical_id);
       action_successful = false;
       continue;
     }
@@ -690,9 +685,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     auto vertex_acc = acc.FindVertex(ConvertPropertyVector(std::move(edge.src.second)), View::OLD);
     if (!vertex_acc) {
       action_successful = false;
-      spdlog::debug(
-          &"Encountered an error while trying to acquire VertexAccessor with transaction id: "[req.transaction_id
-                                                                                                   .logical_id]);
+      spdlog::debug("Encountered an error while trying to acquire VertexAccessor with transaction id: {}",
+                    req.transaction_id.logical_id);
       continue;
     }
 
@@ -701,9 +695,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     auto edges_res = vertex_acc->OutEdges(View::OLD);
     if (edges_res.HasError()) {
       action_successful = false;
-      spdlog::debug(
-          &"Encountered an error while trying to acquire EdgeAccessor with transaction id: "[req.transaction_id
-                                                                                                 .logical_id]);
+      spdlog::debug("Encountered an error while trying to acquire EdgeAccessor with transaction id: {}",
+                    req.transaction_id.logical_id);
       continue;
     }
 
@@ -719,8 +712,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
           // Check if the property was set if SetProperty does not do that itself.
           auto res = edge_accessor.SetProperty(key, ToPropertyValue(std::move(value)));
           if (res.HasError()) {
-            spdlog::debug(&"Encountered an error while trying to set the property of an Edge with transaction id: "
-                              [req.transaction_id.logical_id]);
+            spdlog::debug("Encountered an error while trying to set the property of an Edge with transaction id: {}",
+                          req.transaction_id.logical_id);
           }
         }
       }
@@ -728,7 +721,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
 
     if (!edge_accessor_did_match) {
       action_successful = false;
-      spdlog::debug(&"Could not find the Edge with the specified Gid. Transaction id: "[req.transaction_id.logical_id]);
+      spdlog::debug("Could not find the Edge with the specified Gid. Transaction id: {}",
+                    req.transaction_id.logical_id);
       continue;
     }
   }
