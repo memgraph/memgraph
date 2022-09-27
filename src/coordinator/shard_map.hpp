@@ -63,6 +63,7 @@ using LabelName = std::string;
 using PropertyName = std::string;
 using EdgeTypeName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
+using EdgeTypeIdMap = std::map<EdgeTypeName, EdgeTypeId>;
 
 struct ShardToInitialize {
   boost::uuids::uuid uuid;
@@ -84,6 +85,7 @@ struct LabelSpace {
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id{kNotExistingId};
+  uint64_t max_edge_type_id{kNotExistingId};
   std::map<PropertyName, PropertyId> properties;
   std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
@@ -306,6 +308,31 @@ struct ShardMap {
         const PropertyId property_id = PropertyId::FromUint(++max_property_id);
         ret.emplace(property_name, property_id);
         properties.emplace(property_name, property_id);
+      }
+    }
+
+    if (mutated) {
+      IncrementShardMapVersion();
+    }
+
+    return ret;
+  }
+
+  EdgeTypeIdMap AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new_edge_types) {
+    EdgeTypeIdMap ret;
+
+    bool mutated = false;
+
+    for (const auto &edge_type_name : new_edge_types) {
+      if (edge_types.contains(edge_type_name)) {
+        auto edge_type_id = edge_types.at(edge_type_name);
+        ret.emplace(edge_type_name, edge_type_id);
+      } else {
+        mutated = true;
+
+        const EdgeTypeId edge_type_id = EdgeTypeId::FromUint(++max_edge_type_id);
+        ret.emplace(edge_type_name, edge_type_id);
+        edge_types.emplace(edge_type_name, edge_type_id);
       }
     }
 
