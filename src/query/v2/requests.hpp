@@ -47,6 +47,7 @@ inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
+using EdgeTypeId = memgraph::storage::v3::EdgeTypeId;
 
 struct EdgeType {
   uint64_t id;

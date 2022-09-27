@@ -520,7 +520,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   FType<Or<Null, Edge>>("type", args, nargs);
   auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(static_cast<int64_t>(args[0].ValueEdge().EdgeType()), ctx.memory);
+  return TypedValue(args[0].ValueEdge().EdgeType().AsInt(), ctx.memory);
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {

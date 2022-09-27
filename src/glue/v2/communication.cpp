@@ -97,16 +97,14 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::acces
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
   auto to = communication::bolt::Id::FromUint(0);
-  // const auto &type = shard_map.EdgeTypeToName(edge.EdgeType());
-  // auto maybe_properties = edge.Properties(view);
-  // if (maybe_properties.HasError()) return maybe_properties.GetError();
-  // std::map<std::string, Value> properties;
-  // for (const auto &prop : *maybe_properties) {
-  //   properties[shard_map.GetPropertyName(prop.first)] = *ToBoltValue(prop.second);
-  // }
-  // return communication::bolt::Edge{id, from, to, type, properties};
-  throw utils::BasicException("sasas");
-  // return communication::bolt::Edge{id, from, to, };
+  const auto &type = shard_map.GetEdgeTypeName(edge.EdgeType());
+
+  auto properties = edge.Properties();
+  std::map<std::string, Value> new_properties;
+  for (const auto &[prop, property_value] : properties) {
+    new_properties[shard_map.GetPropertyName(prop)] = ToBoltValue(property_value);
+  }
+  return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
 storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path &edge,
