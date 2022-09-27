@@ -27,7 +27,6 @@
 #include <machine_manager/machine_manager.hpp>
 #include "common/types.hpp"
 #include "exceptions.hpp"
-#include "expr/semantic/symbol_generator.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
@@ -36,6 +35,7 @@
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/eval.hpp"
 #include "storage/v3/bindings/frame.hpp"
+#include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/id_types.hpp"
