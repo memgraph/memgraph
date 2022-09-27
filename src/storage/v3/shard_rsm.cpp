@@ -55,7 +55,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
   return ret;
 }
 
-std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
+std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc, const std::vector<memgraph::storage::v3::PropertyId> &props,
     memgraph::storage::v3::View view) {
   std::map<PropertyId, Value> ret;
@@ -64,12 +64,12 @@ std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
     auto result = acc.GetProperty(prop, view);
     if (result.HasError()) {
       spdlog::debug("Encountered an Error while trying to get a vertex property.");
-      continue;
+      return std::nullopt;
     }
     auto &value = result.GetValue();
     if (value.IsNull()) {
       spdlog::debug("The specified property does not exist but it should");
-      continue;
+      return std::nullopt;
     }
     ret.emplace(std::make_pair(prop, ToValue(value)));
   }
@@ -83,6 +83,7 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
   auto iter = acc.Properties(view);
   if (iter.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex properties.");
+    return std::nullopt;
   }
 
   for (const auto &[prop_key, prop_val] : iter.GetValue()) {
@@ -141,7 +142,7 @@ std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
   source_vertex.id = src_vertex;
   source_vertex.labels.reserve(secondary_labels.GetValue().size());
   for (auto label_id : secondary_labels.GetValue()) {
-    source_vertex.labels.push_back({.id = label_id});
+    source_vertex.labels.emplace_back(memgraph::msgs::Label{.id = label_id});
   }
   return source_vertex;
 }
@@ -187,7 +188,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = out_edges_result.GetValue();
+      out_edges = std::move(out_edges_result.GetValue());
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
@@ -198,7 +199,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                                                                                                       .logical_id]);
         return std::nullopt;
       }
-      in_edges = in_edges_result.GetValue();
+      in_edges = std::move(in_edges_result.GetValue());
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
@@ -208,7 +209,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      in_edges = in_edges_result.GetValue();
+      in_edges = std::move(in_edges_result.GetValue());
 
       auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
       if (out_edges_result.HasError()) {
@@ -216,7 +217,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = out_edges_result.GetValue();
+      out_edges = std::move(out_edges_result.GetValue());
       break;
     }
   }
@@ -260,8 +261,7 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
     auto edge_props = std::get<EdgePropertyDataStructure>(edge_props_var);
     memgraph::msgs::Gid gid = edge.Gid().AsUint();
 
-    ret_tuple = {other_vertex, gid, edge_props};
-    ret.push_back(ret_tuple);
+    ret.emplace_back(EdgeProperties{other_vertex, gid, edge_props});
   }
 
   return ret;
@@ -273,18 +273,18 @@ void SetFinalEdgeProperties(std::optional<PropertyValueT> &properties_to_value,
                             const PropertyValueT &ret_in, const memgraph::msgs::ExpandOneRequest &req) {
   switch (req.direction) {
     case memgraph::msgs::EdgeDirection::OUT: {
-      properties_to_value = ret_out;
+      properties_to_value = std::move(ret_out);
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
-      properties_to_value = ret_in;
+      properties_to_value = std::move(ret_in);
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
       PropertyValueT ret;
       ret.resize(ret_out.size() + ret_in.size());
-      ret.insert(ret.end(), ret_in.begin(), ret_in.end());
-      ret.insert(ret.end(), ret_out.begin(), ret_out.end());
+      ret.insert(ret.end(), std::make_move_iterator(ret_in.begin()), std::make_move_iterator(ret_in.end()));
+      ret.insert(ret.end(), std::make_move_iterator(ret_out.begin()), std::make_move_iterator(ret_out.end()));
 
       properties_to_value = ret;
       break;
@@ -322,7 +322,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       ret.reserve(req.edge_properties.value().size());
       for (const auto &edge_prop : req.edge_properties.value()) {
         // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.push_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::OLD).GetValue()));
+        ret.emplace_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::OLD).GetValue()));
       }
       return ret;
     };
@@ -370,11 +370,9 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
     auto &ret_in = *ret_in_opt;
     auto &ret_out = *ret_out_opt;
 
-    // Set one of the options to the actual datastructure and the otherone to nullopt
     SetFinalEdgeProperties<AllEdgePropertiesVector, SpecificEdgePropertiesVector>(
         edges_with_all_properties, edges_with_specific_properties, ret_out, ret_in, req);
   } else {
-    // when user specifies specific properties, it's enough to return just a vector
     auto ret_in_opt =
         GetEdgesWithProperties<SpecificEdgePropertiesVector, SpecificEdgeProperties, SpecificEdgePropertyDataSructure>(
             in_edges, req, get_edge_properties);
@@ -392,16 +390,15 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
     auto &ret_in = *ret_in_opt;
     auto &ret_out = *ret_out_opt;
 
-    // Set one of the options to the actual datastructure and the otherone to nullopt
-
     SetFinalEdgeProperties<SpecificEdgePropertiesVector, AllEdgePropertiesVector>(
         edges_with_specific_properties, edges_with_all_properties, ret_out, ret_in, req);
   }
 
-  return memgraph::msgs::ExpandOneResultRow{.src_vertex = *source_vertex,
-                                            .src_vertex_properties = src_vertex_properties,
-                                            .edges_with_all_properties = edges_with_all_properties,
-                                            .edges_with_specific_properties = edges_with_specific_properties};
+  return memgraph::msgs::ExpandOneResultRow{
+      .src_vertex = std::move(*source_vertex),
+      .src_vertex_properties = std::move(src_vertex_properties),
+      .edges_with_all_properties = std::move(edges_with_all_properties),
+      .edges_with_specific_properties = std::move(edges_with_specific_properties)};
 }
 
 }  // namespace
@@ -708,7 +705,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       std::optional<std::map<PropertyId, Value>> found_props;
 
       if (req.props_to_return) {
-        found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
@@ -717,7 +714,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       // Vertex is seperated from the properties in the response.
       // Is it useful to return just a vertex without the properties?
       if (!found_props) {
-        continue;
+        action_successful = false;
+        break;
       }
 
       results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
