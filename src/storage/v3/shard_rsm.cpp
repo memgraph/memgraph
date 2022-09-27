@@ -267,7 +267,7 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
   return ret;
 }
 
-template <typename PropertyValueT, typename PropertyNulloptT>
+template <typename TPropertyValue, typename TPropertyNullopt>
 void SetFinalEdgeProperties(std::optional<PropertyValueT> &properties_to_value,
                             std::optional<PropertyNulloptT> &properties_to_nullopt, const PropertyValueT &ret_out,
                             const PropertyValueT &ret_in, const memgraph::msgs::ExpandOneRequest &req) {
