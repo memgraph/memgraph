@@ -235,13 +235,13 @@ for dataset, tests in benchmarks:
             "queries/second.",
         )
     print()
-    print(
-        "The database used",
-        usage["cpu"],
-        "seconds of CPU time and peaked at",
-        usage["memory"] / 1024 / 1024,
-        "MiB of RAM.",
-    )
+    # print(
+    #     "The database used",
+    #     usage["cpu"],
+    #     "seconds of CPU time and peaked at",
+    #     usage["memory"] / 1024 / 1024,
+    #     "MiB of RAM.",
+    # )
 
     # Save import results.
     import_key = [dataset.NAME, dataset.get_variant(), "__import__"]

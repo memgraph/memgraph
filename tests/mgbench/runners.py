@@ -9,13 +9,16 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from asyncio.subprocess import PIPE, STDOUT
 import atexit
 import json
 import os
 import re
 import subprocess
+from sys import stdout
 import tempfile
 import time
+from traceback import print_exc
 
 
 def wait_for_server(port, delay=0.1):
@@ -37,17 +40,17 @@ def _convert_args_to_flags(*args, **kwargs):
     return flags
 
 
-def _get_usage(pid):
-    total_cpu = 0
-    with open("/proc/{}/stat".format(pid)) as f:
-        total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-    peak_rss = 0
-    with open("/proc/{}/status".format(pid)) as f:
-        for row in f:
-            tmp = row.split()
-            if tmp[0] == "VmHWM:":
-                peak_rss = int(tmp[1]) * 1024
-    return {"cpu": total_cpu, "memory": peak_rss}
+# def _get_usage(pid):
+#     total_cpu = 0
+#     with open("/proc/{}/stat".format(pid)) as f:
+#         total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+#     peak_rss = 0
+#     with open("/proc/{}/status".format(pid)) as f:
+#         for row in f:
+#             tmp = row.split()
+#             if tmp[0] == "VmHWM:":
+#                 peak_rss = int(tmp[1]) * 1024
+#     return {"cpu": total_cpu, "memory": peak_rss}
 
 
 class Memgraph:
@@ -123,12 +126,11 @@ class Memgraph:
 
 
 class Neo4j:
-    def __init__(self, neo4j_binary, temporary_dir, bolt_port, config):
+    def __init__(self, neo4j_binary, temporary_dir, bolt_port):
         self._neo4j_binary = neo4j_binary
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._proc_neo4j = None
         self._bolt_port = bolt_port
-        self._config = config
         atexit.register(self._cleanup)
 
     def __del__(self):
@@ -137,31 +139,41 @@ class Neo4j:
 
     def _get_args(self, **kwargs):
         #kwargs["bolt_port"] = self._bolt_port
-        return _convert_args_to_flags(self._neo4j_binary,"start","--verbose",  **kwargs)
+        return _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
 
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:
             raise Exception("The database process is already running!")
         args = self._get_args(**kwargs)
-        self._proc_neo4j = subprocess.run(args, capture_output=True, timeout=10, check=True)
-        
-        # #self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
-        # time.sleep(10)
-        # if self._proc_neo4j.returncode != 0: 
-        #     self._proc_neo4j = None
-        #     raise Exception("The database process died prematurely!")
+        self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
+        time.sleep(10)
+        print(self._proc_neo4j.poll())
+        if self._proc_neo4j.poll() != 0: 
+            self._proc_neo4j = None
+            raise Exception("The database process died prematurely!")
         wait_for_server(self._bolt_port)
-        # ret = self._proc_neo4j.poll()
-        # assert ret is None, "The database process died prematurely " "({})!".format(ret)
+        ret = self._proc_neo4j.poll()
+        assert ret == 0, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
         if self._proc_neo4j is None:
             return 0
-        usage = _get_usage(self._proc_neo4j.pid)
-        self._proc_neo4j.terminate()
-        ret = self._proc_neo4j.wait()
-        self._proc_neo4j = None
-        return ret, usage
+        print("Clean up: " + str(self._proc_neo4j.pid))
+        #usage = _get_usage(self._proc_neo4j.pid)
+        try:
+            args=list()
+            args.append(self._neo4j_binary)
+            args.append("stop")
+            exit_proc = subprocess.Popen(args, stdout=subprocess.PIPE)
+            time.sleep(5)
+            print(exit_proc.poll())
+        except:
+            print_exc()
+            self._proc_neo4j.terminate()
+            ret = self._proc_neo4j.wait()
+            self._proc_neo4j = None
+        #return ret, usage
+        return ret
 
     def start_preparation(self):
         self._start()
@@ -214,7 +226,7 @@ class Client:
             password=self._password,
             port=self._bolt_port,
         )
-        ret = subprocess.run(args, stdout=subprocess.PIPE, check=True)
+        ret = subprocess.run(args, capture_output=True, check=True)
         data = ret.stdout.decode("utf-8").strip().split("\n")
         # data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
