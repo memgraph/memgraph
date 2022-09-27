@@ -13,6 +13,9 @@
 #include <utility>
 
 #include "query/v2/requests.hpp"
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
@@ -76,7 +79,8 @@ std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
 }
 
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
-    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
+    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view,
+    const memgraph::storage::v3::Schemas::Schema *schema) {
   std::map<PropertyId, Value> ret;
   auto props = acc.Properties(view);
   if (props.HasError()) {
@@ -86,14 +90,15 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
     ret.emplace(prop_key, ToValue(prop_val));
   }
 
-  auto pk = acc.PrimaryKey(view);
-  if (pk.HasError()) {
+  auto maybe_pk = acc.PrimaryKey(view);
+  if (maybe_pk.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
   }
-  // TODO Get primary key id
-  // TODO On shard initialization or change a call StoreMapping
-  for (const auto &prop_val : pk.GetValue()) {
-    ret.emplace(PropertyId::FromInt(1), ToValue(prop_val));
+
+  const auto pk = maybe_pk.GetValue();
+  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    ret.emplace(schema->second[i].property_id, ToValue(pk[i]));
   }
 
   return ret;
@@ -125,10 +130,6 @@ namespace memgraph::storage::v3 {
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
-  // Workaround untill we have access to CreateVertexAndValidate()
-  // with the new signature that does not require the primary label.
-  const auto prim_label = acc.GetPrimaryLabel();
-
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
@@ -147,10 +148,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     for (const auto &label_id : new_vertex.label_ids) {
       converted_label_ids.emplace_back(label_id.id);
     }
-
-    auto result_schema =
-        acc.CreateVertexAndValidate(prim_label, converted_label_ids,
-                                    ConvertPropertyVector(std::move(new_vertex.primary_key)), converted_property_map);
+    // TODO(jbajic) sending primary key as vector breaks validation on storage side
+    // cannot map id -> value
+    PrimaryKey transformed_pk;
+    std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
+                   [](const auto &val) { return ToPropertyValue(val); });
+    auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -279,10 +282,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     if (did_reach_starting_point) {
       std::optional<std::map<PropertyId, Value>> found_props;
 
+      const auto *const schema = shard_->GetSchema(shard_->PrimaryLabel());
       if (req.props_to_return) {
         found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view);
+        found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
       }
 
       results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,

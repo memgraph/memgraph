@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v3/result.hpp"
 #include "storage/v3/shard.hpp"
 
 namespace memgraph::storage::v3 {
@@ -82,13 +83,13 @@ class DbAccessor final {
   }
 
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
-      const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
-      const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
-    auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(primary_label, labels, properties);
-    if (maybe_vertex_acc.HasError()) {
-      return {std::move(maybe_vertex_acc.GetError())};
-    }
-    return VertexAccessor{maybe_vertex_acc.GetValue()};
+      const storage::v3::LabelId /*primary_label*/, const std::vector<storage::v3::LabelId> & /*labels*/,
+      const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> & /*properties*/) {
+    // auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(labels, properties);
+    // if (maybe_vertex_acc.HasError()) {
+    //   return {std::move(maybe_vertex_acc.GetError())};
+    // }
+    return {Error::DELETED_OBJECT};
   }
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,

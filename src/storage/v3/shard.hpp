@@ -210,12 +210,7 @@ class Shard final {
 
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
-        LabelId primary_label, const std::vector<LabelId> &labels,
-        const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
-
-    /// @throw std::bad_alloc
-    ResultSchema<VertexAccessor> CreateVertexAndValidate(
-        LabelId primary_label, const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
+        const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
@@ -340,6 +335,8 @@ class Shard final {
   const std::string &PropertyToName(PropertyId property) const;
 
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
+
+  LabelId PrimaryLabel() const;
 
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
