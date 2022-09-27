@@ -134,7 +134,7 @@ struct ShardMap {
                   .label_id = label_id,
                   .min_key = low_key,
                   .max_key = std::nullopt,
-                  .schema = label_space.schema,
+                  .schema = schemas[label_id],
                   .config = Config{},
               });
             }
@@ -147,13 +147,12 @@ struct ShardMap {
           // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
           address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
 
-          ret.push_back(ShardToInitialize{
-              .uuid = address.unique_id,
-              .label_id = label_id,
-              .min_key = low_key,
-              .max_key = std::nullopt,
-              .config = Config{},
-          });
+          ret.push_back(ShardToInitialize{.uuid = address.unique_id,
+                                          .label_id = label_id,
+                                          .min_key = low_key,
+                                          .max_key = std::nullopt,
+                                          .schema = schemas[label_id],
+                                          .config = Config{}});
 
           AddressAndStatus aas = {
               .address = address,

@@ -72,7 +72,6 @@
 #include "utils/settings.hpp"
 #include "utils/signals.hpp"
 #include "utils/string.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
@@ -678,7 +677,6 @@ int main(int argc, char **argv) {
       .listen_port = unique_local_addr_query.last_known_port,
   };
 
-  auto *shard = (memgraph::storage::v3::Shard *)(nullptr);
   memgraph::coordinator::ShardMap sm;
   auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{"property"});
   auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"edge_type"});

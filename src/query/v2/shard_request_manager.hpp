@@ -260,7 +260,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       auto primary_key = state.requests[id].new_vertices[0].primary_key;
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
       WriteRequests req = state.requests[id];
-      auto ladaksd = std::get<CreateVerticesRequest>(req);
       auto write_response_result = storage_client.SendWriteRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
