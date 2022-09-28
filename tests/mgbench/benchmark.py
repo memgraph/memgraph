@@ -148,6 +148,12 @@ parser.add_argument("--no-properties-on-edges", action="store_true", help="disab
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 args = parser.parse_args()
 
+parser.add_argument(
+    "--neo4j-binary", 
+    default=None,
+    help="Neo4j binary used for benchmarks"
+    )
+
 # Detect available datasets.
 generators = {}
 for key in dir(datasets):
@@ -201,25 +207,25 @@ for dataset, tests in benchmarks:
     dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
     # Prepare runners and import the dataset.
-    # memgraph = runners.Memgraph(
-    #     args.memgraph_binary,
-    #     args.temporary_directory,
-    #     not args.no_properties_on_edges,
-    #     args.bolt_port,
-    # )
-    neo4j = runners.Neo4j(
-        args.memgraph_binary, 
-        args.temporary_directory, 
-        args.bolt_port, 
-        "config/path"
-        )
+    vendor = runners.Memgraph(
+        args.memgraph_binary,
+        args.temporary_directory,
+        not args.no_properties_on_edges,
+        args.bolt_port,
+    )
+    # vendor = runners.Neo4j(
+    #     args.memgraph_binary, 
+    #     args.temporary_directory, 
+    #     args.bolt_port, 
+    #     )
  
-    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port, username="neo4j", password="test")
-    #memgraph.start_preparation()
-    neo4j.start_preparation()
+    client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
+    vendor.start_preparation()
+    # client.execute(queries=[
+    #     ("DROP INDEX ON:User(id)", {}),
+    # ])
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
-    usage = neo4j.stop()
-
+    usage = vendor.stop()
     # Display import statistics.
     print()
     for row in ret:
@@ -235,13 +241,13 @@ for dataset, tests in benchmarks:
             "queries/second.",
         )
     print()
-    # print(
-    #     "The database used",
-    #     usage["cpu"],
-    #     "seconds of CPU time and peaked at",
-    #     usage["memory"] / 1024 / 1024,
-    #     "MiB of RAM.",
-    # )
+    print(
+        "The database used",
+        usage["cpu"],
+        "seconds of CPU time and peaked at",
+        usage["memory"] / 1024 / 1024,
+        "MiB of RAM.",
+    )
 
     # Save import results.
     import_key = [dataset.NAME, dataset.get_variant(), "__import__"]
@@ -251,9 +257,9 @@ for dataset, tests in benchmarks:
 
     # Run all benchmarks in all available groups.
 
-    for with_fine_grained_authorization in [False, True]:
+    for with_fine_grained_authorization in [False]:
         if with_fine_grained_authorization:
-            memgraph.start_preparation()
+            vendor.start_preparation()
             client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
             client.execute(
                 queries=[
@@ -270,7 +276,7 @@ for dataset, tests in benchmarks:
                 username="user",
                 password="test",
             )
-            memgraph.stop()
+            vendor.stop()
 
         test_type = (
             WITH_FINE_GRAINED_AUTHORIZATION if with_fine_grained_authorization else WITHOUT_FINE_GRAINED_AUTHORIZATION
@@ -292,7 +298,7 @@ for dataset, tests in benchmarks:
                         "seconds of single-threaded runtime...",
                     )
                     # First run to prime the query caches.
-                    memgraph.start_benchmark()
+                    vendor.start_benchmark()
                     client.execute(queries=get_queries(func, 1), num_workers=1)
                     # Get a sense of the runtime.
                     count = 1
@@ -314,7 +320,7 @@ for dataset, tests in benchmarks:
                             break
                         else:
                             count = count * 10
-                    memgraph.stop()
+                    vendor.stop()
                     config.set_value(
                         *config_key,
                         value={
@@ -346,12 +352,12 @@ for dataset, tests in benchmarks:
                     args.num_workers_for_benchmark,
                     "concurrent clients.",
                 )
-                memgraph.start_benchmark()
+                vendor.start_benchmark()
                 ret = client.execute(
                     queries=get_queries(func, count),
                     num_workers=args.num_workers_for_benchmark,
                 )[0]
-                usage = memgraph.stop()
+                usage = vendor.stop()
                 ret["database"] = usage
 
                 # Output summary.

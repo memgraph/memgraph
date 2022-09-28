@@ -14,11 +14,13 @@ import atexit
 import json
 import os
 import re
+from shutil import ExecError
 import subprocess
 from sys import stdout
 import tempfile
 import time
 from traceback import print_exc
+from pathlib import Path
 
 
 def wait_for_server(port, delay=0.1):
@@ -40,17 +42,17 @@ def _convert_args_to_flags(*args, **kwargs):
     return flags
 
 
-# def _get_usage(pid):
-#     total_cpu = 0
-#     with open("/proc/{}/stat".format(pid)) as f:
-#         total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
-#     peak_rss = 0
-#     with open("/proc/{}/status".format(pid)) as f:
-#         for row in f:
-#             tmp = row.split()
-#             if tmp[0] == "VmHWM:":
-#                 peak_rss = int(tmp[1]) * 1024
-#     return {"cpu": total_cpu, "memory": peak_rss}
+def _get_usage(pid):
+    total_cpu = 0
+    with open("/proc/{}/stat".format(pid)) as f:
+        total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+    peak_rss = 0
+    with open("/proc/{}/status".format(pid)) as f:
+        for row in f:
+            tmp = row.split()
+            if tmp[0] == "VmHWM:":
+                peak_rss = int(tmp[1]) * 1024
+    return {"cpu": total_cpu, "memory": peak_rss}
 
 
 class Memgraph:
@@ -126,8 +128,12 @@ class Memgraph:
 
 
 class Neo4j:
-    def __init__(self, neo4j_binary, temporary_dir, bolt_port):
-        self._neo4j_binary = neo4j_binary
+    def __init__(self, neo4j_path, temporary_dir, bolt_port):
+        self._neo4j_path = Path(neo4j_path)
+        self._neo4j_binary = Path(neo4j_path)/"bin"/"neo4j"
+        self._neo4j_config = Path(neo4j_path)/"config"/"neo4j.conf"
+        if not self._neo4j_binary.is_file():
+            raise Exception("Wrong path to binary!")  
         self._directory = tempfile.TemporaryDirectory(dir=temporary_dir)
         self._proc_neo4j = None
         self._bolt_port = bolt_port
@@ -137,14 +143,14 @@ class Neo4j:
         self._cleanup()
         atexit.unregister(self._cleanup)
 
-    def _get_args(self, **kwargs):
-        #kwargs["bolt_port"] = self._bolt_port
-        return _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
+    # def _get_args(self, **kwargs):
+    #     #kwargs["bolt_port"] = self._bolt_port
+    #     return _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
 
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:
             raise Exception("The database process is already running!")
-        args = self._get_args(**kwargs)
+        args = _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
         self._proc_neo4j = subprocess.Popen(args, stdout=subprocess.PIPE)
         time.sleep(10)
         print(self._proc_neo4j.poll())
@@ -156,24 +162,20 @@ class Neo4j:
         assert ret == 0, "The database process died prematurely " "({})!".format(ret)
 
     def _cleanup(self):
-        if self._proc_neo4j is None:
-            return 0
-        print("Clean up: " + str(self._proc_neo4j.pid))
-        #usage = _get_usage(self._proc_neo4j.pid)
-        try:
+        pid_file = self._neo4j_path/"run"/"neo4j.pid"
+        if pid_file.exists():
+            pid = pid_file.read_text()
+            print("Clean up: " + pid)
+            usage = _get_usage(pid)
             args=list()
             args.append(self._neo4j_binary)
             args.append("stop")
-            exit_proc = subprocess.Popen(args, stdout=subprocess.PIPE)
-            time.sleep(5)
-            print(exit_proc.poll())
-        except:
-            print_exc()
-            self._proc_neo4j.terminate()
-            ret = self._proc_neo4j.wait()
+            exit_proc = subprocess.run(args, capture_output=True, check=True)
             self._proc_neo4j = None
-        #return ret, usage
-        return ret
+            return exit_proc.returncode, usage
+        else:
+            return 0
+        
 
     def start_preparation(self):
         self._start()

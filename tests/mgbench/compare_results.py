@@ -89,6 +89,8 @@ def compare_results(results_from, results_to, fields, ignored):
                         continue
 
                     summary_from = recursive_get(results_from, dataset, variant, group, scenario, value={})
+                    summary_from = summary_from['without_fine_grained_authorization']
+                    summary_to = summary_to['without_fine_grained_authorization']
                     if (
                         len(summary_from) > 0
                         and summary_to["count"] != summary_from["count"]

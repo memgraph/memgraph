@@ -213,32 +213,32 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__shortest_path(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*bfs..15]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
+    # def benchmark__arango__shortest_path(self):
+    #     vertex_from, vertex_to = self._get_random_from_to()
+    #     return (
+    #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+    #         "MATCH p=(n)-[*bfs..15]->(m) "
+    #         "RETURN extract(n in nodes(p) | n.id) AS path",
+    #         {"from": vertex_from, "to": vertex_to},
+    #     )
 
-    def benchmark__arango__shortest_path_with_filter(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
+    # def benchmark__arango__shortest_path_with_filter(self):
+    #     vertex_from, vertex_to = self._get_random_from_to()
+    #     return (
+    #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+    #         "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
+    #         "RETURN extract(n in nodes(p) | n.id) AS path",
+    #         {"from": vertex_from, "to": vertex_to},
+    #     )
 
-    def benchmark__arango__allshortest_paths(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
+    # def benchmark__arango__allshortest_paths(self):
+    #     vertex_from, vertex_to = self._get_random_from_to()
+    #     return (
+    #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+    #         "MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m) "
+    #         "RETURN extract(n in nodes(p) | n.id) AS path",
+    #         {"from": vertex_from, "to": vertex_to},
+    #     )
 
     # Our benchmark queries
 
