@@ -110,8 +110,14 @@ class ShardRequestManagerInterface {
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
   virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
-  virtual memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
-  virtual memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const = 0;
+  // TODO(antaljanosbenjamin): unify the GetXXXId and NameToId functions to have consistent naming, return type and
+  // implementation
+  virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
+  virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
+  virtual storage::v3::LabelId LabelNameToLabelId(const std::string &name) const = 0;
+  virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
+  virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
+  virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
   virtual bool IsPrimaryKey(PropertyId name) const = 0;
 };
 
@@ -171,7 +177,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
     auto commit_timestamp = hlc_response.new_hlc;
 
-    msgs::CommitRequest commit_req{.commit_timestamp = commit_timestamp, .transaction_id = transaction_id_};
+    msgs::CommitRequest commit_req{.transaction_id = transaction_id_, .commit_timestamp = commit_timestamp};
 
     for (const auto &[label, space] : shards_map_.label_spaces) {
       for (const auto &[key, shard] : space.shards) {
@@ -193,12 +199,29 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  memgraph::storage::v3::PropertyId NameToProperty(const std::string &name) const override {
+  storage::v3::EdgeTypeId NameToEdgeType(const std::string & /*name*/) const override {
+    return memgraph::storage::v3::EdgeTypeId::FromUint(0);
+  }
+
+  storage::v3::PropertyId NameToProperty(const std::string &name) const override {
     return *shards_map_.GetPropertyId(name);
   }
 
   memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const override {
     return shards_map_.GetLabelId(name);
+  }
+
+  const std::string &PropertyToName(memgraph::storage::v3::PropertyId /*prop*/) const override {
+    static std::string str{"dummy__prop"};
+    return str;
+  }
+  const std::string &LabelToName(memgraph::storage::v3::LabelId /*label*/) const override {
+    static std::string str{"dummy__label"};
+    return str;
+  }
+  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId /*type*/) const override {
+    static std::string str{"dummy__edgetype"};
+    return str;
   }
 
   bool IsPrimaryKey(const PropertyId name) const override {

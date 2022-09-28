@@ -306,23 +306,6 @@ class DbAccessor final {
     throw std::runtime_error("DbAccessor12");
   }
 
-  // TODO(jbajic) Query engine should have a map of labels, properties and edge
-  // types
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  // storage::v3::PropertyId NameToProperty(const std::string_view name) { throw std::runtime_error("DbAccessor13"); }
-
-  // // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  // storage::v3::LabelId NameToLabel(const std::string_view name) { throw std::runtime_error("DbAccessor14"); }
-
-  // // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  // storage::v3::EdgeTypeId NameToEdgeType(const std::string_view name) { throw std::runtime_error("DbAccessor15"); }
-
-  const std::string &PropertyToName(storage::v3::PropertyId prop) const { throw std::runtime_error("DbAccessor16"); }
-
-  const std::string &LabelToName(storage::v3::LabelId label) const { throw std::runtime_error("DbAccessor17"); }
-
-  const std::string &EdgeTypeToName(storage::v3::EdgeTypeId type) const { throw std::runtime_error("DbAccessor18"); }
-
   void AdvanceCommand() { throw std::runtime_error("DbAccessor19"); }
 
   void Commit() { throw std::runtime_error("DbAccessor20"); }

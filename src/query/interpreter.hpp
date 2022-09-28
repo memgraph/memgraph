@@ -182,9 +182,6 @@ struct InterpreterContext {
   utils::SkipList<QueryCacheEntry> ast_cache;
   utils::SkipList<PlanCacheEntry> plan_cache;
 
-  io::local_transport::LocalSystem local_system;
-  coordinator::Address coordinator_address;
-
   TriggerStore trigger_store;
   utils::ThreadPool after_commit_trigger_pool{1};
 

@@ -36,7 +36,6 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
-#include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
@@ -493,16 +492,8 @@ ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
-  // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
-    // auto *db = context.db_accessor;
-    // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-    // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =
-    // value.IsInt() ? value.ValueInt() : value.ValueDouble(); if (value.IsDouble() && id != value.ValueDouble()) return
-    // std::nullopt; auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_); auto maybe_vertex =
-    // nullptr; if (!maybe_vertex) return std::nullopt;
+  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
     return std::nullopt;
-    // return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllById");
@@ -601,96 +592,6 @@ std::vector<Symbol> ExpandVariable::ModifiedSymbols(const SymbolTable &table) co
   symbols.emplace_back(common_.edge_symbol);
   return symbols;
 }
-
-namespace {
-
-/**
- * Helper function that returns an iterable over
- * <EdgeAtom::Direction, EdgeAccessor> pairs
- * for the given params.
- *
- * @param vertex - The vertex to expand from.
- * @param direction - Expansion direction. All directions (IN, OUT, BOTH)
- *    are supported.
- * @param memory - Used to allocate the result.
- * @return See above.
- */
-auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
-                      const std::vector<storage::v3::EdgeTypeId> &edge_types, utils::MemoryResource *memory) {
-  // wraps an EdgeAccessor into a pair <accessor, direction>
-  auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
-    return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
-                      std::forward<decltype(edges)>(edges));
-  };
-
-  storage::v3::View view = storage::v3::View::OLD;
-  utils::pmr::vector<decltype(wrapper(direction, *vertex.InEdges(view, edge_types)))> chain_elements(memory);
-
-  if (direction != EdgeAtom::Direction::OUT) {
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    if (edges.begin() != edges.end()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
-    }
-  }
-  if (direction != EdgeAtom::Direction::IN) {
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    if (edges.begin() != edges.end()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
-    }
-  }
-
-  // TODO: Investigate whether itertools perform heap allocation?
-  return iter::chain.from_iterable(std::move(chain_elements));
-}
-
-}  // namespace
-
-class ExpandVariableCursor : public Cursor {
- public:
-  ExpandVariableCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), edges_(mem), edges_it_(mem) {}
-
-  bool Pull(Frame & /*frame*/, ExecutionContext & /*context*/) override { return false; }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    edges_.clear();
-    edges_it_.clear();
-  }
-
- private:
-  const ExpandVariable &self_;
-  const UniqueCursorPtr input_cursor_;
-  // bounds. in the cursor they are not optional but set to
-  // default values if missing in the ExpandVariable operator
-  // initialize to arbitrary values, they should only be used
-  // after a successful pull from the input
-  int64_t upper_bound_{-1};
-  int64_t lower_bound_{-1};
-
-  // a stack of edge iterables corresponding to the level/depth of
-  // the expansion currently being Pulled
-  using ExpandEdges = decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN,
-                                                self_.common_.edge_types, utils::NewDeleteResource()));
-
-  utils::pmr::vector<ExpandEdges> edges_;
-  // an iterator indicating the position in the corresponding edges_ element
-  utils::pmr::vector<decltype(edges_.begin()->begin())> edges_it_;
-
-  /**
-   * Performs a single expansion for the current state of this
-   * VariableExpansionCursor.
-   *
-   * @return True if the expansion was a success and this Cursor's
-   * consumer can consume it. False if the expansion failed. In that
-   * case no more expansions are available from the current input
-   * vertex and another Pull from the input cursor should be performed.
-   */
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  bool Expand(Frame & /*frame*/, ExecutionContext & /*context*/) { return false; }
-};
 
 class STShortestPathCursor : public query::v2::plan::Cursor {
  public:
@@ -855,7 +756,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
         return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
       }
     case EdgeAtom::Type::DEPTH_FIRST:
-      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
+      throw QueryRuntimeException("Depth-first search is not supported");
     case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
     case EdgeAtom::Type::SINGLE:
@@ -2510,40 +2411,8 @@ std::unordered_map<std::string, int64_t> CallProcedure::GetAndResetCounters() {
   return ret;
 }
 
-class CallProcedureCursor : public Cursor {
-  const CallProcedure *self_;
-  UniqueCursorPtr input_cursor_;
-  mgp_result result_;
-  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
-  size_t result_signature_size_{0};
-
- public:
-  CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_->input_->MakeCursor(mem)),
-        // result_ needs to live throughout multiple Pull evaluations, until all
-        // rows are produced. Therefore, we use the memory dedicated for the
-        // whole execution.
-        result_(nullptr, mem) {
-    MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
-  }
-
-  bool Pull(Frame & /*frame*/, ExecutionContext & /*context*/) override { return false; }
-
-  void Reset() override {
-    result_.rows.clear();
-    result_.error_msg.reset();
-    input_cursor_->Reset();
-  }
-
-  void Shutdown() override {}
-};
-
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
-  CallProcedure::IncrementCounter(procedure_name_);
-
-  return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
+  throw QueryRuntimeException("Procedure call is not supported!");
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,

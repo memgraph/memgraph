@@ -49,8 +49,6 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/interpreter.hpp"
 #include "query/v2/plan/operator.hpp"
-#include "query/v2/procedure/module.hpp"
-#include "query/v2/procedure/py_module.hpp"
 #include "requests/requests.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/isolation_level.hpp"
@@ -301,13 +299,6 @@ DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_h
 });
 
 namespace {
-memgraph::storage::v3::IsolationLevel ParseIsolationLevel() {
-  const auto isolation_level =
-      StringToEnum<memgraph::storage::v3::IsolationLevel>(FLAGS_isolation_level, isolation_level_mappings);
-  MG_ASSERT(isolation_level, "Invalid isolation level");
-  return *isolation_level;
-}
-
 int64_t GetMemoryLimit() {
   if (FLAGS_memory_limit == 0) {
     auto maybe_total_memory = memgraph::utils::sysinfo::TotalMemory();
@@ -327,30 +318,6 @@ int64_t GetMemoryLimit() {
   return FLAGS_memory_limit * 1024 * 1024;
 }
 }  // namespace
-
-namespace {
-std::vector<std::filesystem::path> query_modules_directories;
-}  // namespace
-DEFINE_VALIDATED_string(query_modules_directory, "",
-                        "Directory where modules with custom query procedures are stored. "
-                        "NOTE: Multiple comma-separated directories can be defined.",
-                        {
-                          query_modules_directories.clear();
-                          if (value.empty()) return true;
-                          const auto directories = memgraph::utils::Split(value, ",");
-                          for (const auto &dir : directories) {
-                            if (!memgraph::utils::DirExists(dir)) {
-                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
-                              std::cout << dir << " is not a directory." << std::endl;
-                              return false;
-                            }
-                          }
-                          query_modules_directories.reserve(directories.size());
-                          std::transform(directories.begin(), directories.end(),
-                                         std::back_inserter(query_modules_directories),
-                                         [](const auto &dir) { return dir; });
-                          return true;
-                        });
 
 // Logging flags
 DEFINE_bool(also_log_to_stderr, false, "Log messages go to stderr in addition to logfiles");
@@ -659,11 +626,6 @@ int main(int argc, char **argv) {
   // audit logging is destructed it syncs all pending data to disk and that can
   // fail. That is why it must be destructed *after* the main database storage
   // to minimise the impact of their failure on the main storage.
-
-  // Main storage and execution engines initialization
-  memgraph::storage::v3::Config db_config{.gc = {},
-                                          .items = {.properties_on_edges = FLAGS_storage_properties_on_edges},
-                                          .transaction = {.isolation_level = ParseIsolationLevel()}};
 
   memgraph::io::local_transport::LocalSystem ls;
   auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();

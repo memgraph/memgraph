@@ -118,17 +118,6 @@ std::optional<TResult> GetOptionalValue(query::v2::Expression *expression, Expre
   return {};
 };
 
-std::optional<std::string> GetOptionalStringValue(query::v2::Expression *expression, ExpressionEvaluator &evaluator) {
-  if (expression != nullptr) {
-    auto value = expression->Accept(evaluator);
-    MG_ASSERT(value.IsNull() || value.IsString());
-    if (value.IsString()) {
-      return {std::string(value.ValueString().begin(), value.ValueString().end())};
-    }
-  }
-  return {};
-};
-
 class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
  public:
   explicit ReplQueryHandler(storage::v3::Shard * /*db*/) {}
@@ -457,21 +446,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
-}
-
-std::optional<std::string> StringPointerToOptional(const std::string *str) {
-  return str == nullptr ? std::nullopt : std::make_optional(*str);
-}
-
-std::vector<std::string> EvaluateTopicNames(ExpressionEvaluator &evaluator,
-                                            std::variant<Expression *, std::vector<std::string>> topic_variant) {
-  return std::visit(utils::Overloaded{[&](Expression *expression) {
-                                        auto topic_names = expression->Accept(evaluator);
-                                        MG_ASSERT(topic_names.IsString());
-                                        return utils::Split(topic_names.ValueString(), ",");
-                                      },
-                                      [&](std::vector<std::string> topic_names) { return topic_names; }},
-                    std::move(topic_variant));
 }
 
 Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
@@ -958,7 +932,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                  InterpreterContext *interpreter_context, DbAccessor *dba,
+                                  InterpreterContext *interpreter_context,
+                                  msgs::ShardRequestManagerInterface *shard_request_manager,
                                   utils::MemoryResource *execution_memory) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
@@ -983,14 +958,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                         parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, nullptr);
 
   std::stringstream printed_plan;
-  plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
+  plan::PrettyPrint(*shard_request_manager, &cypher_query_plan->plan(), &printed_plan);
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
   }
 
-  summary->insert_or_assign("explain", plan::PlanToJson(*dba, &cypher_query_plan->plan()).dump());
+  summary->insert_or_assign("explain", plan::PlanToJson(*shard_request_manager, &cypher_query_plan->plan()).dump());
 
   return PreparedQuery{{"QUERY PLAN"},
                        std::move(parsed_query.required_privileges),
@@ -1541,7 +1516,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                           &query_execution->notifications, shard_request_manager_.get());
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                           &*execution_db_accessor_, &query_execution->execution_memory_with_exception);
+                                           &*shard_request_manager_, &query_execution->execution_memory_with_exception);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
       prepared_query = PrepareProfileQuery(
           std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
