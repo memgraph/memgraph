@@ -27,6 +27,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "expr/exceptions.hpp"
+#include "query/exceptions.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
@@ -356,15 +357,10 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
-  auto vertices = [this](Frame & /*unused*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabel");
+  throw QueryRuntimeException("ScanAllByLabel is not supported");
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -387,50 +383,10 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
-UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyRangeOperator);
 
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto convert = [&evaluator](const auto &bound) -> std::optional<utils::Bound<storage::v3::PropertyValue>> {
-      if (!bound) return std::nullopt;
-      const auto &value = bound->value()->Accept(evaluator);
-      try {
-        const auto &property_value = storage::v3::TypedToPropertyValue(value);
-        switch (property_value.type()) {
-          case storage::v3::PropertyValue::Type::Bool:
-          case storage::v3::PropertyValue::Type::List:
-          case storage::v3::PropertyValue::Type::Map:
-            // Prevent indexed lookup with something that would fail if we did
-            // the original filter with `operator<`. Note, for some reason,
-            // Cypher does not support comparing boolean values.
-            throw QueryRuntimeException("Invalid type {} for '<'.", value.type());
-          case storage::v3::PropertyValue::Type::Null:
-          case storage::v3::PropertyValue::Type::Int:
-          case storage::v3::PropertyValue::Type::Double:
-          case storage::v3::PropertyValue::Type::String:
-          case storage::v3::PropertyValue::Type::TemporalData:
-            // These are all fine, there's also Point, Date and Time data types
-            // which were added to Cypher, but we don't have support for those
-            // yet.
-            return std::make_optional(utils::Bound<storage::v3::PropertyValue>(property_value, bound->type()));
-        }
-      } catch (const expr::TypedValueException &) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-      }
-    };
-    auto maybe_lower = convert(lower_bound_);
-    auto maybe_upper = convert(upper_bound_);
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
-    return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyRange");
+  throw QueryRuntimeException("ScanAllByLabelPropertyRange is not supported");
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -448,20 +404,10 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
-  auto vertices =
-      [this](Frame &frame, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
-                                                          view_, label_, property_, storage::v3::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::TypedToPropertyValue(value)));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
+  throw QueryRuntimeException("ScanAllByLabelPropertyValue is not supported");
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -473,13 +419,7 @@ ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
-
-  auto vertices = [this](Frame & /*frame*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_, property_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelProperty");
+  throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
@@ -593,175 +533,10 @@ std::vector<Symbol> ExpandVariable::ModifiedSymbols(const SymbolTable &table) co
   return symbols;
 }
 
-class STShortestPathCursor : public query::v2::plan::Cursor {
- public:
-  STShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_.input()->MakeCursor(mem)) {
-    MG_ASSERT(self_.common_.existing_node,
-              "s-t shortest path algorithm should only "
-              "be used when `existing_node` flag is "
-              "set!");
-  }
-
-  bool Pull(Frame & /*frame*/, ExecutionContext & /*context*/) override { return false; }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override { input_cursor_->Reset(); }
-
- private:
-  const ExpandVariable &self_;
-  UniqueCursorPtr input_cursor_;
-
-  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
-};
-
-class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
- public:
-  SingleSourceShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input()->MakeCursor(mem)),
-        processed_(mem),
-        to_visit_current_(mem),
-        to_visit_next_(mem) {
-    MG_ASSERT(!self_.common_.existing_node,
-              "Single source shortest path algorithm "
-              "should not be used when `existing_node` "
-              "flag is set, s-t shortest path algorithm "
-              "should be used instead!");
-  }
-
-  bool Pull(Frame & /*frame*/, ExecutionContext & /*context*/) override { return true; }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    processed_.clear();
-    to_visit_next_.clear();
-    to_visit_current_.clear();
-  }
-
- private:
-  const ExpandVariable &self_;
-  const UniqueCursorPtr input_cursor_;
-
-  // Depth bounds. Calculated on each pull from the input, the initial value
-  // is irrelevant.
-  int64_t lower_bound_{-1};
-  int64_t upper_bound_{-1};
-
-  // maps vertices to the edge they got expanded from. it is an optional
-  // edge because the root does not get expanded from anything.
-  // contains visited vertices as well as those scheduled to be visited.
-  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>> processed_;
-  // edge/vertex pairs we have yet to visit, for current and next depth
-  utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
-  utils::pmr::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
-};
-
-class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
- public:
-  ExpandWeightedShortestPathCursor(const ExpandVariable &self, utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
-        total_cost_(mem),
-        previous_(mem),
-        yielded_vertices_(mem),
-        pq_(mem) {}
-
-  bool Pull(Frame & /*frame*/, ExecutionContext & /*context*/) override { return false; }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    previous_.clear();
-    total_cost_.clear();
-    yielded_vertices_.clear();
-    ClearQueue();
-  }
-
- private:
-  const ExpandVariable &self_;
-  const UniqueCursorPtr input_cursor_;
-
-  // Upper bound on the path length.
-  int64_t upper_bound_{-1};
-  bool upper_bound_set_{false};
-
-  struct WspStateHash {
-    size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
-      return utils::HashCombine<VertexAccessor, int64_t>{}(key.first, key.second);
-    }
-  };
-
-  // Maps vertices to weights they got in expansion.
-  utils::pmr::unordered_map<std::pair<VertexAccessor, int64_t>, TypedValue, WspStateHash> total_cost_;
-
-  // Maps vertices to edges used to reach them.
-  utils::pmr::unordered_map<std::pair<VertexAccessor, int64_t>, std::optional<EdgeAccessor>, WspStateHash> previous_;
-
-  // Keeps track of vertices for which we yielded a path already.
-  utils::pmr::unordered_set<VertexAccessor> yielded_vertices_;
-
-  static void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-    if (!((lhs.IsNumeric() && lhs.IsNumeric()) || (rhs.IsDuration() && rhs.IsDuration()))) {
-      throw QueryRuntimeException(utils::MessageWithLink(
-          "All weights should be of the same type, either numeric or a Duration. Please update the weight "
-          "expression or the filter expression.",
-          "https://memgr.ph/wsp"));
-    }
-  }
-
-  // Priority queue comparator. Keep lowest weight on top of the queue.
-  class PriorityQueueComparator {
-   public:
-    bool operator()(const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &lhs,
-                    const std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>> &rhs) {
-      const auto &lhs_weight = std::get<0>(lhs);
-      const auto &rhs_weight = std::get<0>(rhs);
-      // Null defines minimum value for all types
-      if (lhs_weight.IsNull()) {
-        return false;
-      }
-
-      if (rhs_weight.IsNull()) {
-        return true;
-      }
-
-      ValidateWeightTypes(lhs_weight, rhs_weight);
-      return (lhs_weight > rhs_weight).ValueBool();
-    }
-  };
-
-  std::priority_queue<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>,
-                      utils::pmr::vector<std::tuple<TypedValue, int64_t, VertexAccessor, std::optional<EdgeAccessor>>>,
-                      PriorityQueueComparator>
-      pq_;
-
-  void ClearQueue() {
-    while (!pq_.empty()) pq_.pop();
-  }
-};
-
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
 
-  switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
-    case EdgeAtom::Type::DEPTH_FIRST:
-      throw QueryRuntimeException("Depth-first search is not supported");
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
-      return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
-      LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
-  }
+  throw QueryRuntimeException("ExpandVariable is not supported");
 }
 
 class ConstructNamedPathCursor : public Cursor {

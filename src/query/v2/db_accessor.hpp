@@ -219,8 +219,6 @@ inline VertexAccessor EdgeAccessor::From() const { return *static_cast<VertexAcc
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
 class DbAccessor final {
-  storage::v3::Shard::Accessor *accessor_;
-
   class VerticesIterable final {
     storage::v3::VerticesIterable iterable_;
 
@@ -251,37 +249,6 @@ class DbAccessor final {
   };
 
  public:
-  explicit DbAccessor(storage::v3::Shard::Accessor *accessor) : accessor_(accessor) {}
-
-  // TODO(jbajic) Fix Remove Gid
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { throw std::runtime_error("DbAccessor1"); }
-
-  std::optional<VertexAccessor> FindVertex(storage::v3::PrimaryKey &primary_key, storage::v3::View view) {
-    throw std::runtime_error("DbAccessor2");
-  }
-
-  VerticesIterable Vertices(storage::v3::View view) { throw std::runtime_error("DbAccessor3"); }
-
-  VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label) {
-    throw std::runtime_error("DbAccessor4");
-  }
-
-  VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property) {
-    throw std::runtime_error("DbAccessor5");
-  }
-
-  VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property,
-                            const storage::v3::PropertyValue &value) {
-    throw std::runtime_error("DbAccessor6");
-  }
-
-  VerticesIterable Vertices(storage::v3::View view, storage::v3::LabelId label, storage::v3::PropertyId property,
-                            const std::optional<utils::Bound<storage::v3::PropertyValue>> &lower,
-                            const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) {
-    throw std::runtime_error("DbAccessor7");
-  }
-
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
       const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
       const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {

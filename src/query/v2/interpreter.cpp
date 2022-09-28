@@ -817,14 +817,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper)
       }
       in_explicit_transaction_ = true;
       expect_rollback_ = false;
-
-      db_accessor_ = std::make_unique<storage::v3::Shard::Accessor>(
-          interpreter_context_->db->Access(coordinator::Hlc{}, GetIsolationLevelOverride()));
-      execution_db_accessor_.emplace(db_accessor_.get());
-
-      //      if (interpreter_context_->trigger_store.HasTriggers()) {
-      //        trigger_context_collector_.emplace(interpreter_context_->trigger_store.GetEventTypes());
-      //      }
     };
   } else if (query_upper == "COMMIT") {
     handler = [this] {
