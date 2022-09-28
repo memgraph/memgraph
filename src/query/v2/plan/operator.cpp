@@ -1016,57 +1016,9 @@ ACCEPT_WITH_INPUT(Accumulate)
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { return symbols_; }
 
-class AccumulateCursor : public Cursor {
- public:
-  AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("Accumulate");
-
-    auto &dba = *context.db_accessor;
-    // cache all the input
-    if (!pulled_all_input_) {
-      while (input_cursor_->Pull(frame, context)) {
-        utils::pmr::vector<TypedValue> row(cache_.get_allocator().GetMemoryResource());
-        row.reserve(self_.symbols_.size());
-        for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
-        cache_.emplace_back(std::move(row));
-      }
-      pulled_all_input_ = true;
-      cache_it_ = cache_.begin();
-
-      if (self_.advance_command_) dba.AdvanceCommand();
-    }
-
-    if (MustAbort(context)) throw HintedAbortError();
-    if (cache_it_ == cache_.end()) return false;
-    auto row_it = (cache_it_++)->begin();
-    for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
-    return true;
-  }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    cache_.clear();
-    cache_it_ = cache_.begin();
-    pulled_all_input_ = false;
-  }
-
- private:
-  const Accumulate &self_;
-  const UniqueCursorPtr input_cursor_;
-  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
-  decltype(cache_.begin()) cache_it_ = cache_.begin();
-  bool pulled_all_input_{false};
-};
-
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::AccumulateOperator);
-
-  return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
+  throw QueryRuntimeException("Accumulate is not supported");
 }
 
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Aggregate::Element> &aggregations,
