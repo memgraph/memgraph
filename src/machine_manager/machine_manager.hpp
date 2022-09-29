@@ -70,11 +70,11 @@ class MachineManager {
  public:
   // TODO initialize ShardManager with "real" coordinator addresses instead of io.GetAddress
   // which is only true for single-machine config.
-  MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator)
+  MachineManager(io::Io<IoImpl> io, MachineConfig config, Coordinator coordinator, coordinator::ShardMap &shard_map)
       : io_(io),
         config_(config),
         coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)},
-        shard_manager_{io.ForkLocal(), coordinator_.GetAddress()} {}
+        shard_manager_{io.ForkLocal(), coordinator_.GetAddress(), shard_map} {}
 
   Address CoordinatorAddress() { return coordinator_.GetAddress(); }
 

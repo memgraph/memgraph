@@ -625,7 +625,7 @@ int main(int argc, char **argv) {
   // Example: When the main storage is destructed it makes a snapshot. When
   // audit logging is destructed it syncs all pending data to disk and that can
   // fail. That is why it must be destructed *after* the main database storage
-  // to minimise the impact of their failure on the main storage.
+  // to minimize the impact of their failure on the main storage.
 
   memgraph::io::local_transport::LocalSystem ls;
   auto unique_local_addr_query = memgraph::coordinator::Address::UniqueLocalAddress();
@@ -648,7 +648,8 @@ int main(int argc, char **argv) {
 
   memgraph::coordinator::Coordinator coordinator{sm};
 
-  memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
+  memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator,
+                                                                                              sm};
   std::jthread mm_thread([&mm] { mm.Run(); });
 
   memgraph::query::v2::InterpreterContext interpreter_context{

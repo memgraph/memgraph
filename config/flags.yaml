@@ -83,9 +83,9 @@ modifications:
     value: "true"
     override: true
 
-  - name: "query_modules_directory"
-    value: "/usr/lib/memgraph/query_modules"
-    override: true
+  # - name: "query_modules_directory"
+  #   value: "/usr/lib/memgraph/query_modules"
+  #   override: true
 
   - name: "memory_limit"
     value: "0"
