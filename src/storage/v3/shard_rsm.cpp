@@ -12,8 +12,17 @@
 #include <iterator>
 #include <utility>
 
+#include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/bindings/ast/ast.hpp"
+#include "storage/v3/bindings/cypher_main_visitor.hpp"
+#include "storage/v3/bindings/db_accessor.hpp"
+#include "storage/v3/bindings/eval.hpp"
+#include "storage/v3/bindings/frame.hpp"
+#include "storage/v3/bindings/symbol_generator.hpp"
+#include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
@@ -53,7 +62,7 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
   return ret;
 }
 
-std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
+std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc, const std::vector<memgraph::storage::v3::PropertyId> &props,
     memgraph::storage::v3::View view) {
   std::map<PropertyId, Value> ret;
@@ -62,14 +71,14 @@ std::optional<std::map<PropertyId, Value>> CollectPropertiesFromAccessor(
     auto result = acc.GetProperty(prop, view);
     if (result.HasError()) {
       spdlog::debug("Encountered an Error while trying to get a vertex property.");
-      continue;
+      return std::nullopt;
     }
     auto &value = result.GetValue();
     if (value.IsNull()) {
       spdlog::debug("The specified property does not exist but it should");
-      continue;
+      return std::nullopt;
     }
-    ret.emplace(prop, ToValue(value));
+    ret.emplace(std::make_pair(prop, ToValue(value)));
   }
 
   return ret;
@@ -107,6 +116,72 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
   }
 
   return Value({.id = vertex_id, .labels = value_labels});
+}
+
+// template <class TExpression>
+// auto Eval(TExpression *expr, memgraph::expr::EvaluationContext ctx, memgraph::expr::AstStorage& storage,
+// memgraph::expr::ExpressionEvaluator& eval, memgraph::utils::MonotonicBufferResource& mem, memgraph::expr::DbAccessor&
+// dba) {
+//   ctx.properties = NamesToProperties(storage.properties_, &dba);
+//   ctx.labels = NamesToLabels(storage.labels_, &dba);
+//   auto value = expr->Accept(eval);
+//   EXPECT_EQ(value.GetMemoryResource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
+//                                                 "EvaluationContext for allocations!";
+//   return value;
+// }
+
+bool FilterStuff(const memgraph::storage::v3::VertexAccessor &v_acc, const std::vector<std::string> filters,
+                 std::string_view node_name, std::string_view edge_name) {
+  for (const auto &filter_expr : filters) {
+    // Parse stuff
+    memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(filter_expr);
+    memgraph::expr::ParsingContext pc;
+    memgraph::expr::AstStorage storage;
+    memgraph::expr::CypherMainVisitor visitor(pc, &storage);
+
+    memgraph::utils::MonotonicBufferResource mem{1024};
+    memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
+    memgraph::expr::SymbolTable symbol_table;
+    memgraph::expr::EvaluationContext ctx;
+    // memgraph::expr::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
+
+    auto *ast = parser.tree();
+    auto expr = visitor.visit(ast);
+
+    auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
+    bool is_node_identifier_present = false;
+    auto edge_identifier = memgraph::expr::Identifier(std::string(edge_name), false);
+    bool is_edge_identifier_present = false;
+
+    std::vector<memgraph::expr::Identifier *> identifiers;
+
+    if (filter_expr.find(node_name) != std::string::npos) {
+      is_node_identifier_present = true;
+      identifiers.push_back(&node_identifier);
+    }
+    if (filter_expr.find(edge_name) != std::string::npos) {
+      is_edge_identifier_present = true;
+      identifiers.push_back(&edge_identifier);
+    }
+
+    memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
+    (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
+
+    if (is_node_identifier_present) {
+      frame[symbol_table.at(node_identifier)] = v_acc;  // vertex accessor
+    }
+    // TODO(gvolfing) -VERIFY- Is this part even needed?
+    // if (is_edge_identifier_present) {
+    //   frame[symbol_table.at(edge_identifier)] = v1;  // edge accessor
+    // }
+
+    // if(memgraph::expr::Eval(std::any_cast<memgraph::expr::Expression *>(expr)))
+    // {
+
+    // }
+  }
+
+  return true;
 }
 
 }  // namespace
@@ -250,8 +325,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  std::vector<msgs::ScanResultRow> results;
-  std::optional<msgs::VertexId> next_start_id;
+  std::vector<memgraph::msgs::ScanResultRow> results;
+  std::optional<memgraph::msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
@@ -268,16 +343,25 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
 
     if (did_reach_starting_point) {
+      // Filter
+      if (req.filter_expressions) {
+        FilterStuff(vertex, req.filter_expressions.value(), node_name_, edge_name_);
+      }
+
       std::optional<std::map<PropertyId, Value>> found_props;
 
       if (req.props_to_return) {
-        found_props = CollectPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
+      // TODO(gvolfing) -VERIFY-
+      // Vertex is seperated from the properties in the response.
+      // Is it useful to return just a vertex without the properties?
       if (!found_props) {
-        continue;
+        action_successful = false;
+        break;
       }
 
       results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
@@ -295,7 +379,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  msgs::ScanVerticesResponse resp{};
+  memgraph::msgs::ScanVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
