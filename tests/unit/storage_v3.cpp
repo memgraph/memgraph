@@ -2665,7 +2665,6 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
     ASSERT_DEATH(
         {
           Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
-          ASSERT_TRUE(store.CreateSchema(primary_label, schema_property_vector));
           auto acc = store.Access(GetNextHlc());
           auto vertex1 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
           auto vertex2 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});

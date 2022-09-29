@@ -1107,8 +1107,6 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
   void SetUp() override {
     identifier->MapTo(symbol);
     db.StoreMapping({{1, "label"}, {2, "property"}, {3, "age"}, {4, "height"}});
-    ASSERT_TRUE(
-        db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
   auto Value(std::pair<std::string, PropertyId> property) {
