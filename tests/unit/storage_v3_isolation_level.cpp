@@ -84,7 +84,6 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
        ++override_isolation_level_index) {
     Shard store{primary_label, min_pk, max_pk, schema_property_vector,
                 Config{.transaction = {.isolation_level = default_isolation_level}}};
-    ASSERT_TRUE(store.CreateSchema(primary_label, schema_property_vector));
     const auto override_isolation_level = isolation_levels[override_isolation_level_index];
     auto creator = store.Access(GetNextHlc());
     auto default_isolation_level_reader = store.Access(GetNextHlc());

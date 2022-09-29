@@ -37,7 +37,6 @@ class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
     storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}, {5, "id"}, {6, "val"}});
-    ASSERT_TRUE(storage.CreateSchema(primary_label, schema_property_vector));
   }
 
   const PropertyId primary_property{PropertyId::FromUint(2)};

@@ -26,7 +26,6 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
  protected:
   void SetUp() override {
     store.StoreMapping({{1, "label"}, {2, "property"}, {3, "et5"}, {4, "other"}, {5, "different_label"}});
-    ASSERT_TRUE(store.CreateSchema(primary_label, schema_property_vector));
   }
 
   [[nodiscard]] LabelId NameToLabelId(std::string_view label_name) { return store.NameToLabel(label_name); }

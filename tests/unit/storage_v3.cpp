@@ -37,10 +37,7 @@ namespace memgraph::storage::v3::tests {
 
 class StorageV3 : public ::testing::TestWithParam<bool> {
  protected:
-  void SetUp() override {
-    store.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(store.CreateSchema(primary_label, schema_property_vector));
-  }
+  void SetUp() override { store.StoreMapping({{1, "label"}, {2, "property"}}); }
 
   void TearDown() override { CleanupHlc(last_hlc); }
 

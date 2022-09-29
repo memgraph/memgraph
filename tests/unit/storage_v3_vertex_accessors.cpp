@@ -32,10 +32,7 @@ namespace memgraph::storage::v3::tests {
 
 class StorageV3Accessor : public ::testing::Test {
  protected:
-  void SetUp() override {
-    storage.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(storage.CreateSchema(primary_label, {SchemaProperty{primary_property, common::SchemaType::INT}}));
-  }
+  void SetUp() override { storage.StoreMapping({{1, "label"}, {2, "property"}}); }
 
   VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,

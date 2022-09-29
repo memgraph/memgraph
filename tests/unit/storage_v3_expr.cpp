@@ -151,10 +151,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   coordinator::Hlc last_hlc{0, io::Time{}};
 
-  void SetUp() override {
-    db.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(db.CreateSchema(primary_label, schema_property_vector));
-  }
+  void SetUp() override { db.StoreMapping({{1, "label"}, {2, "property"}}); }
 
   std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names) {
     std::vector<PropertyId> properties;
