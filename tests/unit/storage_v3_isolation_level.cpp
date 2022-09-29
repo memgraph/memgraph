@@ -60,10 +60,13 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<IsolationLevel
   }
 
   NameIdMapper id_mapper;
-  static constexpr int64_t min_primary_key_value{0};
-  static constexpr int64_t max_primary_key_value{10000};
-  const LabelId primary_label{NameToLabelId("label")};
+  const std::vector<PropertyValue> min_pk{PropertyValue{0}};
+  const std::vector<PropertyValue> max_pk{PropertyValue{10000}};
   const PropertyId primary_property{NameToPropertyId("property")};
+  std::vector<storage::v3::SchemaProperty> schema_property_vector = {
+      storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
+  const LabelId primary_label{NameToLabelId("label")};
+
   coordinator::Hlc last_hlc{0, io::Time{}};
 
  public:
@@ -79,12 +82,9 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
 
   for (auto override_isolation_level_index{0U}; override_isolation_level_index < isolation_levels.size();
        ++override_isolation_level_index) {
-    Shard store{primary_label,
-                {PropertyValue{min_primary_key_value}},
-                std::vector{PropertyValue{max_primary_key_value}},
+    Shard store{primary_label, min_pk, max_pk, schema_property_vector,
                 Config{.transaction = {.isolation_level = default_isolation_level}}};
-    ASSERT_TRUE(
-        store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+    ASSERT_TRUE(store.CreateSchema(primary_label, schema_property_vector));
     const auto override_isolation_level = isolation_levels[override_isolation_level_index];
     auto creator = store.Access(GetNextHlc());
     auto default_isolation_level_reader = store.Access(GetNextHlc());

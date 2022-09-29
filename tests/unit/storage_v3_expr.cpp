@@ -134,7 +134,10 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   PropertyId primary_property{PropertyId::FromInt(2)};
   PrimaryKey min_pk{PropertyValue(0)};
 
-  Shard db{primary_label, min_pk, std::nullopt};
+  std::vector<storage::v3::SchemaProperty> schema_property_vector = {
+      storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
+  Shard db{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+
   Shard::Accessor storage_dba{db.Access(GetNextHlc())};
   DbAccessor dba{&storage_dba};
 
@@ -150,8 +153,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
   void SetUp() override {
     db.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(
-        db.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+    ASSERT_TRUE(db.CreateSchema(primary_label, schema_property_vector));
   }
 
   std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names) {
