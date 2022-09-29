@@ -45,8 +45,6 @@
 #include "storage/v3/shard.hpp"
 #include "utils/string.hpp"
 
-// #include "query_common.hpp"
-
 namespace memgraph::storage::v3::test {
 
 class ExpressionEvaluatorUsageTest : public ::testing::Test {
@@ -62,10 +60,10 @@ class ExpressionEvaluatorUsageTest : public ::testing::Test {
   AstStorage storage;
   memgraph::utils::MonotonicBufferResource mem{1024};
   EvaluationContext ctx{.memory = &mem};
-  SymbolTable symbol_table;
+  SymbolTable symbol_table_;
 
-  Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::NEW};
+  Frame frame_{128};
+  ExpressionEvaluator eval{&frame_, symbol_table_, ctx, &dba, View::NEW};
 
   coordinator::Hlc last_hlc{0, io::Time{}};
 
@@ -95,9 +93,9 @@ class ExpressionEvaluatorUsageTest : public ::testing::Test {
 
   Identifier *CreateIdentifierWithValue(std::string name, const TypedValue &value) {
     auto *id = storage.Create<Identifier>(name, true);
-    auto symbol = symbol_table.CreateSymbol(name, true);
+    auto symbol = symbol_table_.CreateSymbol(name, true);
     id->MapTo(symbol);
-    frame[symbol] = value;
+    frame_[symbol] = value;
     return id;
   }
 
@@ -208,9 +206,15 @@ TEST_F(ExpressionEvaluatorUsageTest, PropertyLookup) {
   auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop2, PropertyValue(5)).HasValue());
 
+  auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(2)}});
+  ASSERT_TRUE(v2.SetPropertyAndValidate(prop2, PropertyValue(5)).HasValue());
+
+  auto v3 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
+  ASSERT_TRUE(v3.SetPropertyAndValidate(prop2, PropertyValue(5)).HasValue());
+
   // Property filtering
   // const std::string expr1{"n.prop2 > 0"};
-  const std::string expr1{"n.prop2 > 0 AND n.prop2 < 10"};
+  const std::string expr1{"node.prop2 > 0 AND node.prop2 < 10"};
 
   // Parse stuff
   memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr1);
@@ -220,13 +224,34 @@ TEST_F(ExpressionEvaluatorUsageTest, PropertyLookup) {
   auto *ast = parser.tree();
   auto expr = visitor.visit(ast);
 
-  auto ident = Identifier(std::string("n"), false);
-  Symbol m_symbol("", 0, false);
+  static constexpr const char *node_name = "node";
+  static constexpr const char *edge_name = "edge";
 
-  expr::SymbolGenerator symbol_generator(&symbol_table, {&ident});
+  static Identifier node_identifier = Identifier(std::string(node_name), false);
+  bool is_node_identifier_present = false;
+  static Identifier edge_identifier = Identifier(std::string(edge_name), false);
+  bool is_edge_identifier_present = false;
+
+  std::vector<Identifier *> identifiers;
+
+  if (expr1.find(node_name) != std::string::npos) {
+    is_node_identifier_present = true;
+    identifiers.push_back(&node_identifier);
+  }
+  if (expr1.find(edge_name) != std::string::npos) {
+    is_edge_identifier_present = true;
+    identifiers.push_back(&edge_identifier);
+  }
+
+  expr::SymbolGenerator symbol_generator(&symbol_table_, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
-  frame[m_symbol] = v1;
+  if (is_node_identifier_present) {
+    frame_[symbol_table_.at(node_identifier)] = v2;  // vertex accessor
+  }
+  if (is_edge_identifier_present) {
+    frame_[symbol_table_.at(edge_identifier)] = v1;  // edge accessor
+  }
 
   auto res1 = Eval(std::any_cast<Expression *>(expr));
   ASSERT_TRUE(res1.ValueBool());
