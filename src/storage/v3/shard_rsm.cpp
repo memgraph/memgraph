@@ -118,12 +118,10 @@ bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgra
     return true;
   }
 
-  for (const auto &edge_type : req.edge_types) {
-    if (memgraph::storage::v3::EdgeTypeId::FromUint(edge_type.id) == edge.EdgeType()) {
-      return true;
-    }
-  }
-  return false;
+  return std::ranges::any_of(req.edge_types.cbegin(), req.edge_types.cend(),
+                             [&edge](const memgraph::msgs::EdgeType &edge_type) {
+                               return memgraph::storage::v3::EdgeTypeId::FromUint(edge_type.id) == edge.EdgeType();
+                             });
 }
 
 struct LocalError {};
