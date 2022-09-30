@@ -646,7 +646,7 @@ void AuthQueryHandler::EditPermissions(
 #ifdef MG_ENTERPRISE
       if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
         for (const auto &label_privilege : label_privileges) {
-          edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(), label_privilege);
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().label_permissions(), label_privilege);
         }
         for (const auto &edge_type_privilege : edge_type_privileges) {
           edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
