@@ -182,6 +182,9 @@ class DistributedCreateNodeCursor : public Cursor {
     std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
+      // TODO(jbajic) Fix properties not send,
+      // ignore primary keys from storage side, since
+      // it is useless without schema verification
       std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
@@ -279,10 +282,14 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
+class DistributedCreateExpandCursor;  // TODO(jbajic) Move this to the top
+
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
+  // return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, input_, mem, std::vector{&this->edge_info_},
+                                                            std::vector{&this->node_info_});
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) const {
@@ -2418,4 +2425,63 @@ class DistributedScanAllCursor : public Cursor {
   decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
   msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
 };
+
+class DistributedCreateExpandCursor : public Cursor {
+ public:
+  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
+  DistributedCreateExpandCursor(const InputOperator &op, utils::MemoryResource *mem,
+                                std::vector<const EdgeCreationInfo *> edges_info,
+                                std::vector<const NodeCreationInfo *> nodes_info)
+      : input_cursor_{op->MakeCursor(mem)}, edges_info_{std::move(edges_info)}, nodes_info_{std::move(nodes_info)} {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateExpand");
+    if (input_cursor_->Pull(frame, context)) {
+      auto &shard_manager = context.shard_request_manager;
+      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+      return true;
+    }
+
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { state_ = {}; }
+
+  std::vector<msgs::NewEdge> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewEdge> edge_requests;
+    // TODO Do we need node_info
+    for (const auto &edge_info : edges_info_) {
+      msgs::NewEdge request;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      // Get edge type
+      request.type = {edge_info->edge_type.AsUint()};
+      // Properties
+      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info->properties)) {
+        for (const auto &[property, value_expression] : *edge_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          request.properties.emplace_back(property, storage::v3::TypedValueToValue(val));
+        }
+      } else {
+        // handle parameter
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info->properties)).ValueMap();
+        for (const auto &[property, value] : property_map) {
+          const auto property_id = context.shard_request_manager->NameToProperty(std::string(property));
+          request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
+        }
+      }
+      // src, dest
+    }
+    return edge_requests;
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  std::vector<const EdgeCreationInfo *> edges_info_;
+  std::vector<const NodeCreationInfo *> nodes_info_;
+  msgs::ExecutionState<msgs::CreateExpandRequest> state_;
+};
+
 }  // namespace memgraph::query::v2::plan
