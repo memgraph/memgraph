@@ -146,8 +146,7 @@ std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std:
 
 template <class TExpression>
 auto Eval(TExpression *expr, memgraph::expr::EvaluationContext ctx, memgraph::expr::AstStorage &storage,
-          memgraph::storage::v3::ExpressionEvaluator &eval, memgraph::utils::MonotonicBufferResource &mem,
-          memgraph::expr::DbAccessor &dba) {
+          memgraph::storage::v3::ExpressionEvaluator &eval, memgraph::expr::DbAccessor &dba) {
   ctx.properties = NamesToProperties(storage.properties_, dba);
   ctx.labels = NamesToLabels(storage.labels_, dba);
   auto value = expr->Accept(eval);
@@ -189,7 +188,6 @@ bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v
     memgraph::expr::AstStorage storage;
     memgraph::expr::CypherMainVisitor visitor(pc, &storage);
 
-    memgraph::utils::MonotonicBufferResource mem{1024};
     memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
     memgraph::expr::SymbolTable symbol_table;
 
@@ -202,8 +200,6 @@ bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v
 
     auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
     bool is_node_identifier_present = false;
-    // auto edge_identifier = memgraph::expr::Identifier(std::string(edge_name), false);
-    // bool is_edge_identifier_present = false;
 
     std::vector<memgraph::expr::Identifier *> identifiers;
 
@@ -211,23 +207,15 @@ bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v
       is_node_identifier_present = true;
       identifiers.push_back(&node_identifier);
     }
-    // if (filter_expr.find(edge_name) != std::string::npos) {
-    //   is_edge_identifier_present = true;
-    //   identifiers.push_back(&edge_identifier);
-    // }
 
     memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
     (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
 
-    // TODO(gvolfing) -VERIFY-
-    // Do we want to put the edge ident on the frame ever?
     if (is_node_identifier_present) {
-      frame[symbol_table.at(node_identifier)] = v_acc;  // vertex accessor
+      frame[symbol_table.at(node_identifier)] = v_acc;
     }
 
-    auto evaluation_successful = Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, mem, dba);
-
-    if (!evaluation_successful.ValueBool()) {
+    if (!Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba).ValueBool()) {
       return false;
     }
   }
@@ -394,11 +382,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
 
     if (did_reach_starting_point) {
-      // Filter
+      // TODO(gvolfing) it should be enough to check this only once.
       if (req.filter_expressions) {
-        // TODO(gvolfign) remove this after testing/once this is implemented
-        shard_->StoreMapping({{1, "veryspecificpropertyname"}});
-
+        // NOTE - DbAccessor might get removed in the future.
         auto dba = DbAccessor{&acc};
         const bool eval = FilterOnVertrex(dba, vertex, req.filter_expressions.value(), node_name_, edge_name_);
         if (!eval) {
@@ -414,9 +400,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         found_props = CollectAllPropertiesFromAccessor(vertex, view);
       }
 
-      // TODO(gvolfing) -VERIFY-
-      // Vertex is seperated from the properties in the response.
-      // Is it useful to return just a vertex without the properties?
       if (!found_props) {
         action_successful = false;
         break;
