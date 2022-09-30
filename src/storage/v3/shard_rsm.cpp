@@ -268,9 +268,9 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
 }
 
 template <typename TPropertyValue, typename TPropertyNullopt>
-void SetFinalEdgeProperties(std::optional<PropertyValueT> &properties_to_value,
-                            std::optional<PropertyNulloptT> &properties_to_nullopt, const PropertyValueT &ret_out,
-                            const PropertyValueT &ret_in, const memgraph::msgs::ExpandOneRequest &req) {
+void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
+                            std::optional<TPropertyNullopt> &properties_to_nullopt, const TPropertyValue &ret_out,
+                            const TPropertyValue &ret_in, const memgraph::msgs::ExpandOneRequest &req) {
   switch (req.direction) {
     case memgraph::msgs::EdgeDirection::OUT: {
       properties_to_value = std::move(ret_out);
@@ -281,7 +281,7 @@ void SetFinalEdgeProperties(std::optional<PropertyValueT> &properties_to_value,
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
-      PropertyValueT ret;
+      TPropertyValue ret;
       ret.resize(ret_out.size() + ret_in.size());
       ret.insert(ret.end(), std::make_move_iterator(ret_in.begin()), std::make_move_iterator(ret_in.end()));
       ret.insert(ret.end(), std::make_move_iterator(ret_out.begin()), std::make_move_iterator(ret_out.end()));
