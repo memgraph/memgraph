@@ -196,6 +196,35 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
   }
 }
 
+std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression(ShardClient &client,
+                                                                                 msgs::VertexId start_id,
+                                                                                 uint64_t batch_limit,
+                                                                                 uint64_t prop_val_to_check_against) {
+  std::string expr1 = "node.veryspecificpropertyname = " + std::to_string(prop_val_to_check_against);
+  std::vector<std::string> filter_expressions = {expr1};
+
+  msgs::ScanVerticesRequest scan_req{};
+  scan_req.batch_limit = batch_limit;
+  scan_req.filter_expressions = filter_expressions;
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    return {write_response.results.size(), write_response.next_start_id};
+  }
+}
+
 }  // namespace
 
 // tests
@@ -233,6 +262,9 @@ void TestScanAllOneGo(ShardClient &client) {
   msgs::PrimaryKey prim_key = {msgs::Value(static_cast<int64_t>(unique_prop_val_1))};
 
   msgs::VertexId v_id = {prim_label, prim_key};
+
+  auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
+  MG_ASSERT(result_size_2 == 1);
 
   auto [result_size, next_id] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   MG_ASSERT(result_size == 5);
@@ -317,10 +349,6 @@ int TestMessages() {
   auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
-
-  // shard_ptr1->CreateSchema(get_primary_label(), {get_schema_property()});
-  // shard_ptr2->CreateSchema(get_primary_label(), {get_schema_property()});
-  // shard_ptr3->CreateSchema(get_primary_label(), {get_schema_property()});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};

@@ -21,10 +21,12 @@
 #include "storage/v3/bindings/frame.hpp"
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
+#include "storage/v3/id_types.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/view.hpp"
 
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
@@ -118,20 +120,68 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
   return Value({.id = vertex_id, .labels = value_labels});
 }
 
-// template <class TExpression>
-// auto Eval(TExpression *expr, memgraph::expr::EvaluationContext ctx, memgraph::expr::AstStorage& storage,
-// memgraph::expr::ExpressionEvaluator& eval, memgraph::utils::MonotonicBufferResource& mem, memgraph::expr::DbAccessor&
-// dba) {
-//   ctx.properties = NamesToProperties(storage.properties_, &dba);
-//   ctx.labels = NamesToLabels(storage.labels_, &dba);
-//   auto value = expr->Accept(eval);
-//   EXPECT_EQ(value.GetMemoryResource(), &mem) << "ExpressionEvaluator must use the MemoryResource from "
-//                                                 "EvaluationContext for allocations!";
-//   return value;
-// }
+/////////////////////////////////////////////////////////////////////////////////
 
-bool FilterStuff(const memgraph::storage::v3::VertexAccessor &v_acc, const std::vector<std::string> filters,
-                 std::string_view node_name, std::string_view edge_name) {
+std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
+                                          memgraph::expr::DbAccessor &dba) {
+  std::vector<PropertyId> properties;
+  properties.reserve(property_names.size());
+  for (const auto &name : property_names) {
+    properties.push_back(dba.NameToProperty(name));
+  }
+  return properties;
+}
+
+// TODO(gvolfing) -VERIFY-
+// is this the good namespace for LabelId?
+std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
+                                                          memgraph::expr::DbAccessor &dba) {
+  std::vector<memgraph::storage::v3::LabelId> labels;
+  labels.reserve(label_names.size());
+  for (const auto &name : label_names) {
+    labels.push_back(dba.NameToLabel(name));
+  }
+  return labels;
+}
+
+template <class TExpression>
+auto Eval(TExpression *expr, memgraph::expr::EvaluationContext ctx, memgraph::expr::AstStorage &storage,
+          memgraph::storage::v3::ExpressionEvaluator &eval, memgraph::utils::MonotonicBufferResource &mem,
+          memgraph::expr::DbAccessor &dba) {
+  ctx.properties = NamesToProperties(storage.properties_, dba);
+  ctx.labels = NamesToLabels(storage.labels_, dba);
+  auto value = expr->Accept(eval);
+  return value;
+}
+
+memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storage::v3::VertexAccessor &v_acc) {
+  memgraph::expr::EvaluationContext ctx;
+
+  // Fill EvaluationContext up with properties
+  const auto properties = v_acc.Properties(memgraph::storage::v3::View::OLD);
+  std::vector<PropertyId> properties_in_shard;
+
+  for (const auto &prop : properties.GetValue()) {
+    properties_in_shard.emplace_back(prop.first);
+  }
+
+  ctx.properties = std::move(properties_in_shard);
+
+  // Fill EvaluationContext up with labels
+  const auto labels = v_acc.Labels(memgraph::storage::v3::View::OLD);
+  std::vector<memgraph::storage::v3::LabelId> labels_in_shard;
+
+  for (const auto &label : labels.GetValue()) {
+    labels_in_shard.emplace_back(label);
+  }
+
+  ctx.labels = std::move(labels_in_shard);
+
+  return ctx;
+}
+
+bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
+                     const std::vector<std::string> filters, std::string_view node_name, std::string_view edge_name) {
   for (const auto &filter_expr : filters) {
     // Parse stuff
     memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(filter_expr);
@@ -142,16 +192,18 @@ bool FilterStuff(const memgraph::storage::v3::VertexAccessor &v_acc, const std::
     memgraph::utils::MonotonicBufferResource mem{1024};
     memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
     memgraph::expr::SymbolTable symbol_table;
-    memgraph::expr::EvaluationContext ctx;
-    // memgraph::expr::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
+
+    auto ctx = CreateEvaluationContext(v_acc);
+
+    memgraph::storage::v3::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
 
     auto *ast = parser.tree();
     auto expr = visitor.visit(ast);
 
     auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
     bool is_node_identifier_present = false;
-    auto edge_identifier = memgraph::expr::Identifier(std::string(edge_name), false);
-    bool is_edge_identifier_present = false;
+    // auto edge_identifier = memgraph::expr::Identifier(std::string(edge_name), false);
+    // bool is_edge_identifier_present = false;
 
     std::vector<memgraph::expr::Identifier *> identifiers;
 
@@ -159,26 +211,25 @@ bool FilterStuff(const memgraph::storage::v3::VertexAccessor &v_acc, const std::
       is_node_identifier_present = true;
       identifiers.push_back(&node_identifier);
     }
-    if (filter_expr.find(edge_name) != std::string::npos) {
-      is_edge_identifier_present = true;
-      identifiers.push_back(&edge_identifier);
-    }
+    // if (filter_expr.find(edge_name) != std::string::npos) {
+    //   is_edge_identifier_present = true;
+    //   identifiers.push_back(&edge_identifier);
+    // }
 
     memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
     (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
 
+    // TODO(gvolfing) -VERIFY-
+    // Do we want to put the edge ident on the frame ever?
     if (is_node_identifier_present) {
       frame[symbol_table.at(node_identifier)] = v_acc;  // vertex accessor
     }
-    // TODO(gvolfing) -VERIFY- Is this part even needed?
-    // if (is_edge_identifier_present) {
-    //   frame[symbol_table.at(edge_identifier)] = v1;  // edge accessor
-    // }
 
-    // if(memgraph::expr::Eval(std::any_cast<memgraph::expr::Expression *>(expr)))
-    // {
+    auto evaluation_successful = Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, mem, dba);
 
-    // }
+    if (!evaluation_successful.ValueBool()) {
+      return false;
+    }
   }
 
   return true;
@@ -345,7 +396,14 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     if (did_reach_starting_point) {
       // Filter
       if (req.filter_expressions) {
-        FilterStuff(vertex, req.filter_expressions.value(), node_name_, edge_name_);
+        // TODO(gvolfign) remove this after testing/once this is implemented
+        shard_->StoreMapping({{1, "veryspecificpropertyname"}});
+
+        auto dba = DbAccessor{&acc};
+        const bool eval = FilterOnVertrex(dba, vertex, req.filter_expressions.value(), node_name_, edge_name_);
+        if (!eval) {
+          continue;
+        }
       }
 
       std::optional<std::map<PropertyId, Value>> found_props;
