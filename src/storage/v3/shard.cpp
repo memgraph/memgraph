@@ -320,7 +320,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
 }
 
 Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
-             const std::optional<PrimaryKey> max_primary_key, Config config)
+             const std::optional<PrimaryKey> max_primary_key, std::vector<SchemaProperty> schema, Config config)
     : primary_label_{primary_label},
       min_primary_key_{min_primary_key},
       max_primary_key_{max_primary_key},
@@ -331,7 +331,9 @@ Shard::Shard(const LabelId primary_label, const PrimaryKey min_primary_key,
       config_{config},
       uuid_{utils::GenerateUUID()},
       epoch_id_{utils::GenerateUUID()},
-      global_locker_{file_retainer_.AddLocker()} {}
+      global_locker_{file_retainer_.AddLocker()} {
+  CreateSchema(primary_label_, schema);
+}
 
 Shard::~Shard() {}
 

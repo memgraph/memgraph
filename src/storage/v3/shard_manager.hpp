@@ -211,7 +211,7 @@ class ShardManager {
     std::vector<Address> rsm_peers = {};
 
     std::unique_ptr<Shard> shard =
-        std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.config);
+        std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.schema, to_init.config);
 
     ShardRsm rsm_state{std::move(shard)};
 
