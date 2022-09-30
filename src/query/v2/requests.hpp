@@ -71,7 +71,7 @@ struct Edge {
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
-  friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return (lhs.id == rhs.id); }
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
 };
 
 struct PathPart {
