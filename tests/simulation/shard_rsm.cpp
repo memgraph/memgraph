@@ -835,13 +835,14 @@ int TestMessages() {
   PropertyValue max_pk(static_cast<int64_t>(10000000));
   std::vector<PropertyValue> max_prim_key = {max_pk};
 
-  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
-  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
-  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key);
+  std::vector<SchemaProperty> schema = {get_schema_property()};
+  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
+  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
+  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
 
-  shard_ptr1->CreateSchema(get_primary_label(), {get_schema_property()});
-  shard_ptr2->CreateSchema(get_primary_label(), {get_schema_property()});
-  shard_ptr3->CreateSchema(get_primary_label(), {get_schema_property()});
+  shard_ptr1->CreateSchema(get_primary_label(), schema);
+  shard_ptr2->CreateSchema(get_primary_label(), schema);
+  shard_ptr3->CreateSchema(get_primary_label(), schema);
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
