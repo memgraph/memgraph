@@ -233,6 +233,7 @@ git apply ../pulsar.patch
 popd
 
 #librdtsc
+# TODO(gitbuda): __always_inline doesn't work on Apple Clang 14
 librdtsc_tag="v0.3"
 repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
 pushd librdtsc

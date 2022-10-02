@@ -4,7 +4,8 @@ set(auth_src_files
     models.cpp
     module.cpp)
 
-find_package(Seccomp REQUIRED)
+  # TODO(gitbuda): Deal with the MacOS specific setup around Seccomp.
+# find_package(Seccomp REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 

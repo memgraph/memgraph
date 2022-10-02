@@ -94,7 +94,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   rm -rf quicklisp.lisp || exit 1
 fi
 # TODO(gitbuda): -T doesn't work on Mac
-ln -Tfs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
+ln -fs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
 # Install LCP dependencies
 # TODO: We should at some point cache or have a mirror of packages we use.
 # TODO: move the installation of LCP's dependencies into ./setup.sh
