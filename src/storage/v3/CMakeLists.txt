@@ -16,8 +16,9 @@ set(storage_v3_src_files
     schemas.cpp
     schema_validator.cpp
     shard.cpp
-    bindings/typed_value.cpp
+    storage.cpp
     shard_rsm.cpp
+    bindings/typed_value.cpp
     storage.cpp)
 
 # ######################
