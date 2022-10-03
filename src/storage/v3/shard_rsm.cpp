@@ -120,6 +120,66 @@ Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, mem
   return Value({.id = vertex_id, .labels = value_labels});
 }
 
+/// Conversion from TypedValue to Value
+Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
+  using memgraph::storage::v3::TypedValue;
+
+  switch (tv.type()) {
+    case TypedValue::Type::Bool:
+      return Value(tv.ValueBool());
+    case TypedValue::Type::Double:
+      return Value(tv.ValueDouble());
+    case TypedValue::Type::Int:
+      return Value(tv.ValueInt());
+    case TypedValue::Type::List: {
+      std::vector<Value> list;
+      list.reserve(tv.ValueList().size());
+      for (auto &elem : tv.ValueList()) {
+        list.emplace_back(FromTypedValueToValue(std::move(elem)));
+      }
+
+      return Value(list);
+    }
+    case TypedValue::Type::Map: {
+      std::map<std::string, Value> map;
+      for (auto &[key, val] : tv.ValueMap()) {
+        // maybe use std::make_pair once the && issue is resolved.
+        map.emplace(key, FromTypedValueToValue(std::move(val)));
+      }
+
+      return Value(map);
+    }
+    case TypedValue::Type::Null:
+      return Value{};
+    case TypedValue::Type::String:
+      return Value((std::string(tv.ValueString())));
+
+    // TBD -> we need to specify temporal types, not a priority.
+    case TypedValue::Type::Date:
+    case TypedValue::Type::LocalTime:
+    case TypedValue::Type::LocalDateTime:
+    case TypedValue::Type::Duration:
+
+    // TODO(gvolfing) -VERIFY- do we need these?
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path: {
+      MG_ASSERT(false, "This conversion betweem TypedValue and Value is not implemented yet!");
+      return Value{};
+    }
+  }
+  return Value{};
+}
+
+std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<memgraph::storage::v3::TypedValue> &&vec) {
+  std::vector<Value> ret;
+  ret.reserve(vec.size());
+  for (auto &&elem : vec) {
+    ret.emplace_back(FromTypedValueToValue(std::move(elem)));
+  }
+  return ret;
+}
+
 /////////////////////////////////////////////////////////////////////////////////
 
 std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
@@ -222,6 +282,52 @@ bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v
   }
 
   return true;
+}
+
+std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
+    memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
+    const std::vector<std::string> expressions, std::string_view node_name) {
+  std::vector<memgraph::storage::v3::TypedValue> evaluated_expressions;
+
+  for (const auto &expression : expressions) {
+    // Parse stuff
+    memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expression);
+    memgraph::expr::ParsingContext pc;
+    memgraph::expr::AstStorage storage;
+    memgraph::expr::CypherMainVisitor visitor(pc, &storage);
+
+    memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
+    memgraph::expr::SymbolTable symbol_table;
+
+    auto ctx = CreateEvaluationContext(v_acc);
+
+    memgraph::storage::v3::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
+
+    auto *ast = parser.tree();
+    auto expr = visitor.visit(ast);
+
+    auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
+    bool is_node_identifier_present = false;
+
+    std::vector<memgraph::expr::Identifier *> identifiers;
+
+    // Does an expression allways contain the name of the vertex?
+    if (expression.find(node_name) != std::string::npos) {
+      is_node_identifier_present = true;
+      identifiers.push_back(&node_identifier);
+    }
+
+    memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
+    (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
+
+    if (is_node_identifier_present) {
+      frame[symbol_table.at(node_identifier)] = v_acc;
+    }
+
+    evaluated_expressions.emplace_back(
+        Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba));
+  }
+  return evaluated_expressions;
 }
 
 }  // namespace
@@ -383,6 +489,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
 
     if (did_reach_starting_point) {
+      std::vector<Value> expression_results;
+
       // TODO(gvolfing) it should be enough to check this only once.
       if (req.filter_expressions) {
         // NOTE - DbAccessor might get removed in the future.
@@ -391,6 +499,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
         if (!eval) {
           continue;
         }
+      }
+      if (req.vertex_expressions) {
+        // NOTE - DbAccessor might get removed in the future.
+        auto dba = DbAccessor{&acc};
+        expression_results = ConvertToValueVectorFromTypedValueVector(
+            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), node_name_));
       }
 
       std::optional<std::map<PropertyId, Value>> found_props;
@@ -407,7 +521,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       }
 
       results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
-                                               .props = FromMap(found_props.value())});
+                                               .props = FromMap(found_props.value()),
+                                               .evaluated_vertex_expressions = std::move(expression_results)});
 
       ++sample_counter;
       if (sample_counter == req.batch_limit) {

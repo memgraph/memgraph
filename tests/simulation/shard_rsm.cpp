@@ -200,12 +200,16 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
                                                                                  msgs::VertexId start_id,
                                                                                  uint64_t batch_limit,
                                                                                  uint64_t prop_val_to_check_against) {
-  std::string expr1 = "node.veryspecificpropertyname = " + std::to_string(prop_val_to_check_against);
-  std::vector<std::string> filter_expressions = {expr1};
+  std::string filter_expr1 = "node.veryspecificpropertyname = " + std::to_string(prop_val_to_check_against);
+  std::vector<std::string> filter_expressions = {filter_expr1};
+
+  std::string regular_expr1 = "2+2";
+  std::vector<std::string> vertex_expressions = {regular_expr1};
 
   msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = batch_limit;
   scan_req.filter_expressions = filter_expressions;
+  scan_req.vertex_expressions = vertex_expressions;
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::NEW;
@@ -221,6 +225,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
     auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
 
     MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.results[0].evaluated_vertex_expressions[0].int_v == 4);
     return {write_response.results.size(), write_response.next_start_id};
   }
 }
