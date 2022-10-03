@@ -179,8 +179,9 @@ memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storag
   return ctx;
 }
 
+// TODO(gvolfing) Verify if edge_name is not needed here at all
 bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
-                     const std::vector<std::string> filters, std::string_view node_name, std::string_view edge_name) {
+                     const std::vector<std::string> filters, std::string_view node_name) {
   for (const auto &filter_expr : filters) {
     // Parse stuff
     memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(filter_expr);
@@ -386,7 +387,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       if (req.filter_expressions) {
         // NOTE - DbAccessor might get removed in the future.
         auto dba = DbAccessor{&acc};
-        const bool eval = FilterOnVertrex(dba, vertex, req.filter_expressions.value(), node_name_, edge_name_);
+        const bool eval = FilterOnVertrex(dba, vertex, req.filter_expressions.value(), node_name_);
         if (!eval) {
           continue;
         }
