@@ -152,7 +152,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
-      MG_ASSERT(shards_map_.IsConsistent());
     }
   }
 

@@ -142,7 +142,7 @@ using CoordinatorReadResponses = std::variant<GetShardMapResponse>;
 
 class Coordinator {
  public:
-  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} { MG_ASSERT(shard_map_.IsConsistent()); }
+  explicit Coordinator(ShardMap sm) : shard_map_{std::move(sm)} {}
 
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static
   CoordinatorReadResponses Read(CoordinatorReadRequests requests) {

@@ -102,6 +102,7 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   const LabelId label_id = label_id_opt.value();
   auto &label_space = sm.label_spaces.at(label_id);
   Shards &shards_for_label = label_space.shards;
+  shards_for_label.clear();
 
   // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};

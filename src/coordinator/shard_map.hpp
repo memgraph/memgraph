@@ -86,31 +86,7 @@ struct ShardMap {
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
 
-#ifndef NDEBUG  // This is only used in assertion, no need to keep it in production build
-  bool IsConsistent() const {
-    auto consistent = true;
-    for (const auto &[labelName, labelSpace] : label_spaces) {
-      if (labelSpace.shards.empty()) {
-        consistent = false;
-      } else {
-        for (const auto &shard : labelSpace.shards) {
-          if (shard.first.empty() || shard.second.empty()) {
-            consistent = false;
-          }
-        }
-      }
-      if (labelSpace.schema.empty()) {
-        consistent = false;
-      }
-    }
-
-    // #NoCommit can be extended by someone with the knowledge.
-    return consistent;
-  }
-#endif
-
   Shards GetShards(const LabelName &label) {
-    MG_ASSERT(IsConsistent());
     const auto id = labels.at(label);
     auto &shards = label_spaces.at(id).shards;
     return shards;

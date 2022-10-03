@@ -104,6 +104,7 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   const LabelId label_id = sm.labels.at(label_name);
   auto &label_space = sm.label_spaces.at(label_id);
   Shards &shards_for_label = label_space.shards;
+  shards_for_label.clear();
 
   // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
@@ -129,7 +130,6 @@ ShardMap CreateDummyShardmap(memgraph::coordinator::Address a_io_1, memgraph::co
   CompoundKey compound_key_2 = {key3, key4};
   shards_for_label[compound_key_2] = shard2;
 
-  MG_ASSERT(sm.IsConsistent());
   return sm;
 }
 
@@ -231,15 +231,10 @@ int main() {
   // Preconfigure coordinator with kv shard 'A' and 'B'
   auto sm1 = CreateDummyShardmap(a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress(), b_io_1.GetAddress(),
                                  b_io_2.GetAddress(), b_io_3.GetAddress());
-  MG_ASSERT(sm1.IsConsistent());
-
   auto sm2 = CreateDummyShardmap(a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress(), b_io_1.GetAddress(),
                                  b_io_2.GetAddress(), b_io_3.GetAddress());
-  MG_ASSERT(sm2.IsConsistent());
-
   auto sm3 = CreateDummyShardmap(a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress(), b_io_1.GetAddress(),
                                  b_io_2.GetAddress(), b_io_3.GetAddress());
-  MG_ASSERT(sm3.IsConsistent());
 
   // Spin up shard A
   std::vector<Address> a_addrs = {a_io_1.GetAddress(), a_io_2.GetAddress(), a_io_3.GetAddress()};
