@@ -287,9 +287,7 @@ class DistributedCreateExpandCursor;  // TODO(jbajic) Move this to the top
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  // return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
-  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, input_, mem, std::vector{&this->edge_info_},
-                                                            std::vector{&this->node_info_});
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, input_, mem, *this);
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) const {
@@ -2429,10 +2427,8 @@ class DistributedScanAllCursor : public Cursor {
 class DistributedCreateExpandCursor : public Cursor {
  public:
   using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
-  DistributedCreateExpandCursor(const InputOperator &op, utils::MemoryResource *mem,
-                                std::vector<const EdgeCreationInfo *> edges_info,
-                                std::vector<const NodeCreationInfo *> nodes_info)
-      : input_cursor_{op->MakeCursor(mem)}, edges_info_{std::move(edges_info)}, nodes_info_{std::move(nodes_info)} {}
+  DistributedCreateExpandCursor(const InputOperator &op, utils::MemoryResource *mem, const CreateExpand &self)
+      : input_cursor_{op->MakeCursor(mem)}, self_{self} {}
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateExpand");
@@ -2449,38 +2445,73 @@ class DistributedCreateExpandCursor : public Cursor {
 
   void Reset() override { state_ = {}; }
 
+  // Get the existing node other vertex
+  accessors::VertexAccessor &OtherVertex(Frame &frame) const {
+    TypedValue &dest_node_value = frame[self_.node_info_.symbol];
+    ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
+    return dest_node_value.ValueVertex();
+  }
+
   std::vector<msgs::NewEdge> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
     std::vector<msgs::NewEdge> edge_requests;
-    // TODO Do we need node_info
-    for (const auto &edge_info : edges_info_) {
+    for (const auto &edge_info : std::vector{self_.edge_info_}) {
       msgs::NewEdge request;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
-      // Get edge type
-      request.type = {edge_info->edge_type.AsUint()};
-      // Properties
-      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info->properties)) {
+      request.type = {edge_info.edge_type.AsUint()};
+      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
         for (const auto &[property, value_expression] : *edge_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
           request.properties.emplace_back(property, storage::v3::TypedValueToValue(val));
         }
       } else {
         // handle parameter
-        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info->properties)).ValueMap();
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info.properties)).ValueMap();
         for (const auto &[property, value] : property_map) {
           const auto property_id = context.shard_request_manager->NameToProperty(std::string(property));
           request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
         }
       }
       // src, dest
+      TypedValue &v1_value = frame[self_.input_symbol_];
+      const auto &v1 = v1_value.ValueVertex();
+      const auto &v2 = OtherVertex(frame);
+
+      // Set src and dest vertices
+      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
+        vertex_id.first = vertex.Labels()[0];
+        for (const auto &[key, val] : vertex.Properties()) {
+          // properties_v1[key] = val;
+          if (context.shard_request_manager->IsPrimaryKey(key)) {
+            vertex_id.second.push_back(val);
+          }
+        }
+      };
+      std::invoke([&]() {
+        switch (edge_info.direction) {
+          case EdgeAtom::Direction::IN: {
+            set_vertex(v1, request.src_vertex);
+            set_vertex(v2, request.dest_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::OUT: {
+            set_vertex(v1, request.dest_vertex);
+            set_vertex(v2, request.src_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::BOTH:
+            LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      });
+
+      edge_requests.push_back(std::move(request));
     }
     return edge_requests;
   }
 
  private:
   const UniqueCursorPtr input_cursor_;
-  std::vector<const EdgeCreationInfo *> edges_info_;
-  std::vector<const NodeCreationInfo *> nodes_info_;
+  const CreateExpand &self_;
   msgs::ExecutionState<msgs::CreateExpandRequest> state_;
 };
 
