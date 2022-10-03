@@ -14,6 +14,7 @@
 #include <memory>
 #include <variant>
 
+#include <openssl/ec.h>
 #include "query/v2/requests.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/shard.hpp"
