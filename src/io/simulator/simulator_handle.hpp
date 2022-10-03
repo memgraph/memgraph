@@ -122,12 +122,13 @@ class SimulatorHandle {
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
       if (can_receive_.contains(receiver)) {
         std::vector<OpaqueMessage> &can_rx = can_receive_.at(receiver);
-        if (!can_rx.empty()) {
-          OpaqueMessage message = std::move(can_rx.back());
-          can_rx.pop_back();
-
-          // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
-          // than asserting that the last item in can_rx matches.
+        auto it_found = std::find_if(can_rx.begin(), can_rx.end(), [&](OpaqueMessage &message) {
+          auto cpy = message.message;
+          return std::nullopt != message.Unpack<std::variant<Ms...>, Ms...>(std::move(cpy));
+        });
+        if (it_found != can_rx.end()) {
+          OpaqueMessage message = std::move(*it_found);
+          can_rx.erase(it_found);
           auto m_opt = std::move(message).Take<Ms...>();
 
           blocked_on_receive_.erase(receiver);
