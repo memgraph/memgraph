@@ -71,7 +71,8 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
   Shard empty_shard = {};
 
   Shards shards = {
-      {initial_key, empty_shard},
+      {initial_key, empty_shard},  // #NoCommit Why empty shard? This is what giving us issue later
+                                   // Should it be filed by the caller side afterwards?
   };
 
   LabelSpace label_space{

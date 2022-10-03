@@ -152,6 +152,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
+      MG_ASSERT(shards_map_.IsConsistent());
     }
   }
 
@@ -338,6 +339,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     state.transaction_id = transaction_id_;
     auto shards = shards_map_.GetShards(*state.label);
     for (auto &[key, shard] : shards) {
+      MG_ASSERT(!shard.empty());
       state.shard_cache.push_back(std::move(shard));
       ScanVerticesRequest rqst;
       rqst.transaction_id = transaction_id_;
