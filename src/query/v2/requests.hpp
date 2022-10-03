@@ -381,6 +381,7 @@ struct ScanVerticesRequest {
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
   std::optional<std::vector<std::string>> filter_expressions;
+  std::optional<std::vector<std::string>> vertex_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view{StorageView::NEW};
 };
@@ -389,6 +390,7 @@ struct ScanResultRow {
   Vertex vertex;
   // empty() is no properties returned
   std::vector<std::pair<PropertyId, Value>> props;
+  std::vector<Value> evaluated_vertex_expressions;
 };
 
 struct ScanVerticesResponse {
