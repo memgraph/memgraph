@@ -54,6 +54,9 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
+    return lhs.address == rhs.address;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;

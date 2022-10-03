@@ -225,37 +225,38 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   return msgs::DeleteVerticesResponse{action_successful};
 }
 
-msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  for (auto &edge : req.edges) {
-    auto vertex_acc_from_primary_key = edge.src.second;
-    auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
+  // for (auto &edge : req.edges) {
+  //   auto vertex_acc_from_primary_key = edge.src.second;
+  //   auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.dst.second;
-    auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
+  //   auto vertex_acc_to_primary_key = edge.dst.second;
+  //   auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
-    if (!vertex_from_acc || !vertex_to_acc) {
-      action_successful = false;
-      spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
-                    req.transaction_id.logical_id);
-      break;
-    }
+  //   if (!vertex_from_acc || !vertex_to_acc) {
+  //     action_successful = false;
+  //     spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
+  //                   req.transaction_id.logical_id);
+  //     break;
+  //   }
 
-    auto from_vertex_id = VertexId(edge.src.first.id, ConvertPropertyVector(std::move(edge.src.second)));
-    auto to_vertex_id = VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second)));
-    auto edge_acc =
-        acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
+  //   auto from_vertex_id = VertexId(edge.src.first.id, ConvertPropertyVector(std::move(edge.src.second)));
+  //   auto to_vertex_id = VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second)));
+  //   auto edge_acc =
+  //       acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
 
-    if (edge_acc.HasError()) {
-      action_successful = false;
-      spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
-      break;
-    }
-  }
+  //   if (edge_acc.HasError()) {
+  //     action_successful = false;
+  //     spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
+  //     break;
+  //   }
+  // }
 
-  return msgs::CreateEdgesResponse{action_successful};
+  // return msgs::CreateExpandResponse{action_successful};
+  return msgs::CreateExpandResponse{true};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {

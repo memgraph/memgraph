@@ -34,7 +34,7 @@ class ShardRsm {
   msgs::WriteResponses ApplyWrite(msgs::DeleteVerticesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::UpdateVerticesRequest &&req);
 
-  msgs::WriteResponses ApplyWrite(msgs::CreateEdgesRequest &&req);
+  msgs::WriteResponses ApplyWrite(msgs::CreateExpandRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::DeleteEdgesRequest &&req);
   msgs::WriteResponses ApplyWrite(msgs::UpdateEdgesRequest &&req);
 

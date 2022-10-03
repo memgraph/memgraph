@@ -183,8 +183,8 @@ class DistributedCreateNodeCursor : public Cursor {
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
       // TODO(jbajic) Fix properties not send,
-      // ignore primary keys from storage side, since
-      // it is useless without schema verification
+      // suggestion: ignore distinction between properties and primary keys
+      // since schema validation is done on storage side
       std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
@@ -2447,15 +2447,17 @@ class DistributedCreateExpandCursor : public Cursor {
 
   // Get the existing node other vertex
   accessors::VertexAccessor &OtherVertex(Frame &frame) const {
+    // This assumes that vertex exists
+    MG_ASSERT(self_.existing_node_, "Vertex creating with edge not supported!");
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   }
 
-  std::vector<msgs::NewEdge> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
-    std::vector<msgs::NewEdge> edge_requests;
+  std::vector<msgs::NewExpand> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewExpand> edge_requests;
     for (const auto &edge_info : std::vector{self_.edge_info_}) {
-      msgs::NewEdge request;
+      msgs::NewExpand request;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       request.type = {edge_info.edge_type.AsUint()};
@@ -2478,10 +2480,11 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto &v2 = OtherVertex(frame);
 
       // Set src and dest vertices
+      // TODO(jbajic) Currently we are only handling scenario where vertices
+      // are matched
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.Labels()[0];
         for (const auto &[key, val] : vertex.Properties()) {
-          // properties_v1[key] = val;
           if (context.shard_request_manager->IsPrimaryKey(key)) {
             vertex_id.second.push_back(val);
           }

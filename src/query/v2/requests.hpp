@@ -56,14 +56,14 @@ struct EdgeType {
 
 struct EdgeId {
   Gid gid;
+
+  friend bool operator==(const EdgeId &lhs, const EdgeId &rhs) { return lhs.gid == rhs.gid; }
 };
 
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
-  friend bool operator==(const Vertex &lhs, const Vertex &rhs) {
-    return (lhs.id == rhs.id) && (lhs.labels == rhs.labels);
-  }
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
 };
 
 struct Edge {
@@ -71,9 +71,7 @@ struct Edge {
   VertexId dst;
   EdgeId id;
   EdgeType type;
-  friend bool operator==(const Edge &lhs, const Edge &rhs) {
-    return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
-  }
+  friend bool operator==(const Edge &lhs, const Edge &rhs) { return lhs.id == rhs.id; }
 };
 
 struct PathPart {
@@ -524,12 +522,21 @@ struct UpdateVerticesResponse {
 /*
  * Edges
  */
-struct CreateEdgesRequest {
-  Hlc transaction_id;
-  std::vector<Edge> edges;
+// No need for specifying direction since it has to be in one, and src and dest
+// vertices clearly communicate the direction
+struct NewExpand {
+  EdgeType type;
+  VertexId src_vertex;
+  VertexId dest_vertex;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
-struct CreateEdgesResponse {
+struct CreateExpandRequest {
+  Hlc transaction_id;
+  std::vector<NewExpand> new_expands;
+};
+
+struct CreateExpandResponse {
   bool success;
 };
 
@@ -564,8 +571,8 @@ using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVe
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
 using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
-                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
+                                   CreateExpandRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
-                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
+                                    CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs

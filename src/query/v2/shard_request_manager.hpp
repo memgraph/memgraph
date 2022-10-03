@@ -85,10 +85,10 @@ struct ExecutionState {
   // Initialized by ShardRequestManager implementation. This vector is filled with the shards that
   // the ShardRequestManager impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
-  // empty, it means that all of the requests have completed succefully.
+  // empty, it means that all of the requests have completed successfully.
   std::vector<Shard> shard_cache;
   // 1-1 mapping with `shard_cache`.
-  // A vector that tracks request metatdata for each shard (For example, next_id for a ScanAll on Shard A)
+  // A vector that tracks request metadata for each shard (For example, next_id for a ScanAll on Shard A)
   std::vector<TRequest> requests;
   State state = INITIALIZING;
 };
@@ -110,6 +110,8 @@ class ShardRequestManagerInterface {
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
   virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
+  virtual std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
+                                                    std::vector<NewExpand> new_edges) = 0;
   // TODO(antaljanosbenjamin): unify the GetXXXId and NameToId functions to have consistent naming, return type and
   // implementation
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
@@ -305,6 +307,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
+  std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
+                                            std::vector<NewExpand> new_edges) override {
+    MaybeInitializeExecutionState(state, new_edges);
+    return {};
+  }
+
   std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
@@ -388,6 +396,41 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<CreateVerticesRequest>::EXECUTING;
+  }
+
+  void MaybeInitializeExecutionState(ExecutionState<CreateExpandRequest> &state, std::vector<NewExpand> new_expands) {
+    ThrowIfStateCompleted(state);
+    if (ShallNotInitializeState(state)) {
+      return;
+    }
+    state.transaction_id = transaction_id_;
+
+    std::map<Shard, CreateExpandRequest> per_shard_request_table;
+
+    for (auto &new_expand : new_expands) {
+      const auto shard_src_vertex = shards_map_.GetShardForKey(
+          new_expand.src_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.src_vertex.second));
+      const auto shard_dest_vertex = shards_map_.GetShardForKey(
+          new_expand.dest_vertex.first.id, storage::conversions::ConvertPropertyVector(new_expand.dest_vertex.second));
+
+      if (!per_shard_request_table.contains(shard_src_vertex)) {
+        CreateExpandRequest create_expand_request{.transaction_id = transaction_id_};
+        per_shard_request_table.insert({shard_src_vertex, std::move(create_expand_request)});
+        state.shard_cache.push_back(shard_src_vertex);
+      }
+
+      // TODO This is vector comparison, maybe this should be shard id
+      // comparison...
+      if (shard_src_vertex != shard_dest_vertex) {
+        per_shard_request_table[shard_dest_vertex].new_expands.push_back(new_expand);
+      }
+      per_shard_request_table[shard_src_vertex].new_expands.push_back(std::move(new_expand));
+    }
+
+    for (auto &[shard, request] : per_shard_request_table) {
+      state.requests.push_back(std::move(request));
+    }
+    state.state = ExecutionState<CreateExpandRequest>::EXECUTING;
   }
 
   void MaybeInitializeExecutionState(ExecutionState<ScanVerticesRequest> &state) {
