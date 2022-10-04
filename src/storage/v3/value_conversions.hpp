@@ -66,7 +66,7 @@ inline memgraph::storage::v3::PropertyValue ToPropertyValue(Value value) {
   return ret;
 }
 
-inline Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
+inline Value FromPropertyValueToValue(const memgraph::storage::v3::PropertyValue &pv) {
   using memgraph::storage::v3::PropertyValue;
 
   switch (pv.type()) {
@@ -80,7 +80,7 @@ inline Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
       std::vector<Value> list;
       list.reserve(pv.ValueList().size());
       for (const auto &elem : pv.ValueList()) {
-        list.emplace_back(ToValue(elem));
+        list.emplace_back(FromPropertyValueToValue(elem));
       }
 
       return Value(list);
@@ -89,7 +89,7 @@ inline Value ToValue(const memgraph::storage::v3::PropertyValue &pv) {
       std::map<std::string, Value> map;
       for (const auto &[key, val] : pv.ValueMap()) {
         // maybe use std::make_pair once the && issue is resolved.
-        map.emplace(key, ToValue(val));
+        map.emplace(key, FromPropertyValueToValue(val));
       }
 
       return Value(map);
@@ -122,7 +122,7 @@ inline std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage
   ret.reserve(vec.size());
 
   for (const auto &elem : vec) {
-    ret.push_back(ToValue(elem));
+    ret.push_back(FromPropertyValueToValue(elem));
   }
 
   return ret;
