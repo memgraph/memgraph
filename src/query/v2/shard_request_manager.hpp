@@ -201,15 +201,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  storage::v3::EdgeTypeId NameToEdgeType(const std::string & /*name*/) const override {
-    return memgraph::storage::v3::EdgeTypeId::FromUint(0);
+  storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const override {
+    return *shards_map_.GetEdgeTypeId(name);
   }
 
   storage::v3::PropertyId NameToProperty(const std::string &name) const override {
     return *shards_map_.GetPropertyId(name);
   }
 
-  memgraph::storage::v3::LabelId LabelNameToLabelId(const std::string &name) const override {
+  storage::v3::LabelId LabelNameToLabelId(const std::string &name) const override {
     return shards_map_.GetLabelId(name);
   }
 
@@ -309,8 +309,36 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
                                             std::vector<NewExpand> new_edges) override {
+    MG_ASSERT(!new_edges.empty());
     MaybeInitializeExecutionState(state, new_edges);
-    return {};
+    std::vector<CreateExpandResponse> responses;
+    auto &shard_cache_ref = state.shard_cache;
+    size_t id{0};
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+      const auto src_label = state.requests[id].new_expands[0].src_vertex.first;
+      const auto dest_label = state.requests[id].new_expands[0].dest_vertex.first;
+      const auto send_request = [&](const auto label) {
+        auto &storage_client = GetStorageClientForShard(*shard_it, label);
+        WriteRequests req = state.requests[id];
+        auto write_response_result = storage_client.SendWriteRequest(req);
+        if (write_response_result.HasError()) {
+          throw std::runtime_error("CreateVertices request timedout");
+        }
+        WriteResponses response_variant = write_response_result.GetValue();
+        CreateExpandResponse mapped_response = std::get<CreateExpandResponse>(response_variant);
+
+        if (!mapped_response.success) {
+          throw std::runtime_error("CreateExpand request did not succeed");
+        }
+        responses.push_back(mapped_response);
+        shard_it = shard_cache_ref.erase(shard_it);
+      };
+      send_request(src_label.id);
+      send_request(dest_label.id);
+    }
+    // We are done with this state
+    MaybeCompleteState(state);
+    return responses;
   }
 
   std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
@@ -417,13 +445,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         CreateExpandRequest create_expand_request{.transaction_id = transaction_id_};
         per_shard_request_table.insert({shard_src_vertex, std::move(create_expand_request)});
         state.shard_cache.push_back(shard_src_vertex);
+        if (shard_src_vertex != shard_dest_vertex) {
+          state.shard_cache.push_back(shard_dest_vertex);
+        }
       }
 
-      // TODO This is vector comparison, maybe this should be shard id
-      // comparison...
-      if (shard_src_vertex != shard_dest_vertex) {
-        per_shard_request_table[shard_dest_vertex].new_expands.push_back(new_expand);
-      }
+      // No need to create two requests, it will be handled in Request method
       per_shard_request_table[shard_src_vertex].new_expands.push_back(std::move(new_expand));
     }
 
