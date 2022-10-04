@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <cstdint>
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -30,6 +31,7 @@
 #include "query/v2/metadata.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/read_write_type_checker.hpp"
+#include "query/v2/requests.hpp"
 #include "query/v2/stream.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -209,6 +211,21 @@ struct InterpreterContext {
 /// their ongoing execution.
 inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
 
+class IdAllocator {
+ public:
+  IdAllocator() = default;
+  IdAllocator(uint64_t low, uint64_t high) : current_edge_id_{low}, max_id_{high} {};
+
+  uint64_t AllocateId() {
+    MG_ASSERT(current_edge_id_ < max_id_, "Current Edge Id went above max id");
+    return current_edge_id_++;
+  }
+
+ private:
+  uint64_t current_edge_id_;
+  uint64_t max_id_;
+};
+
 class Interpreter final {
  public:
   explicit Interpreter(InterpreterContext *interpreter_context);
@@ -332,10 +349,11 @@ class Interpreter final {
 
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
-  // move this unique_ptr into a shrared_ptr.
+  // move this unique_ptr into a shared_ptr.
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager_;
+  IdAllocator edge_ids_allocator;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 

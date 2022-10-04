@@ -2432,13 +2432,12 @@ class DistributedCreateExpandCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("CreateExpand");
-    if (input_cursor_->Pull(frame, context)) {
-      auto &shard_manager = context.shard_request_manager;
-      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
-      return true;
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
     }
-
-    return false;
+    auto &shard_manager = context.shard_request_manager;
+    shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }

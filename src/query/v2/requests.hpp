@@ -58,6 +58,7 @@ struct EdgeId {
   Gid gid;
 
   friend bool operator==(const EdgeId &lhs, const EdgeId &rhs) { return lhs.gid == rhs.gid; }
+  friend bool operator<(const EdgeId &lhs, const EdgeId &rhs) { return lhs.gid < rhs.gid; }
 };
 
 struct Vertex {
@@ -525,6 +526,7 @@ struct UpdateVerticesResponse {
 // No need for specifying direction since it has to be in one, and src and dest
 // vertices clearly communicate the direction
 struct NewExpand {
+  EdgeId id;
   EdgeType type;
   VertexId src_vertex;
   VertexId dest_vertex;

@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 
+#include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "expr/ast/ast_visitor.hpp"
 #include "io/local_transport/local_system.hpp"
@@ -805,6 +806,20 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
           query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
       std::move(query_io));
+  // Get edge ids
+  coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
+  io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
+  ww.operation = requests;
+  auto resp = interpreter_context_->io
+                  .Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
+                           io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
+                      interpreter_context_->coordinator_address, ww)
+                  .Wait();
+  if (resp.HasValue()) {
+    const auto alloc_edge_id_reps =
+        std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
+    edge_ids_allocator = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
+  }
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {

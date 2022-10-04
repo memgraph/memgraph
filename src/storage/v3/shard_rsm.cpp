@@ -248,12 +248,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
     auto to_vertex_id =
         VertexId(new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second)));
     auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(new_expand.type.id),
-                                   Gid::FromUint(new_expand.z.gid));
+                                   Gid::FromUint(new_expand.id.gid));
     if (edge_acc.HasValue()) {
       auto edge = edge_acc.GetValue();
       if (!new_expand.properties.empty()) {
         for (const auto &[property, value] : new_expand.properties) {
-          if (edge.SetProperty(property, value)) {
+          if (const auto maybe_error = edge.SetProperty(property, ToPropertyValue(value)); maybe_error.HasError()) {
             action_successful = false;
             spdlog::debug("Setting edge property was not successful. Transaction id: {}",
                           req.transaction_id.logical_id);
