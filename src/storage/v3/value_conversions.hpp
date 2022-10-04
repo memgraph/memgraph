@@ -60,7 +60,6 @@ inline memgraph::storage::v3::PropertyValue ToPropertyValue(Value value) {
     // These are not PropertyValues
     case Value::Type::Vertex:
     case Value::Type::Edge:
-    case Value::Type::Path:
       MG_ASSERT(false, "Not PropertyValue");
   }
   return ret;

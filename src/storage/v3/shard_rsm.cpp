@@ -194,7 +194,6 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
     case TypedValue::Type::LocalTime:
     case TypedValue::Type::LocalDateTime:
     case TypedValue::Type::Duration:
-
     case TypedValue::Type::Path: {
       MG_ASSERT(false, "This conversion betweem TypedValue and Value is not implemented yet!");
       return Value{};
