@@ -182,8 +182,6 @@ std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<memgraph
   return ret;
 }
 
-/////////////////////////////////////////////////////////////////////////////////
-
 std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
                                           memgraph::expr::DbAccessor &dba) {
   std::vector<PropertyId> properties;
