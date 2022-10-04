@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <limits>
+#include <optional>
 #include <variant>
 
 #include <gmock/gmock.h>
@@ -31,10 +32,7 @@ namespace memgraph::storage::v3::tests {
 
 class StorageV3Accessor : public ::testing::Test {
  protected:
-  void SetUp() override {
-    storage.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(storage.CreateSchema(primary_label, {SchemaProperty{primary_property, common::SchemaType::INT}}));
-  }
+  void SetUp() override { storage.StoreMapping({{1, "label"}, {2, "property"}}); }
 
   VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
                                          const std::vector<LabelId> &labels,
@@ -54,10 +52,13 @@ class StorageV3Accessor : public ::testing::Test {
     return last_hlc;
   }
 
-  const std::vector<PropertyValue> pk{PropertyValue{0}};
+  const std::vector<PropertyValue> min_pk{PropertyValue{0}};
   const LabelId primary_label{LabelId::FromUint(1)};
   const PropertyId primary_property{PropertyId::FromUint(2)};
-  Shard storage{primary_label, pk, std::nullopt};
+  std::vector<storage::v3::SchemaProperty> schema_property_vector = {
+      storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
+  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
+
   coordinator::Hlc last_hlc{0, io::Time{}};
 };
 

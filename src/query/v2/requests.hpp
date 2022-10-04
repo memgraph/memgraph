@@ -58,22 +58,21 @@ struct EdgeId {
   Gid gid;
 };
 
-struct Vertex {
-  VertexId id;
-  std::vector<Label> labels;
-  friend bool operator==(const Vertex &lhs, const Vertex &rhs) {
-    return (lhs.id == rhs.id) && (lhs.labels == rhs.labels);
-  }
-};
-
 struct Edge {
   VertexId src;
   VertexId dst;
+  std::optional<std::vector<std::pair<PropertyId, Value>>> properties;
   EdgeId id;
   EdgeType type;
   friend bool operator==(const Edge &lhs, const Edge &rhs) {
     return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
   }
+};
+
+struct Vertex {
+  VertexId id;
+  std::vector<Label> labels;
+  friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
 };
 
 struct PathPart {
@@ -459,8 +458,15 @@ struct ExpandOneResultRow {
   // The drawback of this is currently the key of the map is always interpreted as a string in Value, not as an
   // integer, which should be in case of mapped properties.
   Vertex src_vertex;
-  std::optional<Values> src_vertex_properties;
-  Values edges;
+  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+
+  // NOTE: If the desired edges are specified in the request,
+  // edges_with_specific_properties will have a value and it will
+  // return the properties as a vector of property values. The order
+  // of the values returned should be the same as the PropertyIds
+  // were defined in the request.
+  std::optional<std::vector<std::tuple<VertexId, Gid, std::map<PropertyId, Value>>>> edges_with_all_properties;
+  std::optional<std::vector<std::tuple<VertexId, Gid, std::vector<Value>>>> edges_with_specific_properties;
 };
 
 struct ExpandOneResponse {
@@ -468,12 +474,14 @@ struct ExpandOneResponse {
 };
 
 struct UpdateVertexProp {
-  VertexId primary_key;
+  PrimaryKey primary_key;
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
 struct UpdateEdgeProp {
-  Edge edge;
+  EdgeId edge_id;
+  VertexId src;
+  VertexId dst;
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
