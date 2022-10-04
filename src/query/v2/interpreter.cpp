@@ -699,6 +699,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.is_profile_query = is_profile_query;
   //  ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.shard_request_manager = shard_request_manager;
+  ctx_.edge_ids_alloc = interpreter_context->edge_ids_alloc;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -818,7 +819,7 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
   if (resp.HasValue()) {
     const auto alloc_edge_id_reps =
         std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
-    edge_ids_allocator = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
+    interpreter_context_->edge_ids_alloc = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
   }
 }
 

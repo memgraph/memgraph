@@ -186,6 +186,7 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   const InterpreterConfig config;
+  IdAllocator edge_ids_alloc;
 
   io::Io<io::local_transport::LocalTransport> io;
   coordinator::Address coordinator_address;
@@ -210,21 +211,6 @@ struct InterpreterContext {
 /// Function that is used to tell all active interpreters that they should stop
 /// their ongoing execution.
 inline void Shutdown(InterpreterContext *context) { context->is_shutting_down.store(true, std::memory_order_release); }
-
-class IdAllocator {
- public:
-  IdAllocator() = default;
-  IdAllocator(uint64_t low, uint64_t high) : current_edge_id_{low}, max_id_{high} {};
-
-  uint64_t AllocateId() {
-    MG_ASSERT(current_edge_id_ < max_id_, "Current Edge Id went above max id");
-    return current_edge_id_++;
-  }
-
- private:
-  uint64_t current_edge_id_;
-  uint64_t max_id_;
-};
 
 class Interpreter final {
  public:
@@ -353,7 +339,6 @@ class Interpreter final {
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager_;
-  IdAllocator edge_ids_allocator;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 
