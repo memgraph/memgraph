@@ -2457,6 +2457,7 @@ class DistributedCreateExpandCursor : public Cursor {
     std::vector<msgs::NewExpand> edge_requests;
     for (const auto &edge_info : std::vector{self_.edge_info_}) {
       msgs::NewExpand request;
+      // msgs::NewExpand request{.id = context.evaluation_context. };
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       request.type = {edge_info.edge_type.AsUint()};
@@ -2482,7 +2483,7 @@ class DistributedCreateExpandCursor : public Cursor {
       // TODO(jbajic) Currently we are only handling scenario where vertices
       // are matched
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
-        vertex_id.first = vertex.Labels()[0];
+        vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
           if (context.shard_request_manager->IsPrimaryKey(key)) {
             vertex_id.second.push_back(val);
