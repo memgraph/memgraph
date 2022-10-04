@@ -26,6 +26,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/bindings/eval.hpp"
@@ -267,6 +268,100 @@ class ScanAllCursor : public Cursor {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request_state;
 };
 
+class DistributedScanAllAndFilterCursor : public Cursor {
+ public:
+  explicit DistributedScanAllAndFilterCursor(
+      Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+      std::optional<storage::v3::LabelId> label,
+      std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair,
+      std::optional<std::vector<Expression *>> filter_expressions)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        property_expression_pair_(property_expression_pair),
+        filter_expressions_(filter_expressions) {
+    ResetExecutionState();
+  }
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
+    current_batch = shard_manager.Request(request_state_);
+    current_vertex_it = current_batch.begin();
+    return !current_batch.empty();
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+    auto &shard_manager = *context.shard_request_manager;
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
+
+    if (request_state_.state == State::INITIALIZING) {
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
+    }
+
+    if (current_vertex_it == current_batch.end()) {
+      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
+        ResetExecutionState();
+        return Pull(frame, context);
+      }
+    }
+
+    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+    ++current_vertex_it;
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void ResetExecutionState() {
+    current_batch.clear();
+    current_vertex_it = current_batch.end();
+    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
+
+    auto request = msgs::ScanVerticesRequest{};
+    if (label_.has_value()) {
+      request.label = msgs::Label{.id = label_.value()};
+    }
+    if (property_expression_pair_.has_value()) {
+      request.property_expression_pair = std::make_pair(
+          property_expression_pair_.value().first,
+          expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(property_expression_pair_.value().second));
+    }
+    if (filter_expressions_.has_value()) {
+      auto res = std::vector<std::string>{};
+      res.reserve(filter_expressions_->size());
+      std::transform(filter_expressions_->begin(), filter_expressions_->end(), std::back_inserter(res),
+                     [this](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
+
+      request.filter_expressions = res;
+    }
+    request_state_.requests.emplace_back(request);
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  std::vector<VertexAccessor> current_batch;
+  decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
+  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
+  std::optional<storage::v3::LabelId> label_;
+  std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
@@ -275,12 +370,9 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
 
-  auto vertices = [this](Frame & /*unused*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAll");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", std::nullopt /*label*/,
+      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -298,12 +390,9 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
-  auto vertices = [this](Frame & /*unused*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabel");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByLabel", label_, std::nullopt /*property_expression_pair*/,
+      std::nullopt /*filter_expressions*/);
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -390,17 +479,9 @@ ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
-  auto vertices =
-      [this](Frame &frame, ExecutionContext &context) -> std::optional<decltype(context.db_accessor->Vertices(
-                                                          view_, label_, property_, storage::v3::PropertyValue()))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::nullopt;
-    return std::make_optional(db->Vertices(view_, label_, property_, storage::v3::TypedToPropertyValue(value)));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyValue");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByLabelPropertyValue", label_,
+      std::make_pair(property_, expression_), std::nullopt /*filter_expressions*/);
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -2702,63 +2783,6 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   }
   return visitor.PostVisit(*this);
 }
-
-class DistributedScanAllCursor : public Cursor {
- public:
-  explicit DistributedScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name)
-      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)), op_name_(op_name) {}
-
-  using VertexAccessor = accessors::VertexAccessor;
-
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
-    current_batch = shard_manager.Request(request_state_);
-    current_vertex_it = current_batch.begin();
-    return !current_batch.empty();
-  }
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(op_name_);
-    auto &shard_manager = *context.shard_request_manager;
-    if (MustAbort(context)) throw HintedAbortError();
-    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
-
-    if (request_state_.state == State::INITIALIZING) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-    }
-
-    if (current_vertex_it == current_batch.end()) {
-      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
-        ResetExecutionState();
-        return Pull(frame, context);
-      }
-    }
-
-    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-    ++current_vertex_it;
-    return true;
-  }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void ResetExecutionState() {
-    current_batch.clear();
-    current_vertex_it = current_batch.end();
-    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-  }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    ResetExecutionState();
-  }
-
- private:
-  const Symbol output_symbol_;
-  const UniqueCursorPtr input_cursor_;
-  const char *op_name_;
-  std::vector<VertexAccessor> current_batch;
-  decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
-};
 
 class DistributedCreateNodeCursor : public Cursor {
  public:
