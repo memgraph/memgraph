@@ -60,8 +60,6 @@ class ShardRsm {
  private:
   static constexpr const char *node_name_ = "node";
   static constexpr const char *edge_name_ = "edge";
-
-  AstStorage storage_;
 };
 
 }  // namespace memgraph::storage::v3
