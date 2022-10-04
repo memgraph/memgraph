@@ -151,7 +151,6 @@ Value ConstructValueEdge(const memgraph::storage::v3::EdgeAccessor &acc, View vi
   return Value({.src = src_vertex, .dst = dst_vertex, .properties = properties_opt, .id = gid, .type = type});
 }
 
-/// Conversion from TypedValue to Value
 Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
   using memgraph::storage::v3::TypedValue;
 
@@ -174,7 +173,6 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
     case TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (auto &[key, val] : tv.ValueMap()) {
-        // maybe use std::make_pair once the && issue is resolved.
         map.emplace(key, FromTypedValueToValue(std::move(val)));
       }
 
@@ -196,7 +194,7 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
     case TypedValue::Type::Duration:
     case TypedValue::Type::Path: {
       MG_ASSERT(false, "This conversion betweem TypedValue and Value is not implemented yet!");
-      return Value{};
+      break;
     }
   }
   return Value{};
@@ -246,6 +244,7 @@ memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storag
   // Fill EvaluationContext up with properties
   const auto properties = v_acc.Properties(View::OLD);
   std::vector<PropertyId> properties_in_shard;
+  properties_in_shard.reserve(properties.GetValue().size());
 
   for (const auto &prop : properties.GetValue()) {
     properties_in_shard.emplace_back(prop.first);
@@ -256,6 +255,7 @@ memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storag
   // Fill EvaluationContext up with labels
   const auto labels = v_acc.Labels(View::OLD);
   std::vector<memgraph::storage::v3::LabelId> labels_in_shard;
+  labels_in_shard.reserve(properties.GetValue().size());
 
   for (const auto &label : labels.GetValue()) {
     labels_in_shard.emplace_back(label);
@@ -270,7 +270,6 @@ memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storag
 bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
                      const std::vector<std::string> filters, std::string_view node_name) {
   for (const auto &filter_expr : filters) {
-    // Parse stuff
     memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(filter_expr);
     memgraph::expr::ParsingContext pc;
     memgraph::expr::AstStorage storage;
@@ -317,7 +316,6 @@ std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
   std::vector<memgraph::storage::v3::TypedValue> evaluated_expressions;
 
   for (const auto &expression : expressions) {
-    // Parse stuff
     memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expression);
     memgraph::expr::ParsingContext pc;
     memgraph::expr::AstStorage storage;
@@ -338,7 +336,6 @@ std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
 
     std::vector<memgraph::expr::Identifier *> identifiers;
 
-    // Does an expression allways contain the name of the vertex?
     if (expression.find(node_name) != std::string::npos) {
       is_node_identifier_present = true;
       identifiers.push_back(&node_identifier);
@@ -947,7 +944,13 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     if (did_reach_starting_point) {
       std::vector<Value> expression_results;
 
-      // TODO(gvolfing) it should be enough to check this only once.
+      // TODO(gvolfing) it should be enough to check these only once.
+      if (vertex.Properties(View(req.storage_view)).HasError()) {
+        action_successful = false;
+        spdlog::debug("Could not retrive properties from VertexAccessor. Transaction id: {}",
+                      req.transaction_id.logical_id);
+        break;
+      }
       if (req.filter_expressions) {
         // NOTE - DbAccessor might get removed in the future.
         auto dba = DbAccessor{&acc};
