@@ -334,7 +334,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         shard_it = shard_cache_ref.erase(shard_it);
       };
       send_request(src_label.id);
-      send_request(dest_label.id);
+      if (src_label.id != dest_label.id) {
+        send_request(dest_label.id);
+      }
     }
     // We are done with this state
     MaybeCompleteState(state);
