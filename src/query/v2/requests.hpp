@@ -413,12 +413,13 @@ struct ExpandOneRequest {
   //  * __mg__dst_id (Vertex, but without labels)
   //  * __mg__type (binary)
   std::optional<std::vector<PropertyId>> edge_properties;
-  //  QUESTION(antaljanosbenjamin): Maybe also add possibility to expressions evaluated on the source vertex?
-  //  List of expressions evaluated on edges
-  std::vector<Expression> expressions;
+
+  std::optional<std::vector<std::string>> vertex_expressions;
+  std::optional<std::vector<std::string>> edge_expressions;
+
   std::optional<std::vector<OrderBy>> order_by;
   std::optional<size_t> limit;
-  std::optional<Filter> filter;
+  std::optional<std::vector<std::string>> filter;
 };
 
 struct ExpandOneResultRow {
