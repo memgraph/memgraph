@@ -104,23 +104,16 @@ def retry(retry_limit, timeout=100):
                 except Exception:
                     time.sleep(timeout)
             return func(*args, **kwargs)
-
         return wrapper
-
     return inner_func
 
 
-def get_output_without_retry(*cmd, multiple=False, timeout=None):
-    ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True, timeout=timeout)
+@retry(3)
+def get_output(*cmd, multiple=False):
+    ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
     if multiple:
         return list(map(lambda x: x.strip(), ret.stdout.decode("utf-8").strip().split("\n")))
     return ret.stdout.decode("utf-8").strip()
-
-
-@retry(3)
-def get_output(*cmd, multiple=False, timeout=None):
-    # sys.stderr.write(str(cmd))
-    return get_output_without_retry(*cmd, multiple=multiple, timeout=timeout)
 
 
 def format_version(variant, version, offering, distance=None, shorthash=None, suffix=None):
@@ -213,7 +206,7 @@ try:
             # because this script will still be able to compare against the
             # master branch.
             try:
-                get_output_without_retry("git", "fetch", "origin", "master:master", timeout=1)
+                get_output("git", "fetch", "origin", "master:master")
             except Exception:
                 pass
         else:
