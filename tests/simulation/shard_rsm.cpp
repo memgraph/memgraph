@@ -460,17 +460,17 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   // Edge properties to look for
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
-  std::vector<msgs::Expression> expressions;
+  std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<msgs::Filter> filter = {};
+  std::optional<std::vector<std::string>> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
   expand_one_req.direction = edge_direction;
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
-  expand_one_req.expressions = expressions;
+  expand_one_req.vertex_expressions = expressions;
   expand_one_req.filter = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
@@ -514,17 +514,17 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, uint
   // Edge properties to look for
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
-  std::vector<msgs::Expression> expressions;
+  std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<msgs::Filter> filter = {};
+  std::optional<std::vector<std::string>> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
   expand_one_req.direction = edge_direction;
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
-  expand_one_req.expressions = expressions;
+  expand_one_req.vertex_expressions = expressions;
   expand_one_req.filter = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
@@ -570,17 +570,17 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   // Edge properties to look for
   std::optional<std::vector<PropertyId>> edge_properties = {};
 
-  std::vector<msgs::Expression> expressions;
+  std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<msgs::Filter> filter = {};
+  std::optional<std::vector<std::string>> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
   expand_one_req.direction = edge_direction;
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
-  expand_one_req.expressions = expressions;
+  expand_one_req.vertex_expressions = expressions;
   expand_one_req.filter = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
@@ -628,17 +628,17 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
   std::vector<PropertyId> specified_edge_prop{PropertyId::FromUint(edge_prop_id)};
   std::optional<std::vector<PropertyId>> edge_properties = {specified_edge_prop};
 
-  std::vector<msgs::Expression> expressions;
+  std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<msgs::Filter> filter = {};
+  std::optional<std::vector<std::string>> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
   expand_one_req.direction = edge_direction;
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
-  expand_one_req.expressions = expressions;
+  expand_one_req.vertex_expressions = expressions;
   expand_one_req.filter = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;

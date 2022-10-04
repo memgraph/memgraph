@@ -545,41 +545,11 @@ void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
   properties_to_nullopt = {};
 }
 
+template <typename EgdePropertyFunc>
 std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::storage::v3::Shard::Accessor &acc,
                                                                      memgraph::msgs::VertexId src_vertex,
-                                                                     memgraph::msgs::ExpandOneRequest req) {
-  using EdgeProperties =
-      std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
-  std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
-
-  if (!req.edge_properties) {
-    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
-      std::map<PropertyId, memgraph::msgs::Value> ret;
-      auto property_results = edge.Properties(View::OLD);
-      if (property_results.HasError()) {
-        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        return LocalError{};
-      }
-
-      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
-        ret.insert(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
-      }
-      return ret;
-    };
-  } else {
-    // TODO(gvolfing) - do we want to set the action_successful here?
-    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
-      std::vector<memgraph::msgs::Value> ret;
-      ret.reserve(req.edge_properties.value().size());
-      for (const auto &edge_prop : req.edge_properties.value()) {
-        // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.emplace_back(FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
-      }
-      return ret;
-    };
-  }
-
+                                                                     memgraph::msgs::ExpandOneRequest req,
+                                                                     EgdePropertyFunc get_edge_properties) {
   /// Fill up source vertex
   auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
 
@@ -1022,13 +992,46 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
+  using EdgeProperties =
+      std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
+  std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
+
+  // Functions to obtain edge properties
+  if (!req.edge_properties) {
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
+      std::map<PropertyId, memgraph::msgs::Value> ret;
+      auto property_results = edge.Properties(View::OLD);
+      if (property_results.HasError()) {
+        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
+        return LocalError{};
+      }
+
+      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
+        ret.insert(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
+      }
+      return ret;
+    };
+  } else {
+    // TODO(gvolfing) - do we want to set the action_successful here?
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
+      std::vector<memgraph::msgs::Value> ret;
+      ret.reserve(req.edge_properties.value().size());
+      for (const auto &edge_prop : req.edge_properties.value()) {
+        // TODO(gvolfing) maybe check for the absence of certain properties
+        ret.emplace_back(FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
+      }
+      return ret;
+    };
+  }
+
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
 
   for (auto &src_vertex : req.src_vertices) {
-    auto result = GetExpandOneResult(acc, src_vertex, req);
+    auto result = GetExpandOneResult(acc, src_vertex, req, get_edge_properties);
 
     if (!result) {
       action_successful = false;
