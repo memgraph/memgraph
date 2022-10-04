@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <functional>
 #include <iterator>
 #include <utility>
@@ -238,71 +239,113 @@ auto Eval(TExpression *expr, memgraph::expr::EvaluationContext ctx, memgraph::ex
   return value;
 }
 
-memgraph::expr::EvaluationContext CreateEvaluationContext(const memgraph::storage::v3::VertexAccessor &v_acc) {
+std::vector<PropertyId> GetPropertiesFromAcessor(
+    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
+  std::vector<PropertyId> ret_properties;
+  ret_properties.reserve(properties.size());
+
+  for (const auto &prop : properties) {
+    ret_properties.emplace_back(prop.first);
+  }
+
+  return ret_properties;
+}
+
+memgraph::expr::EvaluationContext CreateEvaluationContext(
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc,
+    const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc) {
   memgraph::expr::EvaluationContext ctx;
 
-  // Fill EvaluationContext up with properties
-  const auto properties = v_acc.Properties(View::OLD);
-  std::vector<PropertyId> properties_in_shard;
-  properties_in_shard.reserve(properties.GetValue().size());
-
-  for (const auto &prop : properties.GetValue()) {
-    properties_in_shard.emplace_back(prop.first);
-  }
-
-  ctx.properties = std::move(properties_in_shard);
-
-  // Fill EvaluationContext up with labels
-  const auto labels = v_acc.Labels(View::OLD);
+  std::vector<PropertyId> vertex_props;
+  std::vector<PropertyId> edge_props;
   std::vector<memgraph::storage::v3::LabelId> labels_in_shard;
-  labels_in_shard.reserve(properties.GetValue().size());
 
-  for (const auto &label : labels.GetValue()) {
-    labels_in_shard.emplace_back(label);
+  if (v_acc) {
+    const auto labels = v_acc->Labels(View::OLD);
+    labels_in_shard.reserve(labels.GetValue().size());
+
+    for (const auto &label : labels.GetValue()) {
+      labels_in_shard.emplace_back(label);
+    }
+
+    vertex_props = GetPropertiesFromAcessor(v_acc->Properties(View::OLD).GetValue());
+  }
+  if (e_acc) {
+    edge_props = GetPropertiesFromAcessor(e_acc->Properties(View::OLD).GetValue());
   }
 
+  std::vector<PropertyId> all_properties(vertex_props.size() + edge_props.size());
+
+  // Sorting might not needed, since the props are being converted from std::map
+  std::sort(vertex_props.begin(), vertex_props.end());
+  std::sort(edge_props.begin(), edge_props.end());
+
+  auto it = std::set_symmetric_difference(vertex_props.begin(), vertex_props.end(), edge_props.begin(),
+                                          edge_props.end(), all_properties.begin());
+  all_properties.resize(it - all_properties.begin());
+
+  ctx.properties = std::move(all_properties);
   ctx.labels = std::move(labels_in_shard);
 
   return ctx;
 }
 
-// TODO(gvolfing) Verify if edge_name is not needed here at all
+std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
+  memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
+  memgraph::expr::ParsingContext pc;
+  memgraph::expr::CypherMainVisitor visitor(pc, &storage);
+
+  auto *ast = parser.tree();
+  return visitor.visit(ast);
+}
+
+memgraph::expr::TypedValue ComputeExpression(memgraph::expr::DbAccessor &dba,
+                                             const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc,
+                                             const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
+                                             const std::string &expression, std::string_view node_name,
+                                             std::string_view edge_name) {
+  memgraph::expr::AstStorage storage;
+  memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
+  memgraph::expr::SymbolTable symbol_table;
+
+  auto ctx = CreateEvaluationContext(v_acc, e_acc);
+  memgraph::storage::v3::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::OLD};
+
+  auto expr = ParseExpression(expression, storage);
+
+  auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
+  bool is_node_identifier_present = false;
+  auto edge_identifier = memgraph::expr::Identifier(std::string(edge_name), false);
+  bool is_edge_identifier_present = false;
+
+  std::vector<memgraph::expr::Identifier *> identifiers;
+
+  if (v_acc && expression.find(node_name) != std::string::npos) {
+    is_node_identifier_present = true;
+    identifiers.push_back(&node_identifier);
+  }
+  if (e_acc && expression.find(node_name) != std::string::npos) {
+    is_edge_identifier_present = true;
+    identifiers.push_back(&edge_identifier);
+  }
+
+  memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
+  (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
+
+  if (is_node_identifier_present) {
+    frame[symbol_table.at(node_identifier)] = *v_acc;
+  }
+  if (is_edge_identifier_present) {
+    frame[symbol_table.at(edge_identifier)] = *e_acc;
+  }
+
+  return Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba);
+}
+
 bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
-                     const std::vector<std::string> filters, std::string_view node_name) {
+                     const std::vector<std::string> &filters, std::string_view node_name) {
   for (const auto &filter_expr : filters) {
-    memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(filter_expr);
-    memgraph::expr::ParsingContext pc;
-    memgraph::expr::AstStorage storage;
-    memgraph::expr::CypherMainVisitor visitor(pc, &storage);
-
-    memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
-    memgraph::expr::SymbolTable symbol_table;
-
-    auto ctx = CreateEvaluationContext(v_acc);
-
-    memgraph::storage::v3::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
-
-    auto *ast = parser.tree();
-    auto expr = visitor.visit(ast);
-
-    auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
-    bool is_node_identifier_present = false;
-
-    std::vector<memgraph::expr::Identifier *> identifiers;
-
-    if (filter_expr.find(node_name) != std::string::npos) {
-      is_node_identifier_present = true;
-      identifiers.push_back(&node_identifier);
-    }
-
-    memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
-    (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
-
-    if (is_node_identifier_present) {
-      frame[symbol_table.at(node_identifier)] = v_acc;
-    }
-
-    if (!Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba).ValueBool()) {
+    if (!ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool()) {
       return false;
     }
   }
@@ -312,45 +355,14 @@ bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v
 
 std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
     memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
-    const std::vector<std::string> expressions, std::string_view node_name) {
+    const std::vector<std::string> &expressions, std::string_view node_name) {
   std::vector<memgraph::storage::v3::TypedValue> evaluated_expressions;
+  evaluated_expressions.reserve(expressions.size());
 
   for (const auto &expression : expressions) {
-    memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expression);
-    memgraph::expr::ParsingContext pc;
-    memgraph::expr::AstStorage storage;
-    memgraph::expr::CypherMainVisitor visitor(pc, &storage);
-
-    memgraph::expr::Frame<memgraph::expr::TypedValue> frame{static_cast<int64_t>(128)};
-    memgraph::expr::SymbolTable symbol_table;
-
-    auto ctx = CreateEvaluationContext(v_acc);
-
-    memgraph::storage::v3::ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::expr::View::NEW};
-
-    auto *ast = parser.tree();
-    auto expr = visitor.visit(ast);
-
-    auto node_identifier = memgraph::expr::Identifier(std::string(node_name), false);
-    bool is_node_identifier_present = false;
-
-    std::vector<memgraph::expr::Identifier *> identifiers;
-
-    if (expression.find(node_name) != std::string::npos) {
-      is_node_identifier_present = true;
-      identifiers.push_back(&node_identifier);
-    }
-
-    memgraph::expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
-    (std::any_cast<memgraph::expr::Expression *>(expr))->Accept(symbol_generator);
-
-    if (is_node_identifier_present) {
-      frame[symbol_table.at(node_identifier)] = v_acc;
-    }
-
-    evaluated_expressions.emplace_back(
-        Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba));
+    evaluated_expressions.emplace_back(ComputeExpression(dba, v_acc, std::nullopt, expression, node_name, ""));
   }
+
   return evaluated_expressions;
 }
 
