@@ -396,25 +396,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       return;
     }
     state.transaction_id = transaction_id_;
-    if (state.label.has_value()) {
-      auto shards = shards_map_.GetShards(*state.label);
-      for (auto &[key, shard] : shards) {
-        state.shard_cache.push_back(std::move(shard));
-        ScanVerticesRequest rqst;
-        rqst.transaction_id = transaction_id_;
-        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-        state.requests.push_back(std::move(rqst));
-      }
-    } else {
-      for (const auto &[label, space] : shards_map_.label_spaces) {
-        for (auto &[key, shard] : space.shards) {
-          state.shard_cache.push_back(std::move(shard));
-          ScanVerticesRequest rqst;
-          rqst.transaction_id = transaction_id_;
-          rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-          state.requests.push_back(std::move(rqst));
-        }
-      }
+    auto shards = shards_map_.GetShards(*state.label);
+    for (auto &[key, shard] : shards) {
+      MG_ASSERT(!shard.empty());
+      state.shard_cache.push_back(std::move(shard));
+      ScanVerticesRequest rqst;
+      rqst.transaction_id = transaction_id_;
+      rqst.start_id.second = storage::conversions::ConvertValueVector(key);
+      state.requests.push_back(std::move(rqst));
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
   }
