@@ -29,15 +29,6 @@
 #include "exceptions.hpp"
 #include "io/rsm/rsm_client.hpp"
 #include "parser/opencypher/parser.hpp"
-// #include "storage/v3/bindings/ast/ast.hpp"
-// #include "storage/v3/bindings/bindings.hpp"
-// #include "storage/v3/bindings/cypher_main_visitor.hpp"
-// #include "storage/v3/bindings/db_accessor.hpp"
-// #include "storage/v3/bindings/eval.hpp"
-// #include "storage/v3/bindings/frame.hpp"
-// #include "storage/v3/bindings/symbol_generator.hpp"
-// #include "storage/v3/bindings/symbol_table.hpp"
-// #include "storage/v3/bindings/typed_value.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/frame.hpp"
@@ -47,12 +38,9 @@
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
 #include "storage/v3/id_types.hpp"
-// #include "storage/v3/key_store.hpp"
-// #include "storage/v3/property_value.hpp"
-// #include "storage/v3/schemas.hpp"
-// #include "storage/v3/shard.hpp"
-#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "utils/string.hpp"
+
+#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 
 namespace memgraph::query::v2::test {
 
