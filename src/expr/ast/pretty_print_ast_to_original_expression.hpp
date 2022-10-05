@@ -107,7 +107,7 @@ inline void PrintObject(std::ostream *out, const TypedValueT<T1, T2, T3> &value)
 }
 
 template <typename T>
-void PrintOperatorArgs_old(std::ostream *out, bool with_parenthesis, const std::string &name, const T &arg) {
+void PrintOperatorArgsWithName(std::ostream *out, bool with_parenthesis, const std::string &name, const T &arg) {
   PrintObject(out, arg);
   if (with_parenthesis) {
     *out << ")";
@@ -115,19 +115,19 @@ void PrintOperatorArgs_old(std::ostream *out, bool with_parenthesis, const std::
 }
 
 template <typename T, typename... Ts>
-void PrintOperatorArgs_old(std::ostream *out, bool with_parenthesis, const std::string &name, const T &arg,
-                           const Ts &...args) {
+void PrintOperatorArgsWithName(std::ostream *out, bool with_parenthesis, const std::string &name, const T &arg,
+                               const Ts &...args) {
   PrintObject(out, arg);
   *out << " " << name << " ";
-  PrintOperatorArgs_old(out, with_parenthesis, name, args...);
+  PrintOperatorArgsWithName(out, with_parenthesis, name, args...);
 }
 
 template <typename... Ts>
-void PrintOperator_old(std::ostream *out, bool with_parenthesis, const std::string &name, const Ts &...args) {
+void PrintOperatorWithName(std::ostream *out, bool with_parenthesis, const std::string &name, const Ts &...args) {
   if (with_parenthesis) {
     *out << "(";
   }
-  PrintOperatorArgs_old(out, with_parenthesis, name, args...);
+  PrintOperatorArgsWithName(out, with_parenthesis, name, args...);
 }
 
 // new
@@ -143,7 +143,7 @@ void PrintOperatorArgs(std::ostream *out, const T &arg, const Ts &...args) {
 }
 
 template <typename... Ts>
-void PrintOperatorWithoutOperatorName(std::ostream *out, const Ts &...args) {
+void PrintOperatorWithoutName(std::ostream *out, const Ts &...args) {
   PrintOperatorArgs(out, args...);
 }
 }  // namespace detail
@@ -154,10 +154,10 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   // Unary operators
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)                                            \
-  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                       \
-  void Visit(OP_NODE &op) override {                                                     \
-    detail::PrintOperator_old(out_, false /*with_parenthesis*/, OP_STR, op.expression_); \
+#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)                                                \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                           \
+  void Visit(OP_NODE &op) override {                                                         \
+    detail::PrintOperatorWithName(out_, false /*with_parenthesis*/, OP_STR, op.expression_); \
   }
 
   UNARY_OPERATOR_VISIT(NotOperator, "Not");
@@ -169,10 +169,10 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   // Binary operators
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR)                                                            \
-  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                        \
-  void Visit(OP_NODE &op) override {                                                                      \
-    detail::PrintOperator_old(out_, true /*with_parenthesis*/, OP_STR, op.expression1_, op.expression2_); \
+#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR)                                                                \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                                            \
+  void Visit(OP_NODE &op) override {                                                                          \
+    detail::PrintOperatorWithName(out_, true /*with_parenthesis*/, OP_STR, op.expression1_, op.expression2_); \
   }
 #define BINARY_OPERATOR_VISIT_NOT_IMPL(OP_NODE, OP_STR) \
   /* NOLINTNEXTLINE(bugprone-macro-parentheses) */      \
@@ -227,12 +227,12 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   void Visit(None &op) override { throw utils::NotYetImplemented("None"); }
 
-  void Visit(Identifier &op) override { detail::PrintOperatorWithoutOperatorName(out_, identifier_symbol); }
+  void Visit(Identifier &op) override { detail::PrintOperatorWithoutName(out_, identifier_symbol); }
 
   void Visit(PrimitiveLiteral &op) override { detail::PrintObject(out_, op.value_); }
 
   void Visit(PropertyLookup &op) override {
-    detail::PrintOperatorWithoutOperatorName(out_, op.expression_, ".", op.property_.name);
+    detail::PrintOperatorWithoutName(out_, op.expression_, ".", op.property_.name);
   }
 
   void Visit(ParameterLookup &op) override { throw utils::NotYetImplemented("ParameterLookup"); }
