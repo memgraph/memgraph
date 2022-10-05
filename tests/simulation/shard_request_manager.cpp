@@ -191,6 +191,26 @@ void TestCreateVertices(ShardRequestManager &io) {
 }
 
 template <typename ShardRequestManager>
+void TestCreateExpand(ShardRequestManager &io) {
+  using PropVal = memgraph::msgs::Value;
+  memgraph::msgs::ExecutionState<memgraph::msgs::CreateExpandRequest> state;
+  std::vector<memgraph::msgs::NewExpand> new_expands;
+
+  const auto edge_type_id = io.NameToEdgeType("edge_type");
+  const auto label_id = io.LabelNameToLabelId("test_label");
+  const VertexId vertex_id_1{label_id, {PropVal(int64_t(1)), PropVal(int64_t(0))}};
+  const VertexId vertex_id_2{label_id, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+  memgraph::msgs::NewExpand expand_1{
+      .id = 0, .type = edge_type_id, .src_vertex = vertex_id_1, .dest_vertex = vertex_id_2};
+  memgraph::msgs::NewExpand expand_2{
+      .id = 1, .type = edge_type_id, .src_vertex = vertex_id_2, .dest_vertex = vertex_id_1};
+  new_expands.push_back(std::move(expand_1));
+
+  auto result = io.Request(state, std::move(new_expands));
+  MG_ASSERT(result.size() == 2);
+}
+
+template <typename ShardRequestManager>
 void TestExpand(ShardRequestManager &io) {}
 
 template <typename ShardRequestManager>
