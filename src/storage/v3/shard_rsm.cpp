@@ -1105,6 +1105,23 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
 
   for (auto &src_vertex : req.src_vertices) {
+    // Get Vertex acc
+    auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::OLD);
+    if (!src_vertex_acc_opt) {
+      action_successful = false;
+      spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+      break;
+    }
+
+    if (req.filters) {
+      // NOTE - DbAccessor might get removed in the future.
+      auto dba = DbAccessor{&acc};
+      const bool eval = FilterOnVertrex(dba, src_vertex_acc_opt.value(), req.filters.value(), node_name_);
+      if (!eval) {
+        continue;
+      }
+    }
     auto result = GetExpandOneResult(acc, src_vertex, req, get_edge_properties, maybe_filter_based_on_edge_uniquness);
 
     if (!result) {

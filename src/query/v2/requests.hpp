@@ -419,7 +419,7 @@ struct ExpandOneRequest {
 
   std::optional<std::vector<OrderBy>> order_by;
   std::optional<size_t> limit;
-  std::optional<std::vector<std::string>> filter;
+  std::optional<std::vector<std::string>> filters;
 };
 
 struct ExpandOneResultRow {

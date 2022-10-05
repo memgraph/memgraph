@@ -471,7 +471,7 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
   expand_one_req.vertex_expressions = expressions;
-  expand_one_req.filter = filter;
+  expand_one_req.filters = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
   expand_one_req.src_vertex_properties = src_vertex_properties;
@@ -525,7 +525,7 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, uint
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
   expand_one_req.vertex_expressions = expressions;
-  expand_one_req.filter = filter;
+  expand_one_req.filters = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
   expand_one_req.src_vertex_properties = src_vertex_properties;
@@ -581,7 +581,7 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
   expand_one_req.vertex_expressions = expressions;
-  expand_one_req.filter = filter;
+  expand_one_req.filters = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
   expand_one_req.src_vertex_properties = src_vertex_properties;
@@ -639,7 +639,7 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
   expand_one_req.edge_properties = edge_properties;
   expand_one_req.edge_types = {edge_type};
   expand_one_req.vertex_expressions = expressions;
-  expand_one_req.filter = filter;
+  expand_one_req.filters = filter;
   expand_one_req.limit = limit;
   expand_one_req.order_by = order_by;
   expand_one_req.src_vertex_properties = src_vertex_properties;
