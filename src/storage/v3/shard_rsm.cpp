@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
 
 #include "parser/opencypher/parser.hpp"
@@ -427,8 +428,10 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
   return src_vertex_properties;
 }
 
+template <typename UniqueEdgeCheckFunc>
 std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> FillUpConnectingEdges(
-    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req,
+    UniqueEdgeCheckFunc maybe_filter_based_on_edge_uniquness) {
   std::vector<memgraph::storage::v3::EdgeAccessor> in_edges;
   std::vector<memgraph::storage::v3::EdgeAccessor> out_edges;
 
@@ -440,7 +443,8 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = std::move(out_edges_result.GetValue());
+      out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()),
+                                                       memgraph::msgs::EdgeDirection::OUT);
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
@@ -451,7 +455,8 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                                                                                                       .logical_id]);
         return std::nullopt;
       }
-      in_edges = std::move(in_edges_result.GetValue());
+      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()),
+                                                      memgraph::msgs::EdgeDirection::IN);
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
@@ -461,7 +466,8 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      in_edges = std::move(in_edges_result.GetValue());
+      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()),
+                                                      memgraph::msgs::EdgeDirection::IN);
 
       auto out_edges_result = v_acc->OutEdges(View::OLD);
       if (out_edges_result.HasError()) {
@@ -469,7 +475,27 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = std::move(out_edges_result.GetValue());
+      out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()),
+                                                       memgraph::msgs::EdgeDirection::OUT);
+
+      // The uniqness of the elements are only true for the in_- and out_edges
+      // separately, together they can still contain overlapping elements so we
+      // need to handle that case here.
+      if (req.only_unique_neighbor_rows) {
+        std::unordered_set<const memgraph::storage::v3::VertexId *> unique_other_vertices;
+        for (const auto &in_edge : in_edges) {
+          unique_other_vertices.insert(&in_edge.FromVertex());
+        }
+
+        for (auto it = out_edges.begin(); it != out_edges.end();) {
+          if (unique_other_vertices.contains(&(it->ToVertex()))) {
+            out_edges.erase(it);
+          } else {
+            ++it;
+          }
+        }
+      }
+
       break;
     }
   }
@@ -545,11 +571,11 @@ void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
   properties_to_nullopt = {};
 }
 
-template <typename EgdePropertyFunc>
-std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::storage::v3::Shard::Accessor &acc,
-                                                                     memgraph::msgs::VertexId src_vertex,
-                                                                     memgraph::msgs::ExpandOneRequest req,
-                                                                     EgdePropertyFunc get_edge_properties) {
+template <typename EgdePropertyFunc, typename UniqueEdgeCheckFunc>
+std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(
+    memgraph::storage::v3::Shard::Accessor &acc, memgraph::msgs::VertexId src_vertex,
+    memgraph::msgs::ExpandOneRequest req, EgdePropertyFunc get_edge_properties,
+    UniqueEdgeCheckFunc maybe_filter_based_on_edge_uniquness) {
   /// Fill up source vertex
   auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
 
@@ -565,7 +591,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
   }
 
   /// Fill up connecting edges
-  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req);
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniquness);
   if (!fill_up_connecting_edges) {
     return std::nullopt;
   }
@@ -1025,13 +1051,61 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     };
   }
 
+  // Functions to select connecting edges based on uniquness
+  using EdgeAccessors = std::vector<memgraph::storage::v3::EdgeAccessor>;
+  std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)> maybe_filter_based_on_edge_uniquness;
+  if (req.only_unique_neighbor_rows) {
+    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
+                                              memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
+      std::function<bool(std::unordered_set<const storage::v3::VertexId *> &,
+                         const memgraph::storage::v3::EdgeAccessor &)>
+          check_and_insert_unique_other_vertex;
+      switch (edge_direction) {
+        case memgraph::msgs::EdgeDirection::OUT: {
+          check_and_insert_unique_other_vertex = [](std::unordered_set<const storage::v3::VertexId *> &other_vertex_set,
+                                                    const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
+            return insertion_happened;
+          };
+          break;
+        }
+        case memgraph::msgs::EdgeDirection::IN: {
+          check_and_insert_unique_other_vertex = [](std::unordered_set<const storage::v3::VertexId *> &other_vertex_set,
+                                                    const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
+            return insertion_happened;
+          };
+          break;
+        }
+        case memgraph::msgs::EdgeDirection::BOTH:
+          MG_ASSERT(false,
+                    "This is should never happen, memgraph::msgs::EdgeDirection::BOTH should not be passed here.");
+      }
+
+      EdgeAccessors ret;
+      std::unordered_set<const storage::v3::VertexId *> other_vertex_set;
+      const storage::v3::VertexId *other_vertex_ptr = nullptr;
+
+      for (const auto &edge : edges) {
+        if (check_and_insert_unique_other_vertex(other_vertex_set, edge)) {
+          ret.emplace_back(edge);
+        }
+      }
+
+      return ret;
+    };
+  } else {
+    maybe_filter_based_on_edge_uniquness =
+        [](EdgeAccessors &&edges, memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return edges; };
+  }
+
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
 
   for (auto &src_vertex : req.src_vertices) {
-    auto result = GetExpandOneResult(acc, src_vertex, req, get_edge_properties);
+    auto result = GetExpandOneResult(acc, src_vertex, req, get_edge_properties, maybe_filter_based_on_edge_uniquness);
 
     if (!result) {
       action_successful = false;
