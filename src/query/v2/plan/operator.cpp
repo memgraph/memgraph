@@ -338,7 +338,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       auto res = std::vector<std::string>{};
       res.reserve(filter_expressions_->size());
       std::transform(filter_expressions_->begin(), filter_expressions_->end(), std::back_inserter(res),
-                     [this](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
+                     [](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
 
       request.filter_expressions = res;
     }
@@ -513,7 +513,7 @@ ACCEPT_WITH_INPUT(ScanAllById)
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
   // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
+  auto vertices = [](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
     // auto *db = context.db_accessor;
     // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
     // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =
@@ -686,8 +686,8 @@ class ExpandVariableCursor : public Cursor {
   // default values if missing in the ExpandVariable operator
   // initialize to arbitrary values, they should only be used
   // after a successful pull from the input
-  int64_t upper_bound_{-1};
-  int64_t lower_bound_{-1};
+  // int64_t upper_bound_{-1};
+  // int64_t lower_bound_{-1};
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
@@ -766,8 +766,8 @@ class SingleSourceShortestPathCursor : public query::v2::plan::Cursor {
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
-  int64_t lower_bound_{-1};
-  int64_t upper_bound_{-1};
+  // int64_t lower_bound_{-1};
+  // int64_t upper_bound_{-1};
 
   // maps vertices to the edge they got expanded from. it is an optional
   // edge because the root does not get expanded from anything.
@@ -805,8 +805,8 @@ class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
   const UniqueCursorPtr input_cursor_;
 
   // Upper bound on the path length.
-  int64_t upper_bound_{-1};
-  bool upper_bound_set_{false};
+  // int64_t upper_bound_{-1};
+  // bool upper_bound_set_{false};
 
   struct WspStateHash {
     size_t operator()(const std::pair<VertexAccessor, int64_t> &key) const {
@@ -2534,7 +2534,7 @@ class CallProcedureCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   mgp_result result_;
   decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
-  size_t result_signature_size_{0};
+  // size_t result_signature_size_{0};
 
  public:
   CallProcedureCursor(const CallProcedure *self, utils::MemoryResource *mem)
