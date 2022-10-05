@@ -92,7 +92,7 @@ storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const query::v2::a
 
 storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
                                                           const coordinator::ShardMap &shard_map,
-                                                          storage::v3::View view) {
+                                                          storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
@@ -107,9 +107,9 @@ storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::acces
   return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path &edge,
-                                                          const coordinator::ShardMap &shard_map,
-                                                          storage::v3::View view) {
+storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*edge*/,
+                                                          const coordinator::ShardMap & /*shard_map*/,
+                                                          storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   return {storage::v3::Error::DELETED_OBJECT};
 }
@@ -221,7 +221,7 @@ Value ToBoltValue(msgs::Value value) {
   }
 }
 
-Value ToBoltValue(msgs::Value value, const coordinator::ShardMap &shard_map, storage::v3::View view) {
+Value ToBoltValue(msgs::Value value, const coordinator::ShardMap & /*shard_map*/, storage::v3::View /*view*/) {
   switch (value.type) {
     case msgs::Value::Type::Null:
       return {};
@@ -270,8 +270,9 @@ Value ToBoltValue(msgs::Value value, const coordinator::ShardMap &shard_map, sto
   }
 }
 
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path &path,
-                                                          const storage::v3::Shard &db, storage::v3::View view) {
+storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*path*/,
+                                                          const storage::v3::Shard & /*db*/,
+                                                          storage::v3::View /*view*/) {
   // std::vector<communication::bolt::Vertex> vertices;
   // vertices.reserve(path.vertices().size());
   // for (const auto &v : path.vertices()) {
