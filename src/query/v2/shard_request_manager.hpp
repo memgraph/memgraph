@@ -168,6 +168,29 @@ class ShardRequestManager : public ShardRequestManagerInterface {
                         [name](auto &pr) { return pr.second == name; }) != shards_map_.properties.end();
   }
 
+  // TODO(Tyler / Gabor) stages to using async RsmClient
+  //     methods for each of the 3 existing Request methods:
+  // ~~~~ stage A: launch requests
+  // for each request:
+  //   1. get the client in the same way as below
+  //      using GetStorageClientForShard
+  //   2. call storage_client.SendAsyncReadRequest(state.requests[id])
+  //      to send the request and load a Future into the RsmClient
+  // ~~~~ stage B: drive requests to completion
+  // while requests exist in the unfinished request structure:
+  //   for each request:
+  //     3. call storage_client.PollAsyncReadRequest() to see
+  //        if the request is ready
+  //   if requests exist:
+  //     4. call shard_cache.begin().AwaitAsyncReadRequest() to block on it
+  //   if we get a paginated response, launch a new async request for it
+  //   if we get a non-paginated response, remove it from the unfinished request structure
+  // ~~~~ notes:
+  // * it's possible that some responses will return
+  //   before the first one that we call Await... on returns,
+  //   but it's OK for now if we're not optimal. The main
+  //   point is that we're still parallelizing.
+
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
@@ -222,7 +245,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       auto primary_key = state.requests[id].new_vertices[0].primary_key;
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
       WriteRequests req = state.requests[id];
-      auto ladaksd = std::get<CreateVerticesRequest>(req);
       auto write_response_result = storage_client.SendWriteRequest(req);
       // RETRY on timeouts?
       // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test

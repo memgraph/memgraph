@@ -43,6 +43,13 @@ class RsmClient {
   Address leader_;
   ServerPool server_addrs_;
 
+  /// State for single async read/write operations. In the future this could become a map
+  /// of async operations that can be accessed via an ID etc...
+  Time async_read_before_;
+  std::optional<ResponseFuture<ReadResponse<ReadResponseT>>> async_read_;
+  Time async_write_before_;
+  std::optional<ResponseFuture<ReadResponse<WriteResponseT>>> async_write_;
+
   template <typename ResponseT>
   void PossiblyRedirectLeader(const ResponseT &response) {
     if (response.retry_leader) {
@@ -131,6 +138,41 @@ class RsmClient {
 
     return TimedOut{};
   }
+
+  /// This method submits a request to the underlying Io interface
+  /// and stores it as this client's async read.
+  void SendAsyncReadRequest(ReadRequestT req) {
+    MG_ASSERT(!async_read_);
+
+    async_read_before_ = io_.Now();
+    async_read_ = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
+  }
+
+  /// Non-blocking. See if a response or a timeout has occurred for our async read request, and if so,
+  /// handle it in a similar way as SendReadRequest does.
+  std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
+    MG_ASSERT(async_read_);
+
+    bool can_act = async_read_.IsReady();
+
+    if
+      !can_act { return std::nullopt; }
+
+    // we have either received a timeout, a redirection, or a returnable high-level response
+
+    // TODO(Gabor)
+  }
+
+  /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
+  /// SendReadRequest does. This will block until timeout or response, but may still return std::nullopt if we were
+  /// redirected.
+  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
+    MG_ASSERT(async_read_);
+
+    // TODO(Gabor) call Wait on the underlying future and then handle it as-if can_act is true in the above method
+  }
+
+  // TODO(Gabor) do the same 3 methods for AsyncWriteRequest
 };
 
 }  // namespace memgraph::io::rsm
