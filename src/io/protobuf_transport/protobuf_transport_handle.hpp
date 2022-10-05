@@ -21,8 +21,13 @@
 
 #include "io/address.hpp"
 #include "io/transport.hpp"
+//#include "protobuf/messages.pb.cc"
+#include "protobuf/messages.pb.h"
 
 namespace memgraph::io::protobuf_transport {
+
+using PbAddress = memgraph::protobuf::Address;
+using memgraph::protobuf::UberMessage;
 
 class ProtobufTransportHandle {
   mutable std::mutex mu_{};
@@ -33,7 +38,10 @@ class ProtobufTransportHandle {
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
 
   // messages that are sent to servers that may later receive them
-  std::vector<OpaqueMessage> can_receive_;
+  std::vector<std::string> can_receive_;
+
+  // serialized outbound messages
+  std::vector<std::string> outbox_;
 
  public:
   ~ProtobufTransportHandle() {
@@ -97,30 +105,34 @@ class ProtobufTransportHandle {
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
-    std::any message_any(std::forward<M>(message));
-    OpaqueMessage opaque_message{.to_address = to_address,
-                                 .from_address = from_address,
-                                 .request_id = request_id,
-                                 .message = std::move(message_any)};
-
-    PromiseKey promise_key{
-        .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};
+    PromiseKey promise_key{.requester_address = to_address, .request_id = request_id, .replier_address = from_address};
 
     {
       std::unique_lock<std::mutex> lock(mu_);
 
       if (promises_.contains(promise_key)) {
-        spdlog::info("using message to fill promise");
-        // complete waiting promise if it's there
+        // hair-pin local message optimization
+        spdlog::info("using message to fill local promise");
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
         promises_.erase(promise_key);
 
+        std::any message_any(std::forward<M>(message));
+        OpaqueMessage opaque_message{.to_address = to_address,
+                                     .from_address = from_address,
+                                     .request_id = request_id,
+                                     .message = std::move(message_any)};
+
         dop.promise.Fill(std::move(opaque_message));
       } else {
-        spdlog::info("placing message in can_receive_");
+        spdlog::info("placing message in outbox");
 
-        // TODO(tyler) send over socket to destination
-        can_receive_.emplace_back(std::move(opaque_message));
+        // serialize protobuf message and place it in the outbox
+
+        std::string bytes;
+        bool success = message.SerializeToString(&bytes);
+        MG_ASSERT(success);
+
+        outbox_.emplace_back(std::move(bytes));
       }
     }  // lock dropped
 
@@ -130,10 +142,6 @@ class ProtobufTransportHandle {
   template <Message RequestT, Message ResponseT>
   void SubmitRequest(Address to_address, Address from_address, RequestId request_id, RequestT &&request,
                      Duration timeout, ResponsePromise<ResponseT> promise) {
-    const bool port_matches = to_address.last_known_port == from_address.last_known_port;
-    const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
-
-    MG_ASSERT(port_matches && ip_matches);
     const Time deadline = Now() + timeout;
 
     {

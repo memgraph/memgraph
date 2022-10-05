@@ -20,10 +20,11 @@ namespace memgraph::io::protobuf_transport {
 
 class ProtobufTransport {
   std::shared_ptr<ProtobufTransportHandle> protobuf_transport_handle_;
+  uint16_t listen_port_;
 
  public:
-  explicit ProtobufTransport(std::shared_ptr<ProtobufTransportHandle> protobuf_transport_handle)
-      : protobuf_transport_handle_(std::move(protobuf_transport_handle)) {}
+  explicit ProtobufTransport(uint16_t listen_port)
+      : protobuf_transport_handle_(std::make_unique<ProtobufTransportHandle>()), listen_port_(listen_port) {}
 
   template <Message RequestT, Message ResponseT>
   ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestId request_id, RequestT request,
