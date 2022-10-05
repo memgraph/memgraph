@@ -48,7 +48,9 @@ inline std::vector<storage::v3::PropertyId> NamesToProperties(
   std::vector<storage::v3::PropertyId> properties;
   properties.reserve(property_names.size());
   for (const auto &name : property_names) {
-    properties.push_back(shard_request_manager->NameToProperty(name));
+    if (shard_request_manager != nullptr) {
+      properties.push_back(shard_request_manager->NameToProperty(name));
+    }
   }
   return properties;
 }
@@ -58,6 +60,7 @@ inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::st
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
   for (const auto &name : label_names) {
+    // TODO Fix by using reference
     if (shard_request_manager != nullptr) {
       labels.push_back(shard_request_manager->LabelNameToLabelId(name));
     }
