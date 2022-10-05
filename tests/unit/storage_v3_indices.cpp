@@ -37,14 +37,14 @@ class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
     storage.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}, {5, "id"}, {6, "val"}});
-    ASSERT_TRUE(
-        storage.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
   }
 
-  const std::vector<PropertyValue> pk{PropertyValue{0}};
-  const LabelId primary_label{LabelId::FromUint(1)};
-  Shard storage{primary_label, pk, std::nullopt};
   const PropertyId primary_property{PropertyId::FromUint(2)};
+  std::vector<storage::v3::SchemaProperty> schema_property_vector = {
+      storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
+  const std::vector<PropertyValue> min_pk{PropertyValue{0}};
+  const LabelId primary_label{LabelId::FromUint(1)};
+  Shard storage{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector};
 
   const PropertyId prop_id{PropertyId::FromUint(5)};
   const PropertyId prop_val{PropertyId::FromUint(6)};

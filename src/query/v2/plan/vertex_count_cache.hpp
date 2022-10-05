@@ -29,7 +29,7 @@ namespace memgraph::query::v2::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  VertexCountCache(TDbAccessor *shard_request_manager) : shard_request_manager_{shard_request_manager} {}
+  explicit VertexCountCache(TDbAccessor *shard_request_manager) : shard_request_manager_{shard_request_manager} {}
 
   auto NameToLabel(const std::string &name) { return shard_request_manager_->LabelNameToLabelId(name); }
   auto NameToProperty(const std::string &name) { return shard_request_manager_->NameToProperty(name); }
@@ -37,24 +37,24 @@ class VertexCountCache {
 
   int64_t VerticesCount() { return 1; }
 
-  int64_t VerticesCount(storage::v3::LabelId label) { return 1; }
+  int64_t VerticesCount(storage::v3::LabelId /*label*/) { return 1; }
 
-  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property) { return 1; }
+  int64_t VerticesCount(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return 1; }
 
-  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
-                        const storage::v3::PropertyValue &value) {
+  int64_t VerticesCount(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/,
+                        const storage::v3::PropertyValue & /*value*/) {
     return 1;
   }
 
-  int64_t VerticesCount(storage::v3::LabelId label, storage::v3::PropertyId property,
-                        const std::optional<utils::Bound<storage::v3::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::v3::PropertyValue>> &upper) {
+  int64_t VerticesCount(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/,
+                        const std::optional<utils::Bound<storage::v3::PropertyValue>> & /*lower*/,
+                        const std::optional<utils::Bound<storage::v3::PropertyValue>> & /*upper*/) {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId label) { return false; }
+  bool LabelIndexExists(storage::v3::LabelId /*label*/) { return false; }
 
-  bool LabelPropertyIndexExists(storage::v3::LabelId label, storage::v3::PropertyId property) { return false; }
+  bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
   msgs::ShardRequestManagerInterface *shard_request_manager_;
 };

@@ -466,7 +466,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
       // The deadline has passed. Stop the session. The other actors will
       // terminate as soon as possible.
-      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_);
+      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_.count());
       DoShutdown();
     } else {
       // Put the actor back to sleep.

@@ -37,11 +37,7 @@ namespace memgraph::storage::v3::tests {
 
 class StorageV3 : public ::testing::TestWithParam<bool> {
  protected:
-  void SetUp() override {
-    store.StoreMapping({{1, "label"}, {2, "property"}});
-    ASSERT_TRUE(
-        store.CreateSchema(primary_label, {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
-  }
+  void SetUp() override { store.StoreMapping({{1, "label"}, {2, "property"}}); }
 
   void TearDown() override { CleanupHlc(last_hlc); }
 
@@ -75,10 +71,14 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
   static constexpr std::chrono::seconds wall_clock_increment{10};
   static constexpr std::chrono::seconds reclamation_interval{wall_clock_increment / 2};
   static constexpr io::Duration one_time_unit{1};
+  const std::vector<PropertyValue> min_pk{PropertyValue{0}};
   const std::vector<PropertyValue> pk{PropertyValue{0}};
   const LabelId primary_label{LabelId::FromUint(1)};
   const PropertyId primary_property{PropertyId::FromUint(2)};
-  Shard store{primary_label, pk, std::nullopt, Config{.gc = {.reclamation_interval = reclamation_interval}}};
+  std::vector<storage::v3::SchemaProperty> schema_property_vector = {
+      storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}};
+  Shard store{primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector,
+              Config{.gc = {.reclamation_interval = reclamation_interval}}};
   coordinator::Hlc last_hlc{0, io::Time{}};
 };
 INSTANTIATE_TEST_CASE_P(WithGc, StorageV3, ::testing::Values(true));
@@ -2664,9 +2664,7 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
   {
     ASSERT_DEATH(
         {
-          Shard store(primary_label, pk, std::nullopt);
-          ASSERT_TRUE(store.CreateSchema(primary_label,
-                                         {storage::v3::SchemaProperty{primary_property, common::SchemaType::INT}}));
+          Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
           auto acc = store.Access(GetNextHlc());
           auto vertex1 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
           auto vertex2 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
