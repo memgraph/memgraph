@@ -21,7 +21,7 @@
 #include "utils/string.hpp"
 
 namespace memgraph::expr {
-static constexpr const char *identifier_symbol = "MG_SYMBOL";
+inline constexpr const char *identifier_symbol = "MG_SYMBOL";
 
 namespace detail {
 template <typename T>
