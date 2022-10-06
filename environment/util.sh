@@ -22,7 +22,7 @@ check_architecture() {
     for arch in "$@"; do
         if [ "$(architecture)" = "$arch" ]; then
             echo "The right architecture!"
-            exit 0
+            return 0
         fi
     done
     echo "Not the right architecture!"
