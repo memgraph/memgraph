@@ -355,7 +355,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   const char *op_name_;
   std::vector<VertexAccessor> current_batch;
-  decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
+  std::vector<VertexAccessor>::iterator current_vertex_it;
   msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
   std::optional<storage::v3::LabelId> label_;
   std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
