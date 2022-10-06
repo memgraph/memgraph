@@ -56,7 +56,7 @@ void PrintObject(std::ostream * /*out*/, const std::vector<T, utils::Allocator<T
 }
 
 template <typename K, typename V>
-void PrintObject(std::ostream * /*out*/, const std::map<K, V> &map) {
+void PrintObject(std::ostream * /*out*/, const std::map<K, V> & /*map*/) {
   throw utils::NotYetImplemented("PrintObject: map<K, V>");
 }
 
