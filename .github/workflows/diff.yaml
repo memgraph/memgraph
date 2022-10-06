@@ -164,52 +164,52 @@ jobs:
           cmake ..
           make -j$THREADS
 
-      - name: Run leftover CTest tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+      # - name: Run leftover CTest tests
+      #   run: |
+      #     # Activate toolchain.
+      #     source /opt/toolchain-v4/activate
 
-          # Run leftover CTest tests (all except unit and benchmark tests).
-          cd build
-          ctest -E "(memgraph__unit|memgraph__benchmark|memgraph__simulation)" --output-on-failure
+      #     # Run leftover CTest tests (all except unit and benchmark tests).
+      #     cd build
+      #     ctest -E "(memgraph__unit|memgraph__benchmark|memgraph__simulation)" --output-on-failure
 
-      - name: Run drivers tests
-        run: |
-          ./tests/drivers/run.sh
+      # - name: Run drivers tests
+      #   run: |
+      #     ./tests/drivers/run.sh
 
-      - name: Run integration tests
-        run: |
-          cd tests/integration
-          for name in *; do
-            if [ ! -d $name ]; then continue; fi
-            pushd $name >/dev/null
-            echo "Running: $name"
-            if [ -x prepare.sh ]; then
-              ./prepare.sh
-            fi
-            if [ -x runner.py ]; then
-              ./runner.py
-            elif [ -x runner.sh ]; then
-              ./runner.sh
-            fi
-            echo
-            popd >/dev/null
-          done
+      # - name: Run integration tests
+      #   run: |
+      #     cd tests/integration
+      #     for name in *; do
+      #       if [ ! -d $name ]; then continue; fi
+      #       pushd $name >/dev/null
+      #       echo "Running: $name"
+      #       if [ -x prepare.sh ]; then
+      #         ./prepare.sh
+      #       fi
+      #       if [ -x runner.py ]; then
+      #         ./runner.py
+      #       elif [ -x runner.sh ]; then
+      #         ./runner.sh
+      #       fi
+      #       echo
+      #       popd >/dev/null
+      #     done
 
-      - name: Run cppcheck and clang-format
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+      # - name: Run cppcheck and clang-format
+      #   run: |
+      #     # Activate toolchain.
+      #     source /opt/toolchain-v4/activate
 
-          # Run cppcheck and clang-format.
-          cd tools/github
-          ./cppcheck_and_clang_format diff
+      #     # Run cppcheck and clang-format.
+      #     cd tools/github
+      #     ./cppcheck_and_clang_format diff
 
-      - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Code coverage"
-          path: tools/github/cppcheck_and_clang_format.txt
+      # - name: Save cppcheck and clang-format errors
+      #   uses: actions/upload-artifact@v2
+      #   with:
+      #     name: "Code coverage"
+      #     path: tools/github/cppcheck_and_clang_format.txt
 
   release_build:
     name: "Release build"
@@ -240,18 +240,18 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
 
-      - name: Run GQL Behave tests
-        run: |
-          cd tests/gql_behave
-          ./continuous_integration
+      # - name: Run GQL Behave tests
+      #   run: |
+      #     cd tests/gql_behave
+      #     ./continuous_integration
 
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v2
-        with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
+      # - name: Save quality assurance status
+      #   uses: actions/upload-artifact@v2
+      #   with:
+      #     name: "GQL Behave Status"
+      #     path: |
+      #       tests/gql_behave/gql_behave_status.csv
+      #       tests/gql_behave/gql_behave_status.html
 
       - name: Run unit tests
         run: |
@@ -270,175 +270,3 @@ jobs:
           # Run unit tests.
           cd build
           ctest -R memgraph__simulation --output-on-failure -j$THREADS
-
-      - name: Run e2e tests
-        run: |
-          # TODO(gitbuda): Setup mgclient and pymgclient properly.
-          cd tests
-          ./setup.sh
-          source ve3/bin/activate
-          cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory .
-
-      - name: Run stress test (plain)
-        run: |
-          cd tests/stress
-          ./continuous_integration
-
-      - name: Run stress test (SSL)
-        run: |
-          cd tests/stress
-          ./continuous_integration --use-ssl
-
-      - name: Run durability test
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          python3 durability --num-steps 5
-
-      - name: Create enterprise DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create enterprise DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v2
-        with:
-          name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
-
-      - name: Save test data
-        uses: actions/upload-artifact@v2
-        if: always()
-        with:
-          name: "Test data"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  release_jepsen_test:
-    name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    #continue-on-error: true
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v2
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build only memgraph release binarie.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS memgraph
-
-      - name: Run Jepsen tests
-        run: |
-          cd tests/jepsen
-          ./run.sh test --binary ../../build/memgraph --run-args "test-all --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
-
-      - name: Save Jepsen report
-        uses: actions/upload-artifact@v2
-        if: ${{ always() }}
-        with:
-          name: "Jepsen Report"
-          path: tests/jepsen/Jepsen.tar.gz
-
-  release_benchmarks:
-    name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v2
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build only memgraph release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS
-
-      - name: Run macro benchmarks
-        run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
-
-      - name: Get branch name (merge)
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-
-      - name: Get branch name (pull request)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-
-      - name: Upload macro benchmark results
-        run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results-path "../../tests/macro_benchmark/.harness_summary" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
-
-      - name: Run mgbench
-        run: |
-          cd tests/mgbench
-          ./benchmark.py --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
-
-      - name: Upload mgbench results
-        run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results-path "../../tests/mgbench/benchmark_result.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
