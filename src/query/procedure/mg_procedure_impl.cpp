@@ -1846,7 +1846,8 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
                       "Expected LabelToName to return a pointer or reference, so we "
                       "don't have to take a copy and manage memory.");
 
-        const auto &name = std::visit([label](const auto *impl) { return impl->LabelToName(label); }, v->graph->impl);
+        const auto &name = std::visit(
+            [label](const auto *impl) -> const std::string & { return impl->LabelToName(label); }, v->graph->impl);
         return name.c_str();
       },
       &result->name);
