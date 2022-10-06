@@ -342,8 +342,8 @@ memgraph::expr::TypedValue ComputeExpression(memgraph::expr::DbAccessor &dba,
   return Eval(std::any_cast<memgraph::expr::Expression *>(expr), ctx, storage, eval, dba);
 }
 
-bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
-                     const std::vector<std::string> &filters, std::string_view node_name) {
+bool FilterOnVertex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
+                    const std::vector<std::string> &filters, std::string_view node_name) {
   for (const auto &filter_expr : filters) {
     if (!ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool()) {
       return false;
@@ -941,72 +941,72 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
-  bool did_reach_starting_point = false;
-  uint64_t sample_counter = 0;
+  uint64_t sample_counter{0};
 
   const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
 
-  for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
+  auto it = vertex_iterable.begin();
+  while (it != vertex_iterable.end()) {
+    if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+      break;
+    }
+    ++it;
+  }
+
+  for (; it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
-      did_reach_starting_point = true;
+    std::vector<Value> expression_results;
+    // TODO(gvolfing) it should be enough to check these only once.
+    if (vertex.Properties(View(req.storage_view)).HasError()) {
+      action_successful = false;
+      spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+      break;
+    }
+    if (req.filter_expressions) {
+      // NOTE - DbAccessor might get removed in the future.
+      auto dba = DbAccessor{&acc};
+      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), node_name_);
+      if (!eval) {
+        continue;
+      }
+    }
+    if (req.vertex_expressions) {
+      // NOTE - DbAccessor might get removed in the future.
+      auto dba = DbAccessor{&acc};
+      expression_results = ConvertToValueVectorFromTypedValueVector(
+          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), node_name_));
     }
 
-    if (did_reach_starting_point) {
-      std::vector<Value> expression_results;
+    std::optional<std::map<PropertyId, Value>> found_props;
 
-      // TODO(gvolfing) it should be enough to check these only once.
-      if (vertex.Properties(View(req.storage_view)).HasError()) {
-        action_successful = false;
-        spdlog::debug("Could not retrive properties from VertexAccessor. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        break;
-      }
-      if (req.filter_expressions) {
-        // NOTE - DbAccessor might get removed in the future.
-        auto dba = DbAccessor{&acc};
-        const bool eval = FilterOnVertrex(dba, vertex, req.filter_expressions.value(), node_name_);
-        if (!eval) {
-          continue;
-        }
-      }
-      if (req.vertex_expressions) {
-        // NOTE - DbAccessor might get removed in the future.
-        auto dba = DbAccessor{&acc};
-        expression_results = ConvertToValueVectorFromTypedValueVector(
-            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), node_name_));
-      }
+    if (req.props_to_return) {
+      found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+    } else {
+      found_props = CollectAllPropertiesFromAccessor(vertex, view);
+    }
 
-      std::optional<std::map<PropertyId, Value>> found_props;
+    // TODO(gvolfing) -VERIFY-
+    // Vertex is separated from the properties in the response.
+    // Is it useful to return just a vertex without the properties?
+    if (!found_props) {
+      action_successful = false;
+      break;
+    }
 
-      if (req.props_to_return) {
-        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
-      } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view);
-      }
+    results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                             .props = FromMap(found_props.value()),
+                                             .evaluated_vertex_expressions = std::move(expression_results)});
 
-      // TODO(gvolfing) -VERIFY-
-      // Vertex is seperated from the properties in the response.
-      // Is it useful to return just a vertex without the properties?
-      if (!found_props) {
-        action_successful = false;
-        break;
-      }
+    ++sample_counter;
+    if (sample_counter == req.batch_limit) {
+      // Reached the maximum specified batch size.
+      // Get the next element before exiting.
+      const auto &next_vertex = *(++it);
+      next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
 
-      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
-                                               .props = FromMap(found_props.value()),
-                                               .evaluated_vertex_expressions = std::move(expression_results)});
-
-      ++sample_counter;
-      if (sample_counter == req.batch_limit) {
-        // Reached the maximum specified batch size.
-        // Get the next element before exiting.
-        const auto &next_vertex = *(++it);
-        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
-
-        break;
-      }
+      break;
     }
   }
 
