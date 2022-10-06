@@ -338,7 +338,7 @@ bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
   auto edge_prop = std::vector<std::pair<PropertyId, msgs::Value>>{
       std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val))};
 
-  msgs::UpdateEdgeProp update_props{.src = src, .dst = dst, .edge_id = id, .property_updates = edge_prop};
+  msgs::UpdateEdgeProp update_props{.edge_id = id, .src = src, .dst = dst, .property_updates = edge_prop};
 
   msgs::UpdateEdgesRequest update_req{};
   update_req.transaction_id.logical_id = GetTransactionId();

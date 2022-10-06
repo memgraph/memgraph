@@ -649,6 +649,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
+  // TODO(antaljanosbenjamin): handle when the vertex is the destination vertex
   auto acc = shard_->Access(req.transaction_id);
 
   bool action_successful = true;

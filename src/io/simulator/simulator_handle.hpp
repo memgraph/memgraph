@@ -125,6 +125,7 @@ class SimulatorHandle {
         if (!can_rx.empty()) {
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
+          spdlog::info("Message has type {}", message.message.type().name());
 
           // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
