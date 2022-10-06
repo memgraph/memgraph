@@ -167,31 +167,29 @@ class RsmClient {
     if (!can_act) {
       return std::nullopt;
     }
+    std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_.TryGet();
+    if (!get_response_result) {
+      // Inner result is not ready yet.
+      // TODO(gvolfing) -VERIFY- is this actually needed?
+      return std::nullopt;
+    }
+
+    if (get_response_result.HasError()) {
+      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      return get_response_result.GetError();
+    }
+
+    ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result->GetValue());
+    ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
+
+    if (PossiblyRedirectLeader(read_get_response)) {
+      return std::nullopt;
+    }
 
     const Duration overall_timeout = io_.GetDefaultTimeout();
-
-    do {
-      std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_.TryGet();
-      if (!get_response_result) {
-        // Inner result is not ready yet.
-        // TODO(gvolfing) -VERIFY- is this actually needed?
-        return std::nullopt;
-      }
-
-      if (get_response_result.HasError()) {
-        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        return get_response_result.GetError();
-      }
-
-      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
-      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
-
-      if (PossiblyRedirectLeader(read_get_response)) {
-        return std::nullopt;
-      }
-    } while (io_.Now() < async_read_before_ + overall_timeout);
-
-    return TimedOut{};
+    if (io_.Now() < async_read_before_ + overall_timeout) {
+      return TimedOut{};
+    }
     // we have either received a timeout, a redirection, or a returnable high-level response
   }
 
