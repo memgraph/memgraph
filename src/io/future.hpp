@@ -212,7 +212,8 @@ class Promise {
   Promise(const Promise &) = delete;
   Promise &operator=(const Promise &) = delete;
 
-  ~Promise() = default;
+  // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Branch)
+  ~Promise() { MG_ASSERT(filled_or_moved_, "Promise destroyed before its associated Future was filled!"); }
 
   // Fill the expected item into the Future.
   void Fill(T item) {
