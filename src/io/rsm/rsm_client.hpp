@@ -76,6 +76,11 @@ class RsmClient {
   RsmClient(Io<IoImpl> io, Address leader, ServerPool server_addrs)
       : io_{io}, leader_{leader}, server_addrs_{server_addrs} {}
 
+  RsmClient(const RsmClient &) = delete;
+  RsmClient &operator=(const RsmClient &) = delete;
+  RsmClient(RsmClient &&) noexcept = default;
+  RsmClient &operator=(RsmClient &&) noexcept = default;
+
   RsmClient() = delete;
 
   BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
