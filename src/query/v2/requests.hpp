@@ -353,6 +353,7 @@ struct ScanVerticesRequest {
   std::optional<std::vector<std::string>> filter_expressions;
   std::optional<std::vector<std::string>> vertex_expressions;
   std::optional<size_t> batch_limit;
+  std::optional<std::vector<OrderBy>> order_bys;
   StorageView storage_view{StorageView::NEW};
 };
 
