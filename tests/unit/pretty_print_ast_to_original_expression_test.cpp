@@ -85,6 +85,7 @@ INSTANTIATE_TEST_CASE_P(
         std::make_pair(std::string("2 / 1"), std::string("(2 / 1)")),
         std::make_pair(std::string("2 + 1 + 5 + 2"), std::string("(((2 + 1) + 5) + 2)")),
         std::make_pair(std::string("2 + 1 * 5 + 2"), std::string("((2 + (1 * 5)) + 2)")),
+        std::make_pair(std::string("2 + 1 * (5 + 2)"), std::string("(2 + (1 * (5 + 2)))")),
         std::make_pair(std::string("n"), std::string("MG_SYMBOL")),
         std::make_pair(std::string("n.property1"), std::string("MG_SYMBOL.property1")),
         std::make_pair(std::string("n.property1 > 3"), std::string("(MG_SYMBOL.property1 > 3)")),
