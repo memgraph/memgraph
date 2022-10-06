@@ -2157,8 +2157,9 @@ mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
 mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
   return WrapExceptions(
       [e] {
-        const auto &name =
-            std::visit([e](const auto *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); }, e->from.graph->impl);
+        const auto &name = std::visit(
+            [e](const auto *impl) -> const std::string & { return impl->EdgeTypeToName(e->impl.EdgeType()); },
+            e->from.graph->impl);
         return name.c_str();
       },
       &result->name);
