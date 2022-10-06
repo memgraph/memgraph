@@ -513,7 +513,7 @@ ACCEPT_WITH_INPUT(ScanAllById)
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
   // TODO Reimplement when we have reliable conversion between hash value and pk
-  auto vertices = [](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<VertexAccessor>> {
+  auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
     // auto *db = context.db_accessor;
     // ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
     // view_); auto value = expression_->Accept(evaluator); if (!value.IsNumeric()) return std::nullopt; int64_t id =

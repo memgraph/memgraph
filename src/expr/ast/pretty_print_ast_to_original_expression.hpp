@@ -36,31 +36,31 @@ void PrintObject(std::ostream *out, const T &arg) {
 
 inline void PrintObject(std::ostream *out, const std::string &str) { *out << str; }
 
-inline void PrintObject(std::ostream *out, Aggregation::Op op) {
+inline void PrintObject(std::ostream * /*out*/, Aggregation::Op /*op*/) {
   throw utils::NotYetImplemented("PrintObject: Aggregation::Op");
 }
 
-inline void PrintObject(std::ostream *out, Expression *expr);
+inline void PrintObject(std::ostream * /*out*/, Expression * /*expr*/);
 
 inline void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
 
 template <typename T>
-void PrintObject(std::ostream *out, const std::vector<T> &vec) {
+void PrintObject(std::ostream * /*out*/, const std::vector<T> & /*vec*/) {
   throw utils::NotYetImplemented("PrintObject: vector<T>");
 }
 
 template <typename T>
-void PrintObject(std::ostream *out, const std::vector<T, utils::Allocator<T>> &vec) {
+void PrintObject(std::ostream * /*out*/, const std::vector<T, utils::Allocator<T>> & /*vec*/) {
   throw utils::NotYetImplemented("PrintObject: vector<T, utils::Allocator<T>>");
 }
 
 template <typename K, typename V>
-void PrintObject(std::ostream *out, const std::map<K, V> &map) {
+void PrintObject(std::ostream * /*out*/, const std::map<K, V> &map) {
   throw utils::NotYetImplemented("PrintObject: map<K, V>");
 }
 
 template <typename T>
-void PrintObject(std::ostream *out, const utils::pmr::map<utils::pmr::string, T> &map) {
+void PrintObject(std::ostream * /*out*/, const utils::pmr::map<utils::pmr::string, T> & /*map*/) {
   throw utils::NotYetImplemented("PrintObject: map<utils::pmr::string, V>");
 }
 
@@ -107,7 +107,7 @@ inline void PrintObject(std::ostream *out, const TypedValueT<T1, T2, T3> &value)
 }
 
 template <typename T>
-void PrintOperatorArgs(const std::string &name, std::ostream *out, bool with_parenthesis, const T &arg) {
+void PrintOperatorArgs(const std::string & /*name*/, std::ostream *out, bool with_parenthesis, const T &arg) {
   PrintObject(out, arg);
   if (with_parenthesis) {
     *out << ")";
@@ -172,9 +172,10 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(OP_NODE &op) override {                                                                  \
     detail::PrintOperator(OP_STR, out_, true /*with_parenthesis*/, op.expression1_, op.expression2_); \
   }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define BINARY_OPERATOR_VISIT_NOT_IMPL(OP_NODE, OP_STR) \
   /* NOLINTNEXTLINE(bugprone-macro-parentheses) */      \
-  void Visit(OP_NODE &op) override { throw utils::NotYetImplemented("OP_NODE"); }
+  void Visit(OP_NODE & /*op*/) override { throw utils::NotYetImplemented("OP_NODE"); }
 
   BINARY_OPERATOR_VISIT(OrOperator, "Or");
   BINARY_OPERATOR_VISIT(XorOperator, "Xor");
@@ -197,33 +198,33 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 #undef BINARY_OPERATOR_VISIT_NOT_IMPL
 
   // Other
-  void Visit(ListSlicingOperator &op) override { throw utils::NotYetImplemented("ListSlicingOperator"); }
+  void Visit(ListSlicingOperator & /*op*/) override { throw utils::NotYetImplemented("ListSlicingOperator"); }
 
-  void Visit(IfOperator &op) override { throw utils::NotYetImplemented("IfOperator"); }
+  void Visit(IfOperator & /*op*/) override { throw utils::NotYetImplemented("IfOperator"); }
 
-  void Visit(ListLiteral &op) override { throw utils::NotYetImplemented("ListLiteral"); }
+  void Visit(ListLiteral & /*op*/) override { throw utils::NotYetImplemented("ListLiteral"); }
 
-  void Visit(MapLiteral &op) override { throw utils::NotYetImplemented("MapLiteral"); }
+  void Visit(MapLiteral & /*op*/) override { throw utils::NotYetImplemented("MapLiteral"); }
 
-  void Visit(LabelsTest &op) override { throw utils::NotYetImplemented("LabelsTest"); }
+  void Visit(LabelsTest & /*op*/) override { throw utils::NotYetImplemented("LabelsTest"); }
 
-  void Visit(Aggregation &op) override { throw utils::NotYetImplemented("Aggregation"); }
+  void Visit(Aggregation & /*op*/) override { throw utils::NotYetImplemented("Aggregation"); }
 
-  void Visit(Function &op) override { throw utils::NotYetImplemented("Function"); }
+  void Visit(Function & /*op*/) override { throw utils::NotYetImplemented("Function"); }
 
-  void Visit(Reduce &op) override { throw utils::NotYetImplemented("Reduce"); }
+  void Visit(Reduce & /*op*/) override { throw utils::NotYetImplemented("Reduce"); }
 
-  void Visit(Coalesce &op) override { throw utils::NotYetImplemented("Coalesce"); }
+  void Visit(Coalesce & /*op*/) override { throw utils::NotYetImplemented("Coalesce"); }
 
-  void Visit(Extract &op) override { throw utils::NotYetImplemented("Extract"); }
+  void Visit(Extract & /*op*/) override { throw utils::NotYetImplemented("Extract"); }
 
-  void Visit(All &op) override { throw utils::NotYetImplemented("All"); }
+  void Visit(All & /*op*/) override { throw utils::NotYetImplemented("All"); }
 
-  void Visit(Single &op) override { throw utils::NotYetImplemented("Single"); }
+  void Visit(Single & /*op*/) override { throw utils::NotYetImplemented("Single"); }
 
-  void Visit(Any &op) override { throw utils::NotYetImplemented("Any"); }
+  void Visit(Any & /*op*/) override { throw utils::NotYetImplemented("Any"); }
 
-  void Visit(None &op) override { throw utils::NotYetImplemented("None"); }
+  void Visit(None & /*op*/) override { throw utils::NotYetImplemented("None"); }
 
   void Visit(Identifier &op) override { detail::PrintOperator(out_, identifier_symbol); }
 
@@ -231,11 +232,11 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   void Visit(PropertyLookup &op) override { detail::PrintOperator(out_, op.expression_, ".", op.property_.name); }
 
-  void Visit(ParameterLookup &op) override { throw utils::NotYetImplemented("ParameterLookup"); }
+  void Visit(ParameterLookup & /*op*/) override { throw utils::NotYetImplemented("ParameterLookup"); }
 
-  void Visit(NamedExpression &op) override { throw utils::NotYetImplemented("NamedExpression"); }
+  void Visit(NamedExpression & /*op*/) override { throw utils::NotYetImplemented("NamedExpression"); }
 
-  void Visit(RegexMatch &op) override { throw utils::NotYetImplemented("RegexMatch"); }
+  void Visit(RegexMatch & /*op*/) override { throw utils::NotYetImplemented("RegexMatch"); }
 
  private:
   std::ostream *out_;
