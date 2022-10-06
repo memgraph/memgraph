@@ -122,6 +122,7 @@ struct ShardMap {
                                       aas.address.last_known_port == storage_manager.last_known_port;
             if (same_machine) {
               machine_contains_shard = true;
+              spdlog::info("reminding shard manager that they should begin participating in shard");
               ret.push_back(ShardToInitialize{
                   .uuid = aas.address.unique_id,
                   .label_id = label_id,
@@ -139,6 +140,8 @@ struct ShardMap {
 
           // TODO(tyler) use deterministic UUID so that coordinators don't diverge here
           address.unique_id = boost::uuids::uuid{boost::uuids::random_generator()()},
+
+          spdlog::info("assigning shard manager to shard");
 
           ret.push_back(ShardToInitialize{
               .uuid = address.unique_id,
@@ -274,6 +277,29 @@ struct ShardMap {
     }
 
     return std::nullopt;
+  }
+
+  /// Returns true if all shards have the desired number of replicas and they are in
+  /// the CONSENSUS_PARTICIPANT state. Note that this does not necessarily mean that
+  /// there is also an active leader for each shard.
+  bool ClusterInitialized() const {
+    for (auto &[label_id, label_space] : label_spaces) {
+      for (auto &[low_key, shard] : label_space.shards) {
+        if (shard.size() < label_space.replication_factor) {
+          spdlog::info("label_space below desired replication factor");
+          return false;
+        }
+
+        for (auto &aas : shard) {
+          if (aas.status != Status::CONSENSUS_PARTICIPANT) {
+            spdlog::info("shard member not yet a CONSENSUS_PARTICIPANT");
+            return false;
+          }
+        }
+      }
+    }
+
+    return true;
   }
 };
 

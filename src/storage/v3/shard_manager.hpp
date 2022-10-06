@@ -61,8 +61,8 @@ template <typename IoImpl>
 using ShardRaft = Raft<IoImpl, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 using namespace std::chrono_literals;
-static constexpr Duration kMinimumCronInterval = 1000ms;
-static constexpr Duration kMaximumCronInterval = 2000ms;
+static constexpr Duration kMinimumCronInterval = 100ms;
+static constexpr Duration kMaximumCronInterval = 200ms;
 static_assert(kMinimumCronInterval < kMaximumCronInterval,
               "The minimum cron interval has to be smaller than the maximum cron interval!");
 
@@ -133,7 +133,7 @@ class ShardManager {
   io::Io<IoImpl> io_;
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
-  Time next_cron_;
+  Time next_cron_ = Time::min();
   Address coordinator_leader_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
 

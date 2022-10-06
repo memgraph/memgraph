@@ -50,6 +50,8 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   }
 }
 
+struct SimulationExceededConfiguredAbortTime {};
+
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
 
@@ -77,9 +79,12 @@ bool SimulatorHandle::MaybeTickSimulator() {
     Duration clock_advance = std::chrono::microseconds{time_distrib(rng_)};
     cluster_wide_time_microseconds_ += clock_advance;
 
-    MG_ASSERT(cluster_wide_time_microseconds_ < config_.abort_time,
-              "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
-              "in an expected amount of time.");
+    if (cluster_wide_time_microseconds_ >= config_.abort_time) {
+      spdlog::error(
+          "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
+          "in an expected amount of time.");
+      throw SimulationExceededConfiguredAbortTime{};
+    }
     return true;
   }
 
@@ -123,7 +128,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
     // don't add it anywhere, let it drop
   } else {
     // add to can_receive_ if not
-    const auto &[om_vec, inserted] = can_receive_.try_emplace(to_address, std::vector<OpaqueMessage>());
+    const auto &[om_vec, inserted] =
+        can_receive_.try_emplace(to_address.ToPartialAddress(), std::vector<OpaqueMessage>());
     om_vec->second.emplace_back(std::move(opaque_message));
   }
 

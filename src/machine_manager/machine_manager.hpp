@@ -64,7 +64,7 @@ class MachineManager {
   MachineConfig config_;
   CoordinatorRsm<IoImpl> coordinator_;
   ShardManager<IoImpl> shard_manager_;
-  Time next_cron_;
+  Time next_cron_ = Time::min();
 
  public:
   // TODO initialize ShardManager with "real" coordinator addresses instead of io.GetAddress
@@ -94,7 +94,7 @@ class MachineManager {
                        WriteResponse<CoordinatorWriteResponses>, ReadRequest<StorageReadRequest>,
                        AppendRequest<StorageWriteRequest>, WriteRequest<StorageWriteRequest>>;
 
-      spdlog::info("MM waiting on Receive");
+      spdlog::info("MM waiting on Receive on address {}", io_.GetAddress().ToString());
 
       // Note: this parameter pack must be kept in-sync with the AllMessages parameter pack above
       auto request_result = io_.template ReceiveWithTimeout<
@@ -115,7 +115,6 @@ class MachineManager {
 
       // If message is for the coordinator, cast it to subset and pass it to the coordinator
       bool to_coordinator = coordinator_.GetAddress() == request_envelope.to_address;
-      spdlog::info("coordinator: {}", coordinator_.GetAddress().ToString());
       if (to_coordinator) {
         std::optional<CoordinatorMessages> conversion_attempt =
             ConvertVariant<AllMessages, ReadRequest<CoordinatorReadRequests>, AppendRequest<CoordinatorWriteRequests>,
