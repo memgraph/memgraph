@@ -75,7 +75,7 @@ inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::st
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
   for (const auto &name : label_names) {
-    labels.push_back(shard_request_manager->LabelNameToLabelId(name));
+    labels.push_back(shard_request_manager->NameToLabel(name));
   }
   return labels;
 }

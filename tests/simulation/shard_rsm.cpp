@@ -210,7 +210,7 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
 }
 
 bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
-                      int64_t edge_type_id) {
+                      EdgeTypeId edge_type_id) {
   auto id = msgs::EdgeId{};
   msgs::Label label = {.id = get_primary_label()};
 
@@ -249,7 +249,7 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
 
 bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2,
                                     int64_t edge_gid, uint64_t edge_prop_id, int64_t edge_prop_val,
-                                    const std::vector<uint64_t> &edge_type_id) {
+                                    const std::vector<EdgeTypeId> &edge_type_id) {
   msgs::EdgeId id1;
   msgs::Label label = {.id = get_primary_label()};
 
@@ -282,7 +282,7 @@ bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex
 }
 
 bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
-                         int64_t edge_type_id) {
+                         EdgeTypeId edge_type_id) {
   auto id = msgs::EdgeId{};
   msgs::Label label = {.id = get_primary_label()};
 
@@ -319,7 +319,7 @@ bool AttemptToDeleteEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
 }
 
 bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2, int64_t edge_gid,
-                         int64_t edge_type_id, uint64_t edge_prop_id, int64_t edge_prop_val) {
+                         EdgeTypeId edge_type_id, uint64_t edge_prop_id, int64_t edge_prop_val) {
   auto id = msgs::EdgeId{};
   msgs::Label label = {.id = get_primary_label()};
 
@@ -409,14 +409,14 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
   }
 }
 
-void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_vertex_val, uint64_t edge_type_id) {
+void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_vertex_val, EdgeTypeId edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
   auto src_vertex = std::make_pair(label, GetPrimaryKey(src_vertex_val));
 
   // Edge type
   auto edge_type = msgs::EdgeType{};
-  edge_type.id = edge_type_id + 1;
+  edge_type.id = edge_type_id;
 
   // Edge direction
   auto edge_direction = msgs::EdgeDirection::OUT;
@@ -463,7 +463,7 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   }
 }
 
-void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, uint64_t edge_type_id) {
+void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, EdgeTypeId edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
   auto src_vertex = std::make_pair(label, GetPrimaryKey(src_vertex_val));
@@ -518,7 +518,7 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, uint
 }
 
 void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uint64_t src_vertex_val,
-                                                        uint64_t edge_type_id) {
+                                                        EdgeTypeId edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
   auto src_vertex = std::make_pair(label, GetPrimaryKey(src_vertex_val));
@@ -575,8 +575,8 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   }
 }
 
-void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t src_vertex_val, uint64_t edge_type_id,
-                                                   uint64_t edge_prop_id) {
+void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t src_vertex_val,
+                                                   EdgeTypeId edge_type_id, uint64_t edge_prop_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
   auto src_vertex = std::make_pair(label, GetPrimaryKey(src_vertex_val));
@@ -658,7 +658,7 @@ void TestCreateEdge(ShardClient &client) {
   MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
 
   auto edge_gid = GetUniqueInteger();
-  auto edge_type_id = GetUniqueInteger();
+  auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 }
@@ -672,7 +672,7 @@ void TestCreateAndDeleteEdge(ShardClient &client) {
   MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
 
   auto edge_gid = GetUniqueInteger();
-  auto edge_type_id = GetUniqueInteger();
+  auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
   MG_ASSERT(AttemptToAddEdge(client, unique_prop_val_1, unique_prop_val_2, edge_gid, edge_type_id));
 
@@ -689,7 +689,7 @@ void TestUpdateEdge(ShardClient &client) {
   MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
 
   auto edge_gid = GetUniqueInteger();
-  auto edge_type_id = GetUniqueInteger();
+  auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
   auto edge_prop_id = GetUniqueInteger();
   auto edge_prop_val_old = GetUniqueInteger();
@@ -781,7 +781,8 @@ void TestExpandOne(ShardClient &client) {
     MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
     MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_3));
 
-    auto edge_type_id = GetUniqueInteger();
+    auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
+    auto wrong_edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
     auto edge_gid_1 = GetUniqueInteger();
     auto edge_gid_2 = GetUniqueInteger();
@@ -797,7 +798,7 @@ void TestExpandOne(ShardClient &client) {
                                              edge_prop_val, {edge_type_id}));
 
     AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
-    AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, edge_type_id);
+    AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, wrong_edge_type_id);
     AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
     AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
   }

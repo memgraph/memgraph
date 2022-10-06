@@ -203,7 +203,13 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+  std::optional<LabelId> GetLabelId(const std::string &label) const {
+    if (const auto it = labels.find(label); it != labels.end()) {
+      return it->second;
+    }
+
+    return std::nullopt;
+  }
 
   std::string GetLabelName(const LabelId label) const {
     if (const auto it =
@@ -215,8 +221,8 @@ struct ShardMap {
   }
 
   std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
-    if (properties.contains(property_name)) {
-      return properties.at(property_name);
+    if (const auto it = properties.find(property_name); it != properties.end()) {
+      return it->second;
     }
 
     return std::nullopt;
@@ -232,8 +238,8 @@ struct ShardMap {
   }
 
   std::optional<EdgeTypeId> GetEdgeTypeId(const std::string &edge_type) const {
-    if (edge_types.contains(edge_type)) {
-      return edge_types.at(edge_type);
+    if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
+      return it->second;
     }
 
     return std::nullopt;

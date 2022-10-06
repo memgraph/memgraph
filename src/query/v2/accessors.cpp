@@ -17,7 +17,7 @@ namespace memgraph::query::v2::accessors {
 EdgeAccessor::EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props)
     : edge(std::move(edge)), properties(std::move(props)) {}
 
-EdgeTypeId EdgeAccessor::EdgeType() const { return EdgeTypeId::FromUint(edge.type.id); }
+EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 
 std::vector<std::pair<PropertyId, Value>> EdgeAccessor::Properties() const {
   return properties;

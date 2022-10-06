@@ -132,6 +132,8 @@ ShardMap CreateDummyShardmap(coordinator::Address a_io_1, coordinator::Address a
   CompoundKey compound_key_2 = {key3, key4};
   shards_for_label[compound_key_2] = shard2;
 
+  sm.AllocateEdgeTypeIds(std::vector<coordinator::EdgeTypeName>{"edge_type"});
+
   return sm;
 }
 
@@ -151,8 +153,7 @@ void RunStorageRaft(Raft<IoImpl, MockedShardRsm, WriteRequests, WriteResponses, 
   server.Run();
 }
 
-template <typename ShardRequestManager>
-void TestScanAll(ShardRequestManager &io) {
+void TestScanVertices(msgs::ShardRequestManagerInterface &io) {
   msgs::ExecutionState<ScanVerticesRequest> state{.label = "test_label"};
 
   auto result = io.Request(state);
@@ -176,12 +177,11 @@ void TestScanAll(ShardRequestManager &io) {
   MG_ASSERT(result.size() == 0);
 }
 
-template <typename ShardRequestManager>
-void TestCreateVertices(ShardRequestManager &io) {
+void TestCreateVertices(msgs::ShardRequestManagerInterface &io) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
-  auto label_id = io.LabelNameToLabelId("test_label");
+  auto label_id = io.NameToLabel("test_label");
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(1)), PropVal(int64_t(0))}};
   a1.label_ids.push_back({label_id});
   msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
@@ -193,26 +193,39 @@ void TestCreateVertices(ShardRequestManager &io) {
   MG_ASSERT(result.size() == 2);
 }
 
-template <typename ShardRequestManager>
-void TestCreateExpand(ShardRequestManager &io) {
+void TestCreateExpand(msgs::ShardRequestManagerInterface &io) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<msgs::CreateExpandRequest> state;
   std::vector<msgs::NewExpand> new_expands;
 
   const auto edge_type_id = io.NameToEdgeType("edge_type");
-  const auto label_id = io.LabelNameToLabelId("test_label");
-  const VertexId vertex_id_1{label_id, {PropVal(int64_t(1)), PropVal(int64_t(0))}};
-  const VertexId vertex_id_2{label_id, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
-  msgs::NewExpand expand_1{.id = 0, .type = edge_type_id, .src_vertex = vertex_id_1, .dest_vertex = vertex_id_2};
-  msgs::NewExpand expand_2{.id = 1, .type = edge_type_id, .src_vertex = vertex_id_2, .dest_vertex = vertex_id_1};
+  const auto label = msgs::Label{io.NameToLabel("test_label")};
+  const msgs::VertexId vertex_id_1{label, {PropVal(int64_t(0)), PropVal(int64_t(0))}};
+  const msgs::VertexId vertex_id_2{label, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+  msgs::NewExpand expand_1{
+      .id = {.gid = 0}, .type = {edge_type_id}, .src_vertex = vertex_id_1, .dest_vertex = vertex_id_2};
+  msgs::NewExpand expand_2{
+      .id = {.gid = 1}, .type = {edge_type_id}, .src_vertex = vertex_id_2, .dest_vertex = vertex_id_1};
   new_expands.push_back(std::move(expand_1));
+  new_expands.push_back(std::move(expand_2));
 
-  auto result = io.Request(state, std::move(new_expands));
-  MG_ASSERT(result.size() == 2);
+  auto responses = io.Request(state, std::move(new_expands));
+  MG_ASSERT(responses.size() == 2);
+  MG_ASSERT(responses[0].success);
+  MG_ASSERT(responses[1].success);
 }
 
-template <typename ShardRequestManager>
-void TestExpand(ShardRequestManager &io) {}
+void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
+  msgs::ExecutionState<msgs::ExpandOneRequest> state{};
+  msgs::ExpandOneRequest request;
+  const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
+  const auto label = msgs::Label{shard_request_manager.NameToLabel("test_label")};
+  request.src_vertices.push_back(msgs::VertexId{label, {msgs::Value(int64_t(0)), msgs::Value(int64_t(0))}});
+  request.edge_types.push_back(msgs::EdgeType{edge_type_id});
+  request.direction = msgs::EdgeDirection::BOTH;
+  auto responses = shard_request_manager.Request(state, std::move(request));
+  MG_ASSERT(responses.size() == 2);
+}
 
 template <typename ShardRequestManager>
 void TestAggregate(ShardRequestManager &io) {}
@@ -333,8 +346,9 @@ void DoTest() {
   msgs::ShardRequestManager<SimulatorTransport> io(std::move(coordinator_client), std::move(cli_io));
 
   io.StartTransaction();
-  TestScanAll(io);
+  TestScanVertices(io);
   TestCreateVertices(io);
+  TestCreateExpand(io);
 
   simulator.ShutDown();
 

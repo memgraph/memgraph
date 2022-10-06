@@ -2459,7 +2459,7 @@ class DistributedCreateExpandCursor : public Cursor {
       msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
-      request.type = {edge_info.edge_type.AsUint()};
+      request.type = {edge_info.edge_type};
       if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
         for (const auto &[property, value_expression] : *edge_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);

@@ -132,18 +132,17 @@ bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgra
     return true;
   }
 
-  return std::ranges::any_of(req.edge_types.cbegin(), req.edge_types.cend(),
-                             [&edge](const memgraph::msgs::EdgeType &edge_type) {
-                               return memgraph::storage::v3::EdgeTypeId::FromUint(edge_type.id) == edge.EdgeType();
-                             });
+  return std::ranges::any_of(
+      req.edge_types.cbegin(), req.edge_types.cend(),
+      [&edge](const memgraph::msgs::EdgeType &edge_type) { return edge_type.id == edge.EdgeType(); });
 }
 
 struct LocalError {};
 
 std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
-    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req,
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, const memgraph::msgs::ExpandOneRequest &req,
     memgraph::msgs::VertexId src_vertex) {
-  auto secondary_labels = v_acc->Labels(memgraph::storage::v3::View::OLD);
+  auto secondary_labels = v_acc->Labels(memgraph::storage::v3::View::NEW);
   if (secondary_labels.HasError()) {
     spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
                   req.transaction_id.logical_id);
@@ -160,11 +159,11 @@ std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
 }
 
 std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
-    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, const memgraph::msgs::ExpandOneRequest &req) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
-    auto props = v_acc->Properties(memgraph::storage::v3::View::OLD);
+    auto props = v_acc->Properties(memgraph::storage::v3::View::NEW);
     if (props.HasError()) {
       spdlog::debug("Encountered an error while trying to access vertex properties. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -188,13 +187,13 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
 }
 
 std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> FillUpConnectingEdges(
-    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, const memgraph::msgs::ExpandOneRequest &req) {
   std::vector<memgraph::storage::v3::EdgeAccessor> in_edges;
   std::vector<memgraph::storage::v3::EdgeAccessor> out_edges;
 
   switch (req.direction) {
     case memgraph::msgs::EdgeDirection::OUT: {
-      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::NEW);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -204,7 +203,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
-      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::NEW);
       if (in_edges_result.HasError()) {
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
@@ -215,7 +214,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
-      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::NEW);
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -223,7 +222,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       }
       in_edges = std::move(in_edges_result.GetValue());
 
-      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::NEW);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -307,7 +306,7 @@ void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
 
 std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::storage::v3::Shard::Accessor &acc,
                                                                      memgraph::msgs::VertexId src_vertex,
-                                                                     memgraph::msgs::ExpandOneRequest req) {
+                                                                     const memgraph::msgs::ExpandOneRequest &req) {
   using EdgeProperties =
       std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
   std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
@@ -315,7 +314,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
   if (!req.edge_properties) {
     get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
       std::map<PropertyId, memgraph::msgs::Value> ret;
-      auto property_results = edge.Properties(memgraph::storage::v3::View::OLD);
+      auto property_results = edge.Properties(memgraph::storage::v3::View::NEW);
       if (property_results.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -334,14 +333,15 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       ret.reserve(req.edge_properties.value().size());
       for (const auto &edge_prop : req.edge_properties.value()) {
         // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.emplace_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::OLD).GetValue()));
+        ret.emplace_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::NEW).GetValue()));
       }
       return ret;
     };
   }
 
   /// Fill up source vertex
-  auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), memgraph::storage::v3::View::OLD);
+  const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
+  auto v_acc = acc.FindVertex(primary_key, memgraph::storage::v3::View::NEW);
 
   auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
   if (!source_vertex) {
@@ -569,25 +569,20 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
   bool action_successful = true;
 
   for (auto &new_expand : req.new_expands) {
-    auto vertex_acc_from_primary_key = new_expand.src_vertex.second;
-    auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
+    const auto from_vertex_id =
+        VertexId{new_expand.src_vertex.first.id, ConvertPropertyVector(std::move(new_expand.src_vertex.second))};
 
-    auto vertex_acc_to_primary_key = new_expand.dest_vertex.second;
-    auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
+    const auto to_vertex_id =
+        VertexId{new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second))};
 
-    if (!vertex_from_acc || !vertex_to_acc) {
+    if (!(shard_->IsVertexBelongToShard(from_vertex_id) || shard_->IsVertexBelongToShard(to_vertex_id))) {
       action_successful = false;
-      spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
+      spdlog::debug("Error while trying to insert edge, none of the vertices belong to this shard. Transaction id: {}",
                     req.transaction_id.logical_id);
       break;
     }
 
-    auto from_vertex_id =
-        VertexId(new_expand.src_vertex.first.id, ConvertPropertyVector(std::move(new_expand.src_vertex.second)));
-    auto to_vertex_id =
-        VertexId(new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second)));
-    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(new_expand.type.id),
-                                   Gid::FromUint(new_expand.id.gid));
+    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, new_expand.type.id, Gid::FromUint(new_expand.id.gid));
     if (edge_acc.HasValue()) {
       auto edge = edge_acc.GetValue();
       if (!new_expand.properties.empty()) {

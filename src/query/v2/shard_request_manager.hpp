@@ -109,14 +109,13 @@ class ShardRequestManagerInterface {
   virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
-  virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) = 0;
+  virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) = 0;
   virtual std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
                                                     std::vector<NewExpand> new_edges) = 0;
-  // TODO(antaljanosbenjamin): unify the GetXXXId and NameToId functions to have consistent naming, return type and
-  // implementation
+
   virtual storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const = 0;
   virtual storage::v3::PropertyId NameToProperty(const std::string &name) const = 0;
-  virtual storage::v3::LabelId LabelNameToLabelId(const std::string &name) const = 0;
+  virtual storage::v3::LabelId NameToLabel(const std::string &name) const = 0;
   virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
@@ -202,15 +201,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   storage::v3::EdgeTypeId NameToEdgeType(const std::string &name) const override {
-    return *shards_map_.GetEdgeTypeId(name);
+    return shards_map_.GetEdgeTypeId(name).value();
   }
 
   storage::v3::PropertyId NameToProperty(const std::string &name) const override {
-    return *shards_map_.GetPropertyId(name);
+    return shards_map_.GetPropertyId(name).value();
   }
 
-  storage::v3::LabelId LabelNameToLabelId(const std::string &name) const override {
-    return shards_map_.GetLabelId(name);
+  storage::v3::LabelId NameToLabel(const std::string &name) const override {
+    return shards_map_.GetLabelId(name).value();
   }
 
   const std::string &PropertyToName(memgraph::storage::v3::PropertyId /*prop*/) const override {
@@ -343,13 +342,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
-  std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
+  std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
-    MaybeInitializeExecutionState(state);
+    MaybeInitializeExecutionState(state, std::move(request));
     std::vector<ExpandOneResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -366,6 +365,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       }
       auto &response = std::get<ExpandOneResponse>(read_response_result.GetValue());
       responses.push_back(std::move(response));
+      shard_it = shard_cache_ref.erase(shard_it);
     }
     return responses;
   }
@@ -447,9 +447,11 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         CreateExpandRequest create_expand_request{.transaction_id = transaction_id_};
         per_shard_request_table.insert({shard_src_vertex, std::move(create_expand_request)});
         state.shard_cache.push_back(shard_src_vertex);
-        if (shard_src_vertex != shard_dest_vertex) {
-          state.shard_cache.push_back(shard_dest_vertex);
-        }
+      }
+      if (!per_shard_request_table.contains(shard_dest_vertex)) {
+        CreateExpandRequest create_expand_request{.transaction_id = transaction_id_};
+        per_shard_request_table.insert({shard_dest_vertex, std::move(create_expand_request)});
+        state.shard_cache.push_back(shard_dest_vertex);
       }
 
       // No need to create two requests, it will be handled in Request method
@@ -480,7 +482,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
   }
 
-  void MaybeInitializeExecutionState(ExecutionState<ExpandOneRequest> &state) {
+  void MaybeInitializeExecutionState(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) {
     ThrowIfStateCompleted(state);
     if (ShallNotInitializeState(state)) {
       return;
@@ -488,24 +490,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     state.transaction_id = transaction_id_;
 
     std::map<Shard, ExpandOneRequest> per_shard_request_table;
-    MG_ASSERT(state.requests.size() == 1);
-    auto top_level_rqst = std::move(*state.requests.begin());
-    auto top_level_rqst_template = top_level_rqst;
+    auto top_level_rqst_template = request;
+    top_level_rqst_template.transaction_id = transaction_id_;
     top_level_rqst_template.src_vertices.clear();
-    top_level_rqst_template.edge_types.clear();
     state.requests.clear();
-    size_t id = 0;
-    for (const auto &vertex : top_level_rqst.src_vertices) {
+    for (auto &vertex : request.src_vertices) {
       auto shard =
           shards_map_.GetShardForKey(vertex.first.id, storage::conversions::ConvertPropertyVector(vertex.second));
       if (!per_shard_request_table.contains(shard)) {
-        ExpandOneRequest expand_v_rqst = top_level_rqst_template;
-        per_shard_request_table.insert(std::pair(shard, std::move(expand_v_rqst)));
+        per_shard_request_table.insert(std::pair(shard, top_level_rqst_template));
         state.shard_cache.push_back(shard);
       }
       per_shard_request_table[shard].src_vertices.push_back(vertex);
-      per_shard_request_table[shard].edge_types.push_back(top_level_rqst.edge_types[id]);
-      ++id;
     }
 
     for (auto &[shard, rqst] : per_shard_request_table) {
@@ -523,7 +519,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   StorageClient &GetStorageClientForShard(const std::string &label, const CompoundKey &key) {
     auto shard = shards_map_.GetShardForKey(label, key);
-    auto label_id = shards_map_.GetLabelId(label);
+    auto label_id = shards_map_.GetLabelId(label).value();
     return GetStorageClientForShard(std::move(shard), label_id);
   }
 

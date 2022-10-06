@@ -50,7 +50,7 @@ using PropertyId = memgraph::storage::v3::PropertyId;
 using EdgeTypeId = memgraph::storage::v3::EdgeTypeId;
 
 struct EdgeType {
-  uint64_t id;
+  EdgeTypeId id;
   friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
@@ -427,7 +427,7 @@ struct ExpandOneRequest {
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
   std::vector<EdgeType> edge_types;
-  EdgeDirection direction;
+  EdgeDirection direction{EdgeDirection::OUT};
   bool only_unique_neighbor_rows = false;
   //  The empty optional means return all of the properties, while an empty
   //  list means do not return any properties
