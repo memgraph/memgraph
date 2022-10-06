@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "io/address.hpp"
+#include "io/errors.hpp"
 #include "io/rsm/raft.hpp"
 #include "utils/result.hpp"
 
@@ -51,11 +52,12 @@ class RsmClient {
   std::optional<ResponseFuture<ReadResponse<WriteResponseT>>> async_write_;
 
   template <typename ResponseT>
-  void PossiblyRedirectLeader(const ResponseT &response) {
+  bool PossiblyRedirectLeader(const ResponseT &response) {
     if (response.retry_leader) {
       MG_ASSERT(!response.success, "retry_leader should never be set for successful responses");
       leader_ = response.retry_leader.value();
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
+      return true;
     } else if (!response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
       size_t addr_index = io_.Rand(addr_distrib);
@@ -65,7 +67,9 @@ class RsmClient {
           "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
           "a RSM Candidate) trying a random one at index {} with address {}",
           addr_index, leader_.ToString());
+      return true;
     }
+    return false;
   }
 
  public:
@@ -141,7 +145,7 @@ class RsmClient {
 
   /// This method submits a request to the underlying Io interface
   /// and stores it as this client's async read.
-  void SendAsyncReadRequest(ReadRequestT req) {
+  void SendAsyncReadRequest(ReadRequestT read_req) {
     MG_ASSERT(!async_read_);
 
     async_read_before_ = io_.Now();
@@ -155,12 +159,35 @@ class RsmClient {
 
     bool can_act = async_read_.IsReady();
 
-    if
-      !can_act { return std::nullopt; }
+    if (!can_act) {
+      return std::nullopt;
+    }
 
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+
+    do {
+      std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_.TryGet();
+      if (!get_response_result) {
+        // Inner result is not ready yet.
+        // TODO(gvolfing) -VERIFY- is this actually needed?
+        return std::nullopt;
+      }
+
+      if (get_response_result.HasError()) {
+        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+        return get_response_result.GetError();
+      }
+
+      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
+      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
+
+      if (PossiblyRedirectLeader(read_get_response)) {
+        return std::nullopt;
+      }
+    } while (io_.Now() < async_read_before_ + overall_timeout);
+
+    return TimedOut{};
     // we have either received a timeout, a redirection, or a returnable high-level response
-
-    // TODO(Gabor)
   }
 
   /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
@@ -168,8 +195,30 @@ class RsmClient {
   /// redirected.
   std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
     MG_ASSERT(async_read_);
-
     // TODO(Gabor) call Wait on the underlying future and then handle it as-if can_act is true in the above method
+
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+
+    do {
+      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = async_read_.Wait();
+      if (get_response_result.HasError()) {
+        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+        return get_response_result.GetError();
+      }
+
+      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
+      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
+
+      if (read_get_response.success) {
+        return std::move(read_get_response.read_return);
+      }
+
+      if (PossiblyRedirectLeader(read_get_response)) {
+        return std::nullopt;
+      }
+    } while (io_.Now() < async_read_before_ + overall_timeout);
+
+    return TimedOut{};
   }
 
   // TODO(Gabor) do the same 3 methods for AsyncWriteRequest
