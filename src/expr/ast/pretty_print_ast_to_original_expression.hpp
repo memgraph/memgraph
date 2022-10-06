@@ -21,7 +21,8 @@
 #include "utils/string.hpp"
 
 namespace memgraph::expr {
-inline constexpr const char *identifier_symbol = "MG_SYMBOL";
+inline constexpr const char *identifier_node_symbol = "MG_SYMBOL_NODE";
+inline constexpr const char *identifier_edge_symbol = "MG_SYMBOL_EDGE";
 
 namespace detail {
 template <typename T>
@@ -226,7 +227,19 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 
   void Visit(None & /*op*/) override { throw utils::NotYetImplemented("None"); }
 
-  void Visit(Identifier &op) override { detail::PrintOperator(out_, identifier_symbol); }
+  void Visit(Identifier &op) override {
+    auto is_node = true;
+    auto is_edge = false;
+    auto is_other = false;
+    if (is_node) {
+      detail::PrintOperator(out_, identifier_node_symbol);
+    } else if (is_edge) {
+      detail::PrintOperator(out_, identifier_edge_symbol);
+    } else {
+      MG_ASSERT(is_other);
+      detail::PrintOperator(out_, op.name_);
+    }
+  }
 
   void Visit(PrimitiveLiteral &op) override { detail::PrintObject(out_, op.value_); }
 

@@ -86,21 +86,21 @@ INSTANTIATE_TEST_CASE_P(
         std::make_pair(std::string("2 + 1 + 5 + 2"), std::string("(((2 + 1) + 5) + 2)")),
         std::make_pair(std::string("2 + 1 * 5 + 2"), std::string("((2 + (1 * 5)) + 2)")),
         std::make_pair(std::string("2 + 1 * (5 + 2)"), std::string("(2 + (1 * (5 + 2)))")),
-        std::make_pair(std::string("n"), std::string("MG_SYMBOL")),
-        std::make_pair(std::string("n.property1"), std::string("MG_SYMBOL.property1")),
-        std::make_pair(std::string("n.property1 > 3"), std::string("(MG_SYMBOL.property1 > 3)")),
+        std::make_pair(std::string("n"), std::string("MG_SYMBOL_NODE")),
+        std::make_pair(std::string("n.property1"), std::string("MG_SYMBOL_NODE.property1")),
+        std::make_pair(std::string("n.property1 > 3"), std::string("(MG_SYMBOL_NODE.property1 > 3)")),
         std::make_pair(std::string("n.property1 != n.property2"),
-                       std::string("(MG_SYMBOL.property1 != MG_SYMBOL.property2)")),
-        std::make_pair(std::string("n And n"), std::string("(MG_SYMBOL And MG_SYMBOL)")),
+                       std::string("(MG_SYMBOL_NODE.property1 != MG_SYMBOL_NODE.property2)")),
+        std::make_pair(std::string("n And n"), std::string("(MG_SYMBOL_NODE And MG_SYMBOL_NODE)")),
         std::make_pair(std::string("n.property1 > 3 And n.property + 7 < 10"),
-                       std::string("((MG_SYMBOL.property1 > 3) And ((MG_SYMBOL.property + 7) < 10))")),
-        std::make_pair(
-            std::string("MG_SYMBOL.property1 > 3 And (MG_SYMBOL.property + 7 < 10 Or MG_SYMBOL.property3 = true)"),
-            std::string(
-                "((MG_SYMBOL.property1 > 3) And (((MG_SYMBOL.property + 7) < 10) Or (MG_SYMBOL.property3 = true)))")),
-        std::make_pair(
-            std::string("(MG_SYMBOL.property1 > 3 Or MG_SYMBOL.property + 7 < 10) And MG_SYMBOL.property3 = true"),
-            std::string(
-                "(((MG_SYMBOL.property1 > 3) Or ((MG_SYMBOL.property + 7) < 10)) And (MG_SYMBOL.property3 = true))"))));
+                       std::string("((MG_SYMBOL_NODE.property1 > 3) And ((MG_SYMBOL_NODE.property + 7) < 10))")),
+        std::make_pair(std::string("MG_SYMBOL_NODE.property1 > 3 And (MG_SYMBOL_NODE.property + 7 < 10 Or "
+                                   "MG_SYMBOL_NODE.property3 = true)"),
+                       std::string("((MG_SYMBOL_NODE.property1 > 3) And (((MG_SYMBOL_NODE.property + 7) < 10) Or "
+                                   "(MG_SYMBOL_NODE.property3 = true)))")),
+        std::make_pair(std::string("(MG_SYMBOL_NODE.property1 > 3 Or MG_SYMBOL_NODE.property + 7 < 10) And "
+                                   "MG_SYMBOL_NODE.property3 = true"),
+                       std::string("(((MG_SYMBOL_NODE.property1 > 3) Or ((MG_SYMBOL_NODE.property + 7) < 10)) And "
+                                   "(MG_SYMBOL_NODE.property3 = true))"))));
 
 }  // namespace memgraph::query::v2::test
