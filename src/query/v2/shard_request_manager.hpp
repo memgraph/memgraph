@@ -195,39 +195,74 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      auto &storage_client = GetStorageClientForShard(
-          *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
+
+    // TODO(gvolfing)
+    // Figure out redirection. nullopt can mean so many things...
+
+    // 1. Send the requests.
+    for (const auto &request : state.requests) {
+      auto &storage_client =
+          GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
       // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
       // instead.
-      ReadRequests req = state.requests[id];
-      auto read_response_result = storage_client.SendReadRequest(req);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-      if (read_response_result.HasError()) {
-        throw std::runtime_error("ScanAll request timedout");
-      }
-      ReadResponses read_response_variant = read_response_result.GetValue();
-      auto &response = std::get<ScanVerticesResponse>(read_response_variant);
-      if (!response.success) {
-        throw std::runtime_error("ScanAll request did not succeed");
-      }
-      if (!response.next_start_id) {
-        shard_it = shard_cache_ref.erase(shard_it);
-      } else {
-        state.requests[id].start_id.second = response.next_start_id->second;
-        ++shard_it;
-      }
-      responses.push_back(std::move(response));
+      ReadRequests req = request;
+      storage_client.SendAsyncReadRequest(request);
     }
+
+    // 2. Loop on poll
+    do {
+      bool at_least_one_result = PollOnRequests(state, responses);
+      if (!at_least_one_result && !state.shard_cache.empty()) {
+        // 3. Await on the first req.
+        AwaitOnFirstRequest(state, responses);
+      }
+    } while (!state.shard_cache.empty());
+
     // We are done with this state
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
     return PostProcess(std::move(responses));
   }
+
+  // // TODO(kostasrim) Simplify return result
+  // std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
+  //   MaybeInitializeExecutionState(state);
+  //   std::vector<ScanVerticesResponse> responses;
+  //   auto &shard_cache_ref = state.shard_cache;
+  //   size_t id = 0;
+  //   for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+  //     auto &storage_client = GetStorageClientForShard(
+  //         *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
+  //     // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
+  //     // instead.
+  //     ReadRequests req = state.requests[id];
+  //     auto read_response_result = storage_client.SendReadRequest(req);
+  //     // RETRY on timeouts?
+  //     // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
+  //     if (read_response_result.HasError()) {
+  //       throw std::runtime_error("ScanAll request timedout");
+  //     }
+  //     ReadResponses read_response_variant = read_response_result.GetValue();
+  //     auto &response = std::get<ScanVerticesResponse>(read_response_variant);
+  //     if (!response.success) {
+  //       throw std::runtime_error("ScanAll request did not succeed");
+  //     }
+  //     if (!response.next_start_id) {
+  //       shard_it = shard_cache_ref.erase(shard_it);
+  //     } else {
+  //       state.requests[id].start_id.second = response.next_start_id->second;
+  //       ++shard_it;
+  //     }
+  //     responses.push_back(std::move(response));
+  //   }
+  //   // We are done with this state
+  //   MaybeCompleteState(state);
+  //   // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as
+  //   return
+  //   // result of storage_client.SendReadRequest()).
+  //   return PostProcess(std::move(responses));
+  // }
 
   std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                               std::vector<NewVertex> new_vertices) override {
@@ -427,6 +462,79 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
     auto cli = StorageClient(io_, std::move(leader_addr.address), std::move(addresses));
     storage_cli_manager_.AddClient(label_id, target_shard, std::move(cli));
+  }
+
+  bool PollOnRequests(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    size_t id = 0;
+    bool at_least_one_result = false;
+
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+      auto &storage_client = GetStorageClientForShard(
+          *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
+
+      auto poll_result = storage_client.PollAsyncReadRequest();
+      if (!poll_result) {
+        // Result is not ready yet.
+        continue;
+      }
+
+      at_least_one_result = true;
+
+      if (poll_result->HasError()) {
+        throw std::runtime_error("ScanAll request timedout");
+      }
+
+      ReadResponses read_response_variant = poll_result->GetValue();
+      auto &response = std::get<ScanVerticesResponse>(read_response_variant);
+      if (!response.success) {
+        throw std::runtime_error("ScanAll request did not succeed");
+      }
+
+      // TODO(gvolfing) still verify if this is how it should be working
+      if (!response.next_start_id) {
+        shard_it = shard_cache_ref.erase(shard_it);
+      } else {
+        state.requests[id].start_id.second = response.next_start_id->second;
+        ++shard_it;  // why increment here? will we ever visit the shard again for the second round of values? + the id
+                     // of the request is also being incremented in this case.
+      }
+      responses.push_back(std::move(response));
+    }
+
+    return at_least_one_result;
+  }
+
+  void AwaitOnFirstRequest(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    auto &storage_client = GetStorageClientForShard(
+        *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().start_id.second));
+    auto await_result = storage_client.AwaitAsyncReadRequest();
+
+    if (!await_result) {
+      // Redirection has occured.
+    }
+
+    if (await_result->HasError()) {
+      throw std::runtime_error("ScanAll request timedout");
+    }
+
+    ReadResponses read_response_variant = await_result->GetValue();
+    auto &response = std::get<ScanVerticesResponse>(read_response_variant);
+    if (!response.success) {
+      throw std::runtime_error("ScanAll request did not succeed");
+    }
+
+    // TODO(gvolfing) Verify if this is working as intended.
+    //  Assumption -> The first req in 'requests' is associated with the first shard in 'shard_cache_ref'.
+    if (!response.next_start_id) {
+      shard_cache_ref.erase(shard_cache_ref.begin());
+    } else {
+      state.requests[0].start_id.second = response.next_start_id->second;
+      //++shard_it; // why increment here? will we ever visit the shard again for the second round of values? + the id
+      // of the request is also being incremented in this case.
+    }
+    responses.push_back(std::move(response));
   }
 
   ShardMap shards_map_;

@@ -48,8 +48,11 @@ class RsmClient {
   /// of async operations that can be accessed via an ID etc...
   Time async_read_before_;
   std::optional<ResponseFuture<ReadResponse<ReadResponseT>>> async_read_;
+  ReadRequestT current_read_request_;
+
   Time async_write_before_;
   std::optional<ResponseFuture<ReadResponse<WriteResponseT>>> async_write_;
+  WriteRequestT current_write_request_;
 
   template <typename ResponseT>
   bool PossiblyRedirectLeader(const ResponseT &response) {
@@ -58,7 +61,8 @@ class RsmClient {
       leader_ = response.retry_leader.value();
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
       return true;
-    } else if (!response.success) {
+    }
+    if (!response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
       size_t addr_index = io_.Rand(addr_distrib);
       leader_ = server_addrs_[addr_index];
@@ -150,10 +154,14 @@ class RsmClient {
 
   /// This method submits a request to the underlying Io interface
   /// and stores it as this client's async read.
-  void SendAsyncReadRequest(ReadRequestT read_req) {
+  void SendAsyncReadRequest(ReadRequestT req) {
     MG_ASSERT(!async_read_);
 
+    ReadRequest<ReadRequestT> read_req;
+    read_req.operation = req;
+
     async_read_before_ = io_.Now();
+    current_read_request_ = req;
     async_read_ = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
   }
 
@@ -162,27 +170,33 @@ class RsmClient {
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
     MG_ASSERT(async_read_);
 
-    bool can_act = async_read_.IsReady();
+    bool can_act = async_read_->IsReady();
 
     if (!can_act) {
       return std::nullopt;
     }
-    std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_.TryGet();
+    std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_->TryGet();
     if (!get_response_result) {
       // Inner result is not ready yet.
       // TODO(gvolfing) -VERIFY- is this actually needed?
       return std::nullopt;
     }
 
-    if (get_response_result.HasError()) {
+    if (get_response_result->HasError()) {
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      return get_response_result.GetError();
+      return get_response_result->GetError();
     }
 
     ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result->GetValue());
     ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
 
+    if (read_get_response.success) {
+      return std::move(read_get_response.read_return);
+    }
+
+    // TODO(gvolfing) -VERIFY- is this a correct way of handling this?
     if (PossiblyRedirectLeader(read_get_response)) {
+      SendAsyncReadRequest(current_read_request_);
       return std::nullopt;
     }
 
@@ -190,6 +204,10 @@ class RsmClient {
     if (io_.Now() < async_read_before_ + overall_timeout) {
       return TimedOut{};
     }
+
+    // TODO(gvolfing make a clear control path)
+    MG_ASSERT(false, "This should have never happened.");
+    return std::nullopt;
     // we have either received a timeout, a redirection, or a returnable high-level response
   }
 
@@ -203,7 +221,7 @@ class RsmClient {
     const Duration overall_timeout = io_.GetDefaultTimeout();
 
     do {
-      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = async_read_.Wait();
+      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = (std::move(*async_read_)).Wait();
       if (get_response_result.HasError()) {
         spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
         return get_response_result.GetError();
@@ -217,6 +235,7 @@ class RsmClient {
       }
 
       if (PossiblyRedirectLeader(read_get_response)) {
+        SendAsyncReadRequest(current_read_request_);
         return std::nullopt;
       }
     } while (io_.Now() < async_read_before_ + overall_timeout);

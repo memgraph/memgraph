@@ -153,6 +153,7 @@ class Future {
     shared_ = std::move(old.shared_);
     consumed_or_moved_ = old.consumed_or_moved_;
     old.consumed_or_moved_ = true;
+    return *this;
   }
 
   Future(const Future &) = delete;
