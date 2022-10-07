@@ -164,6 +164,15 @@ jobs:
           cmake ..
           make -j$THREADS
 
+      - name: Run simulation tests
+        run: |
+          # Activate toolchain.
+          source /opt/toolchain-v4/activate
+
+          # Run simulation tests.
+          cd build
+          ctest -R memgraph__simulation --output-on-failure -j$THREADS
+
       # - name: Run leftover CTest tests
       #   run: |
       #     # Activate toolchain.
@@ -267,6 +276,6 @@ jobs:
           # Activate toolchain.
           source /opt/toolchain-v4/activate
 
-          # Run unit tests.
+          # Run simulation tests.
           cd build
           ctest -R memgraph__simulation --output-on-failure -j$THREADS
