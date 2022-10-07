@@ -283,14 +283,14 @@ struct ShardMap {
   /// the CONSENSUS_PARTICIPANT state. Note that this does not necessarily mean that
   /// there is also an active leader for each shard.
   bool ClusterInitialized() const {
-    for (auto &[label_id, label_space] : label_spaces) {
-      for (auto &[low_key, shard] : label_space.shards) {
+    for (const auto &[label_id, label_space] : label_spaces) {
+      for (const auto &[low_key, shard] : label_space.shards) {
         if (shard.size() < label_space.replication_factor) {
           spdlog::info("label_space below desired replication factor");
           return false;
         }
 
-        for (auto &aas : shard) {
+        for (const auto &aas : shard) {
           if (aas.status != Status::CONSENSUS_PARTICIPANT) {
             spdlog::info("shard member not yet a CONSENSUS_PARTICIPANT");
             return false;
