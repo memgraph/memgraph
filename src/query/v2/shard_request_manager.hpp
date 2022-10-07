@@ -198,13 +198,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     // TODO(gvolfing)
     // Figure out redirection. nullopt can mean so many things...
+    // discuss with Tyler. Redirection should be handled on the
+    // ShardRsmside only? or resend from here?
 
     // 1. Send the requests.
     for (const auto &request : state.requests) {
       auto &storage_client =
           GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
-      // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
-      // instead.
       ReadRequests req = request;
       storage_client.SendAsyncReadRequest(request);
     }
@@ -213,7 +213,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     do {
       bool at_least_one_result = PollOnRequests(state, responses);
       if (!at_least_one_result && !state.shard_cache.empty()) {
-        // 3. Await on the first req.
+        // 3. Await on the first req if none of the futures have
+        //    been filled yet.
         AwaitOnFirstRequest(state, responses);
       }
     } while (!state.shard_cache.empty());
@@ -271,36 +272,71 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<CreateVerticesResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
+
+    std::vector<std::vector<memgraph::query::v2::accessors::VertexAccessor::Label>> prim_label_cache;
+
+    // 1. Send the requests.
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
+      prim_label_cache.push_back(state.requests[id].new_vertices[0].label_ids);
+
       for (auto &new_vertex : state.requests[id].new_vertices) {
         new_vertex.label_ids.erase(new_vertex.label_ids.begin());
       }
-      auto primary_key = state.requests[id].new_vertices[0].primary_key;
-      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
-      WriteRequests req = state.requests[id];
-      auto write_response_result = storage_client.SendWriteRequest(req);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-      if (write_response_result.HasError()) {
-        throw std::runtime_error("CreateVertices request timedout");
-      }
-      WriteResponses response_variant = write_response_result.GetValue();
-      CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
 
-      if (!mapped_response.success) {
-        throw std::runtime_error("CreateVertices request did not succeed");
-      }
-      responses.push_back(mapped_response);
-      shard_it = shard_cache_ref.erase(shard_it);
+      auto primary_key = state.requests[id].new_vertices[0].primary_key;
+      auto &storage_client = GetStorageClientForShard(*shard_it, prim_label_cache[id][0].id);
+
+      WriteRequests req = state.requests[id];
+      storage_client.SendAsyncWriteRequest(req);
     }
+    // 2. Loop on Poll
+
     // We are done with this state
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
     return responses;
   }
+
+  // std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
+  //                                             std::vector<NewVertex> new_vertices) override {
+  //   MG_ASSERT(!new_vertices.empty());
+  //   MaybeInitializeExecutionState(state, new_vertices);
+  //   std::vector<CreateVerticesResponse> responses;
+  //   auto &shard_cache_ref = state.shard_cache;
+  //   size_t id = 0;
+  //   for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+  //     // This is fine because all new_vertices of each request end up on the same shard
+  //     const auto labels = state.requests[id].new_vertices[0].label_ids;
+  //     for (auto &new_vertex : state.requests[id].new_vertices) {
+  //       new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+  //     }
+  //     auto primary_key = state.requests[id].new_vertices[0].primary_key;
+  //     auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
+  //     WriteRequests req = state.requests[id];
+  //     auto write_response_result = storage_client.SendWriteRequest(req);
+  //     // RETRY on timeouts?
+  //     // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
+  //     if (write_response_result.HasError()) {
+  //       throw std::runtime_error("CreateVertices request timedout");
+  //     }
+  //     WriteResponses response_variant = write_response_result.GetValue();
+  //     CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
+
+  //     if (!mapped_response.success) {
+  //       throw std::runtime_error("CreateVertices request did not succeed");
+  //     }
+  //     responses.push_back(mapped_response);
+  //     shard_it = shard_cache_ref.erase(shard_it);
+  //   }
+  //   // We are done with this state
+  //   MaybeCompleteState(state);
+  //   // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as
+  //   return
+  //   // result of storage_client.SendReadRequest()).
+  //   return responses;
+  // }
 
   std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
     // TODO(kostasrim)Update to limit the batch size here
@@ -500,6 +536,45 @@ class ShardRequestManager : public ShardRequestManagerInterface {
                      // of the request is also being incremented in this case.
       }
       responses.push_back(std::move(response));
+    }
+
+    return at_least_one_result;
+  }
+
+  bool PollOnRequests(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    size_t id = 0;
+    bool at_least_one_result = false;
+
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+      // This is fine because all new_vertices of each request end up on the same shard
+      const auto labels = state.requests[id].new_vertices[0].label_ids;
+      for (auto &new_vertex : state.requests[id].new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      }
+      auto primary_key = state.requests[id].new_vertices[0].primary_key;
+      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
+
+      auto poll_result = storage_client.PollAsyncReadRequest();
+      if (!poll_result) {
+        // Result is not ready yet.
+        continue;
+      }
+
+      at_least_one_result = true;
+
+      if (poll_result->HasError()) {
+        throw std::runtime_error("ScanAll request timedout");
+      }
+
+      WriteResponses response_variant = poll_result->GetValue();
+      CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
+
+      if (!mapped_response.success) {
+        throw std::runtime_error("CreateVertices request did not succeed");
+      }
+      responses.push_back(mapped_response);
+      shard_it = shard_cache_ref.erase(shard_it);
     }
 
     return at_least_one_result;

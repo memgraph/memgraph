@@ -55,12 +55,11 @@ class RsmClient {
   WriteRequestT current_write_request_;
 
   template <typename ResponseT>
-  bool PossiblyRedirectLeader(const ResponseT &response) {
+  void PossiblyRedirectLeader(const ResponseT &response) {
     if (response.retry_leader) {
       MG_ASSERT(!response.success, "retry_leader should never be set for successful responses");
       leader_ = response.retry_leader.value();
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
-      return true;
     }
     if (!response.success) {
       std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
@@ -71,9 +70,7 @@ class RsmClient {
           "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
           "a RSM Candidate) trying a random one at index {} with address {}",
           addr_index, leader_.ToString());
-      return true;
     }
-    return false;
   }
 
  public:
@@ -172,45 +169,39 @@ class RsmClient {
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
     MG_ASSERT(async_read_);
 
-    bool can_act = async_read_->IsReady();
-
+    const bool can_act = async_read_->IsReady();
     if (!can_act) {
       return std::nullopt;
     }
-    std::optional<ResponseResult<ReadResponse<ReadResponseT>>> get_response_result = async_read_->TryGet();
-    if (!get_response_result) {
-      // Inner result is not ready yet.
-      // TODO(gvolfing) -VERIFY- is this actually needed?
-      return std::nullopt;
-    }
 
-    if (get_response_result->HasError()) {
-      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      return get_response_result->GetError();
-    }
+    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(async_read_).Wait();
+    async_read_.reset();
 
-    ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result->GetValue());
-    ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
-
-    if (read_get_response.success) {
-      return std::move(read_get_response.read_return);
-    }
-
-    // TODO(gvolfing) -VERIFY- is this a correct way of handling this?
-    if (PossiblyRedirectLeader(read_get_response)) {
-      SendAsyncReadRequest(current_read_request_);
-      return std::nullopt;
-    }
-
+    // TODO(gvolfing) maybe retry? there could be a timout?
     const Duration overall_timeout = io_.GetDefaultTimeout();
-    if (io_.Now() < async_read_before_ + overall_timeout) {
-      return TimedOut{};
-    }
+    const bool past_time_out = io_.Now() < async_read_before_ + overall_timeout;
+    const bool result_has_error = get_response_result.HasError();
 
-    // TODO(gvolfing make a clear control path)
-    MG_ASSERT(false, "This should have never happened.");
+    if (result_has_error && past_time_out) {
+      // TODO(gvolfing) static_assert the type of result_error!
+      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      return TimedOut{};
+    } else if (!result_has_error) {
+      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
+      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
+
+      PossiblyRedirectLeader(read_get_response);
+
+      if (read_get_response.success) {
+        return std::move(read_get_response.read_return);
+      }
+    }
+    // TODO(gvolfing) Randomize leader when timeout.
+    else if (result_has_error)
+
+      // we have either received a timeout, a redirection, or a returnable high-level response
+      SendAsyncReadRequest(current_read_request_);
     return std::nullopt;
-    // we have either received a timeout, a redirection, or a returnable high-level response
   }
 
   /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
