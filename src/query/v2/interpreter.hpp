@@ -185,6 +185,8 @@ struct InterpreterContext {
 
   const InterpreterConfig config;
 
+  // TODO (antaljanosbenjamin) Figure out an abstraction for io::Io to make it possible to construct an interpreter
+  // context with a simulator transport without templatizing it.
   io::Io<io::local_transport::LocalTransport> io;
   coordinator::Address coordinator_address;
 
