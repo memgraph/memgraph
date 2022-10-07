@@ -152,6 +152,8 @@ class RsmClient {
     return TimedOut{};
   }
 
+  /// AsyncRead methods
+
   /// This method submits a request to the underlying Io interface
   /// and stores it as this client's async read.
   void SendAsyncReadRequest(ReadRequestT req) {
@@ -243,7 +245,89 @@ class RsmClient {
     return TimedOut{};
   }
 
-  // TODO(Gabor) do the same 3 methods for AsyncWriteRequest
+  /// AsyncWrite methods
+  void SendAsyncWriteRequest(WriteRequestT req) {
+    MG_ASSERT(!async_write_);
+
+    WriteRequest<WriteRequestT> write_req;
+    write_req.operation = req;
+
+    async_write_before_ = io_.Now();
+    current_write_request_ = req;
+    async_write_ = io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req);
+  }
+
+  std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest() {
+    MG_ASSERT(async_write_);
+
+    bool can_act = async_write_->IsReady();
+
+    if (!can_act) {
+      return std::nullopt;
+    }
+    std::optional<ResponseResult<WriteResponse<WriteResponseT>>> get_response_result = async_write_->TryGet();
+    if (!get_response_result) {
+      // Inner result is not ready yet.
+      // TODO(gvolfing) -VERIFY- is this actually needed?
+      return std::nullopt;
+    }
+
+    if (get_response_result->HasError()) {
+      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      return get_response_result->GetError();
+    }
+
+    ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
+        std::move(get_response_result->GetValue());
+    WriteResponse<WriteResponseT> &&write_get_response = std::move(get_response_envelope.message);
+
+    if (write_get_response.success) {
+      return std::move(write_get_response.write_return);
+    }
+
+    // TODO(gvolfing) -VERIFY- is this a correct way of handling this?
+    if (PossiblyRedirectLeader(write_get_response)) {
+      SendAsyncWriteRequest(current_write_request_);
+      return std::nullopt;
+    }
+
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+    if (io_.Now() < async_write_before_ + overall_timeout) {
+      return TimedOut{};
+    }
+
+    // TODO(gvolfing make a clear control path)
+    MG_ASSERT(false, "This should have never happened.");
+    return std::nullopt;
+  }
+
+  std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest() {
+    MG_ASSERT(async_write_);
+    const Duration overall_timeout = io_.GetDefaultTimeout();
+
+    do {
+      ResponseResult<WriteResponse<WriteResponseT>> get_response_result = (std::move(*async_write_)).Wait();
+      if (get_response_result.HasError()) {
+        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+        return get_response_result.GetError();
+      }
+
+      ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
+          std::move(get_response_result.GetValue());
+      WriteResponse<WriteResponseT> &&write_get_response = std::move(get_response_envelope.message);
+
+      if (write_get_response.success) {
+        return std::move(write_get_response.write_return);
+      }
+
+      if (PossiblyRedirectLeader(write_get_response)) {
+        SendAsyncWriteRequest(current_write_request_);
+        return std::nullopt;
+      }
+    } while (io_.Now() < async_write_before_ + overall_timeout);
+
+    return TimedOut{};
+  }
 };
 
 }  // namespace memgraph::io::rsm
