@@ -777,43 +777,6 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &vertex_value = frame[self_.input_symbol_];
-  //  // Skip setting labels on Null (can occur in optional match).
-  //  if (vertex_value.IsNull()) return true;
-  //  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  //
-  //  auto &dba = *context.db_accessor;
-  //  auto &vertex = vertex_value.ValueVertex();
-  //  for (const auto label : self_.labels_) {
-  //    auto maybe_value = vertex.AddLabelAndValidate(label);
-  //    if (maybe_value.HasError()) {
-  //      std::visit(utils::Overloaded{[](const storage::v3::Error error) {
-  //                                     switch (error) {
-  //                                       case storage::v3::Error::SERIALIZATION_ERROR:
-  //                                         throw TransactionSerializationException();
-  //                                       case storage::v3::Error::DELETED_OBJECT:
-  //                                         throw QueryRuntimeException("Trying to set a label on a deleted node.");
-  //                                       case storage::v3::Error::VERTEX_HAS_EDGES:
-  //                                       case storage::v3::Error::PROPERTIES_DISABLED:
-  //                                       case storage::v3::Error::NONEXISTENT_OBJECT:
-  //                                         throw QueryRuntimeException("Unexpected error when setting a label.");
-  //                                     }
-  //                                   },
-  //                                   [&dba](const storage::v3::SchemaViolation schema_violation) {
-  //                                     HandleSchemaViolation(schema_violation, dba);
-  //                                   }},
-  //                 maybe_value.GetError());
-  //    }
-  //
-  //    context.execution_stats[ExecutionStats::Key::CREATED_LABELS]++;
-  //    if (context.trigger_context_collector && *maybe_value) {
-  //      context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
-  //    }
-  //  }
-  //
-  //  return true;
 }
 
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -842,36 +805,6 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveProperty");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  // Remove, just like Delete needs to see the latest changes.
-  //  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-  //                                storage::v3::View::NEW);
-  //  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
-  //
-  //  auto remove_prop = [property = self_.property_, &context](auto *record) {
-  //    auto old_value = PropsSetChecked(record, *context.db_accessor, property, TypedValue{});
-  //
-  //    if (context.trigger_context_collector) {
-  //      context.trigger_context_collector->RegisterRemovedObjectProperty(
-  //          *record, property, storage::v3::PropertyToTypedValue<TypedValue>(std::move(old_value)));
-  //    }
-  //  };
-  //
-  //  switch (lhs.type()) {
-  //    case TypedValue::Type::Vertex:
-  //      remove_prop(&lhs.ValueVertex());
-  //      break;
-  //    case TypedValue::Type::Edge:
-  //      remove_prop(&lhs.ValueEdge());
-  //      break;
-  //    case TypedValue::Type::Null:
-  //      // Skip removing properties on Null (can occur in optional match).
-  //      break;
-  //    default:
-  //      throw QueryRuntimeException("Properties can only be removed from vertices and edges.");
-  //  }
-  //  return true;
 }
 
 void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -900,44 +833,6 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
   return false;
-  //
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &vertex_value = frame[self_.input_symbol_];
-  //  // Skip removing labels on Null (can occur in optional match).
-  //  if (vertex_value.IsNull()) return true;
-  //  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  //  auto &vertex = vertex_value.ValueVertex();
-  //  for (auto label : self_.labels_) {
-  //    auto maybe_value = vertex.RemoveLabelAndValidate(label);
-  //    if (maybe_value.HasError()) {
-  //      std::visit(
-  //          utils::Overloaded{[](const storage::v3::Error error) {
-  //                              switch (error) {
-  //                                case storage::v3::Error::SERIALIZATION_ERROR:
-  //                                  throw TransactionSerializationException();
-  //                                case storage::v3::Error::DELETED_OBJECT:
-  //                                  throw QueryRuntimeException("Trying to remove labels from a deleted node.");
-  //                                case storage::v3::Error::VERTEX_HAS_EDGES:
-  //                                case storage::v3::Error::PROPERTIES_DISABLED:
-  //                                case storage::v3::Error::NONEXISTENT_OBJECT:
-  //                                  throw QueryRuntimeException("Unexpected error when removing labels from a
-  //                                  node.");
-  //                              }
-  //                            },
-  //                            [&context](const storage::v3::SchemaViolation &schema_violation) {
-  //                              HandleSchemaViolation(schema_violation, *context.db_accessor);
-  //                            }},
-  //          maybe_value.GetError());
-  //    }
-  //
-  //    context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
-  //    if (context.trigger_context_collector && *maybe_value) {
-  //      context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
-  //    }
-  //  }
-  //
-  //  return true;
 }
 
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -2369,6 +2264,7 @@ class DistributedScanAllCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
+    // TODO(antaljanosbenjamin) Use real label
     request_state_.label = "label";
     current_batch = shard_manager.Request(request_state_);
     current_vertex_it = current_batch.begin();
