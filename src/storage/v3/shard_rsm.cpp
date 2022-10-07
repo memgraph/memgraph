@@ -24,6 +24,7 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/property_value.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
@@ -937,6 +938,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ScanResultRow> results;
+  if (req.batch_limit) {
+    results.reserve(*req.batch_limit);
+  }
   std::optional<memgraph::msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
@@ -944,7 +948,14 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
 
   const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
+  // 1. If there is order all order by props are needed in memory sorted
+  // Need to materialize all order by properties
 
+  // 2. We order vertices according to the expression and sorting order
+  //   2.1. Need comparison function between TypedValues
+  //   2.2. Need Sorting of vector of TypedValues (probably can use utils)
+
+  // 3. Find start ids
   auto it = vertex_iterable.begin();
   while (it != vertex_iterable.end()) {
     if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
@@ -952,7 +963,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
     ++it;
   }
+  auto dba = DbAccessor{&acc};
 
+  // 4. Start iterating
   for (; it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
@@ -966,7 +979,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
     if (req.filter_expressions) {
       // NOTE - DbAccessor might get removed in the future.
-      auto dba = DbAccessor{&acc};
       const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), node_name_);
       if (!eval) {
         continue;
@@ -974,7 +986,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
     if (req.vertex_expressions) {
       // NOTE - DbAccessor might get removed in the future.
-      auto dba = DbAccessor{&acc};
       expression_results = ConvertToValueVectorFromTypedValueVector(
           EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), node_name_));
     }
@@ -1010,7 +1021,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  memgraph::msgs::ScanVerticesResponse resp{};
+  memgraph::msgs::ScanVerticesResponse resp;
   resp.success = action_successful;
 
   if (action_successful) {
