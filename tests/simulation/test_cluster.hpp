@@ -14,6 +14,7 @@
 #include <set>
 #include <thread>
 
+#include "cluster_config.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
 #include "coordinator/shard_map.hpp"
@@ -59,17 +60,6 @@ using memgraph::storage::v3::SchemaProperty;
 
 using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
-
-struct ClusterConfig {
-  int servers;
-  int replication_factor;
-  int shards;
-  friend std::ostream &operator<<(std::ostream &in, const ClusterConfig &cluster) {
-    in << "ClusterConfig { servers: " << cluster.servers << ", replication_factor: " << cluster.replication_factor
-       << ", shards: " << cluster.shards << " }";
-    return in;
-  }
-};
 
 MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Address> coordinator_addresses, Address addr,
                                         ShardMap shard_map) {
@@ -240,21 +230,3 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 }
 
 }  // namespace memgraph::tests::simulation
-
-// Required namespace for rapidcheck generator
-namespace rc {
-
-using memgraph::tests::simulation::ClusterConfig;
-
-template <>
-struct Arbitrary<ClusterConfig> {
-  static Gen<ClusterConfig> arbitrary() {
-    return gen::build<ClusterConfig>(
-        // gen::inRange is [inclusive min, exclusive max)
-        gen::set(&ClusterConfig::servers, gen::inRange(3, 8)),
-        gen::set(&ClusterConfig::replication_factor, gen::inRange(1, 4)),
-        gen::set(&ClusterConfig::shards, gen::inRange(1, 6)));
-  }
-};
-
-}  // namespace rc
