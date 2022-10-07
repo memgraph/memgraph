@@ -173,53 +173,6 @@ jobs:
           cd build
           ctest -R memgraph__simulation --output-on-failure -j$THREADS
 
-      # - name: Run leftover CTest tests
-      #   run: |
-      #     # Activate toolchain.
-      #     source /opt/toolchain-v4/activate
-
-      #     # Run leftover CTest tests (all except unit and benchmark tests).
-      #     cd build
-      #     ctest -E "(memgraph__unit|memgraph__benchmark|memgraph__simulation)" --output-on-failure
-
-      # - name: Run drivers tests
-      #   run: |
-      #     ./tests/drivers/run.sh
-
-      # - name: Run integration tests
-      #   run: |
-      #     cd tests/integration
-      #     for name in *; do
-      #       if [ ! -d $name ]; then continue; fi
-      #       pushd $name >/dev/null
-      #       echo "Running: $name"
-      #       if [ -x prepare.sh ]; then
-      #         ./prepare.sh
-      #       fi
-      #       if [ -x runner.py ]; then
-      #         ./runner.py
-      #       elif [ -x runner.sh ]; then
-      #         ./runner.sh
-      #       fi
-      #       echo
-      #       popd >/dev/null
-      #     done
-
-      # - name: Run cppcheck and clang-format
-      #   run: |
-      #     # Activate toolchain.
-      #     source /opt/toolchain-v4/activate
-
-      #     # Run cppcheck and clang-format.
-      #     cd tools/github
-      #     ./cppcheck_and_clang_format diff
-
-      # - name: Save cppcheck and clang-format errors
-      #   uses: actions/upload-artifact@v2
-      #   with:
-      #     name: "Code coverage"
-      #     path: tools/github/cppcheck_and_clang_format.txt
-
   release_build:
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, Diff]
@@ -248,19 +201,6 @@ jobs:
           cd build
           cmake -DCMAKE_BUILD_TYPE=release ..
           make -j$THREADS
-
-      # - name: Run GQL Behave tests
-      #   run: |
-      #     cd tests/gql_behave
-      #     ./continuous_integration
-
-      # - name: Save quality assurance status
-      #   uses: actions/upload-artifact@v2
-      #   with:
-      #     name: "GQL Behave Status"
-      #     path: |
-      #       tests/gql_behave/gql_behave_status.csv
-      #       tests/gql_behave/gql_behave_status.html
 
       - name: Run unit tests
         run: |
