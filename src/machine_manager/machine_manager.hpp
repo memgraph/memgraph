@@ -105,7 +105,6 @@ class MachineManager {
 
       if (request_result.HasError()) {
         // time to do Cron
-        spdlog::info("MM got timeout");
         continue;
       }
 

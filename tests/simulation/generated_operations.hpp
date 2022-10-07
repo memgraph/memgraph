@@ -19,6 +19,7 @@
 #include <rapidcheck/gtest.h>
 
 #include "storage/v2/storage.hpp"
+#include "testing_constants.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::tests::simulation {
@@ -56,16 +57,13 @@ struct Op {
 // Required namespace for rapidcheck generators
 namespace rc {
 
-using memgraph::tests::simulation::CreateVertex;
-using memgraph::tests::simulation::Op;
-using memgraph::tests::simulation::OpVariant;
-using memgraph::tests::simulation::ScanAll;
+using namespace memgraph::tests::simulation;
 
 template <>
 struct Arbitrary<CreateVertex> {
   static Gen<CreateVertex> arbitrary() {
-    return gen::build<CreateVertex>(gen::set(&CreateVertex::key, gen::inRange(0, 7)),
-                                    gen::set(&CreateVertex::value, gen::inRange(0, 7)));
+    return gen::build<CreateVertex>(gen::set(&CreateVertex::key, gen::inRange(0, kMaximumShards + 1)),
+                                    gen::set(&CreateVertex::value, gen::inRange(0, kMaximumShards + 1)));
   }
 };
 

@@ -170,6 +170,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
+    spdlog::info("shards_map_.size(): {}", shards_map_.GetShards(*state.label).size());
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
@@ -199,6 +200,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       }
       responses.push_back(std::move(response));
     }
+    spdlog::info("got responses back");
     // We are done with this state
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return

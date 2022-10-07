@@ -114,9 +114,11 @@ struct ShardMap {
 
         for (auto &aas : shard) {
           if (initialized.contains(aas.address.unique_id)) {
-            spdlog::info("marking shard as full consensus participant: {}", aas.address.unique_id);
-            aas.status = Status::CONSENSUS_PARTICIPANT;
             machine_contains_shard = true;
+            if (aas.status != Status::CONSENSUS_PARTICIPANT) {
+              spdlog::info("marking shard as full consensus participant: {}", aas.address.unique_id);
+              aas.status = Status::CONSENSUS_PARTICIPANT;
+            }
           } else {
             const bool same_machine = aas.address.last_known_ip == storage_manager.last_known_ip &&
                                       aas.address.last_known_port == storage_manager.last_known_port;

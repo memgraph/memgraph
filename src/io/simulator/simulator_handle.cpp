@@ -50,7 +50,7 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   }
 }
 
-struct SimulationExceededConfiguredAbortTime {};
+struct SimulationExceededConfiguredAbortTime : std::exception {};
 
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
@@ -80,6 +80,9 @@ bool SimulatorHandle::MaybeTickSimulator() {
     cluster_wide_time_microseconds_ += clock_advance;
 
     if (cluster_wide_time_microseconds_ >= config_.abort_time) {
+      if (should_shut_down_) {
+        return false;
+      }
       spdlog::error(
           "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
           "in an expected amount of time.");

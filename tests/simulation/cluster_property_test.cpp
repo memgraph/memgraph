@@ -16,6 +16,8 @@
 #include <chrono>
 
 #include <gtest/gtest.h>
+#include <rapidcheck.h>
+#include <rapidcheck/gtest.h>
 
 #include "generated_operations.hpp"
 #include "io/simulator/simulator_config.hpp"
@@ -24,6 +26,21 @@
 
 struct NonEmptyOpVec {
   std::vector<memgraph::tests::simulation::Op> ops;
+
+  friend std::ostream &operator<<(std::ostream &in, const NonEmptyOpVec &op) {
+    in << "[";
+    bool first = true;
+    for (const auto &op : op.ops) {
+      if (!first) {
+        in << ", ";
+      }
+      in << op;
+      first = false;
+    }
+    in << "]";
+
+    return in;
+  }
 };
 
 namespace rc {
@@ -50,7 +67,7 @@ RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, Non
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{1024 * 1024},
+      .abort_time = Time::min() + std::chrono::microseconds{64 * 1024 * 1024},
   };
 
   RunClusterSimulation(sim_config, cluster_config, ops.ops);

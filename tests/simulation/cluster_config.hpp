@@ -13,12 +13,15 @@
 
 #include <rapidcheck.h>
 
+#include "testing_constants.hpp"
+
 namespace memgraph::tests::simulation {
 
 struct ClusterConfig {
   int servers;
   int replication_factor;
   int shards;
+
   friend std::ostream &operator<<(std::ostream &in, const ClusterConfig &cluster) {
     in << "ClusterConfig { servers: " << cluster.servers << ", replication_factor: " << cluster.replication_factor
        << ", shards: " << cluster.shards << " }";
@@ -38,9 +41,10 @@ struct Arbitrary<ClusterConfig> {
   static Gen<ClusterConfig> arbitrary() {
     return gen::build<ClusterConfig>(
         // gen::inRange is [inclusive min, exclusive max)
-        gen::set(&ClusterConfig::servers, gen::inRange(3, 8)),
-        gen::set(&ClusterConfig::replication_factor, gen::inRange(1, 4)),
-        gen::set(&ClusterConfig::shards, gen::inRange(1, 6)));
+        gen::set(&ClusterConfig::servers, gen::inRange(kMinimumServers, kMaximumServers)),
+        gen::set(&ClusterConfig::replication_factor,
+                 gen::inRange(kMinimumReplicationFactor, kMaximumReplicationFactor)),
+        gen::set(&ClusterConfig::shards, gen::inRange(kMinimumShards, kMaximumShards)));
   }
 };
 

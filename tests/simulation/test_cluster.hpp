@@ -10,9 +10,12 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <iostream>
 #include <limits>
 #include <set>
 #include <thread>
+
+#include <rapidcheck.h>
 
 #include "cluster_config.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -27,6 +30,7 @@
 #include "machine_manager/machine_manager.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
+#include "testing_constants.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::tests::simulation {
@@ -124,7 +128,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   };
 
   std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
-  MG_ASSERT(label_id);
+  RC_ASSERT(label_id.has_value());
 
   // split the shard at N split points
   // NB: this is the logic that should be provided by the "split file"
@@ -141,7 +145,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
 
     const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
 
-    MG_ASSERT(split_success);
+    RC_ASSERT(split_success);
   }
 
   return sm;
@@ -149,6 +153,15 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
 
 void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
+  const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.key);
+  const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.value);
+  const CompoundKey primary_key = {key1, key2};
+
+  if (correctness_model.contains(primary_key)) {
+    // TODO(tyler) remove this early-return when we have properly handled setting non-unique vertexes
+    return;
+  }
+
   msgs::ExecutionState<msgs::CreateVerticesRequest> state;
 
   auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
@@ -163,25 +176,30 @@ void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   new_vertices.push_back(std::move(nv));
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
-  MG_ASSERT(result.size() == 1);
+  if (result.size() != 1) {
+    spdlog::error("did not get a result back when creating the vertex");
+    RC_ASSERT(result.size() == 1);
+  }
 
-  const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.key);
-  const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.value);
-  const CompoundKey primary_key = {key1, key2};
   correctness_model.emplace(primary_key);
 }
 
 void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "test_label"};
+  msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
-  auto result = shard_request_manager.Request(state);
-  MG_ASSERT(result.size() == correctness_model.size(), "got {} results but we expected {}", result.size(),
-            correctness_model.size());
+  auto result = shard_request_manager.Request(request);
+
+  if (result.size() != correctness_model.size()) {
+    spdlog::error("got {} results but we expected {}", result.size(), correctness_model.size());
+    RC_ASSERT(result.size() == correctness_model.size());
+  }
 }
 
 void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
                           const std::vector<Op> &ops) {
+  spdlog::info("========================== NEW SIMULATION ==========================");
+
   auto simulator = Simulator(sim_config);
 
   auto cli_addr = Address::TestAddress(1);
@@ -199,6 +217,10 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   Address coordinator_address = mm_1.CoordinatorAddress();
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
+
+  // Need to detach this thread so that the destructor does not
+  // block before we can propagate assertion failures.
+  mm_thread_1.detach();
 
   // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
 
