@@ -13,28 +13,18 @@
 
 namespace memgraph::utils {
 
-class SpinLock {
+class AsyncTimer {
  public:
-  SpinLock() {}
+  explicit AsyncTimer(double seconds);
+  AsyncTimer() = default;
+  ~AsyncTimer() = default;
+  AsyncTimer(AsyncTimer &&other) = default;
+  AsyncTimer &operator=(AsyncTimer &&other) = default;
+  AsyncTimer(const AsyncTimer &) = delete;
+  AsyncTimer &operator=(const AsyncTimer &) = delete;
 
-  SpinLock(SpinLock &&other) = default;
-  SpinLock &operator=(SpinLock &&other) = default;
-  SpinLock(const SpinLock &) = delete;
-  SpinLock &operator=(const SpinLock &) = delete;
-  ~SpinLock() = default;
-
-  void lock() {
-    // TODO(gitbuda): Implement SpinLock::lock
-  }
-
-  bool try_lock() {
-    // TODO(gitbuda): Implement SpinLock::try_lock
-    return false;
-  }
-
-  void unlock() {
-    // TODO(gitbuda): Implement SpinLock::unlock
-  }
+  // Returns false if the object isn't associated with any timer.
+  bool IsExpired() const noexcept;
 };
 
-}  // namespace memgraph::utils
+}

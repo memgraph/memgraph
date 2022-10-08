@@ -87,7 +87,8 @@ void MonotonicBufferResource::Release() {
 
 void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
   static_assert(std::is_same_v<size_t, uintptr_t>);
-  static_assert(std::is_same_v<size_t, uint64_t>);
+  // TODO(gitbuda): Fix huge static_assert that size_t == uint64_t
+  //static_assert(std::is_same_v<size_t, uint64_t>);
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
     const size_t size = next_size > bytes ? next_size : bytes;

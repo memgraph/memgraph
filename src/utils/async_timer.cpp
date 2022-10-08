@@ -9,4 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-namespace memgraph::utils::timer {}
+#include "utils/async_timer.hpp"
+
+namespace memgraph::utils {
+
+AsyncTimer::AsyncTimer(double seconds) {
+  // TODO(gitbuda): Implement AsyncTimer constructor.
+}
+
+bool AsyncTimer::IsExpired() const noexcept {
+  // TODO(gitbuda): Implement AsyncTimer::IsExpired
+  return true;
+}
+
+}  // namespace memgraph::utils

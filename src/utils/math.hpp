@@ -18,7 +18,7 @@
 
 namespace memgraph::utils {
 
-static_assert(std::is_same_v<uint64_t, unsigned long>,
+static_assert(std::is_same_v<uint64_t, unsigned long long>,
               "utils::Log requires uint64_t to be implemented as unsigned long.");
 
 /// This function computes the log2 function on integer types. It is faster than

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <time.h>
 
 #include <memory>

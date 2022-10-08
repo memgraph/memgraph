@@ -9,32 +9,21 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "utils/thread.hpp"
+
+#include <sys/prctl.h>
+
+#include "utils/logging.hpp"
 
 namespace memgraph::utils {
 
-class SpinLock {
- public:
-  SpinLock() {}
+void ThreadSetName(const std::string &name) {
+  static constexpr auto max_name_length = GetMaxThreadNameSize();
+  MG_ASSERT(name.size() <= max_name_length, "Thread name '{}' is too long", max_name_length);
 
-  SpinLock(SpinLock &&other) = default;
-  SpinLock &operator=(SpinLock &&other) = default;
-  SpinLock(const SpinLock &) = delete;
-  SpinLock &operator=(const SpinLock &) = delete;
-  ~SpinLock() = default;
-
-  void lock() {
-    // TODO(gitbuda): Implement SpinLock::lock
+  if (prctl(PR_SET_NAME, name.c_str()) != 0) {
+    spdlog::warn("Couldn't set thread name: {}!", name);
   }
-
-  bool try_lock() {
-    // TODO(gitbuda): Implement SpinLock::try_lock
-    return false;
-  }
-
-  void unlock() {
-    // TODO(gitbuda): Implement SpinLock::unlock
-  }
-};
+}
 
 }  // namespace memgraph::utils

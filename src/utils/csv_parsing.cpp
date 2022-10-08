@@ -60,7 +60,7 @@ void Reader::TryInitializeHeader() {
   }
 
   if (header->empty()) {
-    throw CsvReadException("CSV file {} empty!", path_);
+    throw CsvReadException("CSV file {} empty!", path_.string());
   }
 
   number_of_columns_ = header->size();

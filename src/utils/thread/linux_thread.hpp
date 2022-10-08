@@ -9,32 +9,17 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+/// @file
 #pragma once
+
+#include <string>
 
 namespace memgraph::utils {
 
-class SpinLock {
- public:
-  SpinLock() {}
+constexpr size_t GetMaxThreadNameSize() { return 16; }
 
-  SpinLock(SpinLock &&other) = default;
-  SpinLock &operator=(SpinLock &&other) = default;
-  SpinLock(const SpinLock &) = delete;
-  SpinLock &operator=(const SpinLock &) = delete;
-  ~SpinLock() = default;
+/// This function sets the thread name of the calling thread.
+/// Beware, the name length limit is 16 characters!
+void ThreadSetName(const std::string &name);
 
-  void lock() {
-    // TODO(gitbuda): Implement SpinLock::lock
-  }
-
-  bool try_lock() {
-    // TODO(gitbuda): Implement SpinLock::try_lock
-    return false;
-  }
-
-  void unlock() {
-    // TODO(gitbuda): Implement SpinLock::unlock
-  }
-};
-
-}  // namespace memgraph::utils
+};  // namespace memgraph::utils
