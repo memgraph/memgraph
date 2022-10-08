@@ -16,19 +16,18 @@
 
 #include "utils/logging.hpp"
 
-namespace memgraph::utils {
+namespace memgraph::utils::timer {
 
 #define SIGTIMER (SIGRTMAX - 2)
 
 class AsyncTimer {
  public:
-  AsyncTimer();
   explicit AsyncTimer(double seconds);
+  AsyncTimer();
   ~AsyncTimer();
   AsyncTimer(AsyncTimer &&other) noexcept;
   // NOLINTNEXTLINE (hicpp-noexcept-move)
   AsyncTimer &operator=(AsyncTimer &&other);
-
   AsyncTimer(const AsyncTimer &) = delete;
   AsyncTimer &operator=(const AsyncTimer &) = delete;
 
