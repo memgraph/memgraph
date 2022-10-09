@@ -158,8 +158,7 @@ pushd antlr4
 git apply ../antlr4.10.1.patch
 popd
 
-# cppitertools v2.0 2019-12-23
-cppitertools_ref="cb3635456bdb531121b82b4d2e3afc7ae1f56d47"
+cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # rapidcheck
@@ -192,7 +191,7 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-rocksdb_tag="v6.14.6" # (2020-10-14)
+rocksdb_tag="v7.7.2" # 2022-10-05
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
 pushd rocksdb
 git apply ../rocksdb.patch

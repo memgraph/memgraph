@@ -1,17 +1,9 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6761929..6a369af 100644
+index b00f31d..17002f1 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -220,6 +220,7 @@ else()
-       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -momit-leaf-frame-pointer")
-     endif()
-   endif()
-+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-copy -Wno-unused-but-set-variable")
- endif()
- 
- include(CheckCCompilerFlag)
-@@ -997,7 +998,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
- 
+@@ -1218,7 +1218,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+
    if(ROCKSDB_BUILD_SHARED)
      install(
 -      TARGETS ${ROCKSDB_SHARED_LIB}
