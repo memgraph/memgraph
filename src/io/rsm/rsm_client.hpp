@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 #include "io/address.hpp"
@@ -51,8 +52,20 @@ class RsmClient {
   ReadRequestT current_read_request_;
 
   Time async_write_before_;
-  std::optional<ResponseFuture<ReadResponse<WriteResponseT>>> async_write_;
+  std::optional<ResponseFuture<WriteResponse<WriteResponseT>>> async_write_;
   WriteRequestT current_write_request_;
+
+  // TODO(gvolfing) use this function in PossiblyRedirectLeader()
+  void SelectRandomLeader() {
+    std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
+    size_t addr_index = io_.Rand(addr_distrib);
+    leader_ = server_addrs_[addr_index];
+
+    spdlog::debug(
+        "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
+        "a RSM Candidate) trying a random one at index {} with address {}",
+        addr_index, leader_.ToString());
+  }
 
   template <typename ResponseT>
   void PossiblyRedirectLeader(const ResponseT &response) {
@@ -62,14 +75,7 @@ class RsmClient {
       spdlog::debug("client redirected to leader server {}", leader_.ToString());
     }
     if (!response.success) {
-      std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
-      size_t addr_index = io_.Rand(addr_distrib);
-      leader_ = server_addrs_[addr_index];
-
-      spdlog::debug(
-          "client NOT redirected to leader server despite our success failing to be processed (it probably was sent to "
-          "a RSM Candidate) trying a random one at index {} with address {}",
-          addr_index, leader_.ToString());
+      SelectRandomLeader();
     }
   }
 
@@ -169,12 +175,18 @@ class RsmClient {
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
     MG_ASSERT(async_read_);
 
-    const bool can_act = async_read_->IsReady();
-    if (!can_act) {
+    if (!async_read_->IsReady()) {
       return std::nullopt;
     }
 
-    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(async_read_).Wait();
+    return AwaitAsyncReadRequest();
+  }
+
+  /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
+  /// SendReadRequest does. This will block until timeout or response, but may still return std::nullopt if we were
+  /// redirected.
+  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
+    ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(*async_read_).Wait();
     async_read_.reset();
 
     // TODO(gvolfing) maybe retry? there could be a timout?
@@ -183,7 +195,8 @@ class RsmClient {
     const bool result_has_error = get_response_result.HasError();
 
     if (result_has_error && past_time_out) {
-      // TODO(gvolfing) static_assert the type of result_error!
+      // static_assert(std::is_same<decltype(get_response_result.GetError()), TimedOut>::type, "Error must be TimeOut
+      // error!");
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
       return TimedOut{};
     } else if (!result_has_error) {
@@ -196,44 +209,13 @@ class RsmClient {
         return std::move(read_get_response.read_return);
       }
     }
-    // TODO(gvolfing) Randomize leader when timeout.
-    else if (result_has_error)
-
-      // we have either received a timeout, a redirection, or a returnable high-level response
+    // TODO(gvolfing) Randomize leader when timeout. -Verify-
+    else if (result_has_error) {
+      // is this correct?
+      SelectRandomLeader();
       SendAsyncReadRequest(current_read_request_);
+    }
     return std::nullopt;
-  }
-
-  /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
-  /// SendReadRequest does. This will block until timeout or response, but may still return std::nullopt if we were
-  /// redirected.
-  std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
-    MG_ASSERT(async_read_);
-    // TODO(Gabor) call Wait on the underlying future and then handle it as-if can_act is true in the above method
-
-    const Duration overall_timeout = io_.GetDefaultTimeout();
-
-    do {
-      ResponseResult<ReadResponse<ReadResponseT>> get_response_result = (std::move(*async_read_)).Wait();
-      if (get_response_result.HasError()) {
-        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        return get_response_result.GetError();
-      }
-
-      ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
-      ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
-
-      if (read_get_response.success) {
-        return std::move(read_get_response.read_return);
-      }
-
-      if (PossiblyRedirectLeader(read_get_response)) {
-        SendAsyncReadRequest(current_read_request_);
-        return std::nullopt;
-      }
-    } while (io_.Now() < async_read_before_ + overall_timeout);
-
-    return TimedOut{};
   }
 
   /// AsyncWrite methods
@@ -251,73 +233,45 @@ class RsmClient {
   std::optional<BasicResult<TimedOut, WriteResponseT>> PollAsyncWriteRequest() {
     MG_ASSERT(async_write_);
 
-    bool can_act = async_write_->IsReady();
-
-    if (!can_act) {
-      return std::nullopt;
-    }
-    std::optional<ResponseResult<WriteResponse<WriteResponseT>>> get_response_result = async_write_->TryGet();
-    if (!get_response_result) {
-      // Inner result is not ready yet.
-      // TODO(gvolfing) -VERIFY- is this actually needed?
+    if (!async_write_->IsReady()) {
       return std::nullopt;
     }
 
-    if (get_response_result->HasError()) {
-      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      return get_response_result->GetError();
-    }
-
-    ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
-        std::move(get_response_result->GetValue());
-    WriteResponse<WriteResponseT> &&write_get_response = std::move(get_response_envelope.message);
-
-    if (write_get_response.success) {
-      return std::move(write_get_response.write_return);
-    }
-
-    // TODO(gvolfing) -VERIFY- is this a correct way of handling this?
-    if (PossiblyRedirectLeader(write_get_response)) {
-      SendAsyncWriteRequest(current_write_request_);
-      return std::nullopt;
-    }
-
-    const Duration overall_timeout = io_.GetDefaultTimeout();
-    if (io_.Now() < async_write_before_ + overall_timeout) {
-      return TimedOut{};
-    }
-
-    // TODO(gvolfing make a clear control path)
-    MG_ASSERT(false, "This should have never happened.");
-    return std::nullopt;
+    return AwaitAsyncWriteRequest();
   }
 
   std::optional<BasicResult<TimedOut, WriteResponseT>> AwaitAsyncWriteRequest() {
-    MG_ASSERT(async_write_);
+    ResponseResult<WriteResponse<WriteResponseT>> get_response_result = std::move(*async_write_).Wait();
+    async_write_.reset();
+
+    // TODO(gvolfing) maybe retry? there could be a timout?
     const Duration overall_timeout = io_.GetDefaultTimeout();
+    const bool past_time_out = io_.Now() < async_write_before_ + overall_timeout;
+    const bool result_has_error = get_response_result.HasError();
 
-    do {
-      ResponseResult<WriteResponse<WriteResponseT>> get_response_result = (std::move(*async_write_)).Wait();
-      if (get_response_result.HasError()) {
-        spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-        return get_response_result.GetError();
-      }
-
+    if (result_has_error && past_time_out) {
+      // static_assert(std::is_same<decltype(get_response_result.GetError()), TimedOut>::type, "Error must be TimeOut
+      // error!");
+      spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
+      return TimedOut{};
+    } else if (!result_has_error) {
       ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
           std::move(get_response_result.GetValue());
       WriteResponse<WriteResponseT> &&write_get_response = std::move(get_response_envelope.message);
 
+      PossiblyRedirectLeader(write_get_response);
+
       if (write_get_response.success) {
         return std::move(write_get_response.write_return);
       }
-
-      if (PossiblyRedirectLeader(write_get_response)) {
-        SendAsyncWriteRequest(current_write_request_);
-        return std::nullopt;
-      }
-    } while (io_.Now() < async_write_before_ + overall_timeout);
-
-    return TimedOut{};
+    }
+    // TODO(gvolfing) Randomize leader when timeout. -Verify-
+    else if (result_has_error) {
+      // is this correct?
+      SelectRandomLeader();
+      SendAsyncWriteRequest(current_write_request_);
+    }
+    return std::nullopt;
   }
 };
 
