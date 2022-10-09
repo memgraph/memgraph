@@ -344,13 +344,11 @@ memgraph::expr::TypedValue ComputeExpression(memgraph::expr::DbAccessor &dba,
 
 bool FilterOnVertrex(memgraph::expr::DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
                      const std::vector<std::string> &filters, std::string_view node_name) {
-  for (const auto &filter_expr : filters) {
-    if (!ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool()) {
-      return false;
-    }
-  }
+  MG_ASSERT(!filters.empty());
 
-  return true;
+  return std::all_of(filters.begin(), filters.end(), [&node_name, &dba, &v_acc](const auto &filter_expr) {
+    return ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool();
+  });
 }
 
 std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
@@ -359,9 +357,10 @@ std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
   std::vector<memgraph::storage::v3::TypedValue> evaluated_expressions;
   evaluated_expressions.reserve(expressions.size());
 
-  for (const auto &expression : expressions) {
-    evaluated_expressions.emplace_back(ComputeExpression(dba, v_acc, std::nullopt, expression, node_name, ""));
-  }
+  std::transform(expressions.begin(), expressions.end(), std::back_inserter(evaluated_expressions),
+                 [&dba, &v_acc, &node_name](const auto &expression) {
+                   return ComputeExpression(dba, v_acc, std::nullopt, expression, node_name, "");
+                 });
 
   return evaluated_expressions;
 }
