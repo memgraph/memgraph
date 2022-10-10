@@ -64,7 +64,7 @@ struct EdgeId {
 struct Edge {
   VertexId src;
   VertexId dst;
-  std::optional<std::vector<std::pair<PropertyId, Value>>> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
   EdgeId id;
   EdgeType type;
   friend bool operator==(const Edge &lhs, const Edge &rhs) { return lhs.id == rhs.id; }
@@ -424,6 +424,7 @@ struct VertexEdgeId {
 };
 
 struct ExpandOneRequest {
+  // TODO(antaljanosbenjamin): Filtering based on the id of the other end of the edge?
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
   std::vector<EdgeType> edge_types;
@@ -451,6 +452,20 @@ struct ExpandOneRequest {
 };
 
 struct ExpandOneResultRow {
+  struct EdgeWithAllProperties {
+    VertexId other_end;
+    EdgeType type;
+    Gid gid;
+    std::map<PropertyId, Value> properties;
+  };
+
+  struct EdgeWithSpecificProperties {
+    VertexId other_end;
+    EdgeType type;
+    Gid gid;
+    std::vector<Value> properties;
+  };
+
   // NOTE: This struct could be a single Values with columns something like this:
   // src_vertex(Vertex), vertex_prop1(Value), vertex_prop2(Value), edges(list<Value>)
   // where edges might be a list of:
@@ -459,15 +474,17 @@ struct ExpandOneResultRow {
   // The drawback of this is currently the key of the map is always interpreted as a string in Value, not as an
   // integer, which should be in case of mapped properties.
   Vertex src_vertex;
-  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+  std::map<PropertyId, Value> src_vertex_properties;
 
   // NOTE: If the desired edges are specified in the request,
   // edges_with_specific_properties will have a value and it will
   // return the properties as a vector of property values. The order
   // of the values returned should be the same as the PropertyIds
   // were defined in the request.
-  std::optional<std::vector<std::tuple<VertexId, Gid, std::map<PropertyId, Value>>>> edges_with_all_properties;
-  std::optional<std::vector<std::tuple<VertexId, Gid, std::vector<Value>>>> edges_with_specific_properties;
+  std::vector<EdgeWithAllProperties> in_edges_with_all_properties;
+  std::vector<EdgeWithSpecificProperties> in_edges_with_specific_properties;
+  std::vector<EdgeWithAllProperties> out_edges_with_all_properties;
+  std::vector<EdgeWithSpecificProperties> out_edges_with_specific_properties;
 };
 
 struct ExpandOneResponse {

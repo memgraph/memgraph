@@ -14,13 +14,12 @@
 #include "storage/v3/id_types.hpp"
 
 namespace memgraph::query::v2::accessors {
-EdgeAccessor::EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props)
-    : edge(std::move(edge)), properties(std::move(props)) {}
+EdgeAccessor::EdgeAccessor(Edge edge) : edge(std::move(edge)) {}
 
 EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 
-std::vector<std::pair<PropertyId, Value>> EdgeAccessor::Properties() const {
-  return properties;
+const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const {
+  return edge.properties;
   //    std::map<std::string, TypedValue> res;
   //    for (const auto &[name, value] : *properties) {
   //      res[name] = ValueToTypedValue(value);
@@ -34,7 +33,9 @@ Value EdgeAccessor::GetProperty(const std::string & /*prop_name*/) const {
   return {};
 }
 
-Edge EdgeAccessor::GetEdge() const { return edge; }
+const Edge &EdgeAccessor::GetEdge() const { return edge; }
+
+bool EdgeAccessor::IsCycle() const { return edge.src == edge.dst; };
 
 VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}, {}); }
 
@@ -44,6 +45,8 @@ VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value
     : vertex(std::move(v)), properties(std::move(props)) {}
 
 Label VertexAccessor::PrimaryLabel() const { return vertex.id.first; }
+
+const msgs::VertexId &VertexAccessor::Id() const { return vertex.id; }
 
 std::vector<Label> VertexAccessor::Labels() const { return vertex.labels; }
 

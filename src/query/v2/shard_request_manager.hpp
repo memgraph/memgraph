@@ -14,6 +14,7 @@
 #include <chrono>
 #include <deque>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <optional>
 #include <random>
@@ -109,7 +110,8 @@ class ShardRequestManagerInterface {
   virtual std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) = 0;
   virtual std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                                       std::vector<NewVertex> new_vertices) = 0;
-  virtual std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) = 0;
+  virtual std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state,
+                                                  ExpandOneRequest request) = 0;
   virtual std::vector<CreateExpandResponse> Request(ExecutionState<CreateExpandRequest> &state,
                                                     std::vector<NewExpand> new_edges) = 0;
 
@@ -342,13 +344,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return responses;
   }
 
-  std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
+  std::vector<ExpandOneResultRow> Request(ExecutionState<ExpandOneRequest> &state, ExpandOneRequest request) override {
     // TODO(kostasrim)Update to limit the batch size here
     // Expansions of the destination must be handled by the caller. For example
     // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
     // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
     // must be fetched again with an ExpandOne(Edges.dst)
     MaybeInitializeExecutionState(state, std::move(request));
+    size_t total_row_count{0};
     std::vector<ExpandOneResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -364,10 +367,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ExpandOne request timedout");
       }
       auto &response = std::get<ExpandOneResponse>(read_response_result.GetValue());
+      total_row_count += response.result.size();
       responses.push_back(std::move(response));
       shard_it = shard_cache_ref.erase(shard_it);
     }
-    return responses;
+    std::vector<ExpandOneResultRow> result_rows;
+    result_rows.reserve(total_row_count);
+    for (auto &response : responses) {
+      result_rows.insert(result_rows.end(), std::make_move_iterator(response.result.begin()),
+                         std::make_move_iterator(response.result.end()));
+    }
+    MaybeCompleteState(state);
+    return result_rows;
   }
 
  private:

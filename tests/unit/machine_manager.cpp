@@ -158,10 +158,10 @@ void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
   request.src_vertices.push_back(msgs::VertexId{label, {msgs::Value(int64_t(0)), msgs::Value(int64_t(0))}});
   request.edge_types.push_back(msgs::EdgeType{edge_type_id});
   request.direction = msgs::EdgeDirection::BOTH;
-  auto responses = shard_request_manager.Request(state, std::move(request));
-  MG_ASSERT(responses.size() == 1);
-  MG_ASSERT(responses[0].result.size() == 1);
-  MG_ASSERT(responses[0].result[0].edges_with_all_properties->size() == 2);
+  auto result_rows = shard_request_manager.Request(state, std::move(request));
+  MG_ASSERT(result_rows.size() == 1);
+  MG_ASSERT(result_rows[0].in_edges_with_all_properties.size() == 1);
+  MG_ASSERT(result_rows[0].out_edges_with_all_properties.size() == 1);
 }
 
 template <typename ShardRequestManager>

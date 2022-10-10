@@ -49,7 +49,7 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value) {
     case Value::Type::Vertex:
       return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
     case Value::Type::Edge:
-      return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
+      return TypedValue(accessors::EdgeAccessor(value.edge_v));
     case Value::Type::Path:
       break;
   }
