@@ -191,23 +191,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   //   but it's OK for now if we're not optimal. The main
   //   point is that we're still parallelizing.
 
+  // TODO(gvolfing)
+  // Figure out redirection. nullopt can mean so many things...
+  // discuss with Tyler. Redirection should be handled on the
+  // ShardRsmside only? or resend from here?
+
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
-    // TODO(gvolfing)
-    // Figure out redirection. nullopt can mean so many things...
-    // discuss with Tyler. Redirection should be handled on the
-    // ShardRsmside only? or resend from here?
-
     // 1. Send the requests.
-    for (const auto &request : state.requests) {
-      auto &storage_client =
-          GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
-      ReadRequests req = request;
-      storage_client.SendAsyncReadRequest(request);
-    }
+    SendAllRequests(state);
 
     // 2. Loop on poll
     do {
@@ -271,33 +266,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<CreateVerticesResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-
-    std::vector<std::vector<memgraph::query::v2::accessors::VertexAccessor::Label>> prim_label_cache;
 
     // 1. Send the requests.
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      // TODO(gvolfing) what happens here if we have to resend the Request?
-      // The execution state is modified here, The Primary Label will be lost.
-      // Do we recreate the execution state upon resending?
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
-
-      // before we would have a problem at this step, because the original state of
-      // the execution state would have been allready modified at this point hence
-      // the deep copy.
-      auto req_deep_copy = state.requests[id];
-
-      for (auto &new_vertex : req_deep_copy.new_vertices) {
-        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
-      }
-
-      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
-
-      WriteRequests req = req_deep_copy;
-      storage_client.SendAsyncWriteRequest(req);
-    }
+    SendAllReduests(state, shard_cache_ref);
     // 2. Loop on Poll
+    do {
+      bool at_least_one_result = PollOnRequests(state, responses);
+      if (!at_least_one_result && !state.shard_cache.empty()) {
+        // 3. Await on the first req if none of the futures have
+        //    been filled yet.
+        AwaitOnFirstRequest(state, responses);
+      }
+    } while (!state.shard_cache.empty());
 
     // We are done with this state
     MaybeCompleteState(state);
@@ -507,6 +487,41 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     storage_cli_manager_.AddClient(label_id, target_shard, std::move(cli));
   }
 
+  void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
+    for (const auto &request : state.requests) {
+      auto &storage_client =
+          GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
+      ReadRequests req = request;
+      storage_client.SendAsyncReadRequest(request);
+    }
+  }
+
+  void SendAllReduests(ExecutionState<CreateVerticesRequest> &state,
+                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
+    size_t id = 0;
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+      // This is fine because all new_vertices of each request end up on the same shard
+      // TODO(gvolfing) what happens here if we have to resend the Request?
+      // The execution state is modified here, The Primary Label will be lost.
+      // Do we recreate the execution state upon resending?
+      const auto labels = state.requests[id].new_vertices[0].label_ids;
+
+      // before we would have a problem at this step, because the original state of
+      // the execution state would have been allready modified at this point hence
+      // the deep copy.
+      auto req_deep_copy = state.requests[id];
+
+      for (auto &new_vertex : req_deep_copy.new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      }
+
+      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
+
+      WriteRequests req = req_deep_copy;
+      storage_client.SendAsyncWriteRequest(req);
+    }
+  }
+
   bool PollOnRequests(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -560,7 +575,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
 
-      auto poll_result = storage_client.PollAsyncReadRequest();
+      auto poll_result = storage_client.PollAsyncWriteRequest();
       if (!poll_result) {
         // Result is not ready yet.
         continue;
