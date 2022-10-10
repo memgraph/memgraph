@@ -350,7 +350,9 @@ struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
+  // expression that determines if vertex is returned or not
   std::optional<std::vector<std::string>> filter_expressions;
+  // expression whose result is returned for every vertex
   std::optional<std::vector<std::string>> vertex_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view{StorageView::NEW};
