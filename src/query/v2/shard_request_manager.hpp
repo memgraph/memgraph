@@ -278,16 +278,23 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     // 1. Send the requests.
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
-      prim_label_cache.push_back(state.requests[id].new_vertices[0].label_ids);
+      // TODO(gvolfing) what happens here if we have to resend the Request?
+      // The execution state is modified here, The Primary Label will be lost.
+      // Do we recreate the execution state upon resending?
+      const auto labels = state.requests[id].new_vertices[0].label_ids;
 
-      for (auto &new_vertex : state.requests[id].new_vertices) {
+      // before we would have a problem at this step, because the original state of
+      // the execution state would have been allready modified at this point hence
+      // the deep copy.
+      auto req_deep_copy = state.requests[id];
+
+      for (auto &new_vertex : req_deep_copy.new_vertices) {
         new_vertex.label_ids.erase(new_vertex.label_ids.begin());
       }
 
-      auto primary_key = state.requests[id].new_vertices[0].primary_key;
-      auto &storage_client = GetStorageClientForShard(*shard_it, prim_label_cache[id][0].id);
+      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
 
-      WriteRequests req = state.requests[id];
+      WriteRequests req = req_deep_copy;
       storage_client.SendAsyncWriteRequest(req);
     }
     // 2. Loop on Poll
@@ -541,6 +548,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return at_least_one_result;
   }
 
+  // These are not working with possibly paginated responses
   bool PollOnRequests(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -549,10 +557,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
       const auto labels = state.requests[id].new_vertices[0].label_ids;
-      for (auto &new_vertex : state.requests[id].new_vertices) {
-        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
-      }
-      auto primary_key = state.requests[id].new_vertices[0].primary_key;
+
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
 
       auto poll_result = storage_client.PollAsyncReadRequest();
@@ -610,6 +615,30 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       // of the request is also being incremented in this case.
     }
     responses.push_back(std::move(response));
+  }
+  void AwaitOnFirstRequest(ExecutionState<CreateVerticesRequest> &state,
+                           std::vector<CreateVerticesResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    auto &storage_client = GetStorageClientForShard(
+        *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().new_vertices[0].primary_key));
+    auto await_result = storage_client.AwaitAsyncWriteRequest();
+
+    if (!await_result) {
+      // Redirection has occured.
+    }
+
+    if (await_result->HasError()) {
+      throw std::runtime_error("ScanAll request timedout");
+    }
+
+    WriteResponses write_response_variant = await_result->GetValue();
+    auto &response = std::get<CreateVerticesResponse>(write_response_variant);
+
+    if (!response.success) {
+      throw std::runtime_error("CreateVertices request did not succeed");
+    }
+    responses.push_back(response);
+    shard_cache_ref.erase(shard_cache_ref.begin());
   }
 
   ShardMap shards_map_;

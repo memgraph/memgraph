@@ -269,6 +269,8 @@ class RsmClient {
     else if (result_has_error) {
       // is this correct?
       SelectRandomLeader();
+
+      // return the result of this function call?
       SendAsyncWriteRequest(current_write_request_);
     }
     return std::nullopt;
