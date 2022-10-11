@@ -26,7 +26,6 @@
 #include "query/v2/plan/operator.hpp"
 
 #include "query/v2/plan/operator.hpp"
-#include "query_v2_query_plan_common.hpp"
 
 class Dummy : public testing::Test {
  protected:

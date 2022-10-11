@@ -28,6 +28,7 @@
 
 #include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
+#include "query/exceptions.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
@@ -37,7 +38,6 @@
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/path.hpp"
 #include "query/v2/plan/scoped_profile.hpp"
-#include "query/v2/procedure/cypher_types.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/conversions.hpp"
@@ -157,6 +157,71 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 #define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
 
+class DistributedCreateNodeCursor : public Cursor {
+ public:
+  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
+  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem,
+                              std::vector<const NodeCreationInfo *> nodes_info)
+      : input_cursor_(op->MakeCursor(mem)), nodes_info_(std::move(nodes_info)) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateNode");
+    if (input_cursor_->Pull(frame, context)) {
+      auto &shard_manager = context.shard_request_manager;
+      shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      return true;
+    }
+
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { state_ = {}; }
+
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewVertex> requests;
+    for (const auto &node_info : nodes_info_) {
+      msgs::NewVertex rqst;
+      std::map<msgs::PropertyId, msgs::Value> properties;
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
+        for (const auto &[key, value_expression] : *node_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          properties[key] = TypedValueToValue(val);
+          if (context.shard_request_manager->IsPrimaryKey(key)) {
+            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
+          }
+        }
+      } else {
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info->properties)).ValueMap();
+        for (const auto &[key, value] : property_map) {
+          auto key_str = std::string(key);
+          auto property_id = context.shard_request_manager->NameToProperty(key_str);
+          properties[property_id] = TypedValueToValue(value);
+          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+            rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
+          }
+        }
+      }
+
+      if (node_info->labels.empty()) {
+        throw QueryRuntimeException("Primary label must be defined!");
+      }
+      // TODO(kostasrim) Copy non primary labels as well
+      rqst.label_ids.push_back(msgs::Label{node_info->labels[0]});
+      requests.push_back(std::move(rqst));
+    }
+    return requests;
+  }
+
+ private:
+  const UniqueCursorPtr input_cursor_;
+  std::vector<const NodeCreationInfo *> nodes_info_;
+  msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
+};
+
 bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Once");
 
@@ -187,7 +252,7 @@ ACCEPT_WITH_INPUT(CreateNode)
 UniqueCursorPtr CreateNode::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<CreateNodeCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedCreateNodeCursor>(mem, input_, mem, std::vector{&this->node_info_});
 }
 
 std::vector<Symbol> CreateNode::ModifiedSymbols(const SymbolTable &table) const {
@@ -387,7 +452,7 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
@@ -415,50 +480,10 @@ ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyRange)
 
-UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyRangeOperator);
 
-  auto vertices = [this](Frame &frame, ExecutionContext &context)
-      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
-    auto *db = context.db_accessor;
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto convert = [&evaluator](const auto &bound) -> std::optional<utils::Bound<storage::v3::PropertyValue>> {
-      if (!bound) return std::nullopt;
-      const auto &value = bound->value()->Accept(evaluator);
-      try {
-        const auto &property_value = storage::v3::TypedToPropertyValue(value);
-        switch (property_value.type()) {
-          case storage::v3::PropertyValue::Type::Bool:
-          case storage::v3::PropertyValue::Type::List:
-          case storage::v3::PropertyValue::Type::Map:
-            // Prevent indexed lookup with something that would fail if we did
-            // the original filter with `operator<`. Note, for some reason,
-            // Cypher does not support comparing boolean values.
-            throw QueryRuntimeException("Invalid type {} for '<'.", value.type());
-          case storage::v3::PropertyValue::Type::Null:
-          case storage::v3::PropertyValue::Type::Int:
-          case storage::v3::PropertyValue::Type::Double:
-          case storage::v3::PropertyValue::Type::String:
-          case storage::v3::PropertyValue::Type::TemporalData:
-            // These are all fine, there's also Point, Date and Time data types
-            // which were added to Cypher, but we don't have support for those
-            // yet.
-            return std::make_optional(utils::Bound<storage::v3::PropertyValue>(property_value, bound->type()));
-        }
-      } catch (const expr::TypedValueException &) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
-      }
-    };
-    auto maybe_lower = convert(lower_bound_);
-    auto maybe_upper = convert(upper_bound_);
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
-    return std::make_optional(db->Vertices(view_, label_, property_, maybe_lower, maybe_upper));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelPropertyRange");
+  throw QueryRuntimeException("ScanAllByLabelPropertyRange is not supported");
 }
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
@@ -476,7 +501,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource * /*mem*/) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
@@ -493,13 +518,7 @@ ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
 UniqueCursorPtr ScanAllByLabelProperty::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyOperator);
-
-  auto vertices = [this](Frame & /*frame*/, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_, property_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
-                                                                std::move(vertices), "ScanAllByLabelProperty");
+  throw QueryRuntimeException("ScanAllByLabelProperty is not supported");
 }
 
 ScanAllById::ScanAllById(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Expression *expression,
@@ -521,7 +540,6 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     // std::nullopt; auto maybe_vertex = db->FindVertex(storage::v3::Gid::FromInt(id), view_); auto maybe_vertex =
     // nullptr; if (!maybe_vertex) return std::nullopt;
     return std::nullopt;
-    // return std::vector<VertexAccessor>{*maybe_vertex};
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, output_symbol_, input_->MakeCursor(mem),
                                                                 std::move(vertices), "ScanAllById");
@@ -866,20 +884,7 @@ class ExpandWeightedShortestPathCursor : public query::v2::plan::Cursor {
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ExpandVariableOperator);
 
-  switch (type_) {
-    case EdgeAtom::Type::BREADTH_FIRST:
-      if (common_.existing_node) {
-        return MakeUniqueCursorPtr<STShortestPathCursor>(mem, *this, mem);
-      } else {
-        return MakeUniqueCursorPtr<SingleSourceShortestPathCursor>(mem, *this, mem);
-      }
-    case EdgeAtom::Type::DEPTH_FIRST:
-      return MakeUniqueCursorPtr<ExpandVariableCursor>(mem, *this, mem);
-    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
-      return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SINGLE:
-      LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
-  }
+  throw QueryRuntimeException("ExpandVariable is not supported");
 }
 
 class ConstructNamedPathCursor : public Cursor {
@@ -1120,43 +1125,6 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("SetLabels");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &vertex_value = frame[self_.input_symbol_];
-  //  // Skip setting labels on Null (can occur in optional match).
-  //  if (vertex_value.IsNull()) return true;
-  //  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  //
-  //  auto &dba = *context.db_accessor;
-  //  auto &vertex = vertex_value.ValueVertex();
-  //  for (const auto label : self_.labels_) {
-  //    auto maybe_value = vertex.AddLabelAndValidate(label);
-  //    if (maybe_value.HasError()) {
-  //      std::visit(utils::Overloaded{[](const storage::v3::Error error) {
-  //                                     switch (error) {
-  //                                       case storage::v3::Error::SERIALIZATION_ERROR:
-  //                                         throw TransactionSerializationException();
-  //                                       case storage::v3::Error::DELETED_OBJECT:
-  //                                         throw QueryRuntimeException("Trying to set a label on a deleted node.");
-  //                                       case storage::v3::Error::VERTEX_HAS_EDGES:
-  //                                       case storage::v3::Error::PROPERTIES_DISABLED:
-  //                                       case storage::v3::Error::NONEXISTENT_OBJECT:
-  //                                         throw QueryRuntimeException("Unexpected error when setting a label.");
-  //                                     }
-  //                                   },
-  //                                   [&dba](const storage::v3::SchemaViolation schema_violation) {
-  //                                     HandleSchemaViolation(schema_violation, dba);
-  //                                   }},
-  //                 maybe_value.GetError());
-  //    }
-  //
-  //    context.execution_stats[ExecutionStats::Key::CREATED_LABELS]++;
-  //    if (context.trigger_context_collector && *maybe_value) {
-  //      context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
-  //    }
-  //  }
-  //
-  //  return true;
 }
 
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -1185,36 +1153,6 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveProperty");
   return false;
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  // Remove, just like Delete needs to see the latest changes.
-  //  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-  //                                storage::v3::View::NEW);
-  //  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
-  //
-  //  auto remove_prop = [property = self_.property_, &context](auto *record) {
-  //    auto old_value = PropsSetChecked(record, *context.db_accessor, property, TypedValue{});
-  //
-  //    if (context.trigger_context_collector) {
-  //      context.trigger_context_collector->RegisterRemovedObjectProperty(
-  //          *record, property, storage::v3::PropertyToTypedValue<TypedValue>(std::move(old_value)));
-  //    }
-  //  };
-  //
-  //  switch (lhs.type()) {
-  //    case TypedValue::Type::Vertex:
-  //      remove_prop(&lhs.ValueVertex());
-  //      break;
-  //    case TypedValue::Type::Edge:
-  //      remove_prop(&lhs.ValueEdge());
-  //      break;
-  //    case TypedValue::Type::Null:
-  //      // Skip removing properties on Null (can occur in optional match).
-  //      break;
-  //    default:
-  //      throw QueryRuntimeException("Properties can only be removed from vertices and edges.");
-  //  }
-  //  return true;
 }
 
 void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -1243,44 +1181,6 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("RemoveLabels");
   return false;
-  //
-  //  if (!input_cursor_->Pull(frame, context)) return false;
-  //
-  //  TypedValue &vertex_value = frame[self_.input_symbol_];
-  //  // Skip removing labels on Null (can occur in optional match).
-  //  if (vertex_value.IsNull()) return true;
-  //  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  //  auto &vertex = vertex_value.ValueVertex();
-  //  for (auto label : self_.labels_) {
-  //    auto maybe_value = vertex.RemoveLabelAndValidate(label);
-  //    if (maybe_value.HasError()) {
-  //      std::visit(
-  //          utils::Overloaded{[](const storage::v3::Error error) {
-  //                              switch (error) {
-  //                                case storage::v3::Error::SERIALIZATION_ERROR:
-  //                                  throw TransactionSerializationException();
-  //                                case storage::v3::Error::DELETED_OBJECT:
-  //                                  throw QueryRuntimeException("Trying to remove labels from a deleted node.");
-  //                                case storage::v3::Error::VERTEX_HAS_EDGES:
-  //                                case storage::v3::Error::PROPERTIES_DISABLED:
-  //                                case storage::v3::Error::NONEXISTENT_OBJECT:
-  //                                  throw QueryRuntimeException("Unexpected error when removing labels from a
-  //                                  node.");
-  //                              }
-  //                            },
-  //                            [&context](const storage::v3::SchemaViolation &schema_violation) {
-  //                              HandleSchemaViolation(schema_violation, *context.db_accessor);
-  //                            }},
-  //          maybe_value.GetError());
-  //    }
-  //
-  //    context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
-  //    if (context.trigger_context_collector && *maybe_value) {
-  //      context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
-  //    }
-  //  }
-  //
-  //  return true;
 }
 
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -1359,57 +1259,9 @@ ACCEPT_WITH_INPUT(Accumulate)
 
 std::vector<Symbol> Accumulate::ModifiedSymbols(const SymbolTable &) const { return symbols_; }
 
-class AccumulateCursor : public Cursor {
- public:
-  AccumulateCursor(const Accumulate &self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self.input_->MakeCursor(mem)), cache_(mem) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("Accumulate");
-
-    auto &dba = *context.db_accessor;
-    // cache all the input
-    if (!pulled_all_input_) {
-      while (input_cursor_->Pull(frame, context)) {
-        utils::pmr::vector<TypedValue> row(cache_.get_allocator().GetMemoryResource());
-        row.reserve(self_.symbols_.size());
-        for (const Symbol &symbol : self_.symbols_) row.emplace_back(frame[symbol]);
-        cache_.emplace_back(std::move(row));
-      }
-      pulled_all_input_ = true;
-      cache_it_ = cache_.begin();
-
-      if (self_.advance_command_) dba.AdvanceCommand();
-    }
-
-    if (MustAbort(context)) throw HintedAbortError();
-    if (cache_it_ == cache_.end()) return false;
-    auto row_it = (cache_it_++)->begin();
-    for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
-    return true;
-  }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    cache_.clear();
-    cache_it_ = cache_.begin();
-    pulled_all_input_ = false;
-  }
-
- private:
-  const Accumulate &self_;
-  const UniqueCursorPtr input_cursor_;
-  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
-  decltype(cache_.begin()) cache_it_ = cache_.begin();
-  bool pulled_all_input_{false};
-};
-
 UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::AccumulateOperator);
-
-  return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem);
+  throw QueryRuntimeException("Accumulate is not supported");
 }
 
 Aggregate::Aggregate(const std::shared_ptr<LogicalOperator> &input, const std::vector<Aggregate::Element> &aggregations,
@@ -2559,10 +2411,7 @@ class CallProcedureCursor : public Cursor {
 };
 
 UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem) const {
-  EventCounter::IncrementCounter(EventCounter::CallProcedureOperator);
-  CallProcedure::IncrementCounter(procedure_name_);
-
-  return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem);
+  throw QueryRuntimeException("Procedure call is not supported!");
 }
 
 LoadCsv::LoadCsv(std::shared_ptr<LogicalOperator> input, Expression *file, bool with_header, bool ignore_bad,
@@ -2801,8 +2650,6 @@ class DistributedCreateNodeCursor : public Cursor {
 
     return false;
   }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override { state_ = {}; }
 
