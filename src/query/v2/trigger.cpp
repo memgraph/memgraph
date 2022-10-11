@@ -183,7 +183,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor,
                    [](auto &identifier) { return &identifier.first; });
 
     auto logical_plan = MakeLogicalPlan(std::move(ast_storage), utils::Downcast<CypherQuery>(parsed_statements_.query),
-                                        parsed_statements_.parameters, db_accessor, predefined_identifiers);
+                                        parsed_statements_.parameters, nullptr, predefined_identifiers);
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
@@ -210,8 +210,8 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.symbol_table = plan.symbol_table();
   ctx.evaluation_context.timestamp = QueryTimestamp();
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
-  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
-  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
+  ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, nullptr);
+  ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, nullptr);
   ctx.timer = utils::AsyncTimer(max_execution_time_sec);
   ctx.is_shutting_down = is_shutting_down;
   ctx.is_profile_query = false;

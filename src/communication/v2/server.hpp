@@ -72,7 +72,7 @@ class Server final {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
    */
-  Server(ServerEndpoint &endpoint, TSessionData *session_data, ServerContext *server_context,
+  Server(ServerEndpoint &endpoint, TSessionData &session_data, ServerContext *server_context,
          const int inactivity_timeout_sec, const std::string_view service_name,
          size_t workers_count = std::thread::hardware_concurrency())
       : endpoint_{endpoint},

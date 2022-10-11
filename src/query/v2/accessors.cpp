@@ -11,12 +11,13 @@
 
 #include "query/v2/accessors.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/id_types.hpp"
 
 namespace memgraph::query::v2::accessors {
 EdgeAccessor::EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props)
     : edge(std::move(edge)), properties(std::move(props)) {}
 
-uint64_t EdgeAccessor::EdgeType() const { return edge.type.id; }
+EdgeTypeId EdgeAccessor::EdgeType() const { return EdgeTypeId::FromUint(edge.type.id); }
 
 std::vector<std::pair<PropertyId, Value>> EdgeAccessor::Properties() const {
   return properties;

@@ -41,6 +41,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -139,7 +140,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
 
  private:
   // Take ownership of the socket
-  explicit WebsocketSession(tcp::socket &&socket, TSessionData *data, tcp::endpoint endpoint,
+  explicit WebsocketSession(tcp::socket &&socket, TSessionData &data, tcp::endpoint endpoint,
                             std::string_view service_name)
       : ws_(std::move(socket)),
         strand_{boost::asio::make_strand(ws_.get_executor())},
@@ -311,13 +312,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
  private:
-  explicit Session(tcp::socket &&socket, TSessionData *data, ServerContext &server_context, tcp::endpoint endpoint,
+  explicit Session(tcp::socket &&socket, TSessionData &data, ServerContext &server_context, tcp::endpoint endpoint,
                    const std::chrono::seconds inactivity_timeout_sec, std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, endpoint, input_buffer_.read_end(), &output_stream_),
-        data_{data},
+        data_{&data},
         endpoint_{endpoint},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name},
@@ -373,7 +374,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         spdlog::info("Switching {} to websocket connection", remote_endpoint_);
         if (std::holds_alternative<TCPSocket>(socket_)) {
           auto sock = std::get<TCPSocket>(std::move(socket_));
-          WebsocketSession<TSession, TSessionData>::Create(std::move(sock), data_, endpoint_, service_name_)
+          WebsocketSession<TSession, TSessionData>::Create(std::move(sock), *data_, endpoint_, service_name_)
               ->DoAccept(parser.release());
           execution_active_ = false;
           return;
@@ -465,7 +466,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (timeout_timer_.expiry() <= boost::asio::steady_timer::clock_type::now()) {
       // The deadline has passed. Stop the session. The other actors will
       // terminate as soon as possible.
-      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_);
+      spdlog::info("Shutting down session after {} of inactivity", timeout_seconds_.count());
       DoShutdown();
     } else {
       // Put the actor back to sleep.
