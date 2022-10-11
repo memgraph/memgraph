@@ -679,7 +679,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     if (did_reach_starting_point) {
       std::optional<std::map<PropertyId, Value>> found_props;
 
-      const auto *const schema = shard_->GetSchema(shard_->PrimaryLabel());
+      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       if (req.props_to_return) {
         found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
