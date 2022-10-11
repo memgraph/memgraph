@@ -196,7 +196,7 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
     case TypedValue::Type::LocalDateTime:
     case TypedValue::Type::Duration:
     case TypedValue::Type::Path: {
-      MG_ASSERT(false, "This conversion betweem TypedValue and Value is not implemented yet!");
+      MG_ASSERT(false, "This conversion between TypedValue and Value is not implemented yet!");
       break;
     }
   }
@@ -232,62 +232,12 @@ std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std:
 }
 
 template <class TExpression>
-auto Eval(TExpression *expr, EvaluationContext ctx, AstStorage &storage,
+auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
           memgraph::storage::v3::ExpressionEvaluator &eval, DbAccessor &dba) {
   ctx.properties = NamesToProperties(storage.properties_, dba);
   ctx.labels = NamesToLabels(storage.labels_, dba);
   auto value = expr->Accept(eval);
   return value;
-}
-
-std::vector<PropertyId> GetPropertiesFromAcessor(
-    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
-  std::vector<PropertyId> ret_properties;
-  ret_properties.reserve(properties.size());
-
-  for (const auto &prop : properties) {
-    ret_properties.emplace_back(prop.first);
-  }
-
-  return ret_properties;
-}
-
-EvaluationContext CreateEvaluationContext(const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc,
-                                          const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc) {
-  EvaluationContext ctx;
-
-  std::vector<PropertyId> vertex_props;
-  std::vector<PropertyId> edge_props;
-  std::vector<memgraph::storage::v3::LabelId> labels_in_shard;
-
-  if (v_acc) {
-    const auto labels = v_acc->Labels(View::OLD);
-    labels_in_shard.reserve(labels.GetValue().size());
-
-    for (const auto &label : labels.GetValue()) {
-      labels_in_shard.emplace_back(label);
-    }
-
-    vertex_props = GetPropertiesFromAcessor(v_acc->Properties(View::OLD).GetValue());
-  }
-  if (e_acc) {
-    edge_props = GetPropertiesFromAcessor(e_acc->Properties(View::OLD).GetValue());
-  }
-
-  std::vector<PropertyId> all_properties(vertex_props.size() + edge_props.size());
-
-  // Sorting might not needed, since the props are being converted from std::map
-  std::sort(vertex_props.begin(), vertex_props.end());
-  std::sort(edge_props.begin(), edge_props.end());
-
-  auto it = std::set_symmetric_difference(vertex_props.begin(), vertex_props.end(), edge_props.begin(),
-                                          edge_props.end(), all_properties.begin());
-  all_properties.resize(it - all_properties.begin());
-
-  ctx.properties = std::move(all_properties);
-  ctx.labels = std::move(labels_in_shard);
-
-  return ctx;
 }
 
 std::any ParseExpression(const std::string &expr, AstStorage &storage) {
@@ -307,9 +257,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   SymbolTable symbol_table;
   EvaluationContext ctx;
 
-  // auto ctx = CreateEvaluationContext(v_acc, e_acc);
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
-
   auto expr = ParseExpression(expression, storage);
 
   auto node_identifier = Identifier(std::string(node_name), false);
@@ -344,7 +292,8 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
 bool FilterOnVertex(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
                     const std::vector<std::string> &filters, const std::string_view node_name) {
   return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
-    return ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool();
+    return ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").IsBool() &&
+           ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool();
   });
 }
 
