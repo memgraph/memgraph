@@ -15,16 +15,6 @@
 
 #include <gtest/gtest.h>
 
-#include <coordinator/coordinator.hpp>
-#include <coordinator/coordinator_client.hpp>
-#include <coordinator/hybrid_logical_clock.hpp>
-#include <coordinator/shard_map.hpp>
-#include <io/local_transport/local_system.hpp>
-#include <io/local_transport/local_transport.hpp>
-#include <io/rsm/rsm_client.hpp>
-#include <io/transport.hpp>
-#include <machine_manager/machine_config.hpp>
-#include <machine_manager/machine_manager.hpp>
 #include "common/types.hpp"
 #include "exceptions.hpp"
 #include "io/rsm/rsm_client.hpp"
