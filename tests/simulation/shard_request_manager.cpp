@@ -69,8 +69,6 @@ using io::simulator::SimulatorStats;
 using io::simulator::SimulatorTransport;
 using msgs::CreateVerticesRequest;
 using msgs::CreateVerticesResponse;
-using msgs::ListedValues;
-using msgs::NewVertexLabel;
 using msgs::ScanVerticesRequest;
 using msgs::ScanVerticesResponse;
 using msgs::VertexId;
