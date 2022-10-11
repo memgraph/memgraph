@@ -17,7 +17,6 @@
 
 #include "common/types.hpp"
 #include "exceptions.hpp"
-#include "io/rsm/rsm_client.hpp"
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
 #include "query/v2/bindings/eval.hpp"
