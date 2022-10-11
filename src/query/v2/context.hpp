@@ -46,9 +46,10 @@ struct EvaluationContext {
 inline std::vector<storage::v3::PropertyId> NamesToProperties(
     const std::vector<std::string> &property_names, msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::PropertyId> properties;
+  // TODO Fix by using reference
   properties.reserve(property_names.size());
-  for (const auto &name : property_names) {
-    if (shard_request_manager != nullptr) {
+  if (shard_request_manager != nullptr) {
+    for (const auto &name : property_names) {
       properties.push_back(shard_request_manager->NameToProperty(name));
     }
   }
@@ -59,9 +60,9 @@ inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::st
                                                        msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
-  for (const auto &name : label_names) {
-    // TODO Fix by using reference
-    if (shard_request_manager != nullptr) {
+  // TODO Fix by using reference
+  if (shard_request_manager != nullptr) {
+    for (const auto &name : label_names) {
       labels.push_back(shard_request_manager->LabelNameToLabelId(name));
     }
   }
