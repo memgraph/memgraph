@@ -221,45 +221,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return PostProcess(std::move(responses));
   }
 
-  // // TODO(kostasrim) Simplify return result
-  // std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
-  //   MaybeInitializeExecutionState(state);
-  //   std::vector<ScanVerticesResponse> responses;
-  //   auto &shard_cache_ref = state.shard_cache;
-  //   size_t id = 0;
-  //   for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-  //     auto &storage_client = GetStorageClientForShard(
-  //         *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
-  //     // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
-  //     // instead.
-  //     ReadRequests req = state.requests[id];
-  //     auto read_response_result = storage_client.SendReadRequest(req);
-  //     // RETRY on timeouts?
-  //     // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-  //     if (read_response_result.HasError()) {
-  //       throw std::runtime_error("ScanAll request timed out");
-  //     }
-  //     ReadResponses read_response_variant = read_response_result.GetValue();
-  //     auto &response = std::get<ScanVerticesResponse>(read_response_variant);
-  //     if (!response.success) {
-  //       throw std::runtime_error("ScanAll request did not succeed");
-  //     }
-  //     if (!response.next_start_id) {
-  //       shard_it = shard_cache_ref.erase(shard_it);
-  //     } else {
-  //       state.requests[id].start_id.second = response.next_start_id->second;
-  //       ++shard_it;
-  //     }
-  //     responses.push_back(std::move(response));
-  //   }
-  //   // We are done with this state
-  //   MaybeCompleteState(state);
-  //   // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as
-  //   return
-  //   // result of storage_client.SendReadRequest()).
-  //   return PostProcess(std::move(responses));
-  // }
-
   std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
                                               std::vector<NewVertex> new_vertices) override {
     MG_ASSERT(!new_vertices.empty());
@@ -284,45 +245,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     // result of storage_client.SendReadRequest()).
     return responses;
   }
-
-  // std::vector<CreateVerticesResponse> Request(ExecutionState<CreateVerticesRequest> &state,
-  //                                             std::vector<NewVertex> new_vertices) override {
-  //   MG_ASSERT(!new_vertices.empty());
-  //   MaybeInitializeExecutionState(state, new_vertices);
-  //   std::vector<CreateVerticesResponse> responses;
-  //   auto &shard_cache_ref = state.shard_cache;
-  //   size_t id = 0;
-  //   for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-  //     // This is fine because all new_vertices of each request end up on the same shard
-  //     const auto labels = state.requests[id].new_vertices[0].label_ids;
-  //     for (auto &new_vertex : state.requests[id].new_vertices) {
-  //       new_vertex.label_ids.erase(new_vertex.label_ids.begin());
-  //     }
-  //     auto primary_key = state.requests[id].new_vertices[0].primary_key;
-  //     auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
-  //     WriteRequests req = state.requests[id];
-  //     auto write_response_result = storage_client.SendWriteRequest(req);
-  //     // RETRY on timeouts?
-  //     // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-  //     if (write_response_result.HasError()) {
-  //       throw std::runtime_error("CreateVertices request timed out");
-  //     }
-  //     WriteResponses response_variant = write_response_result.GetValue();
-  //     CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
-
-  //     if (!mapped_response.success) {
-  //       throw std::runtime_error("CreateVertices request did not succeed");
-  //     }
-  //     responses.push_back(mapped_response);
-  //     shard_it = shard_cache_ref.erase(shard_it);
-  //   }
-  //   // We are done with this state
-  //   MaybeCompleteState(state);
-  //   // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as
-  //   return
-  //   // result of storage_client.SendReadRequest()).
-  //   return responses;
-  // }
 
   std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
     // TODO(kostasrim)Update to limit the batch size here
@@ -349,33 +271,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeCompleteState(state);
     return responses;
   }
-
-  // std::vector<ExpandOneResponse> Request(ExecutionState<ExpandOneRequest> &state) override {
-  //   // TODO(kostasrim)Update to limit the batch size here
-  //   // Expansions of the destination must be handled by the caller. For example
-  //   // match (u:L1 { prop : 1 })-[:Friend]-(v:L1)
-  //   // For each vertex U, the ExpandOne will result in <U, Edges>. The destination vertex and its properties
-  //   // must be fetched again with an ExpandOne(Edges.dst)
-  //   MaybeInitializeExecutionState(state);
-  //   std::vector<ExpandOneResponse> responses;
-  //   auto &shard_cache_ref = state.shard_cache;
-  //   size_t id = 0;
-  //   // pending_requests on shards
-  //   for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-  //     const Label primary_label = state.requests[id].src_vertices[0].first;
-  //     auto &storage_client = GetStorageClientForShard(*shard_it, primary_label.id);
-  //     ReadRequests req = state.requests[id];
-  //     auto read_response_result = storage_client.SendReadRequest(req);
-  //     // RETRY on timeouts?
-  //     // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map
-  //     if (read_response_result.HasError()) {
-  //       throw std::runtime_error("ExpandOne request timed out");
-  //     }
-  //     auto &response = std::get<ExpandOneResponse>(read_response_result.GetValue());
-  //     responses.push_back(std::move(response));
-  //   }
-  //   return responses;
-  // }
 
  private:
   std::vector<VertexAccessor> PostProcess(std::vector<ScanVerticesResponse> &&responses) const {
