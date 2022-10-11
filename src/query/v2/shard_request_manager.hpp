@@ -201,18 +201,41 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
-    // 1. Send the requests.
-    SendAllRequests(state);
+    // Make sure paginated responses are handled correctly
+    // -> Resend them with the updated start_id in the case
+    //    of ScanVerticesRequest.
 
-    // 2. Loop on poll
-    do {
-      bool at_least_one_result = PollOnRequests(state, responses);
-      if (!at_least_one_result && !state.shard_cache.empty()) {
-        // 3. Await on the first req if none of the futures have
-        //    been filled yet.
-        AwaitOnFirstRequest(state, responses);
+    while (true) {
+      // 1. Send the requests.
+      SendAllRequests(state);
+
+      std::map<Shard, PaginatedResponseState> paginated_response_tracker;
+      auto asd = state.shard_cache[0];
+      for (auto shard_it = state.shard_cache.begin(); shard_it != state.shard_cache.end(); ++shard_it) {
+        auto sha = *shard_it;
+        paginated_response_tracker.insert(std::make_pair(*shard_it, PaginatedResponseState::Pending));
       }
-    } while (!state.shard_cache.empty());
+
+      // 2. Loop on poll
+      do {
+        bool at_least_one_result = PollOnRequests(state, responses, paginated_response_tracker);
+        // only partially finished stuff here...
+        if (std::all_of(paginated_response_tracker.begin(), paginated_response_tracker.end(),
+                        [](const auto &pag_resp_state) {
+                          return pag_resp_state.second == PaginatedResponseState::PartiallyFinished;
+                        })) {
+          break;
+        }
+
+        if (!at_least_one_result && !state.shard_cache.empty()) {
+          // 3. Await on the first req if none of the futures have
+          //    been filled yet.
+          AwaitOnFirstRequest(state, responses, paginated_response_tracker);
+        }
+      } while (!state.shard_cache.empty());
+
+      break;
+    }
 
     // We are done with this state
     MaybeCompleteState(state);
@@ -273,6 +296,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
  private:
+  enum class PaginatedResponseState { Pending, PartiallyFinished };
+
   std::vector<VertexAccessor> PostProcess(std::vector<ScanVerticesResponse> &&responses) const {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
@@ -453,7 +478,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  bool PollOnRequests(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses) {
+  bool PollOnRequests(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses,
+                      std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
     bool at_least_one_result = false;
@@ -468,6 +494,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         continue;
       }
 
+      if (paginated_response_tracker.at(*shard_it) == PaginatedResponseState::PartiallyFinished) {
+        return false;
+      }
+
       at_least_one_result = true;
 
       if (poll_result->HasError()) {
@@ -480,13 +510,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ScanAll request did not succeed");
       }
 
-      // TODO(gvolfing) still verify if this is how it should be working
       if (!response.next_start_id) {
         shard_it = shard_cache_ref.erase(shard_it);
+        paginated_response_tracker.erase(*shard_it);
       } else {
         state.requests[id].start_id.second = response.next_start_id->second;
-        ++shard_it;  // why increment here? will we ever visit the shard again for the second round of values? + the id
-                     // of the request is also being incremented in this case.
+        paginated_response_tracker.at(*shard_it) = PaginatedResponseState::PartiallyFinished;
+        ++shard_it;
       }
       responses.push_back(std::move(response));
     }
@@ -557,10 +587,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       // A single boolean does not exist in the case of ExpandOne,
       // it is not that trivial to check if the Request was actually
-      // executed properly.
-      // if (!mapped_response.success) {
-      //   throw std::runtime_error("ExpandOne request did not succeed");
-      // }
+      // executed properly. -> But it should
+      if (!response.success) {
+        throw std::runtime_error("ExpandOne request did not succeed");
+      }
 
       responses.push_back(std::move(response));
       shard_it = shard_cache_ref.erase(shard_it);
@@ -569,7 +599,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return at_least_one_result;
   }
 
-  void AwaitOnFirstRequest(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses) {
+  void AwaitOnFirstRequest(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses,
+                           std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
     auto &shard_cache_ref = state.shard_cache;
     auto &storage_client = GetStorageClientForShard(
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().start_id.second));
@@ -589,14 +620,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       throw std::runtime_error("ScanAll request did not succeed");
     }
 
-    // TODO(gvolfing) Verify if this is working as intended.
-    //  Assumption -> The first req in 'requests' is associated with the first shard in 'shard_cache_ref'.
     if (!response.next_start_id) {
+      paginated_response_tracker.erase(*(shard_cache_ref.begin()));
       shard_cache_ref.erase(shard_cache_ref.begin());
     } else {
       state.requests[0].start_id.second = response.next_start_id->second;
-      //++shard_it; // why increment here? will we ever visit the shard again for the second round of values? + the id
-      // of the request is also being incremented in this case.
+      paginated_response_tracker.at(*(shard_cache_ref.begin())) = PaginatedResponseState::PartiallyFinished;
     }
     responses.push_back(std::move(response));
   }
@@ -643,9 +672,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     ReadResponses read_response_variant = await_result->GetValue();
     auto response = std::get<ExpandOneResponse>(read_response_variant);
 
-    // if (!response.success) {
-    //   throw std::runtime_error("ExpandOne request did not succeed");
-    // }
+    if (!response.success) {
+      throw std::runtime_error("ExpandOne request did not succeed");
+    }
 
     responses.push_back(std::move(response));
     shard_cache_ref.erase(shard_cache_ref.begin());
