@@ -136,6 +136,7 @@ void Commit(ShardClient &client, const coordinator::Hlc &transaction_timestamp) 
 
     auto write_response_result = write_res.GetValue();
     auto write_response = std::get<msgs::CommitResponse>(write_response_result);
+    MG_ASSERT(write_response.success, "Commit expected to be successful, but it is failed");
 
     break;
   }
@@ -455,9 +456,10 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
     MG_ASSERT(write_response.result.size() == 1);
 
-    MG_ASSERT(write_response.result[0].edges_with_all_properties);
-    MG_ASSERT(write_response.result[0].edges_with_all_properties->size() == 0);
-    MG_ASSERT(!write_response.result[0].edges_with_specific_properties);
+    MG_ASSERT(write_response.result[0].in_edges_with_all_properties.empty());
+    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.empty());
+    MG_ASSERT(write_response.result[0].in_edges_with_specific_properties.empty());
+    MG_ASSERT(write_response.result[0].out_edges_with_specific_properties.empty());
 
     break;
   }
@@ -508,10 +510,12 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, Edge
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
     MG_ASSERT(write_response.result.size() == 1);
-    MG_ASSERT(write_response.result[0].edges_with_all_properties->size() == 2);
-    auto number_of_properties_on_edge =
-        (std::get<std::map<PropertyId, msgs::Value>>(write_response.result[0].edges_with_all_properties.value()[0]))
-            .size();
+    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.size() == 2);
+    MG_ASSERT(write_response.result[0].in_edges_with_all_properties.empty());
+    MG_ASSERT(write_response.result[0].in_edges_with_specific_properties.empty());
+    MG_ASSERT(write_response.result[0].out_edges_with_specific_properties.empty());
+    const auto number_of_properties_on_edge =
+        (write_response.result[0].out_edges_with_all_properties[0]).properties.size();
     MG_ASSERT(number_of_properties_on_edge == 1);
     break;
   }
@@ -564,12 +568,14 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
     MG_ASSERT(write_response.result.size() == 1);
-    auto src_vertex_props_size = write_response.result[0].src_vertex_properties->size();
+    auto src_vertex_props_size = write_response.result[0].src_vertex_properties.size();
     MG_ASSERT(src_vertex_props_size == 1);
-    MG_ASSERT(write_response.result[0].edges_with_all_properties->size() == 2);
-    auto number_of_properties_on_edge =
-        (std::get<std::map<PropertyId, msgs::Value>>(write_response.result[0].edges_with_all_properties.value()[0]))
-            .size();
+    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.size() == 2);
+    MG_ASSERT(write_response.result[0].in_edges_with_all_properties.empty());
+    MG_ASSERT(write_response.result[0].in_edges_with_specific_properties.empty());
+    MG_ASSERT(write_response.result[0].out_edges_with_specific_properties.empty());
+    const auto number_of_properties_on_edge =
+        (write_response.result[0].out_edges_with_all_properties[0]).properties.size();
     MG_ASSERT(number_of_properties_on_edge == 1);
     break;
   }
@@ -622,9 +628,13 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
     MG_ASSERT(write_response.result.size() == 1);
-    auto specific_properties_size =
-        (std::get<std::vector<msgs::Value>>(write_response.result[0].edges_with_specific_properties.value()[0]));
-    MG_ASSERT(specific_properties_size.size() == 1);
+    MG_ASSERT(write_response.result[0].out_edges_with_specific_properties.size() == 2);
+    MG_ASSERT(write_response.result[0].in_edges_with_specific_properties.empty());
+    MG_ASSERT(write_response.result[0].in_edges_with_all_properties.empty());
+    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.empty());
+    const auto specific_properties_size =
+        (write_response.result[0].out_edges_with_specific_properties[0]).properties.size();
+    MG_ASSERT(specific_properties_size == 1);
     break;
   }
 }

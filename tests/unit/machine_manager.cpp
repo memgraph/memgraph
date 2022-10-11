@@ -144,6 +144,7 @@ void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager)
   msgs::NewExpand expand_2{
       .id = {.gid = 1}, .type = {edge_type_id}, .src_vertex = vertex_id_2, .dest_vertex = vertex_id_1};
   new_expands.push_back(std::move(expand_1));
+  new_expands.push_back(std::move(expand_2));
 
   auto responses = shard_request_manager.Request(state, std::move(new_expands));
   MG_ASSERT(responses.size() == 1);
