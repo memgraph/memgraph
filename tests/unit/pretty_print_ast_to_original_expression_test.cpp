@@ -27,7 +27,6 @@
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "storage/v3/id_types.hpp"
 #include "utils/string.hpp"
 
 #include "expr/ast/pretty_print_ast_to_original_expression.hpp"
