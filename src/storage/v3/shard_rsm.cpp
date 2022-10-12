@@ -932,14 +932,14 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       }
       if (req.filter_expressions) {
         // NOTE - DbAccessor might get removed in the future.
-        const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), node_name_);
+        const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), expr::identifier_node_symbol);
         if (!eval) {
           continue;
         }
       }
       if (req.vertex_expressions) {
         expression_results = ConvertToValueVectorFromTypedValueVector(
-            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), node_name_));
+            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), expr::identifier_node_symbol));
       }
 
       std::optional<std::map<PropertyId, Value>> found_props;

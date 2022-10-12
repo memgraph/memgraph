@@ -55,10 +55,6 @@ class ShardRsm {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
-
- private:
-  static constexpr std::string_view node_name_ = "MG_SYMBOL_NODE";
-  static constexpr std::string_view edge_name_ = "MG_SYMBOL_EDGE";
 };
 
 }  // namespace memgraph::storage::v3
