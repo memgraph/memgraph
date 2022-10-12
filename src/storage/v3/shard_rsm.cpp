@@ -21,6 +21,7 @@
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/eval.hpp"
 #include "storage/v3/bindings/frame.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/id_types.hpp"

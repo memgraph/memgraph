@@ -15,8 +15,8 @@
 #include <variant>
 
 #include <openssl/ec.h>
-// #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
