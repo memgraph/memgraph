@@ -224,10 +224,6 @@ std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<memgraph
 
   std::transform(vec.begin(), vec.end(), std::back_inserter(ret),
                  [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
-
-  // for (auto &&elem : vec) {
-  //   ret.emplace_back(FromTypedValueToValue(std::move(elem)));
-  // }
   return ret;
 }
 
