@@ -292,3 +292,106 @@ class Pokec(Dataset):
 
     def benchmark__update__vertex_on_property(self):
         return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})
+
+
+class Distributed(Dataset):
+
+    # Explaination of datasets:
+    #   - empty_only_index: contains index; contains no data
+    #   - small/medium/large: contains index; contains data (respectively small/medium/large dataset)
+    #
+    # See dataset_creator.py to understand the datamodel and generate a dataset
+
+    NAME = "distributed"
+    VARIANTS = ["empty_only_index", "small", "medium", "large"]
+    DEFAULT_VARIANT = "empty_only_index"
+    URLS = {
+        "empty_only_index": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/distributed_empty_only_index.setup.cypher.gz",
+        "small": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/distributed_small.setup.cypher.gz",
+        "medium": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/distributed_medium.setup.cypher.gz",
+        "large": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/distributed_large.setup.cypher.gz",
+    }
+    SIZES = {
+        "empty_only_index": {
+            "vertices": 0,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "User": {"first_uuid": 0, "last_uuid": 0},
+                "Permission": {"first_uuid": 0, "last_uuid": 0},
+                "Identity": {"first_uuid": 0, "last_uuid": 0},
+            },
+        },
+        "small": {
+            "vertices": 30,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "User": {"first_uuid": 1, "last_uuid": 10},
+                "Permission": {"first_uuid": 11, "last_uuid": 20},
+                "Identity": {"first_uuid": 21, "last_uuid": 30},
+            },
+        },
+        "medium": {
+            "vertices": 30000,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "User": {"first_uuid": 1, "last_uuid": 10000},
+                "Permission": {"first_uuid": 10001, "last_uuid": 20000},
+                "Identity": {"first_uuid": 10001, "last_uuid": 30000},
+            },
+        },
+        "large": {
+            "vertices": 3000000,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "User": {"first_uuid": 1, "last_uuid": 1000000},
+                "Permission": {"first_uuid": 100001, "last_uuid": 2000000},
+                "Identity": {"first_uuid": 1000001, "last_uuid": 3000000},
+            },
+        },
+    }
+
+    def _get_random_uuid(self, type):
+        assert type in ["User", "Permission", "Identity"]
+
+        first_uuid = Dataset.get_size(self)["uuid_ranges"][type]["first_uuid"]
+        last_uuid = Dataset.get_size(self)["uuid_ranges"][type]["last_uuid"]
+
+        random_value = random.randint(first_uuid, last_uuid)
+        return random_value
+
+    def __init__(self, variant=None):
+        Dataset.__init__(self, variant)
+        self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
+        print("self.next_value_idx = ", self.next_value_idx)
+
+    def benchmark__create__vertex(self):
+        self.next_value_idx += 1
+        query = (f"CREATE (:User {{uuid: {self.next_value_idx}}});", {})
+        return query
+
+    def benchmark__create__edges(self):
+        permission_uuid = self._get_random_uuid("Permission")
+        user_uuid = self._get_random_uuid("User")
+
+        query = (
+            "MATCH (permission:Permission {uuid: $permission_uuid}), (user:User {uuid: $user_uuid}) "
+            "CREATE (permission)-[:IS_FOR_USER]->(user)",
+            {"permission_uuid": permission_uuid, "user_uuid": user_uuid},
+        )
+
+        return query
+
+    def benchmark__match__match_all_vertices(self):
+        self.next_value_idx += 1
+        query = ("MATCH (n) RETURN *", {})
+        return query
+
+    def benchmark__match__match_on_labelled_vertices(self):
+        self.next_value_idx += 1
+        query = ("MATCH (n:User) RETURN *", {})
+        return query
+
+    def benchmark__match__match_all_verteices_with_edges(self):
+        self.next_value_idx += 1
+        query = ("MATCH (permission:Permission)-[e:IS_FOR_USER]->(user:User) RETURN *", {})
+        return query
