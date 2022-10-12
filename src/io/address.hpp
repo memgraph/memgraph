@@ -15,6 +15,7 @@
 
 #include <fmt/format.h>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/uuid/uuid_io.hpp>
@@ -102,3 +103,28 @@ struct Address {
 };
 
 };  // namespace memgraph::io
+
+namespace std {
+template <>
+struct hash<memgraph::io::PartialAddress> {
+  size_t operator()(const memgraph::io::PartialAddress &pa) const {
+    using boost::hash_combine;
+    using boost::hash_value;
+
+    // Start with a hash value of 0    .
+    std::size_t seed = 0;
+
+    if (pa.ip.is_v4()) {
+      auto h = std::hash<boost::asio::ip::address_v4>()(pa.ip.to_v4());
+      hash_combine(seed, h);
+    } else {
+      auto h = std::hash<boost::asio::ip::address_v6>()(pa.ip.to_v6());
+      hash_combine(seed, h);
+    }
+    hash_combine(seed, hash_value(pa.port));
+
+    // Return the result.
+    return seed;
+  }
+};
+}  // namespace std
