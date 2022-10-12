@@ -86,6 +86,11 @@ struct ExecutionState {
   // the ShardRequestManager impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
+  // TODO(gvolfing)
+  // Maybe make this into a more complex object to be able to keep track of paginated resutls. E.g. instead of a vector
+  // of Shards make it into a std::vector<std::pair<Shard, PaginatedResultType>> (probably a struct instead of a pair)
+  // where PaginatedResultType is an enum signaling the progress on the given request. This way we can easily check if
+  // a partial response on a shard(if there is one) is finished and we can send off the request for the next batch.
   std::vector<Shard> shard_cache;
   // 1-1 mapping with `shard_cache`.
   // A vector that tracks request metatdata for each shard (For example, next_id for a ScanAll on Shard A)
@@ -168,43 +173,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
                         [name](auto &pr) { return pr.second == name; }) != shards_map_.properties.end();
   }
 
-  // TODO(Tyler / Gabor) stages to using async RsmClient
-  //     methods for each of the 3 existing Request methods:
-  // ~~~~ stage A: launch requests
-  // for each request:
-  //   1. get the client in the same way as below
-  //      using GetStorageClientForShard
-  //   2. call storage_client.SendAsyncReadRequest(state.requests[id])
-  //      to send the request and load a Future into the RsmClient
-  // ~~~~ stage B: drive requests to completion
-  // while requests exist in the unfinished request structure:
-  //   for each request:
-  //     3. call storage_client.PollAsyncReadRequest() to see
-  //        if the request is ready
-  //   if requests exist:
-  //     4. call shard_cache.begin().AwaitAsyncReadRequest() to block on it
-  //   if we get a paginated response, launch a new async request for it
-  //   if we get a non-paginated response, remove it from the unfinished request structure
-  // ~~~~ notes:
-  // * it's possible that some responses will return
-  //   before the first one that we call Await... on returns,
-  //   but it's OK for now if we're not optimal. The main
-  //   point is that we're still parallelizing.
-
-  // TODO(gvolfing)
-  // Figure out redirection. nullopt can mean so many things...
-  // discuss with Tyler. Redirection should be handled on the
-  // ShardRsmside only? or resend from here?
-
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
-    // Make sure paginated responses are handled correctly
-    // -> Resend them with the updated start_id in the case
-    //    of ScanVerticesRequest.
-
+    // Outer loop to make sure we are handling the paginated responses as well.
     while (true) {
       // 1. Send the requests.
       SendAllRequests(state);
@@ -237,7 +211,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       break;
     }
 
-    // We are done with this state
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
@@ -446,14 +419,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     size_t id = 0;
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
       // This is fine because all new_vertices of each request end up on the same shard
-      // TODO(gvolfing) what happens here if we have to resend the Request?
-      // The execution state is modified here, The Primary Label will be lost.
-      // Do we recreate the execution state upon resending?
       const auto labels = state.requests[id].new_vertices[0].label_ids;
-
-      // before we would have a problem at this step, because the original state of
-      // the execution state would have been allready modified at this point hence
-      // the deep copy.
       auto req_deep_copy = state.requests[id];
 
       for (auto &new_vertex : req_deep_copy.new_vertices) {
@@ -490,7 +456,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto poll_result = storage_client.PollAsyncReadRequest();
       if (!poll_result) {
-        // Result is not ready yet.
         continue;
       }
 
@@ -524,7 +489,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return at_least_one_result;
   }
 
-  // These are not working with possibly paginated responses
   bool PollOnRequests(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -538,7 +502,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto poll_result = storage_client.PollAsyncWriteRequest();
       if (!poll_result) {
-        // Result is not ready yet.
         continue;
       }
 
@@ -572,7 +535,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto poll_result = storage_client.PollAsyncReadRequest();
       if (!poll_result) {
-        // Result is not ready yet.
         continue;
       }
 
@@ -584,10 +546,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       ReadResponses response_variant = poll_result->GetValue();
       auto response = std::get<ExpandOneResponse>(response_variant);
-
-      // A single boolean does not exist in the case of ExpandOne,
-      // it is not that trivial to check if the Request was actually
-      // executed properly. -> But it should
+      // -NOTE-
+      // Currently a boolean flag for signaling the overall success of the
+      // ExpandOne request does not exist. But it should, so here we assume
+      // that it is allready in place.
       if (!response.success) {
         throw std::runtime_error("ExpandOne request did not succeed");
       }
@@ -606,6 +568,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().start_id.second));
     auto await_result = storage_client.AwaitAsyncReadRequest();
 
+    // TODO(gvolfing) -VERIFY-
+    // It might be safe to assume that this will never be std::nullopt,
+    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
     }
@@ -637,6 +602,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().new_vertices[0].primary_key));
     auto await_result = storage_client.AwaitAsyncWriteRequest();
 
+    // TODO(gvolfing) -VERIFY-
+    // It might be safe to assume that this will never be std::nullopt,
+    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
     }
@@ -661,6 +629,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().src_vertices[0].second));
     auto await_result = storage_client.AwaitAsyncReadRequest();
 
+    // TODO(gvolfing) -VERIFY-
+    // It might be safe to assume that this will never be std::nullopt,
+    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
     }
