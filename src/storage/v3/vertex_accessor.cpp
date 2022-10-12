@@ -380,6 +380,32 @@ Result<PropertyValue> VertexAccessor::GetProperty(View view, PropertyId property
   return GetProperty(property, view).GetValue();
 }
 
+PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) const {
+  PropertyValue value;
+
+  const auto primary_label = PrimaryLabel(view);
+  if (primary_label.HasError()) {
+    return value;
+  }
+  const auto *schema = vertex_validator_->schema_validator->GetSchema(*primary_label);
+  if (!schema) {
+    return value;
+  }
+  // Find PropertyId index in keystore
+  size_t property_index{0};
+  for (; property_index < schema->second.size(); ++property_index) {
+    if (schema->second[property_index].property_id == property) {
+      break;
+    }
+  }
+
+  value = vertex_->keys.GetKey(property_index);
+  if (value.IsNull()) {
+    value = vertex_->properties.GetProperty(property);
+  }
+  return value;
+}
+
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
@@ -387,23 +413,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    // Get schema
-    const auto primary_label = PrimaryLabel(view);
-    MG_ASSERT(primary_label.HasValue(), "Vertex needs to have a primary label!");
-    const auto *schema = vertex_validator_->schema_validator->GetSchema(*primary_label);
-    MG_ASSERT(schema, "There needs to be schema for vertex!");
-    // Find PropertyId index in keystore
-    size_t property_index{0};
-    for (; property_index < schema->second.size(); ++property_index) {
-      if (schema->second[property_index].property_id == property) {
-        break;
-      }
-    }
-
-    value = vertex_->keys.GetKey(property_index);
-    if (value.IsNull()) {
-      value = vertex_->properties.GetProperty(property);
-    }
+    value = GetPropertyValue(property, view);
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {

@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <ranges>
 
+#include "common/types.hpp"
 #include "storage/v3/schemas.hpp"
 
 namespace memgraph::storage::v3 {
@@ -94,6 +95,10 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
     }
   }
 
+  // Quick size check
+  if (schema->second.size() != primary_properties.size()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, primary_label);
+  }
   // Check only properties defined by schema
   for (size_t i{0}; i < schema->second.size(); ++i) {
     // Check schema property type

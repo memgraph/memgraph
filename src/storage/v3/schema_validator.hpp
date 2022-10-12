@@ -29,6 +29,7 @@ struct SchemaViolation {
     VERTEX_UPDATE_PRIMARY_KEY,
     VERTEX_UPDATE_PRIMARY_LABEL,
     VERTEX_SECONDARY_LABEL_IS_PRIMARY,
+    VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
   };
 
   SchemaViolation(ValidationStatus status, LabelId label);
