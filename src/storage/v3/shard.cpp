@@ -12,6 +12,7 @@
 #include "storage/v3/shard.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -392,7 +393,7 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
   if (primary_label != shard_->primary_label_) {
     throw utils::BasicException("Cannot add vertex to shard which does not hold the given primary label!");
   }
-  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
+  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, primary_properties);
   if (maybe_schema_violation) {
     return {std::move(*maybe_schema_violation)};
   }
