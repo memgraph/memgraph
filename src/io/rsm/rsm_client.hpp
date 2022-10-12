@@ -213,16 +213,10 @@ class RsmClient {
         return std::move(read_get_response.read_return);
       }
     } else if (result_has_error) {
-      // A random new leader will be selected, the request will
-      // be resent, and this function will be called recursively.
-      // This shoud result in either some sort of result or TimedOut{}
       SelectRandomLeader();
       SendAsyncReadRequest(current_read_request_);
     }
-    return AwaitAsyncReadRequest();
-    // this previously returned a nullopt, just leaving it here as an indication.
-    // TODO(gvolfing) discuss this with Tyler before opening the PR
-    // return std::nullopt;
+    return std::nullopt;
   }
 
   /// AsyncWrite methods
@@ -279,7 +273,7 @@ class RsmClient {
       SelectRandomLeader();
       SendAsyncWriteRequest(current_write_request_);
     }
-    return AwaitAsyncWriteRequest();
+    return std::nullopt;
   }
 };
 

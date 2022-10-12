@@ -179,36 +179,30 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<ScanVerticesResponse> responses;
 
     // Outer loop to make sure we are handling the paginated responses as well.
-    while (true) {
+    while (!state.shard_cache.empty()) {
       // 1. Send the requests.
       SendAllRequests(state);
 
       std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-      auto asd = state.shard_cache[0];
       for (auto shard_it = state.shard_cache.begin(); shard_it != state.shard_cache.end(); ++shard_it) {
-        auto sha = *shard_it;
         paginated_response_tracker.insert(std::make_pair(*shard_it, PaginatedResponseState::Pending));
       }
 
       // 2. Loop on poll
+      bool should_resend_paginated_responses = false;
       do {
         bool at_least_one_result = PollOnRequests(state, responses, paginated_response_tracker);
-        // only partially finished stuff here...
-        if (std::all_of(paginated_response_tracker.begin(), paginated_response_tracker.end(),
-                        [](const auto &pag_resp_state) {
-                          return pag_resp_state.second == PaginatedResponseState::PartiallyFinished;
-                        })) {
-          break;
-        }
+        should_resend_paginated_responses = std::all_of(
+            paginated_response_tracker.begin(), paginated_response_tracker.end(), [](const auto &pag_resp_state) {
+              return pag_resp_state.second == PaginatedResponseState::PartiallyFinished;
+            });
 
         if (!at_least_one_result && !state.shard_cache.empty()) {
           // 3. Await on the first req if none of the futures have
           //    been filled yet.
           AwaitOnFirstRequest(state, responses, paginated_response_tracker);
         }
-      } while (!state.shard_cache.empty());
-
-      break;
+      } while (!state.shard_cache.empty() || should_resend_paginated_responses);
     }
 
     MaybeCompleteState(state);
@@ -454,13 +448,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       auto &storage_client = GetStorageClientForShard(
           *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
 
+      if (paginated_response_tracker.at(*shard_it) == PaginatedResponseState::PartiallyFinished) {
+        return false;
+      }
+
       auto poll_result = storage_client.PollAsyncReadRequest();
       if (!poll_result) {
         continue;
-      }
-
-      if (paginated_response_tracker.at(*shard_it) == PaginatedResponseState::PartiallyFinished) {
-        return false;
       }
 
       at_least_one_result = true;
@@ -564,15 +558,24 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   void AwaitOnFirstRequest(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses,
                            std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
     auto &shard_cache_ref = state.shard_cache;
+
+    // Find the first request that is not holding a paginated response.
+    size_t request_idx = 0;
+    std::vector<memgraph::coordinator::Shard>::iterator shard_it;
+    for (shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
+      if (paginated_response_tracker.at(*shard_it) == PaginatedResponseState::Pending) {
+        break;
+      }
+      ++request_idx;
+    }
+
     auto &storage_client = GetStorageClientForShard(
-        *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().start_id.second));
+        *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
     auto await_result = storage_client.AwaitAsyncReadRequest();
 
-    // TODO(gvolfing) -VERIFY-
-    // It might be safe to assume that this will never be std::nullopt,
-    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
+      return;
     }
 
     if (await_result->HasError()) {
@@ -586,11 +589,11 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
 
     if (!response.next_start_id) {
-      paginated_response_tracker.erase(*(shard_cache_ref.begin()));
-      shard_cache_ref.erase(shard_cache_ref.begin());
+      paginated_response_tracker.erase(*shard_it);
+      shard_cache_ref.erase(shard_it);
     } else {
-      state.requests[0].start_id.second = response.next_start_id->second;
-      paginated_response_tracker.at(*(shard_cache_ref.begin())) = PaginatedResponseState::PartiallyFinished;
+      state.requests[request_idx].start_id.second = response.next_start_id->second;
+      paginated_response_tracker.at(*shard_it) = PaginatedResponseState::PartiallyFinished;
     }
     responses.push_back(std::move(response));
   }
@@ -602,11 +605,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().new_vertices[0].primary_key));
     auto await_result = storage_client.AwaitAsyncWriteRequest();
 
-    // TODO(gvolfing) -VERIFY-
-    // It might be safe to assume that this will never be std::nullopt,
-    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
+      return;
     }
 
     if (await_result->HasError()) {
@@ -629,11 +630,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().src_vertices[0].second));
     auto await_result = storage_client.AwaitAsyncReadRequest();
 
-    // TODO(gvolfing) -VERIFY-
-    // It might be safe to assume that this will never be std::nullopt,
-    // This part of the code should not be aware of redirections!
     if (!await_result) {
       // Redirection has occured.
+      return;
     }
 
     if (await_result->HasError()) {
