@@ -55,7 +55,6 @@ class RsmClient {
   std::optional<ResponseFuture<WriteResponse<WriteResponseT>>> async_write_;
   WriteRequestT current_write_request_;
 
-  // TODO(gvolfing) use this function in PossiblyRedirectLeader()
   void SelectRandomLeader() {
     std::uniform_int_distribution<size_t> addr_distrib(0, (server_addrs_.size() - 1));
     size_t addr_index = io_.Rand(addr_distrib);
@@ -156,9 +155,6 @@ class RsmClient {
   }
 
   /// AsyncRead methods
-
-  /// This method submits a request to the underlying Io interface
-  /// and stores it as this client's async read.
   void SendAsyncReadRequest(ReadRequestT req) {
     MG_ASSERT(!async_read_);
 
@@ -172,8 +168,6 @@ class RsmClient {
     async_read_ = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
   }
 
-  /// Non-blocking. See if a response or a timeout has occurred for our async read request, and if so,
-  /// handle it in a similar way as SendReadRequest does.
   std::optional<BasicResult<TimedOut, ReadResponseT>> PollAsyncReadRequest() {
     MG_ASSERT(async_read_);
 
@@ -184,25 +178,21 @@ class RsmClient {
     return AwaitAsyncReadRequest();
   }
 
-  /// Blocking. Drive the underlying async_read_ request until its request returns or times out, in a similar way that
-  /// SendReadRequest does. This will block until timeout or response, but may still return std::nullopt if we were
-  /// redirected.
   std::optional<BasicResult<TimedOut, ReadResponseT>> AwaitAsyncReadRequest() {
     ResponseResult<ReadResponse<ReadResponseT>> get_response_result = std::move(*async_read_).Wait();
     async_read_.reset();
 
-    // TODO(gvolfing) maybe retry? there could be a timout?
     const Duration overall_timeout = io_.GetDefaultTimeout();
     const bool past_time_out = io_.Now() < *async_read_before_ + overall_timeout;
     const bool result_has_error = get_response_result.HasError();
 
     if (result_has_error && past_time_out) {
-      // static_assert(std::is_same<decltype(get_response_result.GetError()), TimedOut>::type, "Error must be TimeOut
-      // error!");
+      // TODO static assert the exact type of error.
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
       async_read_before_ = std::nullopt;
       return TimedOut{};
-    } else if (!result_has_error) {
+    }
+    if (!result_has_error) {
       ResponseEnvelope<ReadResponse<ReadResponseT>> &&get_response_envelope = std::move(get_response_result.GetValue());
       ReadResponse<ReadResponseT> &&read_get_response = std::move(get_response_envelope.message);
 
@@ -247,18 +237,17 @@ class RsmClient {
     ResponseResult<WriteResponse<WriteResponseT>> get_response_result = std::move(*async_write_).Wait();
     async_write_.reset();
 
-    // TODO(gvolfing) maybe retry? there could be a timout?
     const Duration overall_timeout = io_.GetDefaultTimeout();
     const bool past_time_out = io_.Now() < *async_write_before_ + overall_timeout;
     const bool result_has_error = get_response_result.HasError();
 
     if (result_has_error && past_time_out) {
-      // static_assert(std::is_same<decltype(get_response_result.GetError()), TimedOut>::type, "Error must be TimeOut
-      // error!");
+      // TODO static assert the exact type of error.
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
       async_read_before_ = std::nullopt;
       return TimedOut{};
-    } else if (!result_has_error) {
+    }
+    if (!result_has_error) {
       ResponseEnvelope<WriteResponse<WriteResponseT>> &&get_response_envelope =
           std::move(get_response_result.GetValue());
       WriteResponse<WriteResponseT> &&write_get_response = std::move(get_response_envelope.message);
