@@ -18,28 +18,29 @@
 
 #include "query/v2/frontend/ast/ast.hpp"
 #include "query/v2/plan/operator.hpp"
+#include "query/v2/shard_request_manager.hpp"
 
 namespace memgraph::query::v2 {
-class DbAccessor;
 
 namespace plan {
 
 class LogicalOperator;
 
 /// Pretty print a `LogicalOperator` plan to a `std::ostream`.
-/// DbAccessor is needed for resolving label and property names.
+/// ShardRequestManager is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
+void PrettyPrint(const msgs::ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root,
+                 std::ostream *out);
 
 /// Overload of `PrettyPrint` which defaults the `std::ostream` to `std::cout`.
-inline void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root) {
-  PrettyPrint(dba, plan_root, &std::cout);
+inline void PrettyPrint(const msgs::ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root) {
+  PrettyPrint(request_manager, plan_root, &std::cout);
 }
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
+nlohmann::json PlanToJson(const msgs::ShardRequestManagerInterface &request_manager, const LogicalOperator *plan_root);
 
 class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
  public:
@@ -47,7 +48,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out);
+  PlanPrinter(const msgs::ShardRequestManagerInterface *request_manager, std::ostream *out);
 
   bool DefaultPreVisit() override;
 
@@ -114,7 +115,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
   int64_t depth_{0};
-  const DbAccessor *dba_{nullptr};
+  const msgs::ShardRequestManagerInterface *request_manager_{nullptr};
   std::ostream *out_{nullptr};
 };
 
@@ -132,20 +133,20 @@ nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
 
 nlohmann::json ToJson(const Symbol &symbol);
 
-nlohmann::json ToJson(storage::v3::EdgeTypeId edge_type, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::EdgeTypeId edge_type, const msgs::ShardRequestManagerInterface &request_manager);
 
-nlohmann::json ToJson(storage::v3::LabelId label, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::LabelId label, const msgs::ShardRequestManagerInterface &request_manager);
 
-nlohmann::json ToJson(storage::v3::PropertyId property, const DbAccessor &dba);
+nlohmann::json ToJson(storage::v3::PropertyId property, const msgs::ShardRequestManagerInterface &request_manager);
 
 nlohmann::json ToJson(NamedExpression *nexpr);
 
 nlohmann::json ToJson(const std::vector<std::pair<storage::v3::PropertyId, Expression *>> &properties,
-                      const DbAccessor &dba);
+                      const msgs::ShardRequestManagerInterface &request_manager);
 
-nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
+nlohmann::json ToJson(const NodeCreationInfo &node_info, const msgs::ShardRequestManagerInterface &request_manager);
 
-nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
+nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const msgs::ShardRequestManagerInterface &request_manager);
 
 nlohmann::json ToJson(const Aggregate::Element &elem);
 
@@ -160,7 +161,8 @@ nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
 
 class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
  public:
-  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
+  explicit PlanToJsonVisitor(const msgs::ShardRequestManagerInterface *request_manager)
+      : request_manager_(request_manager) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -216,7 +218,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
 
  protected:
   nlohmann::json output_;
-  const DbAccessor *dba_;
+  const msgs::ShardRequestManagerInterface *request_manager_;
 
   nlohmann::json PopOutput() {
     nlohmann::json tmp;
