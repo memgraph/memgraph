@@ -21,10 +21,14 @@
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/bindings/eval.hpp"
 #include "storage/v3/bindings/frame.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
@@ -92,16 +96,27 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
 }
 
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
-    const memgraph::storage::v3::VertexAccessor &acc, View view) {
+    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view,
+    const memgraph::storage::v3::Schemas::Schema *schema) {
   std::map<PropertyId, Value> ret;
-  auto iter = acc.Properties(view);
-  if (iter.HasError()) {
+  auto props = acc.Properties(view);
+  if (props.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex properties.");
     return std::nullopt;
   }
-
-  for (const auto &[prop_key, prop_val] : iter.GetValue()) {
+  for (const auto &[prop_key, prop_val] : props.GetValue()) {
     ret.emplace(prop_key, FromPropertyValueToValue(prop_val));
+  }
+
+  auto maybe_pk = acc.PrimaryKey(view);
+  if (maybe_pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex primary key.");
+  }
+
+  const auto pk = maybe_pk.GetValue();
+  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(pk[i]));
   }
 
   return ret;
@@ -240,7 +255,19 @@ auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
   return value;
 }
 
-std::any ParseExpression(const std::string &expr, AstStorage &storage) {
+std::vector<PropertyId> GetPropertiesFromAcessor(
+    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
+  std::vector<PropertyId> ret_properties;
+  ret_properties.reserve(properties.size());
+
+  for (const auto &prop : properties) {
+    ret_properties.emplace_back(prop.first);
+  }
+
+  return ret_properties;
+}
+
+std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
   memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
   ParsingContext pc;
   CypherMainVisitor visitor(pc, &storage);
@@ -271,7 +298,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
     is_node_identifier_present = true;
     identifiers.push_back(&node_identifier);
   }
-  if (e_acc && expression.find(node_name) != std::string::npos) {
+  if (e_acc && expression.find(edge_name) != std::string::npos) {
     is_edge_identifier_present = true;
     identifiers.push_back(&edge_identifier);
   }
@@ -604,10 +631,6 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
-  // Workaround untill we have access to CreateVertexAndValidate()
-  // with the new signature that does not require the primary label.
-  const auto prim_label = acc.GetPrimaryLabel();
-
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
@@ -626,10 +649,12 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     for (const auto &label_id : new_vertex.label_ids) {
       converted_label_ids.emplace_back(label_id.id);
     }
-
-    auto result_schema =
-        acc.CreateVertexAndValidate(prim_label, converted_label_ids,
-                                    ConvertPropertyVector(std::move(new_vertex.primary_key)), converted_property_map);
+    // TODO(jbajic) sending primary key as vector breaks validation on storage side
+    // cannot map id -> value
+    PrimaryKey transformed_pk;
+    std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
+                   [](const auto &val) { return ToPropertyValue(val); });
+    auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -894,7 +919,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
-    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
+    if (start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       did_reach_starting_point = true;
     }
 
@@ -922,10 +947,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 
       std::optional<std::map<PropertyId, Value>> found_props;
 
+      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
       if (req.props_to_return) {
         found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
       } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view);
+        found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
       }
 
       // TODO(gvolfing) -VERIFY-
@@ -941,7 +967,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
                                                .evaluated_vertex_expressions = std::move(expression_results)});
 
       ++sample_counter;
-      if (sample_counter == req.batch_limit) {
+      if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
         const auto &next_vertex = *(++it);

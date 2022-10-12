@@ -75,10 +75,11 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
   };
 
   LabelSpace label_space{
-      .schema = std::move(schema),
+      .schema = schema,
       .shards = shards,
       .replication_factor = replication_factor,
   };
+  schemas[label_id] = std::move(schema);
 
   label_spaces.emplace(label_id, label_space);
 

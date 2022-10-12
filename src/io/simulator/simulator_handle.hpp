@@ -129,6 +129,7 @@ class SimulatorHandle {
           // TODO(tyler) search for item in can_receive_ that matches the desired types, rather
           // than asserting that the last item in can_rx matches.
           auto m_opt = std::move(message).Take<Ms...>();
+          MG_ASSERT(m_opt.has_value(), "Wrong message type received compared to the expected type");
 
           blocked_on_receive_.erase(receiver);
 
