@@ -253,7 +253,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
                              const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
                              const std::string &expression, std::string_view node_name, std::string_view edge_name) {
   AstStorage storage;
-  Frame frame{static_cast<int64_t>(128)};
+  Frame frame{128};
   SymbolTable symbol_table;
   EvaluationContext ctx;
 
@@ -276,6 +276,9 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
     identifiers.push_back(&edge_identifier);
   }
 
+  const auto props = *v_acc->Properties(View::OLD);
+  const auto key = *v_acc->PrimaryKey(View::OLD);
+
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
@@ -292,8 +295,8 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
 bool FilterOnVertex(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
                     const std::vector<std::string> &filters, const std::string_view node_name) {
   return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
-    return ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").IsBool() &&
-           ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "").ValueBool();
+    auto res = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "");
+    return res.IsBool() && res.ValueBool();
   });
 }
 

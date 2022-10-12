@@ -11,6 +11,7 @@
 
 #include "storage/v3/vertex_accessor.hpp"
 
+#include <cstddef>
 #include <memory>
 
 #include "storage/v3/conversions.hpp"
@@ -21,6 +22,7 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -385,7 +387,23 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
+    // Get schema
+    const auto primary_label = PrimaryLabel(view);
+    MG_ASSERT(primary_label.HasValue(), "Vertex needs to have a primary label!");
+    const auto *schema = vertex_validator_->schema_validator->GetSchema(*primary_label);
+    MG_ASSERT(schema, "There needs to be schema for vertex!");
+    // Find PropertyId index in keystore
+    size_t property_index{0};
+    for (; property_index < schema->second.size(); ++property_index) {
+      if (schema->second[property_index].property_id == property) {
+        break;
+      }
+    }
+
+    value = vertex_->keys.GetKey(property_index);
+    if (value.IsNull()) {
+      value = vertex_->properties.GetProperty(property);
+    }
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
