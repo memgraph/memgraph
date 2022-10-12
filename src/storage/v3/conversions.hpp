@@ -9,8 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include "expr/typed_value_exception.hpp"
 #include "query/v2/requests.hpp"
-#include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/property_value.hpp"
 #include "utils/memory.hpp"
 

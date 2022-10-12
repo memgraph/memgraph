@@ -1,0 +1,26 @@
+// Copyright 2022 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include "utils/exceptions.hpp"
+
+namespace memgraph::expr {
+/**
+ * An exception raised by the TypedValue system. Typically when
+ * trying to perform operations (such as addition) on TypedValues
+ * of incompatible Types.
+ */
+class TypedValueException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+}  // namespace memgraph::expr
