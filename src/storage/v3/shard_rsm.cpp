@@ -276,12 +276,8 @@ memgraph::expr::EvaluationContext CreateEvaluationContext(
 
   std::vector<PropertyId> all_properties(vertex_props.size() + edge_props.size());
 
-  // Sorting might not needed, since the props are being converted from std::map
-  std::sort(vertex_props.begin(), vertex_props.end());
-  std::sort(edge_props.begin(), edge_props.end());
-
-  auto it = std::set_symmetric_difference(vertex_props.begin(), vertex_props.end(), edge_props.begin(),
-                                          edge_props.end(), all_properties.begin());
+  auto it = std::set_union(vertex_props.begin(), vertex_props.end(), edge_props.begin(), edge_props.end(),
+                           all_properties.begin());
   all_properties.resize(it - all_properties.begin());
 
   ctx.properties = std::move(all_properties);
@@ -324,7 +320,7 @@ memgraph::expr::TypedValue ComputeExpression(memgraph::expr::DbAccessor &dba,
     is_node_identifier_present = true;
     identifiers.push_back(&node_identifier);
   }
-  if (e_acc && expression.find(node_name) != std::string::npos) {
+  if (e_acc && expression.find(edge_name) != std::string::npos) {
     is_edge_identifier_present = true;
     identifiers.push_back(&edge_identifier);
   }

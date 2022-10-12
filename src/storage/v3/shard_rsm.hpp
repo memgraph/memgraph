@@ -58,8 +58,8 @@ class ShardRsm {
   }
 
  private:
-  static constexpr const char *node_name_ = "node";
-  static constexpr const char *edge_name_ = "edge";
+  static constexpr std::string_view node_name_ = "node";
+  static constexpr std::string_view edge_name_ = "edge";
 };
 
 }  // namespace memgraph::storage::v3
