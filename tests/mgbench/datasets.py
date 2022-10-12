@@ -362,7 +362,6 @@ class Distributed(Dataset):
     def __init__(self, variant=None):
         Dataset.__init__(self, variant)
         self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
-        print("self.next_value_idx = ", self.next_value_idx)
 
     def benchmark__create__vertex(self):
         self.next_value_idx += 1
