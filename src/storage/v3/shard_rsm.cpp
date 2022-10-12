@@ -54,9 +54,9 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
   ret.reserve(properties.size());
 
-  for (auto &[key, value] : properties) {
-    ret.emplace_back(std::make_pair(key, ToPropertyValue(std::move(value))));
-  }
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret), [](auto &&property) {
+    return std::make_pair(property.first, ToPropertyValue(std::move(property.second)));
+  });
 
   return ret;
 }
@@ -66,9 +66,8 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
   std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> ret;
   ret.reserve(properties.size());
 
-  for (const auto &[key, value] : properties) {
-    ret.emplace_back(std::make_pair(key, value));
-  }
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret),
+                 [](const auto &property) { return std::make_pair(property.first, property.second); });
 
   return ret;
 }
@@ -104,9 +103,11 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
     spdlog::debug("Encountered an error while trying to get vertex properties.");
     return std::nullopt;
   }
-  for (const auto &[prop_key, prop_val] : props.GetValue()) {
-    ret.emplace(prop_key, FromPropertyValueToValue(prop_val));
-  }
+
+  const auto &properties = props.GetValue();
+  std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.begin()), [](const auto &property) {
+    return std::make_pair(property.first, FromPropertyValueToValue(property.second));
+  });
 
   auto maybe_pk = acc.PrimaryKey(view);
   if (maybe_pk.HasError()) {
@@ -134,9 +135,9 @@ memgraph::msgs::Value ConstructValueVertex(const memgraph::storage::v3::VertexAc
   auto vertex_labels = acc.Labels(view).GetValue();
   std::vector<memgraph::msgs::Label> value_labels;
   value_labels.reserve(vertex_labels.size());
-  for (const auto &label : vertex_labels) {
-    value_labels.push_back({.id = label});
-  }
+
+  std::transform(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(value_labels),
+                 [](const auto &label) { return msgs::Label{.id = label}; });
 
   return Value({.id = vertex_id, .labels = value_labels});
 }
@@ -156,12 +157,12 @@ Value ConstructValueEdge(const memgraph::storage::v3::EdgeAccessor &acc, View vi
   const auto &properties = acc.Properties(view);
 
   if (properties.HasValue()) {
+    const auto &props = properties.GetValue();
     std::vector<std::pair<PropertyId, Value>> present_properties;
-    present_properties.reserve(properties.GetValue().size());
+    present_properties.reserve(props.size());
 
-    for (const auto &[prop_key, prop_val] : properties.GetValue()) {
-      present_properties.emplace_back(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
-    }
+    std::transform(props.begin(), props.end(), std::back_inserter(present_properties),
+                   [](const auto &prop) { return std::make_pair(prop.first, FromPropertyValueToValue(prop.second)); });
 
     properties_opt = std::move(present_properties);
   }
@@ -181,19 +182,18 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
       return Value(tv.ValueInt());
     case TypedValue::Type::List: {
       std::vector<Value> list;
-      list.reserve(tv.ValueList().size());
-      for (auto &elem : tv.ValueList()) {
-        list.emplace_back(FromTypedValueToValue(std::move(elem)));
-      }
-
+      auto &tv_list = tv.ValueList();
+      list.reserve(tv_list.size());
+      std::transform(tv_list.begin(), tv_list.end(), std::back_inserter(list),
+                     [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
       return Value(list);
     }
     case TypedValue::Type::Map: {
+      auto &tv_map = tv.ValueMap();
       std::map<std::string, Value> map;
       for (auto &[key, val] : tv.ValueMap()) {
         map.emplace(key, FromTypedValueToValue(std::move(val)));
       }
-
       return Value(map);
     }
     case TypedValue::Type::Null:
@@ -221,15 +221,20 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
 std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<memgraph::storage::v3::TypedValue> &&vec) {
   std::vector<Value> ret;
   ret.reserve(vec.size());
-  for (auto &&elem : vec) {
-    ret.emplace_back(FromTypedValueToValue(std::move(elem)));
-  }
+
+  std::transform(vec.begin(), vec.end(), std::back_inserter(ret),
+                 [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
+
+  // for (auto &&elem : vec) {
+  //   ret.emplace_back(FromTypedValueToValue(std::move(elem)));
+  // }
   return ret;
 }
 
 std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor &dba) {
   std::vector<PropertyId> properties;
   properties.reserve(property_names.size());
+
   for (const auto &name : property_names) {
     properties.push_back(dba.NameToProperty(name));
   }
@@ -260,9 +265,8 @@ std::vector<PropertyId> GetPropertiesFromAcessor(
   std::vector<PropertyId> ret_properties;
   ret_properties.reserve(properties.size());
 
-  for (const auto &prop : properties) {
-    ret_properties.emplace_back(prop.first);
-  }
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret_properties),
+                 [](const auto &prop) { return prop.first; });
 
   return ret_properties;
 }
@@ -362,12 +366,14 @@ std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
     return std::nullopt;
   }
 
+  auto &sec_labels = secondary_labels.GetValue();
   memgraph::msgs::Vertex source_vertex;
   source_vertex.id = src_vertex;
-  source_vertex.labels.reserve(secondary_labels.GetValue().size());
-  for (auto label_id : secondary_labels.GetValue()) {
-    source_vertex.labels.emplace_back(memgraph::msgs::Label{.id = label_id});
-  }
+  source_vertex.labels.reserve(sec_labels.size());
+
+  std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(source_vertex.labels),
+                 [](auto label_id) { return memgraph::msgs::Label{.id = label_id}; });
+
   return source_vertex;
 }
 
@@ -390,10 +396,12 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
   } else if (req.src_vertex_properties.value().empty()) {
     // NOOP
   } else {
-    for (const auto &prop : req.src_vertex_properties.value()) {
-      const auto &prop_val = v_acc->GetProperty(prop, View::OLD);
-      src_vertex_properties.insert(std::make_pair(prop, FromPropertyValueToValue(prop_val.GetValue())));
-    }
+    auto &vertex_props = req.src_vertex_properties.value();
+    std::transform(vertex_props.begin(), vertex_props.end(),
+                   std::inserter(src_vertex_properties, src_vertex_properties.begin()), [&v_acc](const auto &prop) {
+                     const auto &prop_val = v_acc->GetProperty(prop, View::OLD);
+                     return std::make_pair(prop, FromPropertyValueToValue(prop_val.GetValue()));
+                   });
   }
 
   return src_vertex_properties;
@@ -643,9 +651,10 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     // TODO(gvolfing) make sure if this conversion is actually needed.
     std::vector<memgraph::storage::v3::LabelId> converted_label_ids;
     converted_label_ids.reserve(new_vertex.label_ids.size());
-    for (const auto &label_id : new_vertex.label_ids) {
-      converted_label_ids.emplace_back(label_id.id);
-    }
+
+    std::transform(new_vertex.label_ids.begin(), new_vertex.label_ids.end(), std::back_inserter(converted_label_ids),
+                   [](const auto &label_id) { return label_id.id; });
+
     // TODO(jbajic) sending primary key as vector breaks validation on storage side
     // cannot map id -> value
     PrimaryKey transformed_pk;
