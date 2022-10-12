@@ -11,5 +11,9 @@
 
 #pragma once
 
+#ifdef MG_AST_INCLUDE_PATH
+#error You are probably trying to include files from expr from both the storage and query engines! You will have a rought time kid!
+#endif
+
 #define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
 #define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2       // NOLINT(cppcoreguidelines-macro-usage)
