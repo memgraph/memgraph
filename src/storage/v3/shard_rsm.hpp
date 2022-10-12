@@ -15,8 +15,8 @@
 #include <variant>
 
 #include <openssl/ec.h>
+// #include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "query/v2/requests.hpp"
-#include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
@@ -58,8 +58,8 @@ class ShardRsm {
   }
 
  private:
-  static constexpr std::string_view node_name_ = "node";
-  static constexpr std::string_view edge_name_ = "edge";
+  static constexpr std::string_view node_name_ = "MG_SYMBOL_NODE";
+  static constexpr std::string_view edge_name_ = "MG_SYMBOL_EDGE";
 };
 
 }  // namespace memgraph::storage::v3
