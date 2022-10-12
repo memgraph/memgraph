@@ -452,7 +452,7 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
@@ -501,7 +501,7 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
   return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
@@ -2633,66 +2633,4 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-class DistributedCreateNodeCursor : public Cursor {
- public:
-  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
-  DistributedCreateNodeCursor(const InputOperator &op, utils::MemoryResource *mem,
-                              std::vector<NodeCreationInfo> nodes_info)
-      : input_cursor_(op->MakeCursor(mem)), nodes_info_(std::move(nodes_info)) {}
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP("CreateNode");
-    if (input_cursor_->Pull(frame, context)) {
-      auto &shard_manager = context.shard_request_manager;
-      shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
-      return true;
-    }
-
-    return false;
-  }
-
-  void Reset() override { state_ = {}; }
-
-  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
-    std::vector<msgs::NewVertex> requests;
-    for (const auto &node_info : nodes_info_) {
-      msgs::NewVertex rqst;
-      std::map<msgs::PropertyId, msgs::Value> properties;
-      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
-                                    storage::v3::View::NEW);
-      if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
-        for (const auto &[key, value_expression] : *node_info_properties) {
-          TypedValue val = value_expression->Accept(evaluator);
-          properties[key] = TypedValueToValue(val);
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
-          }
-        }
-      } else {
-        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties)).ValueMap();
-        for (const auto &[key, value] : property_map) {
-          auto key_str = std::string(key);
-          auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          properties[property_id] = TypedValueToValue(value);
-          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
-          }
-        }
-      }
-
-      if (node_info.labels.empty()) {
-        throw QueryRuntimeException("Primary label must be defined!");
-      }
-      // TODO(kostasrim) Copy non primary labels as well
-      rqst.label_ids.push_back(msgs::Label{node_info.labels[0]});
-      requests.push_back(std::move(rqst));
-    }
-    return requests;
-  }
-
- private:
-  const UniqueCursorPtr input_cursor_;
-  std::vector<NodeCreationInfo> nodes_info_;
-  msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
-};
 }  // namespace memgraph::query::v2::plan
