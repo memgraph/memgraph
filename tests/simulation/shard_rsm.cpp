@@ -413,7 +413,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
                                                                                  msgs::VertexId start_id,
                                                                                  uint64_t batch_limit,
                                                                                  uint64_t prop_val_to_check_against) {
-  std::string filter_expr1 = "node.property = " + std::to_string(prop_val_to_check_against);
+  std::string filter_expr1 = "MG_SYMBOL_NODE.property = " + std::to_string(prop_val_to_check_against);
   std::vector<std::string> filter_expressions = {filter_expr1};
 
   std::string regular_expr1 = "2+2";

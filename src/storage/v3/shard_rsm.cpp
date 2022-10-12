@@ -303,9 +303,6 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
     identifiers.push_back(&edge_identifier);
   }
 
-  const auto props = *v_acc->Properties(View::OLD);
-  const auto key = *v_acc->PrimaryKey(View::OLD);
-
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
