@@ -22,9 +22,9 @@
 #include <variant>
 #include <vector>
 
+#include "expr/semantic/symbol.hpp"
 #include "query/v2/common.hpp"
 #include "query/v2/frontend/ast/ast.hpp"
-#include "query/v2/bindings/symbol.hpp"
 #include "query/v2/bindings/typed_value.hpp"
 #include "query/v2/bindings/frame.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
