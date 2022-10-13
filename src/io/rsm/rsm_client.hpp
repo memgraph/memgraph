@@ -244,7 +244,7 @@ class RsmClient {
     if (result_has_error && past_time_out) {
       // TODO static assert the exact type of error.
       spdlog::debug("client timed out while trying to communicate with leader server {}", leader_.ToString());
-      async_read_before_ = std::nullopt;
+      async_write_before_ = std::nullopt;
       return TimedOut{};
     }
     if (!result_has_error) {
@@ -255,7 +255,7 @@ class RsmClient {
       PossiblyRedirectLeader(write_get_response);
 
       if (write_get_response.success) {
-        async_read_before_ = std::nullopt;
+        async_write_before_ = std::nullopt;
         return std::move(write_get_response.write_return);
       }
     } else if (result_has_error) {
