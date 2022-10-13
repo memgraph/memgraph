@@ -444,6 +444,34 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
   }
 }
 
+std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithOrderBy(ShardClient &client,
+                                                                              msgs::VertexId start_id,
+                                                                              uint64_t batch_limit,
+                                                                              std::vector<msgs::OrderBy> order_bys) {
+  msgs::ScanVerticesRequest scan_req;
+  scan_req.batch_limit = batch_limit;
+  scan_req.order_bys = std::move(order_bys);
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.results.empty(), "There are no results!");
+    MG_ASSERT(write_response.results[0].evaluated_vertex_expressions[0].int_v == 4);
+    return {write_response.results.size(), write_response.next_start_id};
+  }
+}
+
 void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_vertex_val, uint64_t edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
@@ -758,6 +786,15 @@ void TestScanAllOneGo(ShardClient &client) {
 
   auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
   MG_ASSERT(result_size_2 == 1);
+
+  // With primary property
+  auto [result_size_3, next_id_3] = AttemptToScanAllWithOrderBy(
+      client, v_id, 5, {{msgs::Expression{"MG_SYMBOL_NODE.property"}, msgs::OrderingDirection::DESCENDING}});
+  MG_ASSERT(result_size_3 == 1);
+
+  // Multiple properties primary property
+  // auto [result_size_3, next_id_3] = AttemptToScanAllWithOrderBy(client, v_id, 5,
+  // {{msgs::Expression{"MG_SYMBOL_NODE.property"}}}); MG_ASSERT(result_size_3 == 1);
 
   auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   auto [result_size_without_batch, next_id_without_batch] = AttemptToScanAllWithoutBatchLimit(client, v_id);

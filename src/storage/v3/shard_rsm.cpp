@@ -29,11 +29,13 @@
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/exceptions.hpp"
 
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
@@ -902,6 +904,90 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   return memgraph::msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
+bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
+  // in ordering null comes after everything else
+  // at the same time Null is not less that null
+  // first deal with Null < Whatever case
+  if (a.IsNull()) return false;
+  // now deal with NotNull < Null case
+  if (b.IsNull()) return true;
+
+  // comparisons are from this point legal only between values of
+  // the  same type, or int+float combinations
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
+    throw utils::BasicException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
+
+  switch (a.type()) {
+    case TypedValue::Type::Bool:
+      return !a.ValueBool() && b.ValueBool();
+    case TypedValue::Type::Int:
+      if (b.type() == TypedValue::Type::Double)
+        return a.ValueInt() < b.ValueDouble();
+      else
+        return a.ValueInt() < b.ValueInt();
+    case TypedValue::Type::Double:
+      if (b.type() == TypedValue::Type::Int)
+        return a.ValueDouble() < b.ValueInt();
+      else
+        return a.ValueDouble() < b.ValueDouble();
+    case TypedValue::Type::String:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueString() < b.ValueString();
+    case TypedValue::Type::Date:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueDate() < b.ValueDate();
+    case TypedValue::Type::LocalTime:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueLocalTime() < b.ValueLocalTime();
+    case TypedValue::Type::LocalDateTime:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueLocalDateTime() < b.ValueLocalDateTime();
+    case TypedValue::Type::Duration:
+      // NOLINTNEXTLINE(modernize-use-nullptr)
+      return a.ValueDuration() < b.ValueDuration();
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      throw utils::BasicException("Comparison is not defined for values of type {}.", a.type());
+    case TypedValue::Type::Null:
+      LOG_FATAL("Invalid type");
+  }
+}
+
+class TypedValueVectorCompare final {
+ public:
+  explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
+
+  bool operator()(const std::vector<TypedValue> &c1, const std::vector<TypedValue> &c2) const {
+    // ordering is invalid if there are more elements in the collections
+    // then there are in the ordering_ vector
+    MG_ASSERT(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
+              "Collections contain more elements then there are orderings");
+
+    auto c1_it = c1.begin();
+    auto c2_it = c2.begin();
+    auto ordering_it = ordering_.begin();
+    for (; c1_it != c1.end() && c2_it != c2.end(); c1_it++, c2_it++, ordering_it++) {
+      if (TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
+      if (TypedValueCompare(*c2_it, *c1_it)) return *ordering_it == Ordering::DESC;
+    }
+
+    // at least one collection is exhausted
+    // c1 is less then c2 iff c1 reached the end but c2 didn't
+    return (c1_it == c1.end()) && (c2_it != c2.end());
+  }
+
+ private:
+  std::vector<Ordering> ordering_;
+};
+
+struct Element {
+  std::vector<TypedValue> properties_order_by;
+  VerticesIterable::Iterator vertex_it;
+};
+
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
@@ -917,10 +1003,47 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
 
   const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
+  auto dba = DbAccessor{&acc};
 
   // 2. We order vertices according to the expression and sorting order
   //   2.1. Need comparison function between TypedValues
   //   2.2. Need Sorting of vector of TypedValues (probably can use utils)
+  if (req.order_bys) {
+    std::vector<Element> ordered;
+    ordered.reserve(acc.ApproximateVertexCount());
+    std::vector<Ordering> ordering;
+    ordering.reserve(req.order_bys->size());
+    for (const auto order : *req.order_bys) {
+      switch (order.direction) {
+        case memgraph::msgs::OrderingDirection::ASCENDING: {
+          ordering.push_back(Ordering::ASC);
+          break;
+        }
+        case memgraph::msgs::OrderingDirection::DESCENDING: {
+          ordering.push_back(Ordering::DESC);
+          break;
+        }
+      }
+    }
+    auto el_comparo = TypedValueVectorCompare(ordering);
+
+    for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
+      std::vector<TypedValue> properties_order_by;
+      properties_order_by.reserve(req.order_bys->size());
+
+      for (const auto &order_by : *req.order_bys) {
+        const auto vertex = *it;
+        const auto val = ComputeExpression(dba, vertex, std::nullopt, order_by.expression.expression,
+                                           expr::identifier_node_symbol, "");
+        properties_order_by.push_back(val);
+      }
+      ordered.push_back({std::move(properties_order_by), it});
+    }
+
+    std::sort(ordered.begin(), ordered.end(), [el_comparo](const auto &pair1, const auto &pair2) {
+      return el_comparo(pair1.properties_order_by, pair2.properties_order_by);
+    });
+  }
 
   // 3. Find start ids
   auto it = vertex_iterable.begin();
@@ -931,7 +1054,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     ++it;
   }
 
-  auto dba = DbAccessor{&acc};
   // 4. Start iterating
   for (; it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
