@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "query/v2/bindings/ast_visitor.hpp"
+#include "common/types.hpp"
 #include "query/v2/bindings/symbol.hpp"
 #include "query/v2/interpret/awesome_memgraph_functions.hpp"
 #include "query/v2/bindings/typed_value.hpp"

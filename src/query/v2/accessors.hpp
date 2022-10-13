@@ -30,6 +30,7 @@ using Edge = memgraph::msgs::Edge;
 using Vertex = memgraph::msgs::Vertex;
 using Label = memgraph::msgs::Label;
 using PropertyId = memgraph::msgs::PropertyId;
+using EdgeTypeId = memgraph::msgs::EdgeTypeId;
 
 class VertexAccessor;
 
@@ -37,7 +38,7 @@ class EdgeAccessor final {
  public:
   EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props);
 
-  uint64_t EdgeType() const;
+  EdgeTypeId EdgeType() const;
 
   std::vector<std::pair<PropertyId, Value>> Properties() const;
 

@@ -16,7 +16,6 @@
 
 #include <openssl/ec.h>
 #include "query/v2/requests.hpp"
-#include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 
@@ -56,10 +55,6 @@ class ShardRsm {
     return std::visit([&](auto &&request) mutable { return ApplyWrite(std::forward<decltype(request)>(request)); },
                       std::move(requests));
   }
-
- private:
-  static constexpr const char *node_name_ = "node";
-  static constexpr const char *edge_name_ = "edge";
 };
 
 }  // namespace memgraph::storage::v3
