@@ -25,9 +25,11 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/request_helper.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
@@ -123,198 +125,6 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
   }
 
   return ret;
-}
-
-memgraph::msgs::Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, View view) {
-  // Get the vertex id
-  auto prim_label = acc.PrimaryLabel(view).GetValue();
-  memgraph::msgs::Label value_label{.id = prim_label};
-
-  auto prim_key = ConvertValueVector(acc.PrimaryKey(view).GetValue());
-  memgraph::msgs::VertexId vertex_id = std::make_pair(value_label, prim_key);
-
-  // Get the labels
-  auto vertex_labels = acc.Labels(view).GetValue();
-  std::vector<memgraph::msgs::Label> value_labels;
-  value_labels.reserve(vertex_labels.size());
-
-  std::transform(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(value_labels),
-                 [](const auto &label) { return msgs::Label{.id = label}; });
-
-  return Value({.id = vertex_id, .labels = value_labels});
-}
-
-Value ConstructValueEdge(const memgraph::storage::v3::EdgeAccessor &acc, View view) {
-  memgraph::msgs::EdgeType type = {.id = acc.EdgeType().AsUint()};
-  memgraph::msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
-
-  Label src_prim_label = {.id = acc.FromVertex().primary_label};
-  memgraph::msgs::VertexId src_vertex =
-      std::make_pair(src_prim_label, ConvertValueVector(acc.FromVertex().primary_key));
-
-  Label dst_prim_label = {.id = acc.ToVertex().primary_label};
-  memgraph::msgs::VertexId dst_vertex = std::make_pair(dst_prim_label, ConvertValueVector(acc.ToVertex().primary_key));
-
-  std::optional<std::vector<std::pair<PropertyId, Value>>> properties_opt = {};
-  const auto &properties = acc.Properties(view);
-
-  if (properties.HasValue()) {
-    const auto &props = properties.GetValue();
-    std::vector<std::pair<PropertyId, Value>> present_properties;
-    present_properties.reserve(props.size());
-
-    std::transform(props.begin(), props.end(), std::back_inserter(present_properties),
-                   [](const auto &prop) { return std::make_pair(prop.first, FromPropertyValueToValue(prop.second)); });
-
-    properties_opt = std::move(present_properties);
-  }
-
-  return Value({.src = src_vertex, .dst = dst_vertex, .properties = properties_opt, .id = gid, .type = type});
-}
-
-Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
-  using memgraph::storage::v3::TypedValue;
-
-  switch (tv.type()) {
-    case TypedValue::Type::Bool:
-      return Value(tv.ValueBool());
-    case TypedValue::Type::Double:
-      return Value(tv.ValueDouble());
-    case TypedValue::Type::Int:
-      return Value(tv.ValueInt());
-    case TypedValue::Type::List: {
-      std::vector<Value> list;
-      auto &tv_list = tv.ValueList();
-      list.reserve(tv_list.size());
-      std::transform(tv_list.begin(), tv_list.end(), std::back_inserter(list),
-                     [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
-      return Value(list);
-    }
-    case TypedValue::Type::Map: {
-      std::map<std::string, Value> map;
-      for (auto &[key, val] : tv.ValueMap()) {
-        map.emplace(key, FromTypedValueToValue(std::move(val)));
-      }
-      return Value(map);
-    }
-    case TypedValue::Type::Null:
-      return Value{};
-    case TypedValue::Type::String:
-      return Value((std::string(tv.ValueString())));
-    case TypedValue::Type::Vertex:
-      return ConstructValueVertex(tv.ValueVertex(), View::OLD);
-    case TypedValue::Type::Edge:
-      return ConstructValueEdge(tv.ValueEdge(), View::OLD);
-
-    // TBD -> we need to specify temporal types, not a priority.
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::Duration:
-    case TypedValue::Type::Path: {
-      MG_ASSERT(false, "This conversion between TypedValue and Value is not implemented yet!");
-      break;
-    }
-  }
-  return Value{};
-}
-
-std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<memgraph::storage::v3::TypedValue> &&vec) {
-  std::vector<Value> ret;
-  ret.reserve(vec.size());
-
-  std::transform(vec.begin(), vec.end(), std::back_inserter(ret),
-                 [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
-  return ret;
-}
-
-std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor &dba) {
-  std::vector<PropertyId> properties;
-  properties.reserve(property_names.size());
-
-  for (const auto &name : property_names) {
-    properties.push_back(dba.NameToProperty(name));
-  }
-  return properties;
-}
-
-std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
-                                                          DbAccessor &dba) {
-  std::vector<memgraph::storage::v3::LabelId> labels;
-  labels.reserve(label_names.size());
-  for (const auto &name : label_names) {
-    labels.push_back(dba.NameToLabel(name));
-  }
-  return labels;
-}
-
-template <class TExpression>
-auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
-          memgraph::storage::v3::ExpressionEvaluator &eval, DbAccessor &dba) {
-  ctx.properties = NamesToProperties(storage.properties_, dba);
-  ctx.labels = NamesToLabels(storage.labels_, dba);
-  auto value = expr->Accept(eval);
-  return value;
-}
-
-std::vector<PropertyId> GetPropertiesFromAcessor(
-    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
-  std::vector<PropertyId> ret_properties;
-  ret_properties.reserve(properties.size());
-
-  std::transform(properties.begin(), properties.end(), std::back_inserter(ret_properties),
-                 [](const auto &prop) { return prop.first; });
-
-  return ret_properties;
-}
-
-std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
-  memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
-  ParsingContext pc;
-  CypherMainVisitor visitor(pc, &storage);
-
-  auto *ast = parser.tree();
-  return visitor.visit(ast);
-}
-
-TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc,
-                             const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
-                             const std::string &expression, std::string_view node_name, std::string_view edge_name) {
-  AstStorage storage;
-  Frame frame{128};
-  SymbolTable symbol_table;
-  EvaluationContext ctx;
-
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
-  auto expr = ParseExpression(expression, storage);
-
-  auto node_identifier = Identifier(std::string(node_name), false);
-  bool is_node_identifier_present = false;
-  auto edge_identifier = Identifier(std::string(edge_name), false);
-  bool is_edge_identifier_present = false;
-
-  std::vector<Identifier *> identifiers;
-
-  if (v_acc && expression.find(node_name) != std::string::npos) {
-    is_node_identifier_present = true;
-    identifiers.push_back(&node_identifier);
-  }
-  if (e_acc && expression.find(edge_name) != std::string::npos) {
-    is_edge_identifier_present = true;
-    identifiers.push_back(&edge_identifier);
-  }
-
-  expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
-  (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
-
-  if (is_node_identifier_present) {
-    frame[symbol_table.at(node_identifier)] = *v_acc;
-  }
-  if (is_edge_identifier_present) {
-    frame[symbol_table.at(edge_identifier)] = *e_acc;
-  }
-
-  return Eval(std::any_cast<Expression *>(expr), ctx, storage, eval, dba);
 }
 
 bool FilterOnVertex(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
@@ -652,8 +462,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     std::transform(new_vertex.label_ids.begin(), new_vertex.label_ids.end(), std::back_inserter(converted_label_ids),
                    [](const auto &label_id) { return label_id.id; });
 
-    // TODO(jbajic) sending primary key as vector breaks validation on storage side
-    // cannot map id -> value
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
                    [](const auto &val) { return ToPropertyValue(val); });
@@ -904,90 +712,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   return memgraph::msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
-bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
-  // in ordering null comes after everything else
-  // at the same time Null is not less that null
-  // first deal with Null < Whatever case
-  if (a.IsNull()) return false;
-  // now deal with NotNull < Null case
-  if (b.IsNull()) return true;
-
-  // comparisons are from this point legal only between values of
-  // the  same type, or int+float combinations
-  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
-    throw utils::BasicException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
-  switch (a.type()) {
-    case TypedValue::Type::Bool:
-      return !a.ValueBool() && b.ValueBool();
-    case TypedValue::Type::Int:
-      if (b.type() == TypedValue::Type::Double)
-        return a.ValueInt() < b.ValueDouble();
-      else
-        return a.ValueInt() < b.ValueInt();
-    case TypedValue::Type::Double:
-      if (b.type() == TypedValue::Type::Int)
-        return a.ValueDouble() < b.ValueInt();
-      else
-        return a.ValueDouble() < b.ValueDouble();
-    case TypedValue::Type::String:
-      // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueString() < b.ValueString();
-    case TypedValue::Type::Date:
-      // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueDate() < b.ValueDate();
-    case TypedValue::Type::LocalTime:
-      // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueLocalTime() < b.ValueLocalTime();
-    case TypedValue::Type::LocalDateTime:
-      // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueLocalDateTime() < b.ValueLocalDateTime();
-    case TypedValue::Type::Duration:
-      // NOLINTNEXTLINE(modernize-use-nullptr)
-      return a.ValueDuration() < b.ValueDuration();
-    case TypedValue::Type::List:
-    case TypedValue::Type::Map:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::Path:
-      throw utils::BasicException("Comparison is not defined for values of type {}.", a.type());
-    case TypedValue::Type::Null:
-      LOG_FATAL("Invalid type");
-  }
-}
-
-class TypedValueVectorCompare final {
- public:
-  explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
-
-  bool operator()(const std::vector<TypedValue> &c1, const std::vector<TypedValue> &c2) const {
-    // ordering is invalid if there are more elements in the collections
-    // then there are in the ordering_ vector
-    MG_ASSERT(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
-              "Collections contain more elements then there are orderings");
-
-    auto c1_it = c1.begin();
-    auto c2_it = c2.begin();
-    auto ordering_it = ordering_.begin();
-    for (; c1_it != c1.end() && c2_it != c2.end(); c1_it++, c2_it++, ordering_it++) {
-      if (TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
-      if (TypedValueCompare(*c2_it, *c1_it)) return *ordering_it == Ordering::DESC;
-    }
-
-    // at least one collection is exhausted
-    // c1 is less then c2 iff c1 reached the end but c2 didn't
-    return (c1_it == c1.end()) && (c2_it != c2.end());
-  }
-
- private:
-  std::vector<Ordering> ordering_;
-};
-
-struct Element {
-  std::vector<TypedValue> properties_order_by;
-  VerticesIterable::Iterator vertex_it;
-};
-
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
@@ -998,55 +722,19 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   }
   std::optional<memgraph::msgs::VertexId> next_start_id;
 
-  const auto view = View(req.storage_view);
-  auto vertex_iterable = acc.Vertices(view);
-  uint64_t sample_counter{0};
-
-  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
-  auto dba = DbAccessor{&acc};
-
   // 2. We order vertices according to the expression and sorting order
   //   2.1. Need comparison function between TypedValues
   //   2.2. Need Sorting of vector of TypedValues (probably can use utils)
+  const auto view = View(req.storage_view);
+  auto vertex_iterable = acc.Vertices(view);
+  auto dba = DbAccessor{&acc};
+  auto it = vertex_iterable.begin();
   if (req.order_bys) {
-    std::vector<Element> ordered;
-    ordered.reserve(acc.ApproximateVertexCount());
-    std::vector<Ordering> ordering;
-    ordering.reserve(req.order_bys->size());
-    for (const auto order : *req.order_bys) {
-      switch (order.direction) {
-        case memgraph::msgs::OrderingDirection::ASCENDING: {
-          ordering.push_back(Ordering::ASC);
-          break;
-        }
-        case memgraph::msgs::OrderingDirection::DESCENDING: {
-          ordering.push_back(Ordering::DESC);
-          break;
-        }
-      }
-    }
-    auto el_comparo = TypedValueVectorCompare(ordering);
-
-    for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
-      std::vector<TypedValue> properties_order_by;
-      properties_order_by.reserve(req.order_bys->size());
-
-      for (const auto &order_by : *req.order_bys) {
-        const auto vertex = *it;
-        const auto val = ComputeExpression(dba, vertex, std::nullopt, order_by.expression.expression,
-                                           expr::identifier_node_symbol, "");
-        properties_order_by.push_back(val);
-      }
-      ordered.push_back({std::move(properties_order_by), it});
-    }
-
-    std::sort(ordered.begin(), ordered.end(), [el_comparo](const auto &pair1, const auto &pair2) {
-      return el_comparo(pair1.properties_order_by, pair2.properties_order_by);
-    });
+    auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
   }
 
   // 3. Find start ids
-  auto it = vertex_iterable.begin();
+  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
   while (it != vertex_iterable.end()) {
     if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
       break;
@@ -1055,6 +743,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   }
 
   // 4. Start iterating
+  uint64_t sample_counter{0};
   for (; it != vertex_iterable.end(); ++it) {
     const auto &vertex = *it;
 
