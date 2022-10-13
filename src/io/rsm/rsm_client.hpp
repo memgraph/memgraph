@@ -88,6 +88,7 @@ class RsmClient {
   RsmClient &operator=(RsmClient &&) noexcept = default;
 
   RsmClient() = delete;
+  ~RsmClient() = default;
 
   BasicResult<TimedOut, WriteResponseT> SendWriteRequest(WriteRequestT req) {
     WriteRequest<WriteRequestT> client_req;
@@ -155,16 +156,15 @@ class RsmClient {
   }
 
   /// AsyncRead methods
-  void SendAsyncReadRequest(ReadRequestT req) {
+  void SendAsyncReadRequest(const ReadRequestT &req) {
     MG_ASSERT(!async_read_);
 
-    ReadRequest<ReadRequestT> read_req;
-    read_req.operation = req;
+    ReadRequest<ReadRequestT> read_req = {.operation = req};
 
     if (!async_read_before_) {
       async_read_before_ = io_.Now();
     }
-    current_read_request_ = req;
+    current_read_request_ = std::move(req);
     async_read_ = io_.template Request<ReadRequest<ReadRequestT>, ReadResponse<ReadResponseT>>(leader_, read_req);
   }
 
@@ -210,16 +210,15 @@ class RsmClient {
   }
 
   /// AsyncWrite methods
-  void SendAsyncWriteRequest(WriteRequestT req) {
+  void SendAsyncWriteRequest(const WriteRequestT &req) {
     MG_ASSERT(!async_write_);
 
-    WriteRequest<WriteRequestT> write_req;
-    write_req.operation = req;
+    WriteRequest<WriteRequestT> write_req = {.operation = req};
 
     if (!async_write_before_) {
       async_write_before_ = io_.Now();
     }
-    current_write_request_ = req;
+    current_write_request_ = std::move(req);
     async_write_ = io_.template Request<WriteRequest<WriteRequestT>, WriteResponse<WriteResponseT>>(leader_, write_req);
   }
 
