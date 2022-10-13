@@ -189,7 +189,6 @@ Value FromTypedValueToValue(memgraph::storage::v3::TypedValue &&tv) {
       return Value(list);
     }
     case TypedValue::Type::Map: {
-      auto &tv_map = tv.ValueMap();
       std::map<std::string, Value> map;
       for (auto &[key, val] : tv.ValueMap()) {
         map.emplace(key, FromTypedValueToValue(std::move(val)));
