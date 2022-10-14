@@ -174,60 +174,24 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   // TODO(kostasrim) Simplify return result
-    std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
-      MaybeInitializeExecutionState(state);
-      std::vector<ScanVerticesResponse> responses;
-  
-      SendAllRequests(state);
-      auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
-        return std::ranges::all_of(paginated_rsp_tracker, [](const auto &state) {
-           return state.second == PaginatedResponseState::PartiallyFinished;
-        });
-      };
-
-      std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-      for (const auto &shard : state.shard_cache) {
-        paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
-      }   
-      do {
-        AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
-      } while (all_requests_gathered(paginated_response_tracker));
-  
-      MaybeCompleteState(state);
-      // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
-      // result of storage_client.SendReadRequest()).
-      return PostProcess(std::move(responses));
-    }
-
+  std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
-    // Outer loop to make sure we are handling the paginated responses as well.
-    while (!state.shard_cache.empty()) {
-      // 1. Send the requests.
-      SendAllRequests(state);
+    SendAllRequests(state);
+    auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
+      return std::ranges::all_of(paginated_rsp_tracker, [](const auto &state) {
+        return state.second == PaginatedResponseState::PartiallyFinished;
+      });
+    };
 
-      std::map<Shard, PaginatedResponseState> paginated_response_tracker;
-      for (auto shard_it = state.shard_cache.begin(); shard_it != state.shard_cache.end(); ++shard_it) {
-        paginated_response_tracker.insert(std::make_pair(*shard_it, PaginatedResponseState::Pending));
-      }
-
-      // 2. Loop on poll
-      bool should_resend_paginated_responses = false;
-      do {
-        bool at_least_one_result = PollOnRequests(state, responses, paginated_response_tracker);
-        should_resend_paginated_responses = std::all_of(
-            paginated_response_tracker.begin(), paginated_response_tracker.end(), [](const auto &pag_resp_state) {
-              return pag_resp_state.second == PaginatedResponseState::PartiallyFinished;
-            });
-
-        if (!at_least_one_result && !state.shard_cache.empty()) {
-          // 3. Await on the first req if none of the futures have
-          //    been filled yet.
-          AwaitOnFirstRequest(state, responses, paginated_response_tracker);
-        }
-      } while (!state.shard_cache.empty() || should_resend_paginated_responses);
+    std::map<Shard, PaginatedResponseState> paginated_response_tracker;
+    for (const auto &shard : state.shard_cache) {
+      paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
     }
+    do {
+      AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
+    } while (all_requests_gathered(paginated_response_tracker));
 
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
@@ -462,7 +426,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-
   bool PollOnRequests(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
     size_t id = 0;
@@ -535,51 +498,52 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return at_least_one_result;
   }
 
-  void AwaitOnFirstRequest(ExecutionState<ScanVerticesRequest> &state, std::vector<ScanVerticesResponse> &responses,
-      auto &shard_cache_ref = state.shard_cache;
-  
-      // Find the first request that is not holding a paginated response.
-      size_t request_idx = 0;
-      auto shard_it = shard_cache_ref.begin();
-      for (;shard_it != shard_cache_ref.end(); ++shard_it, ++request_idx) {
-        if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
-          continue;
-        }
-  
-        auto &storage_client = GetStorageClientForShard(
-            *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
-        auto await_result = storage_client.AwaitAsyncReadRequest();
-  
-        if (!await_result) {
-          // Redirection has occured.
-          continue;
-        }
-  
-        if (await_result->HasError()) {
-          throw std::runtime_error("ScanAll request timed out");
-        }
-  
-        ReadResponses read_response_variant = await_result->GetValue();
-        auto response = std::get<ScanVerticesResponse>(read_response_variant);
-        if (!response.success) {
-          throw std::runtime_error("ScanAll request did not succeed");
-        }
-  
-        if (!response.next_start_id) {
-          shard_cache_ref.erase(shard_it);
-          //Needed to maintain the 1-1 mapping between the ShardCache and the requests.
-          auto it = state.requests.begin() + request_idx;
-          state.requests.erase(it);
-          --request_idx;
+  void AwaitOnPaginatedRequests(ExecutionState<ScanVerticesRequest> &state,
+                                std::vector<ScanVerticesResponse> &responses,
+                                std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
+    auto &shard_cache_ref = state.shard_cache;
 
-        } else {
-          state.requests[request_idx].start_id.second = response.next_start_id->second;
-        }
-        paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
-  
-        responses.push_back(std::move(response));
+    // Find the first request that is not holding a paginated response.
+    size_t request_idx = 0;
+    auto shard_it = shard_cache_ref.begin();
+    for (; shard_it != shard_cache_ref.end(); ++shard_it, ++request_idx) {
+      if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
+        continue;
       }
 
+      auto &storage_client = GetStorageClientForShard(
+          *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
+      auto await_result = storage_client.AwaitAsyncReadRequest();
+
+      if (!await_result) {
+        // Redirection has occured.
+        continue;
+      }
+
+      if (await_result->HasError()) {
+        throw std::runtime_error("ScanAll request timed out");
+      }
+
+      ReadResponses read_response_variant = await_result->GetValue();
+      auto response = std::get<ScanVerticesResponse>(read_response_variant);
+      if (!response.success) {
+        throw std::runtime_error("ScanAll request did not succeed");
+      }
+
+      if (!response.next_start_id) {
+        shard_cache_ref.erase(shard_it);
+        // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+        auto it = state.requests.begin() + request_idx;
+        state.requests.erase(it);
+        --request_idx;
+
+      } else {
+        state.requests[request_idx].start_id.second = response.next_start_id->second;
+      }
+      paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
+
+      responses.push_back(std::move(response));
+    }
   }
 
   void AwaitOnFirstRequest(ExecutionState<CreateVerticesRequest> &state,
