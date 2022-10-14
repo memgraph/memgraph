@@ -36,11 +36,13 @@ inline bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
       return !a.ValueBool() && b.ValueBool();
     case TypedValue::Type::Int:
       if (b.type() == TypedValue::Type::Double)
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         return a.ValueInt() < b.ValueDouble();
       else
         return a.ValueInt() < b.ValueInt();
     case TypedValue::Type::Double:
       if (b.type() == TypedValue::Type::Int)
+        // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
         return a.ValueDouble() < b.ValueInt();
       else
         return a.ValueDouble() < b.ValueDouble();
@@ -102,7 +104,7 @@ struct Element {
   VertexAccessor vertex_acc;
 };
 
-std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertex_iterable,
+std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertices_iterable,
                                      std::vector<msgs::OrderBy> &order_bys);
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
