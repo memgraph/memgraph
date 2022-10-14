@@ -712,6 +712,29 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
   return memgraph::msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
+VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
+                                                  const std::vector<PropertyValue> start_ids, const View view) {
+  auto it = vertex_iterable.begin();
+  while (it != vertex_iterable.end()) {
+    if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+      break;
+    }
+    ++it;
+  }
+  return it;
+}
+
+std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
+                                                                     const std::vector<PropertyValue> start_ids,
+                                                                     const View view) {
+  for (auto it = ordered_elements.begin(); it != ordered_elements.end(); ++it) {
+    if (const auto &vertex = *it->vertex_it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+      return it;
+    }
+  }
+  return ordered_elements.end();
+}
+
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
@@ -722,44 +745,21 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   }
   std::optional<memgraph::msgs::VertexId> next_start_id;
 
-  // 2. We order vertices according to the expression and sorting order
-  //   2.1. Need comparison function between TypedValues
-  //   2.2. Need Sorting of vector of TypedValues (probably can use utils)
   const auto view = View(req.storage_view);
-  auto vertex_iterable = acc.Vertices(view);
   auto dba = DbAccessor{&acc};
-  auto it = vertex_iterable.begin();
-  if (req.order_bys) {
-    auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
-  }
-
-  // 3. Find start ids
-  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
-  while (it != vertex_iterable.end()) {
-    if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
-      break;
-    }
-    ++it;
-  }
-
-  // 4. Start iterating
-  uint64_t sample_counter{0};
-  for (; it != vertex_iterable.end(); ++it) {
-    const auto &vertex = *it;
-
+  const auto emplace_scan_result = [&](const VertexAccessor &vertex) {
     std::vector<Value> expression_results;
     // TODO(gvolfing) it should be enough to check these only once.
     if (vertex.Properties(View(req.storage_view)).HasError()) {
       action_successful = false;
       spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
                     req.transaction_id.logical_id);
-      break;
     }
     if (req.filter_expressions) {
       // NOTE - DbAccessor might get removed in the future.
       const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), expr::identifier_node_symbol);
       if (!eval) {
-        continue;
+        return;
       }
     }
     if (req.vertex_expressions) {
@@ -782,23 +782,107 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     // Is it useful to return just a vertex without the properties?
     if (!found_props) {
       action_successful = false;
-      break;
     }
 
     results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
                                              .props = FromMap(found_props.value()),
                                              .evaluated_vertex_expressions = std::move(expression_results)});
+  };
 
-    ++sample_counter;
-    if (req.batch_limit && sample_counter == req.batch_limit) {
-      // Reached the maximum specified batch size.
-      // Get the next element before exiting.
-      const auto &next_vertex = *(++it);
-      next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+  const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
+  uint64_t sample_counter{0};
+  auto vertex_iterable = acc.Vertices(view);
+  if (req.order_bys) {
+    const auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
+    // we are traversing Elements
+    auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
+    for (; it != ordered.end(); ++it) {
+      emplace_scan_result(*it->vertex_it);
+      ++sample_counter;
+      if (req.batch_limit && sample_counter == req.batch_limit) {
+        // Reached the maximum specified batch size.
+        // Get the next element before exiting.
+        const auto &next_vertex = *(++it)->vertex_it;
+        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
 
-      break;
+        break;
+      }
+    }
+  } else {
+    // We are going through VerticesIterable::Iterator
+    auto it = GetStartVertexIterator(vertex_iterable, start_id, View(req.storage_view));
+    for (; it != vertex_iterable.end(); ++it) {
+      emplace_scan_result(*it);
+      ++sample_counter;
+      if (req.batch_limit && sample_counter == req.batch_limit) {
+        // Reached the maximum specified batch size.
+        // Get the next element before exiting.
+        const auto &next_vertex = *(++it);
+        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+
+        break;
+      }
     }
   }
+
+  // const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
+  // auto it = GetStartIterator(vertex_iterable, start_id, View(req.storage_view));
+  // uint64_t sample_counter{0};
+  // for (; it != vertex_iterable.end(); ++it) {
+  //   const auto &vertex = *it;
+
+  //   std::vector<Value> expression_results;
+  //   // TODO(gvolfing) it should be enough to check these only once.
+  //   if (vertex.Properties(View(req.storage_view)).HasError()) {
+  //     action_successful = false;
+  //     spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
+  //                   req.transaction_id.logical_id);
+  //     break;
+  //   }
+  //   if (req.filter_expressions) {
+  //     // NOTE - DbAccessor might get removed in the future.
+  //     const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), expr::identifier_node_symbol);
+  //     if (!eval) {
+  //       continue;
+  //     }
+  //   }
+  //   if (req.vertex_expressions) {
+  //     // NOTE - DbAccessor might get removed in the future.
+  //     expression_results = ConvertToValueVectorFromTypedValueVector(
+  //         EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), expr::identifier_node_symbol));
+  //   }
+
+  //   std::optional<std::map<PropertyId, Value>> found_props;
+
+  //   if (req.props_to_return) {
+  //     found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+  //   } else {
+  //     const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
+  //     found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
+  //   }
+
+  //   // TODO(gvolfing) -VERIFY-
+  //   // Vertex is separated from the properties in the response.
+  //   // Is it useful to return just a vertex without the properties?
+  //   if (!found_props) {
+  //     action_successful = false;
+  //     break;
+  //   }
+
+  //   results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+  //                                            .props = FromMap(found_props.value()),
+  //                                            .evaluated_vertex_expressions = std::move(expression_results)});
+
+  //   ++sample_counter;
+  //   if (req.batch_limit && sample_counter == req.batch_limit) {
+  //     // Reached the maximum specified batch size.
+  //     // Get the next element before exiting.
+  //     const auto &next_vertex = *(++it);
+  //     next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+
+  //     break;
+  //   }
+  // }
 
   memgraph::msgs::ScanVerticesResponse resp;
   resp.success = action_successful;
