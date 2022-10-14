@@ -56,4 +56,28 @@ std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, Vert
   });
   return ordered;
 }
+
+VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
+                                                  const std::vector<PropertyValue> &start_ids, const View view) {
+  auto it = vertex_iterable.begin();
+  while (it != vertex_iterable.end()) {
+    if (const auto &vertex = *it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+      break;
+    }
+    ++it;
+  }
+  return it;
+}
+
+std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
+                                                                     const std::vector<PropertyValue> &start_ids,
+                                                                     const View view) {
+  for (auto it = ordered_elements.begin(); it != ordered_elements.end(); ++it) {
+    if (const auto &vertex = *it->vertex_it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+      return it;
+    }
+  }
+  return ordered_elements.end();
+}
+
 }  // namespace memgraph::storage::v3

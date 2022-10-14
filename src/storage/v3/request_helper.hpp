@@ -104,4 +104,10 @@ struct Element {
 std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertex_iterable,
                                      std::vector<msgs::OrderBy> &order_bys);
 
+VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
+                                                  const std::vector<PropertyValue> &start_ids, View view);
+
+std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
+                                                                     const std::vector<PropertyValue> &start_ids,
+                                                                     View view);
 }  // namespace memgraph::storage::v3
