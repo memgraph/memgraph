@@ -11,9 +11,16 @@
 
 #pragma once
 
-#ifdef MG_AST_INCLUDE_PATH
-#error You are probably trying to include files from expr from both the storage and query engines! You will have a rought time kid!
-#endif
+#include "utils/exceptions.hpp"
 
-#define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
-#define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2       // NOLINT(cppcoreguidelines-macro-usage)
+namespace memgraph::expr {
+/**
+ * An exception raised by the TypedValue system. Typically when
+ * trying to perform operations (such as addition) on TypedValues
+ * of incompatible Types.
+ */
+class TypedValueException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+}  // namespace memgraph::expr

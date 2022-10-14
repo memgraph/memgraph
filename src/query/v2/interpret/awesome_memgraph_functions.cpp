@@ -24,9 +24,6 @@
 #include "query/v2/conversions.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "query/v2/exceptions.hpp"
-#include "query/v2/procedure/cypher_types.hpp"
-//#include "query/v2/procedure/mg_procedure_impl.hpp"
-//#include "query/v2/procedure/module.hpp"
 #include "storage/v3/conversions.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -415,48 +412,6 @@ TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContex
   return TypedValue(args[0].ValueEdge().From(), ctx.memory);
 }
 
-namespace {
-
-size_t UnwrapDegreeResult(storage::v3::Result<size_t> maybe_degree) {
-  if (maybe_degree.HasError()) {
-    switch (maybe_degree.GetError()) {
-      case storage::v3::Error::DELETED_OBJECT:
-        throw QueryRuntimeException("Trying to get degree of a deleted node.");
-      case storage::v3::Error::NONEXISTENT_OBJECT:
-        throw query::v2::QueryRuntimeException("Trying to get degree of a node that doesn't exist.");
-      case storage::v3::Error::SERIALIZATION_ERROR:
-      case storage::v3::Error::VERTEX_HAS_EDGES:
-      case storage::v3::Error::PROPERTIES_DISABLED:
-        throw QueryRuntimeException("Unexpected error when getting node degree.");
-    }
-  }
-  return *maybe_degree;
-}
-
-}  // namespace
-
-TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex>>("degree", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  // TODO(kostasrim) Fix dummy values
-  return TypedValue(int64_t(0), ctx.memory);
-}
-
-TypedValue InDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex>>("inDegree", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  return TypedValue(int64_t(0), ctx.memory);
-}
-
-TypedValue OutDegree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex>>("outDegree", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  const auto &vertex = args[0].ValueVertex();
-  return TypedValue(int64_t(0), ctx.memory);
-}
-
 TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, String>>("toBoolean", args, nargs);
   const auto &value = args[0];
@@ -518,9 +473,8 @@ TypedValue ToInteger(const TypedValue *args, int64_t nargs, const FunctionContex
 
 TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Edge>>("type", args, nargs);
-  auto *dba = ctx.db_accessor;
   if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return TypedValue(static_cast<int64_t>(args[0].ValueEdge().EdgeType()), ctx.memory);
+  return TypedValue(args[0].ValueEdge().EdgeType().AsInt(), ctx.memory);
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -557,30 +511,6 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
   }
-}
-
-// TODO: How is Keys different from Properties function?
-TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext & /*ctx*/) {
-  FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
-  return {};
-}
-
-TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex>>("labels", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return {};
-}
-
-TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Path>>("nodes", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return {};
-}
-
-TypedValue Relationships(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Path>>("relationships", args, nargs);
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  return {};
 }
 
 TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1098,9 +1028,6 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
     const std::string &function_name) {
   // Scalar functions
-  if (function_name == "DEGREE") return Degree;
-  if (function_name == "INDEGREE") return InDegree;
-  if (function_name == "OUTDEGREE") return OutDegree;
   if (function_name == "ENDNODE") return EndNode;
   if (function_name == "HEAD") return Head;
   if (function_name == kId) return Id;
@@ -1116,11 +1043,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "VALUETYPE") return ValueType;
 
   // List functions
-  if (function_name == "KEYS") return Keys;
-  if (function_name == "LABELS") return Labels;
-  if (function_name == "NODES") return Nodes;
   if (function_name == "RANGE") return Range;
-  if (function_name == "RELATIONSHIPS") return Relationships;
   if (function_name == "TAIL") return Tail;
   if (function_name == "UNIFORMSAMPLE") return UniformSample;
 

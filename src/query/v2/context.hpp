@@ -13,6 +13,7 @@
 
 #include <type_traits>
 
+#include "io/local_transport/local_transport.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
 #include "query/v2/common.hpp"
 #include "query/v2/metadata.hpp"
@@ -42,21 +43,28 @@ struct EvaluationContext {
   mutable std::unordered_map<std::string, int64_t> counters;
 };
 
-inline std::vector<storage::v3::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
-                                                              DbAccessor *dba) {
+inline std::vector<storage::v3::PropertyId> NamesToProperties(
+    const std::vector<std::string> &property_names, msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::PropertyId> properties;
+  // TODO Fix by using reference
   properties.reserve(property_names.size());
-  for (const auto &name : property_names) {
-    properties.push_back(dba->NameToProperty(name));
+  if (shard_request_manager != nullptr) {
+    for (const auto &name : property_names) {
+      properties.push_back(shard_request_manager->NameToProperty(name));
+    }
   }
   return properties;
 }
 
-inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba) {
+inline std::vector<storage::v3::LabelId> NamesToLabels(const std::vector<std::string> &label_names,
+                                                       msgs::ShardRequestManagerInterface *shard_request_manager) {
   std::vector<storage::v3::LabelId> labels;
   labels.reserve(label_names.size());
-  for (const auto &name : label_names) {
-    labels.push_back(dba->NameToLabel(name));
+  // TODO Fix by using reference
+  if (shard_request_manager != nullptr) {
+    for (const auto &name : label_names) {
+      labels.push_back(shard_request_manager->LabelNameToLabelId(name));
+    }
   }
   return labels;
 }
@@ -73,7 +81,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   //  TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
-  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager{nullptr};
+  msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

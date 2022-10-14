@@ -9,15 +9,35 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <functional>
 #include <iterator>
 #include <utility>
 
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/bindings/ast/ast.hpp"
+#include "storage/v3/bindings/cypher_main_visitor.hpp"
+#include "storage/v3/bindings/db_accessor.hpp"
+#include "storage/v3/bindings/eval.hpp"
+#include "storage/v3/bindings/frame.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
+#include "storage/v3/bindings/symbol_generator.hpp"
+#include "storage/v3/bindings/symbol_table.hpp"
+#include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/expr.hpp"
+#include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
+#include "storage/v3/property_value.hpp"
+#include "storage/v3/request_helper.hpp"
+#include "storage/v3/schemas.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
+#include "storage/v3/view.hpp"
+#include "utils/exceptions.hpp"
 
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
@@ -27,18 +47,20 @@ using memgraph::msgs::VertexId;
 
 using memgraph::storage::conversions::ConvertPropertyVector;
 using memgraph::storage::conversions::ConvertValueVector;
+using memgraph::storage::conversions::FromPropertyValueToValue;
 using memgraph::storage::conversions::ToPropertyValue;
-using memgraph::storage::conversions::ToValue;
+using memgraph::storage::v3::View;
 
-namespace {
+namespace memgraph::storage::v3 {
+
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
   ret.reserve(properties.size());
 
-  for (auto &[key, value] : properties) {
-    ret.emplace_back(std::make_pair(key, ToPropertyValue(std::move(value))));
-  }
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret), [](auto &&property) {
+    return std::make_pair(property.first, ToPropertyValue(std::move(property.second)));
+  });
 
   return ret;
 }
@@ -48,16 +70,15 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> FromMap(
   std::vector<std::pair<memgraph::storage::v3::PropertyId, Value>> ret;
   ret.reserve(properties.size());
 
-  for (const auto &[key, value] : properties) {
-    ret.emplace_back(std::make_pair(key, value));
-  }
+  std::transform(properties.begin(), properties.end(), std::back_inserter(ret),
+                 [](const auto &property) { return std::make_pair(property.first, property.second); });
 
   return ret;
 }
 
 std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor(
     const memgraph::storage::v3::VertexAccessor &acc, const std::vector<memgraph::storage::v3::PropertyId> &props,
-    memgraph::storage::v3::View view) {
+    View view) {
   std::map<PropertyId, Value> ret;
 
   for (const auto &prop : props) {
@@ -71,45 +92,61 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
       spdlog::debug("The specified property does not exist but it should");
       return std::nullopt;
     }
-    ret.emplace(std::make_pair(prop, ToValue(value)));
+    ret.emplace(std::make_pair(prop, FromPropertyValueToValue(value)));
   }
 
   return ret;
 }
 
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
-    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
+    const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view,
+    const memgraph::storage::v3::Schemas::Schema *schema) {
   std::map<PropertyId, Value> ret;
-  auto iter = acc.Properties(view);
-  if (iter.HasError()) {
+  auto props = acc.Properties(view);
+  if (props.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex properties.");
     return std::nullopt;
   }
 
-  for (const auto &[prop_key, prop_val] : iter.GetValue()) {
-    ret.emplace(prop_key, ToValue(prop_val));
+  const auto &properties = props.GetValue();
+  std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.begin()), [](const auto &property) {
+    return std::make_pair(property.first, FromPropertyValueToValue(property.second));
+  });
+
+  auto maybe_pk = acc.PrimaryKey(view);
+  if (maybe_pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex primary key.");
+  }
+
+  const auto pk = maybe_pk.GetValue();
+  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(pk[i]));
   }
 
   return ret;
 }
 
-Value ConstructValueVertex(const memgraph::storage::v3::VertexAccessor &acc, memgraph::storage::v3::View view) {
-  // Get the vertex id
-  auto prim_label = acc.PrimaryLabel(view).GetValue();
-  Label value_label{.id = prim_label};
+bool FilterOnVertex(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
+                    const std::vector<std::string> &filters, const std::string_view node_name) {
+  return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
+    auto res = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "");
+    return res.IsBool() && res.ValueBool();
+  });
+}
 
-  auto prim_key = ConvertValueVector(acc.PrimaryKey(view).GetValue());
-  VertexId vertex_id = std::make_pair(value_label, prim_key);
+std::vector<memgraph::storage::v3::TypedValue> EvaluateVertexExpressions(
+    DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &expressions,
+    std::string_view node_name) {
+  std::vector<memgraph::storage::v3::TypedValue> evaluated_expressions;
+  evaluated_expressions.reserve(expressions.size());
 
-  // Get the labels
-  auto vertex_labels = acc.Labels(view).GetValue();
-  std::vector<Label> value_labels;
-  for (const auto &label : vertex_labels) {
-    Label l = {.id = label};
-    value_labels.push_back(l);
-  }
+  std::transform(expressions.begin(), expressions.end(), std::back_inserter(evaluated_expressions),
+                 [&dba, &v_acc, &node_name](const auto &expression) {
+                   return ComputeExpression(dba, v_acc, std::nullopt, expression, node_name, "");
+                 });
 
-  return Value({.id = vertex_id, .labels = value_labels});
+  return evaluated_expressions;
 }
 
 bool DoesEdgeTypeMatch(const memgraph::msgs::ExpandOneRequest &req, const memgraph::storage::v3::EdgeAccessor &edge) {
@@ -129,19 +166,21 @@ struct LocalError {};
 std::optional<memgraph::msgs::Vertex> FillUpSourceVertex(
     const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req,
     memgraph::msgs::VertexId src_vertex) {
-  auto secondary_labels = v_acc->Labels(memgraph::storage::v3::View::OLD);
+  auto secondary_labels = v_acc->Labels(View::OLD);
   if (secondary_labels.HasError()) {
     spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
                   req.transaction_id.logical_id);
     return std::nullopt;
   }
 
+  auto &sec_labels = secondary_labels.GetValue();
   memgraph::msgs::Vertex source_vertex;
   source_vertex.id = src_vertex;
-  source_vertex.labels.reserve(secondary_labels.GetValue().size());
-  for (auto label_id : secondary_labels.GetValue()) {
-    source_vertex.labels.emplace_back(memgraph::msgs::Label{.id = label_id});
-  }
+  source_vertex.labels.reserve(sec_labels.size());
+
+  std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(source_vertex.labels),
+                 [](auto label_id) { return memgraph::msgs::Label{.id = label_id}; });
+
   return source_vertex;
 }
 
@@ -150,7 +189,7 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
-    auto props = v_acc->Properties(memgraph::storage::v3::View::OLD);
+    auto props = v_acc->Properties(View::OLD);
     if (props.HasError()) {
       spdlog::debug("Encountered an error while trying to access vertex properties. Transaction id: {}",
                     req.transaction_id.logical_id);
@@ -158,16 +197,18 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
     }
 
     for (auto &[key, val] : props.GetValue()) {
-      src_vertex_properties.insert(std::make_pair(key, ToValue(val)));
+      src_vertex_properties.insert(std::make_pair(key, FromPropertyValueToValue(val)));
     }
 
   } else if (req.src_vertex_properties.value().empty()) {
     // NOOP
   } else {
-    for (const auto &prop : req.src_vertex_properties.value()) {
-      const auto &prop_val = v_acc->GetProperty(prop, memgraph::storage::v3::View::OLD);
-      src_vertex_properties.insert(std::make_pair(prop, ToValue(prop_val.GetValue())));
-    }
+    auto &vertex_props = req.src_vertex_properties.value();
+    std::transform(vertex_props.begin(), vertex_props.end(),
+                   std::inserter(src_vertex_properties, src_vertex_properties.begin()), [&v_acc](const auto &prop) {
+                     const auto &prop_val = v_acc->GetProperty(prop, View::OLD);
+                     return std::make_pair(prop, FromPropertyValueToValue(prop_val.GetValue()));
+                   });
   }
 
   return src_vertex_properties;
@@ -180,7 +221,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
 
   switch (req.direction) {
     case memgraph::msgs::EdgeDirection::OUT: {
-      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      auto out_edges_result = v_acc->OutEdges(View::OLD);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -190,7 +231,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
-      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      auto in_edges_result = v_acc->InEdges(View::OLD);
       if (in_edges_result.HasError()) {
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
@@ -201,7 +242,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
-      auto in_edges_result = v_acc->InEdges(memgraph::storage::v3::View::OLD);
+      auto in_edges_result = v_acc->InEdges(View::OLD);
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -209,7 +250,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
       }
       in_edges = std::move(in_edges_result.GetValue());
 
-      auto out_edges_result = v_acc->OutEdges(memgraph::storage::v3::View::OLD);
+      auto out_edges_result = v_acc->OutEdges(View::OLD);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -301,7 +342,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
   if (!req.edge_properties) {
     get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
       std::map<PropertyId, memgraph::msgs::Value> ret;
-      auto property_results = edge.Properties(memgraph::storage::v3::View::OLD);
+      auto property_results = edge.Properties(View::OLD);
       if (property_results.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -309,7 +350,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       }
 
       for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
-        ret.insert(std::make_pair(prop_key, ToValue(prop_val)));
+        ret.insert(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
       }
       return ret;
     };
@@ -320,14 +361,14 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       ret.reserve(req.edge_properties.value().size());
       for (const auto &edge_prop : req.edge_properties.value()) {
         // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.emplace_back(ToValue(edge.GetProperty(edge_prop, memgraph::storage::v3::View::OLD).GetValue()));
+        ret.emplace_back(FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
       }
       return ret;
     };
   }
 
   /// Fill up source vertex
-  auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), memgraph::storage::v3::View::OLD);
+  auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
 
   auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
   if (!source_vertex) {
@@ -399,16 +440,8 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       .edges_with_specific_properties = std::move(edges_with_specific_properties)};
 }
 
-}  // namespace
-
-namespace memgraph::storage::v3 {
-
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
-
-  // Workaround untill we have access to CreateVertexAndValidate()
-  // with the new signature that does not require the primary label.
-  const auto prim_label = acc.GetPrimaryLabel();
 
   bool action_successful = true;
 
@@ -425,13 +458,14 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     // TODO(gvolfing) make sure if this conversion is actually needed.
     std::vector<memgraph::storage::v3::LabelId> converted_label_ids;
     converted_label_ids.reserve(new_vertex.label_ids.size());
-    for (const auto &label_id : new_vertex.label_ids) {
-      converted_label_ids.emplace_back(label_id.id);
-    }
 
-    auto result_schema =
-        acc.CreateVertexAndValidate(prim_label, converted_label_ids,
-                                    ConvertPropertyVector(std::move(new_vertex.primary_key)), converted_property_map);
+    std::transform(new_vertex.label_ids.begin(), new_vertex.label_ids.end(), std::back_inserter(converted_label_ids),
+                   [](const auto &label_id) { return label_id.id; });
+
+    PrimaryKey transformed_pk;
+    std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
+                   [](const auto &val) { return ToPropertyValue(val); });
+    auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
     if (result_schema.HasError()) {
       auto &error = result_schema.GetError();
@@ -683,44 +717,81 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ScanResultRow> results;
+  if (req.batch_limit) {
+    results.reserve(*req.batch_limit);
+  }
   std::optional<memgraph::msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
-  auto vertex_iterable = acc.Vertices(view);
-  bool did_reach_starting_point = false;
-  uint64_t sample_counter = 0;
-
-  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
-
-  for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
-    const auto &vertex = *it;
-
-    if (start_ids == vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
-      did_reach_starting_point = true;
+  auto dba = DbAccessor{&acc};
+  const auto emplace_scan_result = [&](const VertexAccessor &vertex) {
+    std::vector<Value> expression_results;
+    // TODO(gvolfing) it should be enough to check these only once.
+    if (vertex.Properties(View(req.storage_view)).HasError()) {
+      action_successful = false;
+      spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+    }
+    if (req.filter_expressions) {
+      // NOTE - DbAccessor might get removed in the future.
+      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), expr::identifier_node_symbol);
+      if (!eval) {
+        return;
+      }
+    }
+    if (req.vertex_expressions) {
+      // NOTE - DbAccessor might get removed in the future.
+      expression_results = ConvertToValueVectorFromTypedValueVector(
+          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), expr::identifier_node_symbol));
     }
 
-    if (did_reach_starting_point) {
-      std::optional<std::map<PropertyId, Value>> found_props;
+    std::optional<std::map<PropertyId, Value>> found_props;
 
-      if (req.props_to_return) {
-        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
-      } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view);
-      }
+    if (req.props_to_return) {
+      found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+    } else {
+      const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
+      found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
+    }
 
-      // TODO(gvolfing) -VERIFY-
-      // Vertex is seperated from the properties in the response.
-      // Is it useful to return just a vertex without the properties?
-      if (!found_props) {
-        action_successful = false;
+    // TODO(gvolfing) -VERIFY-
+    // Vertex is separated from the properties in the response.
+    // Is it useful to return just a vertex without the properties?
+    if (!found_props) {
+      action_successful = false;
+    }
+
+    results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                             .props = FromMap(found_props.value()),
+                                             .evaluated_vertex_expressions = std::move(expression_results)});
+  };
+
+  const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
+  uint64_t sample_counter{0};
+  auto vertex_iterable = acc.Vertices(view);
+  if (req.order_bys) {
+    const auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
+    // we are traversing Elements
+    auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
+    for (; it != ordered.end(); ++it) {
+      emplace_scan_result(it->vertex_acc);
+      ++sample_counter;
+      if (req.batch_limit && sample_counter == req.batch_limit) {
+        // Reached the maximum specified batch size.
+        // Get the next element before exiting.
+        const auto &next_vertex = (++it)->vertex_acc;
+        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+
         break;
       }
-
-      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
-                                               .props = FromMap(found_props.value())});
-
+    }
+  } else {
+    // We are going through VerticesIterable::Iterator
+    auto it = GetStartVertexIterator(vertex_iterable, start_id, View(req.storage_view));
+    for (; it != vertex_iterable.end(); ++it) {
+      emplace_scan_result(*it);
       ++sample_counter;
-      if (sample_counter == req.batch_limit) {
+      if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
         const auto &next_vertex = *(++it);
@@ -731,7 +802,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  memgraph::msgs::ScanVerticesResponse resp{};
+  memgraph::msgs::ScanVerticesResponse resp;
   resp.success = action_successful;
 
   if (action_successful) {

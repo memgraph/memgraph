@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <set>
@@ -27,6 +28,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::coordinator {
 
@@ -34,6 +36,7 @@ constexpr int64_t kNotExistingId{0};
 
 using memgraph::io::Address;
 using memgraph::storage::v3::Config;
+using memgraph::storage::v3::EdgeTypeId;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
 using memgraph::storage::v3::PropertyValue;
@@ -58,7 +61,9 @@ using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<PrimaryKey, Shard>;
 using LabelName = std::string;
 using PropertyName = std::string;
+using EdgeTypeName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
+using EdgeTypeIdMap = std::map<EdgeTypeName, EdgeTypeId>;
 
 struct ShardToInitialize {
   boost::uuids::uuid uuid;
@@ -80,7 +85,9 @@ struct LabelSpace {
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id{kNotExistingId};
+  uint64_t max_edge_type_id{kNotExistingId};
   std::map<PropertyName, PropertyId> properties;
+  std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
@@ -130,7 +137,7 @@ struct ShardMap {
                   .label_id = label_id,
                   .min_key = low_key,
                   .max_key = std::nullopt,
-                  .schema = label_space.schema,
+                  .schema = schemas[label_id],
                   .config = Config{},
               });
             }
@@ -150,6 +157,7 @@ struct ShardMap {
               .label_id = label_id,
               .min_key = low_key,
               .max_key = std::nullopt,
+              .schema = schemas[label_id],
               .config = Config{},
           });
 
@@ -200,6 +208,49 @@ struct ShardMap {
   }
 
   LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+
+  std::string GetLabelName(const LabelId label) const {
+    if (const auto it =
+            std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
+        it != labels.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("GetLabelName fails on the given label id!");
+  }
+
+  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
+    if (properties.contains(property_name)) {
+      return properties.at(property_name);
+    }
+
+    return std::nullopt;
+  }
+
+  std::string GetPropertyName(const PropertyId property) const {
+    if (const auto it = std::ranges::find_if(
+            properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
+        it != properties.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("PropertyId not found!");
+  }
+
+  std::optional<EdgeTypeId> GetEdgeTypeId(const std::string &edge_type) const {
+    if (edge_types.contains(edge_type)) {
+      return edge_types.at(edge_type);
+    }
+
+    return std::nullopt;
+  }
+
+  std::string GetEdgeTypeName(const EdgeTypeId property) const {
+    if (const auto it = std::ranges::find_if(
+            edge_types, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
+        it != edge_types.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("EdgeTypeId not found!");
+  }
 
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
@@ -273,12 +324,29 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
-    if (properties.contains(property_name)) {
-      return properties.at(property_name);
+  EdgeTypeIdMap AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new_edge_types) {
+    EdgeTypeIdMap ret;
+
+    bool mutated = false;
+
+    for (const auto &edge_type_name : new_edge_types) {
+      if (edge_types.contains(edge_type_name)) {
+        auto edge_type_id = edge_types.at(edge_type_name);
+        ret.emplace(edge_type_name, edge_type_id);
+      } else {
+        mutated = true;
+
+        const EdgeTypeId edge_type_id = EdgeTypeId::FromUint(++max_edge_type_id);
+        ret.emplace(edge_type_name, edge_type_id);
+        edge_types.emplace(edge_type_name, edge_type_id);
+      }
     }
 
-    return std::nullopt;
+    if (mutated) {
+      IncrementShardMapVersion();
+    }
+
+    return ret;
   }
 
   /// Returns true if all shards have the desired number of replicas and they are in

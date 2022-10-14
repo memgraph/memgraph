@@ -77,7 +77,7 @@ struct SetObjectProperty {
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"key", TypedValue{1}},  // TODO Fix trigger
             {"old", old_value},
             {"new", new_value}};
   }
@@ -97,7 +97,7 @@ struct RemovedObjectProperty {
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"key", TypedValue{1}},  // TODO Fix triggers
             {"old", old_value}};
   }
 

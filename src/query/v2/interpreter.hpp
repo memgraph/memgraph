@@ -13,6 +13,10 @@
 
 #include <gflags/gflags.h>
 
+#include "coordinator/coordinator.hpp"
+#include "coordinator/coordinator_client.hpp"
+#include "io/local_transport/local_transport.hpp"
+#include "io/transport.hpp"
 #include "query/v2/auth_checker.hpp"
 #include "query/v2/bindings/cypher_main_visitor.hpp"
 #include "query/v2/bindings/typed_value.hpp"
@@ -165,7 +169,8 @@ struct PreparedQuery {
  */
 struct InterpreterContext {
   explicit InterpreterContext(storage::v3::Shard *db, InterpreterConfig config,
-                              const std::filesystem::path &data_directory);
+                              const std::filesystem::path &data_directory,
+                              io::Io<io::local_transport::LocalTransport> io, coordinator::Address coordinator_addr);
 
   storage::v3::Shard *db;
 
@@ -179,6 +184,11 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   const InterpreterConfig config;
+
+  // TODO (antaljanosbenjamin) Figure out an abstraction for io::Io to make it possible to construct an interpreter
+  // context with a simulator transport without templatizing it.
+  io::Io<io::local_transport::LocalTransport> io;
+  coordinator::Address coordinator_address;
 
   storage::v3::LabelId NameToLabelId(std::string_view label_name) {
     return storage::v3::LabelId::FromUint(query_id_mapper.NameToId(label_name));
@@ -327,6 +337,7 @@ class Interpreter final {
   // move this unique_ptr into a shrared_ptr.
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
+  std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager_;
   bool in_explicit_transaction_{false};
   bool expect_rollback_{false};
 

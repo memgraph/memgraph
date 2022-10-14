@@ -12,6 +12,7 @@
 #include "storage/v3/shard.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -340,6 +341,7 @@ Shard::~Shard() {}
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
+// TODO(jbajic) Remove with next PR
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     LabelId primary_label, const std::vector<LabelId> &labels,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
@@ -387,16 +389,18 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 }
 
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
-    LabelId primary_label, const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
+    const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
-  if (primary_label != shard_->primary_label_) {
-    throw utils::BasicException("Cannot add vertex to shard which does not hold the given primary label!");
-  }
-  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
+  OOMExceptionEnabler oom_exception;
+  const auto schema = shard_->GetSchema(shard_->primary_label_)->second;
+  std::vector<std::pair<PropertyId, PropertyValue>> primary_properties_ordered;
+
+  auto maybe_schema_violation =
+      GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties);
   if (maybe_schema_violation) {
     return {std::move(*maybe_schema_violation)};
   }
-  OOMExceptionEnabler oom_exception;
+
   auto acc = shard_->vertices_.access();
   auto *delta = CreateDeleteObjectDelta(transaction_);
   auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
@@ -408,7 +412,7 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
 
   // TODO(jbajic) Improve, maybe delay index update
   for (const auto &[property_id, property_value] : properties) {
-    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
+    if (!shard_->schemas_.IsPropertyKey(shard_->primary_label_, property_id)) {
       if (const auto err = vertex_acc.SetProperty(property_id, property_value); err.HasError()) {
         return {err.GetError()};
       }
@@ -696,6 +700,8 @@ const std::string &Shard::Accessor::PropertyToName(PropertyId property) const {
 const std::string &Shard::Accessor::EdgeTypeToName(EdgeTypeId edge_type) const {
   return shard_->EdgeTypeToName(edge_type);
 }
+
+LabelId Shard::PrimaryLabel() const { return primary_label_; }
 
 void Shard::Accessor::AdvanceCommand() { ++transaction_->command_id; }
 

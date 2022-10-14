@@ -47,6 +47,7 @@ inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
+using EdgeTypeId = memgraph::storage::v3::EdgeTypeId;
 
 struct EdgeType {
   uint64_t id;
@@ -72,16 +73,6 @@ struct Vertex {
   VertexId id;
   std::vector<Label> labels;
   friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
-};
-
-struct PathPart {
-  Vertex dst;
-  Gid edge;
-};
-
-struct Path {
-  Vertex src;
-  std::vector<PathPart> parts;
 };
 
 struct Null {};
@@ -133,12 +124,8 @@ struct Value {
       case Type::Map:
         std::destroy_at(&map_v);
         return;
-
       case Type::Vertex:
         std::destroy_at(&vertex_v);
-        return;
-      case Type::Path:
-        std::destroy_at(&path_v);
         return;
       case Type::Edge:
         std::destroy_at(&edge_v);
@@ -173,9 +160,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(other.edge_v);
         return;
-      case Type::Path:
-        new (&path_v) Path(other.path_v);
-        return;
     }
   }
 
@@ -206,9 +190,6 @@ struct Value {
         break;
       case Type::Edge:
         new (&edge_v) Edge(std::move(other.edge_v));
-        break;
-      case Type::Path:
-        new (&path_v) Path(std::move(other.path_v));
         break;
     }
 
@@ -249,9 +230,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(other.edge_v);
         break;
-      case Type::Path:
-        new (&path_v) Path(other.path_v);
-        break;
     }
 
     return *this;
@@ -290,9 +268,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(std::move(other.edge_v));
         break;
-      case Type::Path:
-        new (&path_v) Path(std::move(other.path_v));
-        break;
     }
 
     other.DestroyValue();
@@ -300,7 +275,7 @@ struct Value {
 
     return *this;
   }
-  enum class Type : uint8_t { Null, Bool, Int64, Double, String, List, Map, Vertex, Edge, Path };
+  enum class Type : uint8_t { Null, Bool, Int64, Double, String, List, Map, Vertex, Edge };
   Type type{Type::Null};
   union {
     Null null_v;
@@ -312,7 +287,6 @@ struct Value {
     std::map<std::string, Value> map_v;
     Vertex vertex_v;
     Edge edge_v;
-    Path path_v;
   };
 
   friend bool operator==(const Value &lhs, const Value &rhs) {
@@ -338,8 +312,6 @@ struct Value {
         return lhs.vertex_v == rhs.vertex_v;
       case Value::Type::Edge:
         return lhs.edge_v == rhs.edge_v;
-      case Value::Type::Path:
-        return true;
     }
   }
 };
@@ -379,15 +351,23 @@ struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
+  // expression that determines if vertex is returned or not
   std::optional<std::vector<std::string>> filter_expressions;
+  // expression whose result is returned for every vertex
+  std::optional<std::vector<std::string>> vertex_expressions;
   std::optional<size_t> batch_limit;
+  std::optional<std::vector<OrderBy>> order_bys;
   StorageView storage_view{StorageView::NEW};
+
+  std::optional<Label> label;
+  std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
 };
 
 struct ScanResultRow {
   Vertex vertex;
   // empty() is no properties returned
   std::vector<std::pair<PropertyId, Value>> props;
+  std::vector<Value> evaluated_vertex_expressions;
 };
 
 struct ScanVerticesResponse {

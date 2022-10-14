@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v3/result.hpp"
 #include "storage/v3/shard.hpp"
 
 namespace memgraph::storage::v3 {
@@ -88,7 +89,7 @@ class DbAccessor final {
     if (maybe_vertex_acc.HasError()) {
       return {std::move(maybe_vertex_acc.GetError())};
     }
-    return VertexAccessor{maybe_vertex_acc.GetValue()};
+    return maybe_vertex_acc.GetValue();
   }
 
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
