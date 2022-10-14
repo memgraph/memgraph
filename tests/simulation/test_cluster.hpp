@@ -102,7 +102,7 @@ void WaitForShardsToInitialize(CoordinatorClient<SimulatorTransport> &coordinato
     auto shard_map = response.shard_map;
 
     if (shard_map.ClusterInitialized()) {
-      spdlog::info("cluster stabilized - beginning workload");
+      spdlog::info("+++++++++++++++ cluster stabilized - beginning workload +++++++++++++++");
       return;
     }
   }
