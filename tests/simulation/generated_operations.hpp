@@ -52,6 +52,25 @@ struct Op {
   }
 };
 
+struct NonEmptyOpVec {
+  std::vector<memgraph::tests::simulation::Op> ops;
+
+  friend std::ostream &operator<<(std::ostream &in, const NonEmptyOpVec &op) {
+    in << "[";
+    bool first = true;
+    for (const auto &op : op.ops) {
+      if (!first) {
+        in << ", ";
+      }
+      in << op;
+      first = false;
+    }
+    in << "]";
+
+    return in;
+  }
+};
+
 }  // namespace memgraph::tests::simulation
 
 // Required namespace for rapidcheck generators
@@ -81,6 +100,14 @@ struct ::rc::Arbitrary<Op> {
     return gen::build<Op>(gen::set(
         &Op::inner, gen::oneOf(gen::map(gen::arbitrary<CreateVertex>(), [](CreateVertex op) { return opHoist(op); }),
                                gen::map(gen::arbitrary<ScanAll>(), [](ScanAll op) { return opHoist(op); }))));
+  }
+};
+
+template <>
+struct Arbitrary<NonEmptyOpVec> {
+  static Gen<NonEmptyOpVec> arbitrary() {
+    return gen::build<NonEmptyOpVec>(
+        gen::set(&NonEmptyOpVec::ops, gen::nonEmpty<std::vector<memgraph::tests::simulation::Op>>()));
   }
 };
 

@@ -24,37 +24,6 @@
 #include "io/time.hpp"
 #include "test_cluster.hpp"
 
-struct NonEmptyOpVec {
-  std::vector<memgraph::tests::simulation::Op> ops;
-
-  friend std::ostream &operator<<(std::ostream &in, const NonEmptyOpVec &op) {
-    in << "[";
-    bool first = true;
-    for (const auto &op : op.ops) {
-      if (!first) {
-        in << ", ";
-      }
-      in << op;
-      first = false;
-    }
-    in << "]";
-
-    return in;
-  }
-};
-
-namespace rc {
-
-template <>
-struct Arbitrary<NonEmptyOpVec> {
-  static Gen<NonEmptyOpVec> arbitrary() {
-    return gen::build<NonEmptyOpVec>(
-        gen::set(&NonEmptyOpVec::ops, gen::nonEmpty<std::vector<memgraph::tests::simulation::Op>>()));
-  }
-};
-
-}  // namespace rc
-
 namespace memgraph::tests::simulation {
 
 using memgraph::io::Time;
