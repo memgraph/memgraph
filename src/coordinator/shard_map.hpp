@@ -54,6 +54,18 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+
+  friend std::ostream &operator<<(std::ostream &in, const AddressAndStatus &address_and_status) {
+    in << "AddressAndStatus { address: ";
+    in << address_and_status.address;
+    if (address_and_status.status == Status::CONSENSUS_PARTICIPANT) {
+      in << ", status: CONSENSUS_PARTICIPANT }";
+    } else {
+      in << ", status: INITIALIZING }";
+    }
+
+    return in;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
@@ -80,6 +92,52 @@ struct LabelSpace {
   std::vector<SchemaProperty> schema;
   std::map<PrimaryKey, Shard> shards;
   size_t replication_factor;
+
+  friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
+    in << "LabelSpace { schema: [";
+    bool first_schema = true;
+    for (const auto &schema_part : label_space.schema) {
+      if (!first_schema) {
+        in << ", ";
+      }
+      first_schema = false;
+      in << schema_part;
+    }
+
+    in << "], shards: {";
+
+    bool first_shard = true;
+    for (const auto &[low_key, shard] : label_space.shards) {
+      if (!first_shard) {
+        in << ", ";
+      }
+      first_shard = false;
+      in << "[";
+      bool first_key_part = true;
+      for (const auto &key_part : low_key) {
+        if (!first_key_part) {
+          in << ", ";
+        }
+        first_key_part = false;
+
+        in << key_part;
+      }
+      in << "]: [";
+
+      bool first_aas = true;
+      for (const auto &address_and_status : shard) {
+        if (!first_aas) {
+          in << ", ";
+        }
+        first_aas = false;
+        in << address_and_status;
+      }
+    }
+
+    in << "}, replication_factor: " << (int)label_space.replication_factor << "}";
+
+    return in;
+  }
 };
 
 struct ShardMap {

@@ -25,11 +25,22 @@
 
 namespace memgraph::storage::v3 {
 
+std::string SchemaTypeToString(common::SchemaType type);
+
 struct SchemaProperty {
   PropertyId property_id;
   common::SchemaType type;
 
   friend bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
+
+  friend std::ostream &operator<<(std::ostream &in, const SchemaProperty &schema_property) {
+    in << "SchemaProperty { property_id: ", in << (int)schema_property.property_id.AsUint();
+    in << ", type: ";
+    in << SchemaTypeToString(schema_property.type);
+    in << " }";
+
+    return in;
+  }
 };
 
 /// Structure that represents a collection of schemas
@@ -68,7 +79,5 @@ class Schemas {
 };
 
 std::optional<common::SchemaType> PropertyTypeToSchemaType(const PropertyValue &property_value);
-
-std::string SchemaTypeToString(common::SchemaType type);
 
 }  // namespace memgraph::storage::v3
