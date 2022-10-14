@@ -117,8 +117,8 @@ def _start_instance(name, args, log_file, queries, use_ssl, procdir, data_direct
     data_directory_path = os.path.join(BUILD_DIR, data_directory)
     binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
-    if len(procdir) != 0:
-        binary_args.append("--query-modules-directory=" + procdir)
+    # if len(procdir) != 0:
+    #     binary_args.append("--query-modules-directory=" + procdir)
 
     mg_instance.start(args=binary_args)
     for query in queries:
