@@ -62,8 +62,8 @@ template <typename IoImpl>
 using ShardRaft = Raft<IoImpl, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 using namespace std::chrono_literals;
-static constexpr Duration kMinimumCronInterval = 100ms;
-static constexpr Duration kMaximumCronInterval = 200ms;
+static constexpr Duration kMinimumCronInterval = 200ms;
+static constexpr Duration kMaximumCronInterval = 600ms;
 static_assert(kMinimumCronInterval < kMaximumCronInterval,
               "The minimum cron interval has to be smaller than the maximum cron interval!");
 

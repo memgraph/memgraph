@@ -415,6 +415,7 @@ struct ShardMap {
       for (const auto &[low_key, shard] : label_space.shards) {
         if (shard.size() < label_space.replication_factor) {
           spdlog::info("label_space below desired replication factor");
+          spdlog::info("label_space: {}", label_space);
           return false;
         }
 

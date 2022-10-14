@@ -79,7 +79,7 @@ MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Addres
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator};
+  return MachineManager{io, config, coordinator, shard_map};
 }
 
 void RunMachine(MachineManager<SimulatorTransport> mm) { mm.Run(); }
@@ -151,7 +151,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   return sm;
 }
 
-void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.key);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.value);
@@ -184,7 +184,7 @@ void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   correctness_model.emplace(primary_key);
 }
 
-void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
@@ -196,9 +196,11 @@ void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   }
 }
 
-void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
+void RunClusterSimulation(SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
                           const std::vector<Op> &ops) {
   spdlog::info("========================== NEW SIMULATION ==========================");
+
+  spdlog::info("cluster config: {}", cluster_config);
 
   auto simulator = Simulator(sim_config);
 
@@ -234,7 +236,7 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   std::set<CompoundKey> correctness_model{};
 
   for (const Op &op : ops) {
-    std::visit([&](auto &o) { executeOp(shard_request_manager, correctness_model, o); }, op.inner);
+    std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
   }
 
   simulator.ShutDown();

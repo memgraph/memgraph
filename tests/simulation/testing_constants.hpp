@@ -13,13 +13,16 @@
 
 namespace memgraph::tests::simulation {
 
+// TODO(tyler) increase this when we start standing up multiple machines in cluster tests
 static constexpr auto kMinimumShards = 1;
-static constexpr auto kMaximumShards = kMinimumShards + 5;
+static constexpr auto kMaximumShards = kMinimumShards + 1;
 
-static constexpr auto kMinimumServers = 3;
-static constexpr auto kMaximumServers = kMinimumServers + 5;
+// TODO(tyler) increase this when we start standing up multiple machines in cluster tests
+static constexpr auto kMinimumServers = 1;
+static constexpr auto kMaximumServers = kMinimumServers + 1;
 
+// TODO(tyler) increase this when we start standing up multiple machines in cluster tests
 static constexpr auto kMinimumReplicationFactor = 1;
-static constexpr auto kMaximumReplicationFactor = kMinimumReplicationFactor + 2;
+static constexpr auto kMaximumReplicationFactor = kMinimumReplicationFactor + 1;
 
 }  // namespace memgraph::tests::simulation
