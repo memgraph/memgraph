@@ -233,6 +233,8 @@ bool ShardMap::SplitShard(Hlc previous_shard_map_version, LabelId label_id, cons
   // Apply the split
   shards_in_map[key] = duplicated_shard;
 
+  IncrementShardMapVersion();
+
   return true;
 }
 
