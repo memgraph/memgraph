@@ -774,12 +774,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {
-      emplace_scan_result(*it->vertex_it);
+      emplace_scan_result(it->vertex_acc);
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
-        const auto &next_vertex = *(++it)->vertex_it;
+        const auto &next_vertex = (++it)->vertex_acc;
         next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
 
         break;

@@ -14,6 +14,7 @@
 #include "ast/ast.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/shard.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -98,7 +99,7 @@ class TypedValueVectorCompare final {
 
 struct Element {
   std::vector<TypedValue> properties_order_by;
-  VerticesIterable::Iterator vertex_it;
+  VertexAccessor vertex_acc;
 };
 
 std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertex_iterable,

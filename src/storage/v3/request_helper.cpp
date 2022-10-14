@@ -37,7 +37,7 @@ std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, Vert
       }
     }
   }
-  auto el_comparo = TypedValueVectorCompare(ordering);
+  auto compare_typed_values = TypedValueVectorCompare(ordering);
   auto it = vertices_iterable.begin();
   for (; it != vertices_iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
@@ -48,11 +48,11 @@ std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, Vert
           ComputeExpression(dba, *it, std::nullopt, order_by.expression.expression, expr::identifier_node_symbol, "");
       properties_order_by.push_back(val);
     }
-    ordered.push_back({std::move(properties_order_by), it});
+    ordered.push_back({std::move(properties_order_by), *it});
   }
 
-  std::sort(ordered.begin(), ordered.end(), [el_comparo](const auto &pair1, const auto &pair2) {
-    return el_comparo(pair1.properties_order_by, pair2.properties_order_by);
+  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
+    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
   });
   return ordered;
 }
@@ -73,7 +73,7 @@ std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::
                                                                      const std::vector<PropertyValue> &start_ids,
                                                                      const View view) {
   for (auto it = ordered_elements.begin(); it != ordered_elements.end(); ++it) {
-    if (const auto &vertex = *it->vertex_it; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+    if (const auto &vertex = it->vertex_acc; start_ids <= vertex.PrimaryKey(view).GetValue()) {
       return it;
     }
   }
