@@ -78,6 +78,7 @@ PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
 
 struct LabelSpace {
   std::vector<SchemaProperty> schema;
+  // Maps between the smallest primary key stored in the shard and the shard
   std::map<PrimaryKey, Shard> shards;
   size_t replication_factor;
 };
@@ -92,6 +93,8 @@ struct ShardMap {
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
 
   Shards GetShards(const LabelName &label);
 

@@ -9,8 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <unordered_map>
+#include <vector>
+
+#include "common/types.hpp"
 #include "coordinator/shard_map.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::coordinator {
 
@@ -56,6 +64,78 @@ PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema) {
 
   return ret;
 }
+
+ShardMap ShardMap::Parse(std::istream &input_stream) {
+  ShardMap shard_map;
+  const auto read_size = [&input_stream] {
+    size_t size{0};
+    input_stream >> size;
+    return size;
+  };
+
+  // Reads a string until the next whitespace
+  const auto read_word = [&input_stream] {
+    std::string word;
+    input_stream >> word;
+    return word;
+  };
+
+  const auto read_names = [&read_size, &read_word] {
+    const auto number_of_names = read_size();
+    std::vector<std::string> names;
+    names.reserve(number_of_names);
+
+    for (auto name_index = 0; name_index < number_of_names; ++name_index) {
+      names.push_back(read_word());
+    }
+    return names;
+  };
+
+  const auto parse_type = [](const std::string &type) {
+    static const auto type_map = std::unordered_map<std::string, common::SchemaType>{
+        {"string", common::SchemaType::STRING}, {"int", common::SchemaType::INT}, {"bool", common::SchemaType::BOOL}};
+    const auto lower_case_type = utils::ToLowerCase(type);
+    auto it = type_map.find(lower_case_type);
+    MG_ASSERT(it != type_map.end(), "Invalid type in split files: {}", type);
+    return it->second;
+  };
+
+  const auto properties = read_names();
+  MG_ASSERT(shard_map.AllocatePropertyIds(properties).size() == properties.size(),
+            "Unexpected number of properties created!");
+
+  const auto edge_types = read_names();
+  MG_ASSERT(shard_map.AllocateEdgeTypeIds(edge_types).size() == edge_types.size(),
+            "Unexpected number of properties created!");
+
+  const auto number_of_primary_labels = read_size();
+
+  for (auto label_index = 0; label_index < number_of_primary_labels; ++label_index) {
+    const auto primary_label = read_word();
+    const auto number_of_primary_properties = read_size();
+    std::vector<std::string> pp_names;
+    std::vector<common::SchemaType> pp_types;
+    pp_names.reserve(number_of_primary_properties);
+    pp_types.reserve(number_of_primary_properties);
+    for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
+      pp_names.push_back(read_word());
+      pp_types.push_back(parse_type(read_word()));
+    }
+    auto pp_mapping = shard_map.AllocatePropertyIds(pp_names);
+    std::vector<SchemaProperty> schema;
+    schema.reserve(number_of_primary_properties);
+
+    for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
+      schema.push_back(storage::v3::SchemaProperty{pp_mapping.at(pp_names[property_index]), pp_types[property_index]});
+    }
+    const auto hlc = shard_map.GetHlc();
+    MG_ASSERT(shard_map.InitializeNewLabel(primary_label, schema, 1, hlc).has_value(),
+              "Cannot initialize new label: {}", primary_label);
+  }
+
+  return shard_map;
+}
+
 Shards ShardMap::GetShards(const LabelName &label) {
   const auto id = labels.at(label);
   auto &shards = label_spaces.at(id).shards;
