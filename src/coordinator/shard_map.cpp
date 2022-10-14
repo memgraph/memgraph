@@ -17,6 +17,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
@@ -82,13 +83,21 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
 
   const auto read_names = [&read_size, &read_word] {
     const auto number_of_names = read_size();
+    spdlog::trace("Reading {} names", number_of_names);
     std::vector<std::string> names;
     names.reserve(number_of_names);
 
     for (auto name_index = 0; name_index < number_of_names; ++name_index) {
       names.push_back(read_word());
+      spdlog::trace("Read '{}'", names.back());
     }
     return names;
+  };
+
+  const auto read_line = [&input_stream] {
+    std::string line;
+    std::getline(input_stream, line);
+    return line;
   };
 
   const auto parse_type = [](const std::string &type) {
@@ -100,25 +109,45 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
     return it->second;
   };
 
+  const auto parse_property_value = [](std::string text, const common::SchemaType type) {
+    if (type == common::SchemaType::STRING) {
+      return storage::v3::PropertyValue{std::move(text)};
+    }
+    if (type == common::SchemaType::INT) {
+      size_t processed{0};
+      int64_t value = std::stoll(text, &processed);
+      MG_ASSERT(processed == text.size() || text[processed] == ' ', "Invalid integer format: '{}'", text);
+      return storage::v3::PropertyValue{value};
+    }
+    LOG_FATAL("Not supported type: {}", utils::UnderlyingCast(type));
+  };
+
+  spdlog::debug("Reading properties");
   const auto properties = read_names();
   MG_ASSERT(shard_map.AllocatePropertyIds(properties).size() == properties.size(),
             "Unexpected number of properties created!");
 
+  spdlog::debug("Reading edge types");
   const auto edge_types = read_names();
   MG_ASSERT(shard_map.AllocateEdgeTypeIds(edge_types).size() == edge_types.size(),
             "Unexpected number of properties created!");
 
+  spdlog::debug("Reading primary labels");
   const auto number_of_primary_labels = read_size();
+  spdlog::debug("Reading {} primary labels", number_of_primary_labels);
 
   for (auto label_index = 0; label_index < number_of_primary_labels; ++label_index) {
     const auto primary_label = read_word();
+    spdlog::debug("Reading primary label named '{}'", primary_label);
     const auto number_of_primary_properties = read_size();
+    spdlog::debug("Reading {} primary properties", number_of_primary_properties);
     std::vector<std::string> pp_names;
     std::vector<common::SchemaType> pp_types;
     pp_names.reserve(number_of_primary_properties);
     pp_types.reserve(number_of_primary_properties);
     for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
       pp_names.push_back(read_word());
+      spdlog::debug("Reading primary property named '{}'", pp_names.back());
       pp_types.push_back(parse_type(read_word()));
     }
     auto pp_mapping = shard_map.AllocatePropertyIds(pp_names);
@@ -131,6 +160,31 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
     const auto hlc = shard_map.GetHlc();
     MG_ASSERT(shard_map.InitializeNewLabel(primary_label, schema, 1, hlc).has_value(),
               "Cannot initialize new label: {}", primary_label);
+
+    const auto number_of_split_points = read_size();
+    spdlog::debug("Reading {} split points", number_of_split_points);
+
+    [[maybe_unused]] const auto remainder_from_last_line = read_line();
+    for (auto split_point_index = 0; split_point_index < number_of_split_points; ++split_point_index) {
+      const auto line = read_line();
+      spdlog::debug("Read split point '{}'", line);
+      MG_ASSERT(line.front() == '[', "Invalid split file format!");
+      MG_ASSERT(line.back() == ']', "Invalid split file format!");
+      std::string_view line_view{line};
+      line_view.remove_prefix(1);
+      line_view.remove_suffix(1);
+      static constexpr std::string_view kDelimiter{","};
+      auto pk_values_as_text = utils::Split(line_view, kDelimiter);
+      std::vector<PropertyValue> pk;
+      pk.reserve(number_of_primary_properties);
+      MG_ASSERT(pk_values_as_text.size() == number_of_primary_properties,
+                "Split point contains invalid number of values '{}'", line);
+
+      for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
+        pk.push_back(parse_property_value(std::move(pk_values_as_text[property_index]), schema[property_index].type));
+      }
+      shard_map.SplitShard(shard_map.GetHlc(), shard_map.labels.at(primary_label), pk);
+    }
   }
 
   return shard_map;
