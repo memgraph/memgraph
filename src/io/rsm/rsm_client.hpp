@@ -202,6 +202,9 @@ class RsmClient {
         async_read_before_ = std::nullopt;
         return std::move(read_get_response.read_return);
       }
+      else {
+          SendAsyncReadRequest(current_read_request_);
+       }   
     } else if (result_has_error) {
       SelectRandomLeader();
       SendAsyncReadRequest(current_read_request_);
