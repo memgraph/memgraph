@@ -208,14 +208,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     // 1. Send the requests.
     SendAllRequests(state, shard_cache_ref);
-    // 2. Loop on Poll
+
+    // 2. Block untill all the futures are exhausted
     do {
-      bool at_least_one_result = PollOnRequests(state, responses);
-      if (!at_least_one_result && !state.shard_cache.empty()) {
-        // 3. Await on the first req if none of the futures have
-        //    been filled yet.
-        AwaitOnFirstRequest(state, responses);
-      }
+      AwaitOnResponses(state, responses);
     } while (!state.shard_cache.empty());
 
     MaybeCompleteState(state);
@@ -236,14 +232,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     // 1. Send the requests.
     SendAllRequests(state, shard_cache_ref);
-    // 2. Loop on Poll
+
+    // 2. Block untill all the futures are exhausted
     do {
-      bool at_least_one_result = PollOnRequests(state, responses);
-      if (!at_least_one_result && !state.shard_cache.empty()) {
-        // 3. Await on the first req if none of the futures have
-        //    been filled yet.
-        AwaitOnFirstRequest(state, responses);
-      }
+      AwaitOnResponses(state, responses);
     } while (!state.shard_cache.empty());
 
     MaybeCompleteState(state);
@@ -426,23 +418,20 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
-  bool PollOnRequests(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
+  void AwaitOnResponses(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    bool at_least_one_result = false;
+    size_t request_idx = 0;
 
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it, ++request_idx) {
       // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
+      const auto labels = state.requests[request_idx].new_vertices[0].label_ids;
 
       auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
 
-      auto poll_result = storage_client.PollAsyncWriteRequest();
+      auto poll_result = storage_client.AwaitAsyncWriteRequest();
       if (!poll_result) {
         continue;
       }
-
-      at_least_one_result = true;
 
       if (poll_result->HasError()) {
         throw std::runtime_error("CreateVertices request timed out");
@@ -455,27 +444,28 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("CreateVertices request did not succeed");
       }
       responses.push_back(response);
-      shard_it = shard_cache_ref.erase(shard_it);
-    }
 
-    return at_least_one_result;
+      shard_it = shard_cache_ref.erase(shard_it);
+      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+      auto it = state.requests.begin() + request_idx;
+      state.requests.erase(it);
+      --request_idx;
+    }
   }
 
-  bool PollOnRequests(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
+  void AwaitOnResponses(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    bool at_least_one_result = false;
+    size_t request_idx = 0;
 
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++request_idx) {
       auto &storage_client = GetStorageClientForShard(
-          *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].src_vertices[0].second));
+          *state.label,
+          storage::conversions::ConvertPropertyVector(state.requests[request_idx].src_vertices[0].second));
 
       auto poll_result = storage_client.PollAsyncReadRequest();
       if (!poll_result) {
         continue;
       }
-
-      at_least_one_result = true;
 
       if (poll_result->HasError()) {
         throw std::runtime_error("ExpandOne request timed out");
@@ -486,16 +476,18 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       // -NOTE-
       // Currently a boolean flag for signaling the overall success of the
       // ExpandOne request does not exist. But it should, so here we assume
-      // that it is allready in place.
+      // that it is already in place.
       if (!response.success) {
         throw std::runtime_error("ExpandOne request did not succeed");
       }
 
       responses.push_back(std::move(response));
       shard_it = shard_cache_ref.erase(shard_it);
+      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+      auto it = state.requests.begin() + request_idx;
+      state.requests.erase(it);
+      --request_idx;
     }
-
-    return at_least_one_result;
   }
 
   void AwaitOnPaginatedRequests(ExecutionState<ScanVerticesRequest> &state,
@@ -544,58 +536,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       responses.push_back(std::move(response));
     }
-  }
-
-  void AwaitOnFirstRequest(ExecutionState<CreateVerticesRequest> &state,
-                           std::vector<CreateVerticesResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    auto &storage_client = GetStorageClientForShard(
-        *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().new_vertices[0].primary_key));
-    auto await_result = storage_client.AwaitAsyncWriteRequest();
-
-    if (!await_result) {
-      // Redirection has occured.
-      return;
-    }
-
-    if (await_result->HasError()) {
-      throw std::runtime_error("CreateVertices request timed out");
-    }
-
-    WriteResponses write_response_variant = await_result->GetValue();
-    auto response = std::get<CreateVerticesResponse>(write_response_variant);
-
-    if (!response.success) {
-      throw std::runtime_error("CreateVertices request did not succeed");
-    }
-    responses.push_back(std::move(response));
-    shard_cache_ref.erase(shard_cache_ref.begin());
-  }
-
-  void AwaitOnFirstRequest(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
-    auto &shard_cache_ref = state.shard_cache;
-    auto &storage_client = GetStorageClientForShard(
-        *state.label, storage::conversions::ConvertPropertyVector(state.requests.front().src_vertices[0].second));
-    auto await_result = storage_client.AwaitAsyncReadRequest();
-
-    if (!await_result) {
-      // Redirection has occured.
-      return;
-    }
-
-    if (await_result->HasError()) {
-      throw std::runtime_error("ExpandOne request timed out");
-    }
-
-    ReadResponses read_response_variant = await_result->GetValue();
-    auto response = std::get<ExpandOneResponse>(read_response_variant);
-
-    if (!response.success) {
-      throw std::runtime_error("ExpandOne request did not succeed");
-    }
-
-    responses.push_back(std::move(response));
-    shard_cache_ref.erase(shard_cache_ref.begin());
   }
 
   ShardMap shards_map_;
