@@ -1241,7 +1241,7 @@ if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     fi
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         # Pass because infra scripts assume there is not C++ standard lib in the name.
-        echo "NOTE: Not adding anything to the archive name is GCC C++ standard lib is used."
+        echo "NOTE: Not adding anything to the archive name that GCC C++ standard lib is used."
     else
         DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
     fi
