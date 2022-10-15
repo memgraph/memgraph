@@ -517,15 +517,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
     if [ -d llvm-$LLVM_VERSION ]; then
         rm -rf llvm-$LLVM_VERSION
     fi
-    if [ -d libcxx ]; then
-        rm -rf libcxx
-    fi
-    if [ -d libcxxabi ]; then
-        rm -rf libcxxabi
-    fi
-    if [ -d libunwind ]; then
-        rm -rf libunwind
-    fi
     tar -xvf ../archives/llvm-$LLVM_VERSION.src.tar.xz
     mv llvm-$LLVM_VERSION.src llvm-$LLVM_VERSION
     tar -xvf ../archives/clang-$LLVM_VERSION.src.tar.xz
@@ -539,8 +530,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
     mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
 
-    tar -xvf ../archives/libc-$LLVM_VERSION.src.tar.xz
-    mv libc-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libc
+    # The following is required because of libc++
     tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
     mv libcxx-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxx
     tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
@@ -549,8 +539,6 @@ if [ ! -f $PREFIX/bin/clang ]; then
     rm -r libunwind-$LLVM_VERSION.src
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
     mv libunwind-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libunwind
-    # TODO(gitbuda): The following line might not be required because of the projects placement.
-    # -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi;libunwind" \
 
     pushd llvm-$LLVM_VERSION
     mkdir -p build && pushd build
