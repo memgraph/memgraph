@@ -1208,10 +1208,15 @@ if [ ! -d $PREFIX/include/thrift ]; then
     # build is used by facebook builder
     mkdir _build
     pushd _build
+    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+        CMAKE_CXX_FLAGS="-fsized-deallocation"
+    else
+        CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
+    fi
     cmake .. $COMMON_CMAKE_FLAGS \
         -Denable_tests=OFF \
         -DGFLAGS_NOTHREADS=OFF \
-        -DCMAKE_CXX_FLAGS=-fsized-deallocation
+        -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
     make -j$CPUS install
     popd
 fi
@@ -1236,6 +1241,7 @@ if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     fi
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         # Pass because infra scripts assume there is not C++ standard lib in the name.
+        echo "NOTE: Not adding anything to the archive name is GCC C++ standard lib is used."
     else
         DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
     fi
