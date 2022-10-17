@@ -393,7 +393,6 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
   const auto schema = shard_->GetSchema(shard_->primary_label_)->second;
-  std::vector<std::pair<PropertyId, PropertyValue>> primary_properties_ordered;
 
   auto maybe_schema_violation =
       GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties);
