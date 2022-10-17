@@ -308,9 +308,21 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
   if (is_node_identifier_present) {
+    // We look for the position of node_identifier in the frame.
+    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                                          [&node_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                                            return position_symbol_pair.second.name() == node_identifier.name_;
+                                          });
+    MG_ASSERT(position_on_frame != symbol_table.table().end());
     frame[symbol_table.at(node_identifier)] = *v_acc;
   }
   if (is_edge_identifier_present) {
+    // We look for the position of node_identifier in the frame.
+    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                                          [&edge_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                                            return position_symbol_pair.second.name() == edge_identifier.name_;
+                                          });
+    MG_ASSERT(position_on_frame != symbol_table.table().end());
     frame[symbol_table.at(edge_identifier)] = *e_acc;
   }
 
