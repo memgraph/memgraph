@@ -690,7 +690,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
 
   // Handler for regular termination signals
-  auto shutdown = [&server, &interpreter_context] {
+  auto shutdown = [&server, &interpreter_context, &ls] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -698,6 +698,7 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     memgraph::query::v2::Shutdown(&interpreter_context);
+    ls.ShutDown();
   };
 
   InitSignalHandlers(shutdown);
