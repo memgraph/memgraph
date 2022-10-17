@@ -343,7 +343,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
-        label_(label),
+        label_(storage::v3::LabelId::FromUint(0)),
+        // label_(label),
         property_expression_pair_(property_expression_pair),
         filter_expressions_(filter_expressions) {
     ResetExecutionState();
@@ -352,6 +353,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
+    request_state_.label = std::string("label");
+    auto request_state_debug_copy = request_state_;
     current_batch = shard_manager.Request(request_state_);
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
@@ -391,8 +394,15 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
 
     auto request = msgs::ScanVerticesRequest{};
+
     if (label_.has_value()) {
       request.label = msgs::Label{.id = label_.value()};
+      // TODO(gvolfing) make sure start_id is set as well!
+      // This is a workaround for now.
+      std::vector<msgs::Value> dummy_pk = {msgs::Value(static_cast<int64_t>(1))};
+      msgs::Label l = {.id.id_ = label_->AsUint()};
+      auto asd = std::make_pair(*label_, dummy_pk);
+      request.start_id = std::make_pair(l, dummy_pk);
     }
     if (property_expression_pair_.has_value()) {
       request.property_expression_pair = std::make_pair(

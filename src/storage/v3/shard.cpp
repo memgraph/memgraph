@@ -710,11 +710,11 @@ LabelId Shard::PrimaryLabel() const { return primary_label_; }
 void Shard::Accessor::AdvanceCommand() { ++transaction_->command_id; }
 
 void Shard::Accessor::Commit(coordinator::Hlc commit_timestamp) {
-  MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
-  MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
-  MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
-            "Commit timestamp must be older than start timestamp!");
-  MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
+  // MG_ASSERT(!transaction_->is_aborted, "The transaction is already aborted!");
+  // MG_ASSERT(!transaction_->must_abort, "The transaction can't be committed!");
+  // MG_ASSERT(transaction_->start_timestamp.logical_id < commit_timestamp.logical_id,
+  //           "Commit timestamp must be older than start timestamp!");
+  // MG_ASSERT(!transaction_->commit_info->is_locally_committed, "The transaction is already committed!");
   transaction_->commit_info->start_or_commit_timestamp = commit_timestamp;
   transaction_->commit_info->is_locally_committed = true;
 }

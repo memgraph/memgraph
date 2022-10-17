@@ -466,6 +466,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
+  shard_->Access(req.transaction_id).Commit(req.transaction_id);
   return memgraph::msgs::CreateVerticesResponse{.success = action_successful};
 }
 
