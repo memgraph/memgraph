@@ -54,9 +54,10 @@ std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
   ret.reserve(properties.size());
 
-  std::transform(properties.begin(), properties.end(), std::back_inserter(ret), [](auto &&property) {
-    return std::make_pair(property.first, ToPropertyValue(std::move(property.second)));
-  });
+  std::transform(std::make_move_iterator(properties.begin()), std::make_move_iterator(properties.end()),
+                 std::back_inserter(ret), [](std::pair<PropertyId, Value> &&property) {
+                   return std::make_pair(property.first, ToPropertyValue(std::move(property.second)));
+                 });
 
   return ret;
 }
