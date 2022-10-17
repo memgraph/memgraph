@@ -818,6 +818,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
+  auto batch_limit = req.limit;
 
   for (auto &src_vertex : req.src_vertices) {
     auto result = GetExpandOneResult(acc, src_vertex, req);
@@ -828,6 +829,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     }
 
     results.emplace_back(result.value());
+    if (batch_limit) {
+      --*batch_limit;
+      if (batch_limit < 0) {
+        break;
+      }
+    }
   }
 
   memgraph::msgs::ExpandOneResponse resp{};
