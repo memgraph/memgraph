@@ -280,7 +280,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
                              const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
                              const std::string &expression, std::string_view node_name, std::string_view edge_name) {
   AstStorage storage;
-  Frame frame{128};
+  Frame frame{1 + 1};  // 1 for the node_identifier, 1 for the edge_identifier
   SymbolTable symbol_table;
   EvaluationContext ctx;
 
