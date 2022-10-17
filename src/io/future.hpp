@@ -200,7 +200,7 @@ class Future {
 template <typename T>
 class Promise {
   std::shared_ptr<details::Shared<T>> shared_;
-  bool filled_or_moved_ = false;
+  bool filled_or_moved_{false};
 
  public:
   explicit Promise(std::shared_ptr<details::Shared<T>> shared) : shared_(shared) {}
@@ -220,6 +220,7 @@ class Promise {
   Promise(const Promise &) = delete;
   Promise &operator=(const Promise &) = delete;
 
+  // NOLINTNEXTLINE(clang-analyzer-core.uninitialized.Branch)
   ~Promise() { MG_ASSERT(filled_or_moved_, "Promise destroyed before its associated Future was filled!"); }
 
   // Fill the expected item into the Future.

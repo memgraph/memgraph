@@ -47,6 +47,7 @@ inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
+using EdgeTypeId = memgraph::storage::v3::EdgeTypeId;
 
 struct EdgeType {
   uint64_t id;
@@ -379,9 +380,12 @@ struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
-  std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view{StorageView::NEW};
+
+  std::optional<Label> label;
+  std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
+  std::optional<std::vector<std::string>> filter_expressions;
 };
 
 struct ScanResultRow {
