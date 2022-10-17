@@ -600,8 +600,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       } else {
         state.requests[request_idx].start_id.second = response.next_start_id->second;
+        paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
       }
-      paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
       responses.push_back(std::move(response));
     }
   }
