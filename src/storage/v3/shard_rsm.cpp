@@ -294,6 +294,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
 
   std::vector<Identifier *> identifiers;
 
+  // TODO: use a visitor instead of string search
   if (v_acc && expression.find(node_name) != std::string::npos) {
     is_node_identifier_present = true;
     identifiers.push_back(&node_identifier);
