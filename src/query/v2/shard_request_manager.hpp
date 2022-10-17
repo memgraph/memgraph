@@ -252,7 +252,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
     do {
       AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
-    } while (all_requests_gathered(paginated_response_tracker));
+    } while (!all_requests_gathered(paginated_response_tracker));
 
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
@@ -590,7 +590,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ScanAll request did not succeed");
       }
 
+      // auto asd = (*shard_it);
+
       if (!response.next_start_id) {
+        paginated_response_tracker.erase((*shard_it));
         shard_cache_ref.erase(shard_it);
         // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
         auto it = state.requests.begin() + request_idx;
@@ -601,7 +604,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         state.requests[request_idx].start_id.second = response.next_start_id->second;
       }
       paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
-
       responses.push_back(std::move(response));
     }
   }

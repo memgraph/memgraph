@@ -389,25 +389,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     current_batch.clear();
     current_vertex_it = current_batch.end();
     request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-
-    auto request = msgs::ScanVerticesRequest{};
-    if (label_.has_value()) {
-      request.label = msgs::Label{.id = label_.value()};
-    }
-    if (property_expression_pair_.has_value()) {
-      request.property_expression_pair = std::make_pair(
-          property_expression_pair_.value().first,
-          expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(property_expression_pair_.value().second));
-    }
-    if (filter_expressions_.has_value()) {
-      auto res = std::vector<std::string>{};
-      res.reserve(filter_expressions_->size());
-      std::transform(filter_expressions_->begin(), filter_expressions_->end(), std::back_inserter(res),
-                     [](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
-
-      request.filter_expressions = res;
-    }
-    request_state_.requests.emplace_back(request);
+    request_state_.label = "label";
   }
 
   void Reset() override {
