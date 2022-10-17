@@ -452,7 +452,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   void SendAllRequests(ExecutionState<CreateVerticesRequest> &state,
                        std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
     size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
       // This is fine because all new_vertices of each request end up on the same shard
       const auto labels = state.requests[id].new_vertices[0].label_ids;
       auto req_deep_copy = state.requests[id];
@@ -465,6 +465,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       WriteRequests req = req_deep_copy;
       storage_client.SendAsyncWriteRequest(req);
+      ++id;
     }
   }
 
@@ -483,7 +484,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     auto &shard_cache_ref = state.shard_cache;
     size_t request_idx = 0;
 
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it, ++request_idx) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
       // This is fine because all new_vertices of each request end up on the same shard
       const auto labels = state.requests[request_idx].new_vertices[0].label_ids;
 
@@ -491,6 +492,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto poll_result = storage_client.AwaitAsyncWriteRequest();
       if (!poll_result) {
+        ++shard_it;
+        ++request_idx;
+
         continue;
       }
 
@@ -510,7 +514,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
       auto it = state.requests.begin() + request_idx;
       state.requests.erase(it);
-      --request_idx;
+      // --request_idx;
     }
   }
 
@@ -558,9 +562,10 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     // Find the first request that is not holding a paginated response.
     size_t request_idx = 0;
-    auto shard_it = shard_cache_ref.begin();
-    for (; shard_it != shard_cache_ref.end(); ++shard_it, ++request_idx) {
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
       if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
+        ++shard_it;
+        ++request_idx;
         continue;
       }
 
@@ -570,6 +575,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       if (!await_result) {
         // Redirection has occured.
+        ++shard_it;
+        ++request_idx;
         continue;
       }
 
@@ -588,7 +595,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
         auto it = state.requests.begin() + request_idx;
         state.requests.erase(it);
-        --request_idx;
+        // --request_idx;
 
       } else {
         state.requests[request_idx].start_id.second = response.next_start_id->second;
