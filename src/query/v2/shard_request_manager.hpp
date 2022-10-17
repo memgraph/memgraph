@@ -482,7 +482,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   void AwaitOnResponses(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
-    size_t request_idx = 0;
+    int64_t request_idx = 0;
 
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
       // This is fine because all new_vertices of each request end up on the same shard
@@ -514,13 +514,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
       // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
       auto it = state.requests.begin() + request_idx;
       state.requests.erase(it);
-      // --request_idx;
     }
   }
 
   void AwaitOnResponses(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
     auto &shard_cache_ref = state.shard_cache;
-    size_t request_idx = 0;
+    int64_t request_idx = 0;
 
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++request_idx) {
       auto &storage_client = GetStorageClientForShard(
@@ -561,7 +560,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     auto &shard_cache_ref = state.shard_cache;
 
     // Find the first request that is not holding a paginated response.
-    size_t request_idx = 0;
+    int64_t request_idx = 0;
     for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
       if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
         ++shard_it;
@@ -596,7 +595,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
         auto it = state.requests.begin() + request_idx;
         state.requests.erase(it);
-        // --request_idx;
 
       } else {
         state.requests[request_idx].start_id.second = response.next_start_id->second;
