@@ -590,8 +590,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         throw std::runtime_error("ScanAll request did not succeed");
       }
 
-      // auto asd = (*shard_it);
-
       if (!response.next_start_id) {
         paginated_response_tracker.erase((*shard_it));
         shard_cache_ref.erase(shard_it);

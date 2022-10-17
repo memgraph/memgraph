@@ -63,7 +63,7 @@ using ShardClient = RsmClient<LocalTransport, WriteRequests, WriteResponses, Rea
 ShardMap TestShardMap() {
   ShardMap sm{};
 
-  const std::string label_name = std::string("test_label");
+  const std::string label_name = std::string("label");
 
   // register new properties
   const std::vector<std::string> property_names = {"property_1", "property_2"};
@@ -108,7 +108,7 @@ ShardMap TestShardMap() {
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &shard_request_manager) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "test_label"};
+  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "label"};
 
   auto result = shard_request_manager.Request(state);
   MG_ASSERT(result.size() == 2, "{}", result.size());
@@ -119,7 +119,7 @@ void TestCreateVertices(ShardRequestManager &shard_request_manager) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<msgs::CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
-  auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
+  auto label_id = shard_request_manager.LabelNameToLabelId("label");
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(0)), PropVal(int64_t(0))}};
   a1.label_ids.push_back({label_id});
   msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};

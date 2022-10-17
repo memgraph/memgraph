@@ -466,8 +466,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
-  // TODO(gvolfing) remove this
-  acc.Commit(req.transaction_id);
   return memgraph::msgs::CreateVerticesResponse{.success = action_successful};
 }
 
