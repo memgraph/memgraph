@@ -448,6 +448,7 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
+  bool success;
   std::vector<ExpandOneResultRow> result;
 };
 
