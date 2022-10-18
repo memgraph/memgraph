@@ -19,7 +19,7 @@ import time
 @pytest.fixture(autouse=True)
 def connection():
     connection = connect()
-    yield connection
+    return connection
 
 
 def connect(**kwargs) -> mgclient.Connection:
@@ -34,43 +34,28 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 
 
 def has_n_result_row(cursor: mgclient.Cursor, query: str, n: int):
-    print("asd2222")
     results = execute_and_fetch_all(cursor, query)
-    print(len(results))
     return len(results) == n
 
 
-def has_one_result_row(cursor: mgclient.Cursor, query: str):
-    return has_n_result_row(cursor, query, 1)
+def wait_for_shard_manager_to_initialize():
+    # The ShardManager in memgraph takes some time to initialize
+    # the shards, thus we cannot just run the queries right away
+    time.sleep(3)
 
 
 def test_vertex_creation_and_scanall(connection):
-    # connection = connect()
-    # yield connection
-    # cursor = connection.cursor()
-    # The ShardManager in memgraph takes some time to initialize the shards, thus we cannot just run the queries right away
-    time.sleep(3)
+    wait_for_shard_manager_to_initialize()
     cursor = connection.cursor()
 
-    some_dict = {}
+    assert has_n_result_row(cursor, "CREATE (n :label {property:1, asd:2})", 0)
+    assert has_n_result_row(cursor, "CREATE (n :label {property:2, asd:2})", 0)
+    assert has_n_result_row(cursor, "CREATE (n :label {property:3, asd:2})", 0)
+    assert has_n_result_row(cursor, "CREATE (n :label {property:4, asd:2})", 0)
+    assert has_n_result_row(cursor, "CREATE (n :label {property:5, asd:2})", 0)
 
-    cursor.execute("CREATE (n :label {property:1})", {})
-    # cursor.execute("MATCH (n) RETURN n", some_dict)
-    # cursor.fetch_all()
-
-    # has_n_result_row(cursor, "CREATE (n :label {property:1, asd:2})", 1)
-
-    # assert has_n_result_row(cursor, "CREATE (n :label {property:1})", 0)
-    # assert has_n_result_row(cursor, "CREATE (x :label {property:2})", 0)
-    # assert has_n_result_row(cursor, "MATCH (n) RETURN *", 2)
-    print("asd")
-    # result = execute_and_fetch_all(
-    #     cursor, "CALL write.create_vertex() YIELD v RETURN v")
-    # vertex = result[0][0]
-    # assert isinstance(vertex, mgclient.Node)
-    # assert has_one_result_row(cursor, "MATCH (n) RETURN n")
-    # assert vertex.labels == set()
-    # assert vertex.properties == {}
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n", 5)
+    assert has_n_result_row(cursor, "MATCH (n) RETURN *", 5)
 
 
 if __name__ == "__main__":
