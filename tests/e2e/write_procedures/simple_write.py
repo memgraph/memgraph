@@ -24,8 +24,7 @@ def test_is_write(connection):
     for proc in execute_and_fetch_all(
             cursor, "CALL mg.procedures() YIELD * WITH name, signature, "
                     "is_write WHERE name STARTS WITH 'write' "
-                    f"RETURN {result_order}",
-    ):
+                    f"RETURN {result_order}"):
         assert proc[is_write] is True
 
     for proc in execute_and_fetch_all(
