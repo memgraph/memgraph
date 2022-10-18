@@ -148,6 +148,14 @@ class Future {
     old.consumed_or_moved_ = true;
   }
 
+  Future &operator=(Future &&old) noexcept {
+    MG_ASSERT(!old.consumed_or_moved_, "Future moved from after already being moved from or consumed.");
+    shared_ = std::move(old.shared_);
+    consumed_or_moved_ = old.consumed_or_moved_;
+    old.consumed_or_moved_ = true;
+    return *this;
+  }
+
   Future(const Future &) = delete;
   Future &operator=(const Future &) = delete;
   ~Future() = default;
