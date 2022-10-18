@@ -343,7 +343,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
-        // label_(storage::v3::LabelId::FromUint(0)),
         label_(label),
         property_expression_pair_(property_expression_pair),
         filter_expressions_(filter_expressions) {
@@ -353,8 +352,6 @@ class DistributedScanAllAndFilterCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
 
   bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
-    request_state_.label = std::string("label");
-    auto request_state_debug_copy = request_state_;
     current_batch = shard_manager.Request(request_state_);
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
