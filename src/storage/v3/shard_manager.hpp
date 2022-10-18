@@ -215,7 +215,7 @@ class ShardManager {
 
     std::unique_ptr<Shard> shard =
         std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.schema, to_init.config);
-    // TODO Should be sync
+    // TODO(jbajic) Should be sync with coordinator and not passed
     std::unordered_map<uint64_t, std::string> id_to_name;
     const auto map_type_ids = [&id_to_name](const auto &name_to_id_type) {
       for (const auto &[name, id] : name_to_id_type) {

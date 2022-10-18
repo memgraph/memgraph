@@ -381,9 +381,12 @@ struct ScanVerticesRequest {
   Hlc transaction_id;
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
-  std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view{StorageView::NEW};
+
+  std::optional<Label> label;
+  std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
+  std::optional<std::vector<std::string>> filter_expressions;
 };
 
 struct ScanResultRow {
@@ -471,6 +474,7 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
+  bool success;
   std::vector<ExpandOneResultRow> result;
 };
 

@@ -205,19 +205,7 @@ Value ToBoltValue(msgs::Value value) {
     case msgs::Value::Type::Edge:
     case msgs::Value::Type::Path: {
       throw utils::BasicException("Path not supported!");
-      // auto maybe_path = ToBoltPath(value.path_v, shard_map, view);
-      // if (maybe_path.HasError()) return maybe_path.GetError();
-      // return Value(std::move(*maybe_path));
     }
-      // TODO Value to Date types not supported
-      // case msgs::Value::Type::Date:
-      //   return Value(value.);
-      // case msgs::Value::Type::LocalTime:
-      //   return Value(value.ValueLocalTime());
-      // case msgs::Value::Type::LocalDateTime:
-      //   return Value(value.ValueLocalDateTime());
-      // case msgs::Value::Type::Duration:
-      //   return Value(value.ValueDuration());
   }
 }
 
@@ -254,40 +242,13 @@ Value ToBoltValue(msgs::Value value, const coordinator::ShardMap & /*shard_map*/
     case msgs::Value::Type::Edge:
     case msgs::Value::Type::Path: {
       throw utils::BasicException("Path not supported!");
-      // auto maybe_path = ToBoltPath(value.path_v, shard_map, view);
-      // if (maybe_path.HasError()) return maybe_path.GetError();
-      // return Value(std::move(*maybe_path));
     }
-      // TODO Value to Date types not supported
-      // case msgs::Value::Type::Date:
-      //   return Value(value.);
-      // case msgs::Value::Type::LocalTime:
-      //   return Value(value.ValueLocalTime());
-      // case msgs::Value::Type::LocalDateTime:
-      //   return Value(value.ValueLocalDateTime());
-      // case msgs::Value::Type::Duration:
-      //   return Value(value.ValueDuration());
   }
 }
 
 storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*path*/,
                                                           const storage::v3::Shard & /*db*/,
                                                           storage::v3::View /*view*/) {
-  // std::vector<communication::bolt::Vertex> vertices;
-  // vertices.reserve(path.vertices().size());
-  // for (const auto &v : path.vertices()) {
-  //   auto maybe_vertex = ToBoltVertex(v, db, view);
-  //   if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-  //   vertices.emplace_back(std::move(*maybe_vertex));
-  // }
-  // std::vector<communication::bolt::Edge> edges;
-  // edges.reserve(path.edges().size());
-  // for (const auto &e : path.edges()) {
-  //   auto maybe_edge = ToBoltEdge(e, db, view);
-  //   if (maybe_edge.HasError()) return maybe_edge.GetError();
-  //   edges.emplace_back(std::move(*maybe_edge));
-  // }
-  // return communication::bolt::Path(vertices, edges);
   return communication::bolt::Path();
 }
 

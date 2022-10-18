@@ -22,7 +22,6 @@
 #include <memory>
 #include <optional>
 
-#include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "expr/ast/ast_visitor.hpp"
 #include "io/local_transport/local_system.hpp"
@@ -681,7 +680,6 @@ struct PullPlan {
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    msgs::ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
-    //                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -697,9 +695,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
-  //  ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.shard_request_manager = shard_request_manager;
-  ctx_.edge_ids_alloc = interpreter_context->edge_ids_alloc;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
