@@ -343,8 +343,8 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       : output_symbol_(output_symbol),
         input_cursor_(std::move(input_cursor)),
         op_name_(op_name),
-        label_(storage::v3::LabelId::FromUint(0)),
-        // label_(label),
+        // label_(storage::v3::LabelId::FromUint(0)),
+        label_(label),
         property_expression_pair_(property_expression_pair),
         filter_expressions_(filter_expressions) {
     ResetExecutionState();
@@ -392,32 +392,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     current_batch.clear();
     current_vertex_it = current_batch.end();
     request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-
-    auto request = msgs::ScanVerticesRequest{};
-
-    if (label_.has_value()) {
-      request.label = msgs::Label{.id = label_.value()};
-      // TODO(gvolfing) make sure start_id is set as well!
-      // This is a workaround for now.
-      std::vector<msgs::Value> dummy_pk = {msgs::Value(static_cast<int64_t>(1))};
-      msgs::Label l = {.id.id_ = label_->AsUint()};
-      auto asd = std::make_pair(*label_, dummy_pk);
-      request.start_id = std::make_pair(l, dummy_pk);
-    }
-    if (property_expression_pair_.has_value()) {
-      request.property_expression_pair = std::make_pair(
-          property_expression_pair_.value().first,
-          expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(property_expression_pair_.value().second));
-    }
-    if (filter_expressions_.has_value()) {
-      auto res = std::vector<std::string>{};
-      res.reserve(filter_expressions_->size());
-      std::transform(filter_expressions_->begin(), filter_expressions_->end(), std::back_inserter(res),
-                     [](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
-
-      request.filter_expressions = res;
-    }
-    request_state_.requests.emplace_back(request);
+    request_state_.label = "label";
   }
 
   void Reset() override {
