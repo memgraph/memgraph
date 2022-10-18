@@ -56,6 +56,7 @@ def test_vertex_creation_and_scanall(connection):
 
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 5)
     assert has_n_result_row(cursor, "MATCH (n) RETURN *", 5)
+    assert has_n_result_row(cursor, "MATCH (n :label) RETURN *", 5)
 
 
 if __name__ == "__main__":
