@@ -16,46 +16,9 @@
 #include "pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
 #include "storage/v3/expr.hpp"
+#include "storage/v3/vertex_accessor.hpp"
 
 namespace memgraph::storage::v3 {
-
-std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, VerticesIterable &vertices_iterable,
-                                     std::vector<msgs::OrderBy> &order_bys) {
-  std::vector<Element> ordered;
-  ordered.reserve(acc.ApproximateVertexCount());
-  std::vector<Ordering> ordering;
-  ordering.reserve(order_bys.size());
-  for (const auto &order : order_bys) {
-    switch (order.direction) {
-      case memgraph::msgs::OrderingDirection::ASCENDING: {
-        ordering.push_back(Ordering::ASC);
-        break;
-      }
-      case memgraph::msgs::OrderingDirection::DESCENDING: {
-        ordering.push_back(Ordering::DESC);
-        break;
-      }
-    }
-  }
-  auto compare_typed_values = TypedValueVectorCompare(ordering);
-  auto it = vertices_iterable.begin();
-  for (; it != vertices_iterable.end(); ++it) {
-    std::vector<TypedValue> properties_order_by;
-    properties_order_by.reserve(order_bys.size());
-
-    for (const auto &order_by : order_bys) {
-      const auto val =
-          ComputeExpression(dba, *it, std::nullopt, order_by.expression.expression, expr::identifier_node_symbol, "");
-      properties_order_by.push_back(val);
-    }
-    ordered.push_back({std::move(properties_order_by), *it});
-  }
-
-  std::sort(ordered.begin(), ordered.end(), [compare_typed_values](const auto &pair1, const auto &pair2) {
-    return compare_typed_values(pair1.properties_order_by, pair2.properties_order_by);
-  });
-  return ordered;
-}
 
 VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_iterable,
                                                   const std::vector<PropertyValue> &start_ids, const View view) {
@@ -69,15 +32,47 @@ VerticesIterable::Iterator GetStartVertexIterator(VerticesIterable &vertex_itera
   return it;
 }
 
-std::vector<Element>::const_iterator GetStartOrderedElementsIterator(const std::vector<Element> &ordered_elements,
-                                                                     const std::vector<PropertyValue> &start_ids,
-                                                                     const View view) {
+std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIterator(
+    const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &start_ids,
+    const View view) {
   for (auto it = ordered_elements.begin(); it != ordered_elements.end(); ++it) {
-    if (const auto &vertex = it->vertex_acc; start_ids <= vertex.PrimaryKey(view).GetValue()) {
+    if (const auto &vertex = it->object_acc; start_ids <= vertex.PrimaryKey(view).GetValue()) {
       return it;
     }
   }
   return ordered_elements.end();
+}
+
+std::vector<EdgeAccessor> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
+                                             const msgs::EdgeDirection direction) {
+  switch (direction) {
+    case memgraph::msgs::EdgeDirection::IN: {
+      auto edges = vertex_accessor.InEdges(View::OLD);
+      if (edges.HasValue()) {
+        return edges.GetValue();
+      }
+      return {};
+    }
+    case memgraph::msgs::EdgeDirection::OUT: {
+      auto edges = vertex_accessor.OutEdges(View::OLD);
+      if (edges.HasValue()) {
+        return edges.GetValue();
+      }
+      return {};
+    }
+    case memgraph::msgs::EdgeDirection::BOTH: {
+      auto maybe_in_edges = vertex_accessor.InEdges(View::OLD);
+      auto maybe_out_edges = vertex_accessor.OutEdges(View::OLD);
+      std::vector<EdgeAccessor> edges;
+      if (maybe_in_edges.HasValue()) {
+        edges = maybe_in_edges.GetValue();
+      }
+      if (maybe_out_edges.HasValue()) {
+        edges.insert(edges.end(), maybe_out_edges.GetValue().begin(), maybe_out_edges.GetValue().end());
+      }
+      return edges;
+    }
+  }
 }
 
 }  // namespace memgraph::storage::v3

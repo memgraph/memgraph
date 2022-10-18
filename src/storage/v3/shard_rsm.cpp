@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <iterator>
+#include <unordered_map>
 #include <utility>
 
 #include "parser/opencypher/parser.hpp"
@@ -25,6 +26,7 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
@@ -770,16 +772,16 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
   if (req.order_bys) {
-    const auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
+    const auto ordered = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_bys);
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {
-      emplace_scan_result(it->vertex_acc);
+      emplace_scan_result(it->object_acc);
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
-        const auto &next_vertex = (++it)->vertex_acc;
+        const auto &next_vertex = (++it)->object_acc;
         next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
 
         break;
@@ -819,20 +821,42 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
   auto batch_limit = req.limit;
+  auto dba = DbAccessor{&acc};
 
-  for (auto &src_vertex : req.src_vertices) {
-    auto result = GetExpandOneResult(acc, src_vertex, req);
+  if (req.order_by) {
+    // Ordered edges per vertex
+    auto vertex_iterable = acc.Vertices(View::OLD);
 
-    if (!result) {
-      action_successful = false;
-      break;
+    std::vector<std::pair<VertexAccessor, std::vector<Element<EdgeAccessor>>>> vertices_edges;
+    const auto ordered = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_by);
+    for (auto &src_vertex : req.src_vertices) {
+      const auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
+      if (!v_acc) {
+        continue;
+      }
+      auto edges = GetEdgesFromVertex(*v_acc, req.direction);
+      if (edges.empty()) {
+        continue;
+      }
+
+      auto ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, edges, *req.order_by);
+      vertices_edges.emplace_back(*v_acc, std::move(ordered_edges));
     }
+  } else {
+    for (auto &src_vertex : req.src_vertices) {
+      auto result = GetExpandOneResult(acc, src_vertex, req);
 
-    results.emplace_back(result.value());
-    if (batch_limit) {
-      --*batch_limit;
-      if (batch_limit < 0) {
+      if (!result) {
+        action_successful = false;
         break;
+      }
+
+      results.emplace_back(result.value());
+      if (batch_limit) {
+        --*batch_limit;
+        if (batch_limit < 0) {
+          break;
+        }
       }
     }
   }
