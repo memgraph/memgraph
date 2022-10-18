@@ -295,29 +295,24 @@ class Pokec(Dataset):
 
         
 
-    ## Below are queries that are part of basic worklad, method naming template: __workload__description_group.
+ ## Below are queries that are part of basic workload, method naming template: __workload__description_group.
 
     def benchmark__basic__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
     def benchmark__basic__single_vertex_write(self):
         return ("CREATE (n:UserTemp {id : $id}) RETURN n", {"id": random.randint(1, self._num_vertices * 10)})
-    #TODO: This is wrong. We have IDs for nodes in DB, we should acess directly
+
+    def benchmark__basic__single_vertex_property_update(self):
+        return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})
+    #TODO: This is wrong. We have IDs for nodes in DB, we should acess directly, is this update?
+    
     def benchmark__basic__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
             {"from": vertex_from, "to": vertex_to},
         )
-    
-    def benchmark__basic__vertex_on_label_property_index_read(self):
-        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
-
-    def benchmark__basic__vertex_on_property_read(self):
-        return ("MATCH (n {id: $id}) RETURN n", {"id": self._get_random_vertex()})
-
-    def benchmark__basic__vertex_on_property_update(self):
-        return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})
 
     def benchmark__basic__aggregate_aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
