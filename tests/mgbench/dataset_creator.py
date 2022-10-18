@@ -10,8 +10,8 @@
 # licenses/APL.txt.
 
 import random
-
 import helpers
+import argparse
 
 # Explaination of datasets:
 #   - empty_only_index: contains index; contains no data
@@ -22,73 +22,95 @@ import helpers
 #                               ┌──────────────┐
 #                               │ Permission   │
 #         ┌────────────────┐    │  Schema:uuid │   ┌────────────┐
-#         │:IS_FOR_IDENTITY├────┤  Index:name  ├───┤:IS_FOR_USER│
+#         │:IS_FOR_IDENTITY├────┤  Index:name  ├───┤:IS_FOR_FILE│
 #         └┬───────────────┘    └──────────────┘   └────────────┤
 #          │                                                    │
-#   ┌──────▼──────────────┐                                  ┌──▼───────────┐
-#   │  Identity           │                                  │ User         │
-#   │   Schema:uuid       │                                  │  Schema:uuid │
-#   │   Index:platformId  │                                  │  Index:email │
-#   │   Index:name        │                                  └──────────────┘
-#   └─────────────────────┘
+#   ┌──────▼──────────────┐                                  ┌──▼────────────────┐
+#   │  Identity           │                                  │ File              │
+#   │   Schema:uuid       │                                  │  Schema:uuid      │
+#   │   Index:email       │                                  │  Index:name       │
+#   └─────────────────────┘                                  │  Index:platformId │
+#                                                            └───────────────────┘
 #
-#
-#   - User: attributes: ["uuid", "name", "platformId"]
+#   - File: attributes: ["uuid", "name", "platformId"]
 #   - Permission: attributes: ["uuid", "name"]
 #   - Identity: attributes: ["uuid", "email"]
 #
 # Indexes:
-#   - User: [User(uuid), User(platformId), User(name)]
+#   - File: [File(uuid), File(platformId), File(name)]
 #   - Permission: [Permission(uuid), Permission(name)]
 #   - Identity: [Identity(uuid), Identity(email)]
 #
 # Edges:
-#   - (:Permission)-[:IS_FOR_USER]->(:User)
+#   - (:Permission)-[:IS_FOR_FILE]->(:File)
 #   - (:Permission)-[:IS_FOR_IDENTITYR]->(:Identity)
 #
-# Distributed specific: uuid is the schema
+# AccessControl specific: uuid is the schema
 
-filename = "dataset.cypher"
-f = open(filename, "x")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--number_of_identities", type=int, default=10)
+    parser.add_argument("--number_of_files", type=int, default=10)
+    parser.add_argument("--percentage_of_permissions", type=float, default=1.0)
+    parser.add_argument("--filename", default="dataset.cypher")
 
-f.write("MATCH (n) DETACH DELETE n;\n")
+    args = parser.parse_args()
 
-# Create the indexes
-f.write("CREATE INDEX ON :User;\n")
-f.write("CREATE INDEX ON :Permission;\n")
-f.write("CREATE INDEX ON :Identity;\n")
-f.write("CREATE INDEX ON :User(platformId);\n")
-f.write("CREATE INDEX ON :User(name);\n")
-f.write("CREATE INDEX ON :Permission(name);\n")
-f.write("CREATE INDEX ON :Identity(email);\n")
+    number_of_identities = args.number_of_identities
+    number_of_files = args.number_of_files
+    percentage_of_permissions = args.percentage_of_permissions
+    filename = args.filename
 
-# Create extra index: in distributed, this will be the schema
-f.write("CREATE INDEX ON :User(uuid);\n")
-f.write("CREATE INDEX ON :Permission(uuid);\n")
-f.write("CREATE INDEX ON :Identity(uuid);\n")
+    assert number_of_identities > 0
+    assert number_of_files > 0
+    assert percentage_of_permissions > 0.0 and percentage_of_permissions <= 1.0
+    assert filename != ""
 
-platform_ids = [f"somePlatformId_{id}" for id in range(10)]
+    f = open(filename, "w")
 
-# This is the number of clusters to change if you want a bigger dataset
-number_of_clusters = 3000000
+    f.write("MATCH (n) DETACH DELETE n;\n")
 
-for index in range(1, number_of_clusters + 1):
-    platform_id = platform_ids[random.randint(0, len(platform_ids) - 1)]
-    user_uuid = index
-    platform_uuid = number_of_clusters + index
-    identity_uuid = 2 * number_of_clusters + index
+    # Create the indexes
+    f.write("CREATE INDEX ON :File;\n")
+    f.write("CREATE INDEX ON :Permission;\n")
+    f.write("CREATE INDEX ON :Identity;\n")
+    f.write("CREATE INDEX ON :File(platformId);\n")
+    f.write("CREATE INDEX ON :File(name);\n")
+    f.write("CREATE INDEX ON :Permission(name);\n")
+    f.write("CREATE INDEX ON :Identity(email);\n")
 
-    # Create the nodes
-    f.write(f'CREATE (:User {{uuid: {user_uuid}, platformId: "{platform_id}", name: "name_user_{user_uuid}"}});\n')
-    f.write(f'CREATE (:Permission {{uuid: {platform_uuid}, name: "name_permission_{platform_uuid}"}});\n')
-    f.write(f'CREATE (:Permission {{uuid: {identity_uuid}, name: "mail_{identity_uuid}@something.com"}});\n')
+    # Create extra index: in distributed, this will be the schema
+    f.write("CREATE INDEX ON :File(uuid);\n")
+    f.write("CREATE INDEX ON :Permission(uuid);\n")
+    f.write("CREATE INDEX ON :Identity(uuid);\n")
 
-    # Create the edges
-    f.write(
-        f"MATCH (permission:Permission {{uuid: {platform_uuid}}}), (user:User {{uuid: {user_uuid}}}) CREATE (permission)-[e: IS_FOR_USER]->(user);\n"
-    )
-    f.write(
-        f"MATCH (permission:Permission {{uuid: {platform_uuid}}}), (identity:Identity {{uuid: {identity_uuid}}}) CREATE (permission)-[e: IS_FOR_IDENTITY]->(identity);\n"
-    )
+    uuid = 1
 
-f.close()
+    files = []
+    # Create the nodes File
+    for index in range(0, number_of_files):
+        f.write(f'CREATE (:File {{uuid: {uuid}, platformId: platform_id, name: "name_file_{uuid}"}});\n')
+        uuid += 1
+
+    identities = []
+    # Create the nodes Identity
+    for index in range(0, number_of_identities):
+        f.write(f'CREATE (:Identity {{uuid: {uuid}, name: "mail_{uuid}@something.com"}});\n')
+        uuid += 1
+
+    for outer_index in range(0, number_of_files):
+        for inner_index in range(0, number_of_identities):
+            file_uuid = outer_index
+            identity_uuid = number_of_files + inner_index
+
+            if random.random() <= percentage_of_permissions:
+                f.write(f'CREATE (:Permission {{uuid: {uuid}, name: "name_permission_{uuid}"}});\n')
+                f.write(
+                    f"MATCH (permission:Permission {{uuid: {uuid}}}), (file:File {{uuid: {file_uuid}}}) CREATE (permission)-[e: IS_FOR_FILE]->(file);\n"
+                )
+                f.write(
+                    f"MATCH (permission:Permission {{uuid: {uuid}}}), (identity:Identity {{uuid: {identity_uuid}}}) CREATE (permission)-[e: IS_FOR_IDENTITY]->(identity);\n"
+                )
+                uuid += 1
+
+    f.close()
