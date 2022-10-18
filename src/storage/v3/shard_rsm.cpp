@@ -251,15 +251,6 @@ std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std:
   return labels;
 }
 
-template <class TExpression>
-auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
-          memgraph::storage::v3::ExpressionEvaluator &eval, DbAccessor &dba) {
-  ctx.properties = NamesToProperties(storage.properties_, dba);
-  ctx.labels = NamesToLabels(storage.labels_, dba);
-  auto value = expr->Accept(eval);
-  return value;
-}
-
 std::vector<PropertyId> GetPropertiesFromAcessor(
     const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
   std::vector<PropertyId> ret_properties;
@@ -938,17 +929,17 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
                     req.transaction_id.logical_id);
     }
-    if (req.filter_expressions) {
+    if (!req.filter_expressions.empty()) {
       // NOTE - DbAccessor might get removed in the future.
-      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions.value(), expr::identifier_node_symbol);
+      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
       if (!eval) {
         return;
       }
     }
-    if (req.vertex_expressions) {
+    if (!req.vertex_expressions.empty()) {
       // NOTE - DbAccessor might get removed in the future.
       expression_results = ConvertToValueVectorFromTypedValueVector(
-          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions.value(), expr::identifier_node_symbol));
+          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
     }
 
     std::optional<std::map<PropertyId, Value>> found_props;
@@ -960,36 +951,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
     }
 
-// <<<<<<< T1082-MG-scanall-order
     // TODO(gvolfing) -VERIFY-
     // Vertex is separated from the properties in the response.
     // Is it useful to return just a vertex without the properties?
     if (!found_props) {
       action_successful = false;
     }
-// =======
-    if (did_reach_starting_point) {
-      std::vector<Value> expression_results;
-
-      // TODO(gvolfing) it should be enough to check these only once.
-      if (vertex.Properties(View(req.storage_view)).HasError()) {
-        action_successful = false;
-        spdlog::debug("Could not retrive properties from VertexAccessor. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        break;
-      }
-      if (!req.filter_expressions.empty()) {
-        // NOTE - DbAccessor might get removed in the future.
-        const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
-        if (!eval) {
-          continue;
-        }
-      }
-      if (!req.vertex_expressions.empty()) {
-        expression_results = ConvertToValueVectorFromTypedValueVector(
-            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
-      }
-// >>>>>>> T0918-MG-implement-filtering-for-scanall
 
     results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
                                              .props = FromMap(found_props.value()),
