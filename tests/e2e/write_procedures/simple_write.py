@@ -22,15 +22,17 @@ def test_is_write(connection):
     result_order = "name, signature, is_write"
     cursor = connection.cursor()
     for proc in execute_and_fetch_all(
-            cursor, "CALL mg.procedures() YIELD * WITH name, signature, "
-                    "is_write WHERE name STARTS WITH 'write' "
-                    f"RETURN {result_order}"):
+        cursor, "CALL mg.procedures() YIELD * WITH name, signature, "
+                "is_write WHERE name STARTS WITH 'write' "
+                f"RETURN {result_order}",
+    ):
         assert proc[is_write] is True
 
     for proc in execute_and_fetch_all(
-            cursor, "CALL mg.procedures() YIELD * WITH name, signature, "
-                    "is_write WHERE NOT name STARTS WITH 'write' "
-                    f"RETURN {result_order}"):
+        cursor, "CALL mg.procedures() YIELD * WITH name, signature, "
+                "is_write WHERE NOT name STARTS WITH 'write' "
+                f"RETURN {result_order}",
+    ):
         assert proc[is_write] is False
 
     assert cursor.description[0].name == "name"
@@ -151,7 +153,7 @@ def test_detach_delete_vertex(connection):
     assert has_one_result_row(cursor, "MATCH (n)-[e]->(m) RETURN n, e, m")
     execute_and_fetch_all(
         cursor, f"MATCH (n) WHERE id(n) = {v1_id} "
-                "CALL write.detach_delete_vertex(n) YIELD * RETURN 1")
+        "CALL write.detach_delete_vertex(n) YIELD * RETURN 1")
     assert has_n_result_row(cursor, "MATCH (n)-[e]->(m) RETURN n, e, m", 0)
     assert has_n_result_row(cursor, "MATCH ()-[e]->() RETURN e", 0)
     assert has_one_result_row(
