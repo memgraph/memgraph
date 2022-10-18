@@ -38,8 +38,7 @@ std::vector<Element> OrderByElements(Shard::Accessor &acc, DbAccessor &dba, Vert
     }
   }
   auto compare_typed_values = TypedValueVectorCompare(ordering);
-  auto it = vertices_iterable.begin();
-  for (; it != vertices_iterable.end(); ++it) {
+  for (auto it = vertices_iterable.begin(); it != vertices_iterable.end(); ++it) {
     std::vector<TypedValue> properties_order_by;
     properties_order_by.reserve(order_bys.size());
 
