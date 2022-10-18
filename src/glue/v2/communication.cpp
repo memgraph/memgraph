@@ -204,7 +204,7 @@ Value ToBoltValue(msgs::Value value) {
     case msgs::Value::Type::Vertex:
     case msgs::Value::Type::Edge:
     case msgs::Value::Type::Path: {
-      throw utils::BasicException("Path not supported!");
+      throw utils::BasicException("Vertex, Edge and Path are not supported!");
     }
   }
 }
@@ -241,7 +241,7 @@ Value ToBoltValue(msgs::Value value, const coordinator::ShardMap & /*shard_map*/
     case msgs::Value::Type::Vertex:
     case msgs::Value::Type::Edge:
     case msgs::Value::Type::Path: {
-      throw utils::BasicException("Path not supported!");
+      throw utils::BasicException("Vertex, Edge and Path are not supported!");
     }
   }
 }
