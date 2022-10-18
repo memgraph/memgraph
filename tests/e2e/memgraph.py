@@ -78,12 +78,13 @@ class MemgraphInstanceRunner:
         self.args = [replace_paths(arg) for arg in self.args]
         args_mg = [
             self.binary_path,
-            "--storage-wal-enabled",
-            "--storage-snapshot-interval-sec",
-            "300",
-            "--storage-properties-on-edges",
+            # "--storage-wal-enabled",
+            # "--storage-snapshot-interval-sec",
+            # "300",
+            # "--storage-properties-on-edges",
         ] + self.args
         self.bolt_port = extract_bolt_port(args_mg)
+        print(f"AAAAAAAA {args_mg}")
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
         self.conn = mgclient.connect(host=self.host, port=self.bolt_port, sslmode=self.ssl)

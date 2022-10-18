@@ -13,13 +13,13 @@ import typing
 import mgclient
 import sys
 import pytest
+import time
 
 
 @pytest.fixture(autouse=True)
 def connection():
     connection = connect()
     yield connection
-    cursor = connection.cursor()
 
 
 def connect(**kwargs) -> mgclient.Connection:
@@ -48,7 +48,8 @@ def test_vertex_creation_and_scanall(connection):
     # connection = connect()
     # yield connection
     # cursor = connection.cursor()
-
+    # The ShardManager in memgraph takes some time to initialize the shards, thus we cannot just run the queries right away
+    time.sleep(3)
     cursor = connection.cursor()
 
     some_dict = {}
