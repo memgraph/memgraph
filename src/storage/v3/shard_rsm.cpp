@@ -769,8 +769,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
-  if (req.order_bys) {
-    const auto ordered = OrderByElements(acc, dba, vertex_iterable, *req.order_bys);
+  if (!req.order_bys.empty()) {
+    const auto ordered = OrderByElements(acc, dba, vertex_iterable, req.order_bys);
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {

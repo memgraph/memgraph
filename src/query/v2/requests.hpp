@@ -356,7 +356,7 @@ struct ScanVerticesRequest {
   // expression whose result is returned for every vertex
   std::optional<std::vector<std::string>> vertex_expressions;
   std::optional<size_t> batch_limit;
-  std::optional<std::vector<OrderBy>> order_bys;
+  std::vector<OrderBy> order_bys;
   StorageView storage_view{StorageView::NEW};
 
   std::optional<Label> label;
