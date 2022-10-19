@@ -817,7 +817,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
-  bool action_successful = true;
+  bool action_successful{true};
 
   std::vector<memgraph::msgs::ExpandOneResultRow> results;
   auto batch_limit = req.limit;
@@ -827,21 +827,50 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     // Ordered edges per vertex
     auto vertex_iterable = acc.Vertices(View::OLD);
 
-    std::vector<std::pair<VertexAccessor, std::vector<Element<EdgeAccessor>>>> vertices_edges;
-    const auto ordered = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_by);
+    const auto ordered_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_by);
+    std::vector<std::pair<VertexAccessor, std::vector<Element<EdgeAccessor>>>> vertex_ordered_edges;
+    vertex_ordered_edges.reserve(req.src_vertices.size());
     for (auto &src_vertex : req.src_vertices) {
       const auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
       if (!v_acc) {
         continue;
       }
+      // TODO(jbajic) Could this be moved to accessor?
       auto edges = GetEdgesFromVertex(*v_acc, req.direction);
       if (edges.empty()) {
         continue;
       }
 
       auto ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, edges, *req.order_by);
-      vertices_edges.emplace_back(*v_acc, std::move(ordered_edges));
+      vertex_ordered_edges.emplace_back(*v_acc, std::move(ordered_edges));
     }
+    for (const auto &ordered_vertexs : ordered_vertices) {
+      // we have to construct reponse
+      // Get result
+      if (!result) {
+        action_successful = false;
+        break;
+      }
+
+      results.emplace_back(result.value());
+      if (batch_limit) {
+        --*batch_limit;
+        if (batch_limit < 0) {
+          break;
+        }
+      }
+    }
+    // Now we have to construct response like this, and here we will care about
+    // limit:
+    // v1 e1
+    // v1 e2
+    // v1 e3
+    // v2 e4
+    // v2 e5
+    // v2 e6
+    // v2 e7
+    // v3 e8
+    // v3 e9
   } else {
     for (auto &src_vertex : req.src_vertices) {
       auto result = GetExpandOneResult(acc, src_vertex, req);
@@ -861,7 +890,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     }
   }
 
-  memgraph::msgs::ExpandOneResponse resp{};
+  memgraph::msgs::ExpandOneResponse resp;
   if (action_successful) {
     resp.result = std::move(results);
   }
