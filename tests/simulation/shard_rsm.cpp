@@ -949,9 +949,9 @@ int TestMessages() {
   auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
 
-  shard_ptr1->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop1"}, {5, "prop2"}, {6, "prop3"}});
-  shard_ptr2->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop1"}, {5, "prop2"}, {6, "prop3"}});
-  shard_ptr3->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop1"}, {5, "prop2"}, {6, "prop3"}});
+  shard_ptr1->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr2->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr3->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};

@@ -39,6 +39,7 @@
 #include "storage/v3/view.hpp"
 #include "utils/exceptions.hpp"
 
+
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
 using memgraph::msgs::Value;
@@ -647,6 +648,8 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     std::transform(new_vertex.label_ids.begin(), new_vertex.label_ids.end(), std::back_inserter(converted_label_ids),
                    [](const auto &label_id) { return label_id.id; });
 
+    // TODO(jbajic) sending primary key as vector breaks validation on storage side
+    // cannot map id -> value
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
                    [](const auto &val) { return ToPropertyValue(val); });
@@ -967,6 +970,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
                                              .evaluated_vertex_expressions = std::move(expression_results)});
   };
 
+
   const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
@@ -991,6 +995,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     auto it = GetStartVertexIterator(vertex_iterable, start_id, View(req.storage_view));
     for (; it != vertex_iterable.end(); ++it) {
       emplace_scan_result(*it);
+
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.

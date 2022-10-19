@@ -12,7 +12,7 @@
 #pragma once
 
 #ifdef MG_AST_INCLUDE_PATH
-#error You are probably trying to include files from expr from both the storage and query engines! You will have a rought time kid!
+#error You are probably trying to include files from expr from both the storage and query engines! You will have a rough time kid!
 #endif
 
 #define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
