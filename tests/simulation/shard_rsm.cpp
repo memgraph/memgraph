@@ -78,10 +78,10 @@ uint64_t GetUniqueInteger() {
   return prop_val_val++;
 }
 
-LabelId get_primary_label() { return LabelId::FromUint(0); }
+constexpr LabelId get_primary_label() { return LabelId::FromUint(1); }
 
-SchemaProperty get_schema_property() {
-  return {.property_id = PropertyId::FromUint(0), .type = common::SchemaType::INT};
+constexpr SchemaProperty get_schema_property() {
+  return {.property_id = PropertyId::FromUint(2), .type = common::SchemaType::INT};
 }
 
 msgs::PrimaryKey GetPrimaryKey(int64_t value) {
@@ -92,7 +92,7 @@ msgs::PrimaryKey GetPrimaryKey(int64_t value) {
 
 msgs::NewVertex GetNewVertex(int64_t value) {
   // Specify Labels.
-  msgs::Label label1 = {.id = LabelId::FromUint(1)};
+  msgs::Label label1 = {.id = LabelId::FromUint(3)};
   std::vector<msgs::Label> label_ids = {label1};
 
   // Specify primary key.
@@ -100,14 +100,14 @@ msgs::NewVertex GetNewVertex(int64_t value) {
 
   // Specify properties
   auto val1 = msgs::Value(static_cast<int64_t>(value));
-  auto prop1 = std::make_pair(PropertyId::FromUint(1), val1);
+  auto prop1 = std::make_pair(PropertyId::FromUint(4), val1);
 
   auto val3 = msgs::Value(static_cast<int64_t>(value));
-  auto prop3 = std::make_pair(PropertyId::FromUint(2), val3);
+  auto prop3 = std::make_pair(PropertyId::FromUint(5), val3);
 
   //(VERIFY) does the schema has to be specified with the properties or the primarykey?
   auto val2 = msgs::Value(static_cast<int64_t>(value));
-  auto prop2 = std::make_pair(PropertyId::FromUint(0), val2);
+  auto prop2 = std::make_pair(PropertyId::FromUint(6), val2);
 
   std::vector<std::pair<PropertyId, msgs::Value>> properties{prop1, prop2, prop3};
 
@@ -185,7 +185,7 @@ bool AttemptToUpdateVertex(ShardClient &client, int64_t value) {
   auto vertex_id = GetValuePrimaryKeysWithValue(value)[0];
 
   std::vector<std::pair<PropertyId, msgs::Value>> property_updates;
-  auto property_update = std::make_pair(PropertyId::FromUint(2), msgs::Value(static_cast<int64_t>(10000)));
+  auto property_update = std::make_pair(PropertyId::FromUint(5), msgs::Value(static_cast<int64_t>(10000)));
 
   auto vertex_prop = msgs::UpdateVertexProp{};
   vertex_prop.primary_key = vertex_id;
@@ -362,7 +362,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithoutBatchLi
                                                                                     msgs::VertexId start_id) {
   msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = {};
-  scan_req.filter_expressions = std::nullopt;
+  scan_req.filter_expressions.clear();
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::OLD;
@@ -388,7 +388,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
                                                                                  uint64_t batch_limit) {
   msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = batch_limit;
-  scan_req.filter_expressions = std::nullopt;
+  scan_req.filter_expressions.clear();
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::OLD;
@@ -405,6 +405,41 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
 
     MG_ASSERT(write_response.success);
 
+    return {write_response.results.size(), write_response.next_start_id};
+  }
+}
+
+std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression(ShardClient &client,
+                                                                                 msgs::VertexId start_id,
+                                                                                 uint64_t batch_limit,
+                                                                                 uint64_t prop_val_to_check_against) {
+  std::string filter_expr1 = "MG_SYMBOL_NODE.property = " + std::to_string(prop_val_to_check_against);
+  std::vector<std::string> filter_expressions = {filter_expr1};
+
+  std::string regular_expr1 = "2+2";
+  std::vector<std::string> vertex_expressions = {regular_expr1};
+
+  msgs::ScanVerticesRequest scan_req{};
+  scan_req.batch_limit = batch_limit;
+  scan_req.filter_expressions = filter_expressions;
+  scan_req.vertex_expressions = vertex_expressions;
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(!write_response.results.empty(), "There are no results!");
+    MG_ASSERT(write_response.results[0].evaluated_vertex_expressions[0].int_v == 4);
     return {write_response.results.size(), write_response.next_start_id};
   }
 }
@@ -721,6 +756,9 @@ void TestScanAllOneGo(ShardClient &client) {
 
   msgs::VertexId v_id = {prim_label, prim_key};
 
+  auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
+  MG_ASSERT(result_size_2 == 1);
+
   auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   auto [result_size_without_batch, next_id_without_batch] = AttemptToScanAllWithoutBatchLimit(client, v_id);
 
@@ -835,14 +873,15 @@ int TestMessages() {
   PropertyValue max_pk(static_cast<int64_t>(10000000));
   std::vector<PropertyValue> max_prim_key = {max_pk};
 
-  std::vector<SchemaProperty> schema = {get_schema_property()};
-  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
-  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
-  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema);
+  std::vector<SchemaProperty> schema_prop = {get_schema_property()};
 
-  shard_ptr1->CreateSchema(get_primary_label(), schema);
-  shard_ptr2->CreateSchema(get_primary_label(), schema);
-  shard_ptr3->CreateSchema(get_primary_label(), schema);
+  auto shard_ptr1 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
+  auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
+  auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
+
+  shard_ptr1->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr2->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr3->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
