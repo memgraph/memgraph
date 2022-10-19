@@ -49,6 +49,7 @@ using memgraph::storage::v3::View;
 
 namespace memgraph::storage::v3 {
 
+namespace {
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
@@ -641,7 +642,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       .edges_with_all_properties = std::move(edges_with_all_properties),
       .edges_with_specific_properties = std::move(edges_with_specific_properties)};
 }
-
+};  // namespace
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
