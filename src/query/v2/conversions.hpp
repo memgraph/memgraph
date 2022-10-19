@@ -50,8 +50,6 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value) {
       return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
     case Value::Type::Edge:
       return TypedValue(accessors::EdgeAccessor(value.edge_v, {}));
-    case Value::Type::Path:
-      break;
   }
   throw std::runtime_error("Incorrect type in conversion");
 }
@@ -91,7 +89,10 @@ inline msgs::Value TypedValueToValue(const TypedValue &value) {
     case TypedValue::Type::Edge:
       return Value(value.ValueEdge().GetEdge());
     case TypedValue::Type::Path:
-    default:
+    case TypedValue::Type::LocalTime:
+    case TypedValue::Type::LocalDateTime:
+    case TypedValue::Type::Date:
+    case TypedValue::Type::Duration:
       break;
   }
   throw std::runtime_error("Incorrect type in conversion");
