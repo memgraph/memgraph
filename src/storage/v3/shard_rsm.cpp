@@ -1067,7 +1067,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
       EdgeAccessors ret;
       std::unordered_set<const storage::v3::VertexId *> other_vertex_set;
-      const storage::v3::VertexId *other_vertex_ptr = nullptr;
 
       for (const auto &edge : edges) {
         if (check_and_insert_unique_other_vertex(other_vertex_set, edge)) {
