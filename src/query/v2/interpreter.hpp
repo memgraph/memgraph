@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <cstdint>
 
 #include "coordinator/coordinator.hpp"
 #include "coordinator/coordinator_client.hpp"
@@ -30,6 +31,7 @@
 #include "query/v2/metadata.hpp"
 #include "query/v2/plan/operator.hpp"
 #include "query/v2/plan/read_write_type_checker.hpp"
+#include "query/v2/requests.hpp"
 #include "query/v2/stream.hpp"
 #include "storage/v3/isolation_level.hpp"
 #include "storage/v3/name_id_mapper.hpp"
@@ -184,6 +186,7 @@ struct InterpreterContext {
   utils::SkipList<PlanCacheEntry> plan_cache;
 
   const InterpreterConfig config;
+  IdAllocator edge_ids_alloc;
 
   // TODO (antaljanosbenjamin) Figure out an abstraction for io::Io to make it possible to construct an interpreter
   // context with a simulator transport without templatizing it.
@@ -334,7 +337,7 @@ class Interpreter final {
 
   // This cannot be std::optional because we need to move this accessor later on into a lambda capture
   // which is assigned to std::function. std::function requires every object to be copyable, so we
-  // move this unique_ptr into a shrared_ptr.
+  // move this unique_ptr into a shared_ptr.
   std::unique_ptr<storage::v3::Shard::Accessor> db_accessor_;
   std::optional<DbAccessor> execution_db_accessor_;
   std::unique_ptr<msgs::ShardRequestManagerInterface> shard_request_manager_;

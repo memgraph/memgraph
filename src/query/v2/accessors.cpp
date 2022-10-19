@@ -43,6 +43,8 @@ VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.sr
 VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props)
     : vertex(std::move(v)), properties(std::move(props)) {}
 
+Label VertexAccessor::PrimaryLabel() const { return vertex.id.first; }
+
 std::vector<Label> VertexAccessor::Labels() const { return vertex.labels; }
 
 bool VertexAccessor::HasLabel(Label &label) const {

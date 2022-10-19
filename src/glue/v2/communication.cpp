@@ -204,9 +204,45 @@ Value ToBoltValue(msgs::Value value) {
     case msgs::Value::Type::Vertex:
     case msgs::Value::Type::Edge:
     case msgs::Value::Type::Path: {
-      throw utils::BasicException("Path, Vertex and Edge not supported!");
+      throw utils::BasicException("Vertex, Edge and Path are not supported!");
     }
-      // TODO Value to Date types not supported
+  }
+}
+
+Value ToBoltValue(msgs::Value value, const coordinator::ShardMap & /*shard_map*/, storage::v3::View /*view*/) {
+  switch (value.type) {
+    case msgs::Value::Type::Null:
+      return {};
+    case msgs::Value::Type::Bool:
+      return {value.bool_v};
+    case msgs::Value::Type::Int64:
+      return {value.int_v};
+    case msgs::Value::Type::Double:
+      return {value.double_v};
+    case msgs::Value::Type::String:
+      return {std::string(value.string_v)};
+    case msgs::Value::Type::List: {
+      std::vector<Value> values;
+      values.reserve(value.list_v.size());
+      for (const auto &v : value.list_v) {
+        auto maybe_value = ToBoltValue(v);
+        values.emplace_back(std::move(maybe_value));
+      }
+      return Value{std::move(values)};
+    }
+    case msgs::Value::Type::Map: {
+      std::map<std::string, Value> map;
+      for (const auto &kv : value.map_v) {
+        auto maybe_value = ToBoltValue(kv.second);
+        map.emplace(kv.first, std::move(maybe_value));
+      }
+      return Value{std::move(map)};
+    }
+    case msgs::Value::Type::Vertex:
+    case msgs::Value::Type::Edge:
+    case msgs::Value::Type::Path: {
+      throw utils::BasicException("Vertex, Edge and Path are not supported!");
+    }
   }
 }
 
