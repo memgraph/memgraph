@@ -14,6 +14,7 @@
 #include <bit>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <type_traits>
 
 #include "utils/cast.hpp"
@@ -34,6 +35,11 @@ namespace memgraph::storage::v3 {
     constexpr static name FromInt(int64_t id) { return (name){std::bit_cast<uint64_t>(id)}; }                         \
     constexpr uint64_t AsUint() const { return id_; }                                                                 \
     constexpr int64_t AsInt() const { return std::bit_cast<int64_t>(id_); }                                           \
+                                                                                                                      \
+    friend std::ostream &operator<<(std::ostream &in, const name &n) {                                                \
+      in << (int)n.id_;                                                                                               \
+      return in;                                                                                                      \
+    }                                                                                                                 \
                                                                                                                       \
    private:                                                                                                           \
     uint64_t id_;                                                                                                     \

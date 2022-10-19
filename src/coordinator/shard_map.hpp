@@ -29,6 +29,7 @@
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/print_helpers.hpp"
 
 namespace memgraph::coordinator {
 
@@ -94,47 +95,13 @@ struct LabelSpace {
   size_t replication_factor;
 
   friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
-    in << "LabelSpace { schema: [";
-    bool first_schema = true;
-    for (const auto &schema_part : label_space.schema) {
-      if (!first_schema) {
-        in << ", ";
-      }
-      first_schema = false;
-      in << schema_part;
-    }
+    using namespace utils::print_helpers;
 
-    in << "], shards: {";
-
-    bool first_shard = true;
-    for (const auto &[low_key, shard] : label_space.shards) {
-      if (!first_shard) {
-        in << ", ";
-      }
-      first_shard = false;
-      in << "[";
-      bool first_key_part = true;
-      for (const auto &key_part : low_key) {
-        if (!first_key_part) {
-          in << ", ";
-        }
-        first_key_part = false;
-
-        in << key_part;
-      }
-      in << "]: [";
-
-      bool first_aas = true;
-      for (const auto &address_and_status : shard) {
-        if (!first_aas) {
-          in << ", ";
-        }
-        first_aas = false;
-        in << address_and_status;
-      }
-    }
-
-    in << "}, replication_factor: " << (int)label_space.replication_factor << "}";
+    in << "LabelSpace { schema: ";
+    in << label_space.schema;
+    in << ", shards: ";
+    in << label_space.shards;
+    in << ", replication_factor: " << (int)label_space.replication_factor << "}";
 
     return in;
   }
@@ -150,6 +117,22 @@ struct ShardMap {
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
+    using namespace utils::print_helpers;
+
+    in << "ShardMap { shard_map_version: " << shard_map.shard_map_version;
+    in << ", max_property_id: " << shard_map.max_property_id;
+    in << ", max_edge_type_id: " << shard_map.max_edge_type_id;
+    in << ", properties: " << shard_map.properties;
+    in << ", edge_types: " << shard_map.edge_types;
+    in << ", max_label_id: " << shard_map.max_label_id;
+    in << ", labels: " << shard_map.labels;
+    in << ", label_spaces: " << shard_map.label_spaces;
+    in << ", schemas: " << shard_map.schemas;
+    in << "}";
+    return in;
+  }
 
   Shards GetShards(const LabelName &label) {
     const auto id = labels.at(label);
