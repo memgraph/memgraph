@@ -125,7 +125,7 @@ class ShardRequestManagerInterface {
   virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
-  virtual bool IsPrimaryKey(PropertyId name) const = 0;
+  virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -231,9 +231,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return str;
   }
 
-  bool IsPrimaryKey(const PropertyId name) const override {
-    return std::find_if(shards_map_.properties.begin(), shards_map_.properties.end(),
-                        [name](auto &pr) { return pr.second == name; }) != shards_map_.properties.end();
+  bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
+    const auto schema_it = shards_map_.schemas.find(primary_label);
+    MG_ASSERT(schema_it != shards_map_.schemas.end(), "Invalid primary label id: {}", primary_label.AsUint());
+
+    return std::find_if(schema_it->second.begin(), schema_it->second.end(), [property](const auto &schema_prop) {
+             return schema_prop.property_id == property;
+           }) != schema_it->second.end();
   }
 
   // TODO(kostasrim) Simplify return result

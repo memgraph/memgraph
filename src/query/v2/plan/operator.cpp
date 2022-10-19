@@ -183,6 +183,8 @@ class DistributedCreateNodeCursor : public Cursor {
     std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
+      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info->labels[0];
       // TODO(jbajic) Fix properties not send,
       // suggestion: ignore distinction between properties and primary keys
       // since schema validation is done on storage side
@@ -192,9 +194,11 @@ class DistributedCreateNodeCursor : public Cursor {
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          properties[key] = TypedValueToValue(val);
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
+
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+            rqst.primary_key.push_back(TypedValueToValue(val));
+          } else {
+            properties[key] = TypedValueToValue(val);
           }
         }
       } else {
@@ -202,9 +206,10 @@ class DistributedCreateNodeCursor : public Cursor {
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          properties[property_id] = TypedValueToValue(value);
-          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
             rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
+          } else {
+            properties[property_id] = TypedValueToValue(value);
           }
         }
       }
@@ -213,7 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
         throw QueryRuntimeException("Primary label must be defined!");
       }
       // TODO(kostasrim) Copy non primary labels as well
-      rqst.label_ids.push_back(msgs::Label{node_info->labels[0]});
+      rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       requests.push_back(std::move(rqst));
     }
     return requests;
@@ -2403,7 +2408,7 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
+          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
             vertex_id.second.push_back(val);
           }
         }
