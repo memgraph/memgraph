@@ -102,6 +102,7 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   const LabelId label_id = label_id_opt.value();
   auto &label_space = sm.label_spaces.at(label_id);
   Shards &shards_for_label = label_space.shards;
+  shards_for_label.clear();
 
   // add first shard at [0, 0]
   AddressAndStatus aas1_1{.address = a_io_1, .status = Status::CONSENSUS_PARTICIPANT};
@@ -130,15 +131,15 @@ ShardMap CreateDummyShardmap(Address a_io_1, Address a_io_2, Address a_io_3, Add
   return sm;
 }
 
-std::optional<ShardClient> DetermineShardLocation(const Shard &target_shard, const std::vector<Address> &a_addrs,
-                                                  ShardClient a_client, const std::vector<Address> &b_addrs,
-                                                  ShardClient b_client) {
+std::optional<ShardClient *> DetermineShardLocation(const Shard &target_shard, const std::vector<Address> &a_addrs,
+                                                    ShardClient &a_client, const std::vector<Address> &b_addrs,
+                                                    ShardClient &b_client) {
   for (const auto &addr : target_shard) {
     if (addr.address == b_addrs[0]) {
-      return b_client;
+      return &b_client;
     }
     if (addr.address == a_addrs[0]) {
-      return a_client;
+      return &a_client;
     }
   }
   return {};
@@ -312,7 +313,7 @@ int main() {
     storage_req.value = 1000;
     storage_req.transaction_id = transaction_id;
 
-    auto write_response_result = storage_client.SendWriteRequest(storage_req);
+    auto write_response_result = storage_client->SendWriteRequest(storage_req);
     if (write_response_result.HasError()) {
       // timed out
       continue;
@@ -332,7 +333,7 @@ int main() {
     storage_get_req.key = compound_key;
     storage_get_req.transaction_id = transaction_id;
 
-    auto get_response_result = storage_client.SendReadRequest(storage_get_req);
+    auto get_response_result = storage_client->SendReadRequest(storage_get_req);
     if (get_response_result.HasError()) {
       // timed out
       continue;

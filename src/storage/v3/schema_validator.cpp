@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <ranges>
 
+#include "common/types.hpp"
 #include "storage/v3/schemas.hpp"
 
 namespace memgraph::storage::v3 {
@@ -78,6 +79,39 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
   return std::nullopt;
 }
 
+[[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidateVertexCreate(
+    LabelId primary_label, const std::vector<LabelId> &labels,
+    const std::vector<PropertyValue> &primary_properties) const {
+  // Schema on primary label
+  const auto *schema = schemas_.GetSchema(primary_label);
+  if (schema == nullptr) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, primary_label);
+  }
+
+  // Is there another primary label among secondary labels
+  for (const auto &secondary_label : labels) {
+    if (schemas_.GetSchema(secondary_label)) {
+      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, secondary_label);
+    }
+  }
+
+  // Quick size check
+  if (schema->second.size() != primary_properties.size()) {
+    return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, primary_label);
+  }
+  // Check only properties defined by schema
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    // Check schema property type
+    if (auto property_schema_type = PropertyTypeToSchemaType(primary_properties[i]);
+        property_schema_type && *property_schema_type != schema->second[i].type) {
+      return SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, primary_label,
+                             schema->second[i], primary_properties[i]);
+    }
+  }
+
+  return std::nullopt;
+}
+
 [[nodiscard]] std::optional<SchemaViolation> SchemaValidator::ValidatePropertyUpdate(
     const LabelId primary_label, const PropertyId property_id) const {
   // Verify existence of schema on primary label
@@ -102,6 +136,8 @@ SchemaValidator::SchemaValidator(Schemas &schemas) : schemas_{schemas} {}
   }
   return std::nullopt;
 }
+
+const Schemas::Schema *SchemaValidator::GetSchema(LabelId label) const { return schemas_.GetSchema(label); }
 
 VertexValidator::VertexValidator(const SchemaValidator &schema_validator, const LabelId primary_label)
     : schema_validator{&schema_validator}, primary_label_{primary_label} {}
