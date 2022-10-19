@@ -183,6 +183,14 @@ class Neo4j:
 
     def start_benchmark(self):
         self._start()
+    
+    def is_stopped(self):
+        pid_file = self._neo4j_path/"run"/"neo4j.pid"
+        if pid_file.exists():
+            return False
+        else:
+            return True
+
 
     def stop(self):
         ret, usage = self._cleanup()

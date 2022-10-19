@@ -147,13 +147,14 @@ parser.add_argument(
 )
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
-args = parser.parse_args()
-
 parser.add_argument(
-    "--neo4j-binary", 
-    default=None,
-    help="Neo4j binary used for benchmarks"
+    "--warm-run",
+    type=int, 
+    default=0,
+    help="Number of seconds worth of warmup"
     )
+
+args = parser.parse_args()
 
 # Detect available datasets.
 generators = {}
@@ -287,6 +288,56 @@ for dataset, tests in benchmarks:
             for test, funcname in tests[group]:
                 log.info("Running test:", "{}/{}/{}".format(group, test, test_type))
                 func = getattr(dataset, funcname)
+             
+                #Warmup
+                if args.warm_run > 0: 
+                    print(
+                        "Determining the number of queries necessary for",
+                        args.warm_run,
+                        "seconds of single-threaded runtime...",
+                    )
+                    # First run to prime the query caches.
+                    vendor.start_benchmark()
+                    client.execute(queries=get_queries(func, 1), num_workers=1)
+                    # Get a sense of the runtime.
+                    count = 1
+                    while True:
+                        ret = client.execute(queries=get_queries(func, count), num_workers=1)
+                        duration = ret[0]["duration"]
+                        should_execute = int(args.warm_run / (duration / count))
+                        print(
+                            "executed_queries={}, total_duration={}, "
+                            "query_duration={}, estimated_count={}".format(
+                                count, duration, duration / count, should_execute
+                            )
+                        )
+                        # We don't have to execute the next iteration when
+                        # `should_execute` becomes the same order of magnitude as
+                        # `count * 10`.
+                        if should_execute / (count * 10) < 10:
+                            count = should_execute
+                            break
+                        else:
+                            count = count * 10
+                    vendor.stop()
+
+                    print("Sample query:", get_queries(func, 1)[0][0])
+                    print(
+                        "Executing warmup with",
+                        count,
+                        "queries that should " "yield a single-threaded runtime of",
+                        args.warm_run,
+                        "seconds.",
+                    )
+                    print(
+                        "Queries are executed using",
+                        args.num_workers_for_benchmark,
+                        "concurrent clients.",
+                    )
+                    vendor.start_benchmark()
+                    ret = client.execute(
+                    queries=get_queries(func, count),
+                    num_workers=args.num_workers_for_benchmark,)[0]
 
                  #Tail latency
                 vendor.start_benchmark()
