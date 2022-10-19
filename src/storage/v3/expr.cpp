@@ -177,7 +177,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
                              const std::optional<memgraph::storage::v3::EdgeAccessor> &e_acc,
                              const std::string &expression, std::string_view node_name, std::string_view edge_name) {
   AstStorage storage;
-  Frame frame{128};
+  Frame frame{1 + 1};  // 1 for the node_identifier, 1 for the edge_identifier
   SymbolTable symbol_table;
   EvaluationContext ctx;
 
@@ -185,28 +185,30 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   auto expr = ParseExpression(expression, storage);
 
   auto node_identifier = Identifier(std::string(node_name), false);
-  bool is_node_identifier_present = false;
   auto edge_identifier = Identifier(std::string(edge_name), false);
-  bool is_edge_identifier_present = false;
 
   std::vector<Identifier *> identifiers;
-
-  if (v_acc && expression.find(node_name) != std::string::npos) {
-    is_node_identifier_present = true;
-    identifiers.push_back(&node_identifier);
-  }
-  if (e_acc && expression.find(edge_name) != std::string::npos) {
-    is_edge_identifier_present = true;
-    identifiers.push_back(&edge_identifier);
-  }
+  identifiers.push_back(&node_identifier);
+  identifiers.push_back(&edge_identifier);
 
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
-  if (is_node_identifier_present) {
+  if (node_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == node_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(node_identifier)] = *v_acc;
   }
-  if (is_edge_identifier_present) {
+
+  if (edge_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == edge_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(edge_identifier)] = *e_acc;
   }
 
