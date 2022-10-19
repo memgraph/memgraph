@@ -23,6 +23,10 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 
+namespace memgraph::msgs {
+class ShardRequestManagerInterface;
+} // namespace memgraph::msgs
+
 namespace memgraph::query::v2::accessors {
 
 using Value = memgraph::msgs::Value;
@@ -36,7 +40,7 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  explicit EdgeAccessor(Edge edge);
+  explicit EdgeAccessor(Edge edge, const msgs::ShardRequestManagerInterface *manager);
 
   [[nodiscard]] EdgeTypeId EdgeType() const;
 
@@ -64,6 +68,7 @@ class EdgeAccessor final {
 
  private:
   Edge edge;
+  const msgs::ShardRequestManagerInterface *manager_;
 };
 
 class VertexAccessor final {
@@ -71,7 +76,8 @@ class VertexAccessor final {
   using PropertyId = msgs::PropertyId;
   using Label = msgs::Label;
   using VertexId = msgs::VertexId;
-  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props);
+  VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
+                 const msgs::ShardRequestManagerInterface *manager);
 
   [[nodiscard]] Label PrimaryLabel() const;
 
@@ -140,6 +146,7 @@ class VertexAccessor final {
  private:
   Vertex vertex;
   std::vector<std::pair<PropertyId, Value>> properties;
+  const msgs::ShardRequestManagerInterface *manager_;
 };
 
 // inline VertexAccessor EdgeAccessor::To() const { return VertexAccessor(impl_.ToVertex()); }

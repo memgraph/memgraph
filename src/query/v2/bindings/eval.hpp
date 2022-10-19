@@ -23,6 +23,10 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/view.hpp"
 
+namespace memgraph::msgs {
+class ShardRequestManagerInterface;
+} // namespace memgraph::msgs
+
 namespace memgraph::query::v2 {
 
 inline const auto lam = [](const auto &val) { return ValueToTypedValue(val); };
@@ -32,13 +36,14 @@ class Callable {
   auto operator()(const memgraph::storage::v3::PropertyValue &val) const {
     return memgraph::storage::v3::PropertyToTypedValue<TypedValue>(val);
   };
-  auto operator()(const msgs::Value &val) const { return ValueToTypedValue(val); };
+  auto operator()(const msgs::Value &val, memgraph::msgs::ShardRequestManagerInterface *manager) const {
+    return ValueToTypedValue(val, manager);
+  };
 };
 
 }  // namespace detail
-using ExpressionEvaluator =
-    memgraph::expr::ExpressionEvaluator<TypedValue, memgraph::query::v2::EvaluationContext, DbAccessor,
-                                        storage::v3::View, storage::v3::LabelId, msgs::Value, detail::Callable,
-                                        memgraph::storage::v3::Error, memgraph::expr::QueryEngineTag>;
+using ExpressionEvaluator = memgraph::expr::ExpressionEvaluator<
+    TypedValue, memgraph::query::v2::EvaluationContext, memgraph::msgs::ShardRequestManagerInterface, storage::v3::View,
+    storage::v3::LabelId, msgs::Value, detail::Callable, memgraph::storage::v3::Error, memgraph::expr::QueryEngineTag>;
 
 }  // namespace memgraph::query::v2

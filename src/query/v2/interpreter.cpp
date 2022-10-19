@@ -144,7 +144,7 @@ class ReplQueryHandler final : public query::v2::ReplicationQueryHandler {
 /// @throw QueryRuntimeException if an error ocurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Parameters &parameters,
-                         DbAccessor *db_accessor) {
+                         msgs::ShardRequestManagerInterface *manager) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
@@ -155,7 +155,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
 
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
@@ -313,7 +313,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 }
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                InterpreterContext *interpreter_context, DbAccessor *db_accessor,
+                                InterpreterContext *interpreter_context, msgs::ShardRequestManagerInterface *manager,
                                 std::vector<Notification> *notifications) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
@@ -322,7 +322,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   // the argument to Callback.
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
 
   Callback callback;
   switch (repl_query->action_) {
@@ -448,7 +448,8 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   }
 }
 
-Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters, DbAccessor *db_accessor) {
+Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &parameters,
+                            msgs::ShardRequestManagerInterface *manager) {
   expr::Frame<TypedValue> frame(0);
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
@@ -458,7 +459,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
   evaluation_context.parameters = parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, db_accessor, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, manager, storage::v3::View::OLD);
 
   Callback callback;
   switch (setting_query->action_) {
@@ -886,7 +887,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, shard_request_manager,
+                                storage::v3::View::OLD);
   const auto memory_limit =
       expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
   if (memory_limit) {
@@ -1030,7 +1032,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parsed_inner_query.parameters;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, dba, storage::v3::View::OLD);
+  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context, shard_request_manager,
+                                storage::v3::View::OLD);
   const auto memory_limit =
       expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
@@ -1179,14 +1182,15 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-                               DbAccessor *dba, utils::MemoryResource *execution_memory) {
+                               DbAccessor *dba, utils::MemoryResource *execution_memory,
+                               msgs::ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, dba);
+  auto callback = HandleAuthQuery(auth_query, interpreter_context->auth, parsed_query.parameters, manager);
 
   SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
@@ -1215,14 +1219,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                      DbAccessor *dba) {
+                                      msgs::ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback =
-      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, dba, notifications);
+      HandleReplicationQuery(replication_query, parsed_query.parameters, interpreter_context, manager, notifications);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1310,14 +1314,15 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   throw SemanticException("CreateSnapshot query is not supported!");
 }
 
-PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction, DbAccessor *dba) {
+PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
+                                  msgs::ShardRequestManagerInterface *manager) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
   }
 
   auto *setting_query = utils::Downcast<SettingQuery>(parsed_query.query);
   MG_ASSERT(setting_query);
-  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, dba);
+  auto callback = HandleSettingQuery(setting_query, parsed_query.parameters, manager);
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -1533,9 +1538,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, interpreter_context_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
-      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                        interpreter_context_, &*execution_db_accessor_,
-                                        &query_execution->execution_memory_with_exception);
+      prepared_query = PrepareAuthQuery(
+          std::move(parsed_query), in_explicit_transaction_, &query_execution->summary, interpreter_context_,
+          &*execution_db_accessor_, &query_execution->execution_memory_with_exception, shard_request_manager_.get());
     } else if (utils::Downcast<InfoQuery>(parsed_query.query)) {
       prepared_query = PrepareInfoQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
                                         interpreter_context_, interpreter_context_->db,
@@ -1546,7 +1551,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  interpreter_context_, &*execution_db_accessor_);
+                                  interpreter_context_, shard_request_manager_.get());
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_,
                                             &*execution_db_accessor_);
@@ -1563,7 +1568,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
-      prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, &*execution_db_accessor_);
+      prepared_query =
+          PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_, shard_request_manager_.get());
     } else if (utils::Downcast<VersionQuery>(parsed_query.query)) {
       prepared_query = PrepareVersionQuery(std::move(parsed_query), in_explicit_transaction_);
     } else if (utils::Downcast<SchemaQuery>(parsed_query.query)) {
