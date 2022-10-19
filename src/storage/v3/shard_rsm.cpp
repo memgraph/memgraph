@@ -25,15 +25,20 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/request_helper.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
 #include "storage/v3/vertex_accessor.hpp"
 #include "storage/v3/view.hpp"
+#include "utils/exceptions.hpp"
+
 
 using memgraph::msgs::Label;
 using memgraph::msgs::PropertyId;
@@ -916,65 +921,80 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool action_successful = true;
 
   std::vector<memgraph::msgs::ScanResultRow> results;
+  if (req.batch_limit) {
+    results.reserve(*req.batch_limit);
+  }
   std::optional<memgraph::msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
-  auto vertex_iterable = acc.Vertices(view);
-  bool did_reach_starting_point = false;
-  uint64_t sample_counter = 0;
-
-  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
   auto dba = DbAccessor{&acc};
-
-  for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
-    const auto &vertex = *it;
-
-    if (start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
-      did_reach_starting_point = true;
+  const auto emplace_scan_result = [&](const VertexAccessor &vertex) {
+    std::vector<Value> expression_results;
+    // TODO(gvolfing) it should be enough to check these only once.
+    if (vertex.Properties(View(req.storage_view)).HasError()) {
+      action_successful = false;
+      spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+    }
+    if (!req.filter_expressions.empty()) {
+      // NOTE - DbAccessor might get removed in the future.
+      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
+      if (!eval) {
+        return;
+      }
+    }
+    if (!req.vertex_expressions.empty()) {
+      // NOTE - DbAccessor might get removed in the future.
+      expression_results = ConvertToValueVectorFromTypedValueVector(
+          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
     }
 
-    if (did_reach_starting_point) {
-      std::vector<Value> expression_results;
+    std::optional<std::map<PropertyId, Value>> found_props;
 
-      // TODO(gvolfing) it should be enough to check these only once.
-      if (vertex.Properties(View(req.storage_view)).HasError()) {
-        action_successful = false;
-        spdlog::debug("Could not retrive properties from VertexAccessor. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        break;
-      }
-      if (!req.filter_expressions.empty()) {
-        // NOTE - DbAccessor might get removed in the future.
-        const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
-        if (!eval) {
-          continue;
-        }
-      }
-      if (!req.vertex_expressions.empty()) {
-        expression_results = ConvertToValueVectorFromTypedValueVector(
-            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
-      }
-
-      std::optional<std::map<PropertyId, Value>> found_props;
-
+    if (req.props_to_return) {
+      found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+    } else {
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
-      if (req.props_to_return) {
-        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
-      } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
-      }
+      found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
+    }
 
-      // TODO(gvolfing) -VERIFY-
-      // Vertex is seperated from the properties in the response.
-      // Is it useful to return just a vertex without the properties?
-      if (!found_props) {
-        action_successful = false;
+    // TODO(gvolfing) -VERIFY-
+    // Vertex is separated from the properties in the response.
+    // Is it useful to return just a vertex without the properties?
+    if (!found_props) {
+      action_successful = false;
+    }
+
+    results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                             .props = FromMap(found_props.value()),
+                                             .evaluated_vertex_expressions = std::move(expression_results)});
+  };
+
+
+  const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
+  uint64_t sample_counter{0};
+  auto vertex_iterable = acc.Vertices(view);
+  if (!req.order_bys.empty()) {
+    const auto ordered = OrderByElements(acc, dba, vertex_iterable, req.order_bys);
+    // we are traversing Elements
+    auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
+    for (; it != ordered.end(); ++it) {
+      emplace_scan_result(it->vertex_acc);
+      ++sample_counter;
+      if (req.batch_limit && sample_counter == req.batch_limit) {
+        // Reached the maximum specified batch size.
+        // Get the next element before exiting.
+        const auto &next_vertex = (++it)->vertex_acc;
+        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+
         break;
       }
-
-      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
-                                               .props = FromMap(found_props.value()),
-                                               .evaluated_vertex_expressions = std::move(expression_results)});
+    }
+  } else {
+    // We are going through VerticesIterable::Iterator
+    auto it = GetStartVertexIterator(vertex_iterable, start_id, View(req.storage_view));
+    for (; it != vertex_iterable.end(); ++it) {
+      emplace_scan_result(*it);
 
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
@@ -988,7 +1008,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  memgraph::msgs::ScanVerticesResponse resp{};
+  memgraph::msgs::ScanVerticesResponse resp;
   resp.success = action_successful;
 
   if (action_successful) {

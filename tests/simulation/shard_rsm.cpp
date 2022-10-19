@@ -25,6 +25,7 @@
 #include "io/simulator/simulator_transport.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
@@ -444,6 +445,72 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
   }
 }
 
+void AttemptToScanAllWithOrderByOnPrimaryProperty(ShardClient &client, msgs::VertexId start_id, uint64_t batch_limit) {
+  msgs::ScanVerticesRequest scan_req;
+  scan_req.batch_limit = batch_limit;
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.property"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
+    for (int64_t i{0}; i < 5; ++i) {
+      const auto expected_primary_key = std::vector{msgs::Value(1023 - i)};
+      const auto actual_primary_key = write_response.results[i].vertex.id.second;
+      MG_ASSERT(expected_primary_key == actual_primary_key, "The order of vertices is not correct");
+    }
+    break;
+  }
+}
+
+void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::VertexId start_id,
+                                                    uint64_t batch_limit) {
+  msgs::ScanVerticesRequest scan_req;
+  scan_req.batch_limit = batch_limit;
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
+    for (int64_t i{0}; i < 5; ++i) {
+      const auto expected_secondary_key = std::vector{msgs::Value(1023 - i)};
+      const auto actual_secondary_key = std::invoke([&write_response, i]() {
+        const auto res = std::ranges::find_if(write_response.results[i].props, [](const auto &id_value_prop_pair) {
+          return id_value_prop_pair.first.AsInt() == 4;
+        });
+        MG_ASSERT(res != write_response.results[i].props.end(), "Property does not exist!");
+        return std::vector{res->second};
+      });
+
+      MG_ASSERT(expected_secondary_key == actual_secondary_key, "The order of vertices is not correct");
+    }
+    break;
+  }
+}
+
 void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_vertex_val, uint64_t edge_type_id) {
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
@@ -758,6 +825,9 @@ void TestScanAllOneGo(ShardClient &client) {
 
   auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
   MG_ASSERT(result_size_2 == 1);
+
+  // AttemptToScanAllWithOrderByOnPrimaryProperty(client, v_id, 5);
+  AttemptToScanAllWithOrderByOnSecondaryProperty(client, v_id, 5);
 
   auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   auto [result_size_without_batch, next_id_without_batch] = AttemptToScanAllWithoutBatchLimit(client, v_id);
