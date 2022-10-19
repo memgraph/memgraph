@@ -10,11 +10,13 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <spdlog/cfg/env.h>
 #include <utils/logging.hpp>
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   memgraph::logging::RedirectToStderr();
   spdlog::set_level(spdlog::level::trace);
+  spdlog::cfg::load_env_levels();
   return RUN_ALL_TESTS();
 }
