@@ -124,6 +124,7 @@ class ShardRequestManagerInterface {
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
   virtual bool IsPrimaryKey(PropertyId name) const = 0;
+  virtual bool IsPrimaryLabel(LabelId name) const = 0;
 };
 
 // TODO(kostasrim)rename this class template
@@ -232,6 +233,11 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   bool IsPrimaryKey(const PropertyId name) const override {
     return std::find_if(shards_map_.properties.begin(), shards_map_.properties.end(),
                         [name](auto &pr) { return pr.second == name; }) != shards_map_.properties.end();
+  }
+
+  bool IsPrimaryLabel(const LabelId name) const override {
+    return std::find_if(shards_map_.label_spaces.begin(), shards_map_.label_spaces.end(),
+                        [name](auto &lb) { return lb.first == name; }) != shards_map_.label_spaces.end();
   }
 
   // TODO(kostasrim) Simplify return result
