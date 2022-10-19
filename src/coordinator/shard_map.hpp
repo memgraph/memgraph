@@ -95,7 +95,7 @@ struct LabelSpace {
   size_t replication_factor;
 
   friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
-    using namespace utils::print_helpers;
+    using utils::print_helpers::operator<<;
 
     in << "LabelSpace { schema: ";
     in << label_space.schema;
@@ -119,7 +119,7 @@ struct ShardMap {
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
 
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
-    using namespace utils::print_helpers;
+    using utils::print_helpers::operator<<;
 
     in << "ShardMap { shard_map_version: " << shard_map.shard_map_version;
     in << ", max_property_id: " << shard_map.max_property_id;
