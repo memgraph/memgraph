@@ -575,7 +575,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
     auto vertex_acc_to_primary_key = new_expand.dest_vertex.second;
     auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
-    if (!vertex_from_acc || !vertex_to_acc) {
+    if (!(vertex_from_acc || vertex_to_acc)) {
       action_successful = false;
       spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
                     req.transaction_id.logical_id);

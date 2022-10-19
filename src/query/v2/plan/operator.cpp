@@ -2360,13 +2360,17 @@ class DistributedCreateExpandCursor : public Cursor {
       return false;
     }
     auto &shard_manager = context.shard_request_manager;
+    ResetExecutionState();
     shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
     return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { state_ = {}; }
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
 
   // Get the existing node other vertex
   accessors::VertexAccessor &OtherVertex(Frame &frame) const {
@@ -2436,6 +2440,8 @@ class DistributedCreateExpandCursor : public Cursor {
   }
 
  private:
+  void ResetExecutionState() { state_ = {}; }
+
   const UniqueCursorPtr input_cursor_;
   const CreateExpand &self_;
   msgs::ExecutionState<msgs::CreateExpandRequest> state_;
