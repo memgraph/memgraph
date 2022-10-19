@@ -20,6 +20,7 @@ import json
 import multiprocessing
 import random
 import sys
+import statistics
 
 import datasets
 import log
@@ -287,6 +288,29 @@ for dataset, tests in benchmarks:
                 log.info("Running test:", "{}/{}/{}".format(group, test, test_type))
                 func = getattr(dataset, funcname)
 
+                 #Tail latency
+                vendor.start_benchmark()
+                tail_latency = []
+                iteration = 100
+                for i in range (0, iteration):
+                    ret = client.execute(queries=get_queries(func, 1), num_workers=1)
+                    tail_latency.append(ret[0]["duration"])
+                tail_latency.sort()
+                query_stats = {
+                    "iterations" : iteration,
+                    "min" : tail_latency[0],
+                    "max" : tail_latency[99],
+                    "mean": statistics.fmean(tail_latency),
+                    "p99" : tail_latency[98],
+                    "p95" : tail_latency[94],
+                    "p90" : tail_latency[89],
+                    "p50" : tail_latency[49],
+                }
+                vendor.stop()
+                print("Tail latency stats: ")
+                print(query_stats)
+
+
                 # Get number of queries to execute.
                 # TODO: implement minimum number of queries, `max(10, num_workers)`
                 config_key = [dataset.NAME, dataset.get_variant(), group, test, test_type]
@@ -359,6 +383,7 @@ for dataset, tests in benchmarks:
                 )[0]
                 usage = vendor.stop()
                 ret["database"] = usage
+                ret["query_statistics"] = query_stats
 
                 # Output summary.
                 print()
