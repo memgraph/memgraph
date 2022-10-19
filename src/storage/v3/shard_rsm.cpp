@@ -303,7 +303,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
                    });
   auto is_node_identifier_present = node_identifier_position_on_frame != symbol_table.table().end();
   if (is_node_identifier_present) {
-    frame[symbol_table.at(node_identifier)] = *v_acc;
+    frame[node_identifier_position_on_frame->second] = *v_acc;
   }
 
   auto edge_identifier_position_on_frame =
@@ -313,7 +313,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
                    });
   auto is_edge_identifier_present = edge_identifier_position_on_frame != symbol_table.table().end();
   if (is_edge_identifier_present) {
-    frame[symbol_table.at(edge_identifier)] = *e_acc;
+    frame[edge_identifier_position_on_frame->second] = *e_acc;
   }
 
   return Eval(std::any_cast<Expression *>(expr), ctx, storage, eval, dba);
