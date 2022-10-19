@@ -288,7 +288,6 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
   auto expr = ParseExpression(expression, storage);
 
-  auto node_identifier = Identifier(std::string(node_name), false);
   auto edge_identifier = Identifier(std::string(edge_name), false);
 
   std::vector<Identifier *> identifiers;
@@ -298,8 +297,8 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
 
   auto node_identifier_position_on_frame =
       std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                   [&node_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                     return position_symbol_pair.second.name() == node_identifier.name_;
+                   [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                     return position_symbol_pair.second.name() == node_name;
                    });
   auto is_node_identifier_present = node_identifier_position_on_frame != symbol_table.table().end();
   if (is_node_identifier_present) {
@@ -308,8 +307,8 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
 
   auto edge_identifier_position_on_frame =
       std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                   [&edge_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                     return position_symbol_pair.second.name() == edge_identifier.name_;
+                   [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                     return position_symbol_pair.second.name() == edge_name;
                    });
   auto is_edge_identifier_present = edge_identifier_position_on_frame != symbol_table.table().end();
   if (is_edge_identifier_present) {
