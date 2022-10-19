@@ -368,15 +368,23 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     if (ShallNotInitializeState(state)) {
       return;
     }
+
+    std::vector<coordinator::Shards> multi_shards;
     state.transaction_id = transaction_id_;
-    auto shards = shards_map_.GetShards(*state.label);
-    for (auto &[key, shard] : shards) {
-      MG_ASSERT(!shard.empty());
-      state.shard_cache.push_back(std::move(shard));
-      ScanVerticesRequest rqst;
-      rqst.transaction_id = transaction_id_;
-      rqst.start_id.second = storage::conversions::ConvertValueVector(key);
-      state.requests.push_back(std::move(rqst));
+    if (!state.label) {
+      multi_shards = shards_map_.GetShards();
+    } else {
+      multi_shards = {shards_map_.GetShards(*state.label)};
+    }
+    for (auto &shards : multi_shards) {
+      for (auto &[key, shard] : shards) {
+        MG_ASSERT(!shard.empty());
+        state.shard_cache.push_back(std::move(shard));
+        ScanVerticesRequest rqst;
+        rqst.transaction_id = transaction_id_;
+        rqst.start_id.second = storage::conversions::ConvertValueVector(key);
+        state.requests.push_back(std::move(rqst));
+      }
     }
     state.state = ExecutionState<ScanVerticesRequest>::EXECUTING;
   }
