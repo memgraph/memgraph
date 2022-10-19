@@ -86,6 +86,11 @@ struct ExecutionState {
   // the ShardRequestManager impl will send requests to. When a request to a shard exhausts it, meaning that
   // it pulled all the requested data from the given Shard, it will be removed from the Vector. When the Vector becomes
   // empty, it means that all of the requests have completed succefully.
+  // TODO(gvolfing)
+  // Maybe make this into a more complex object to be able to keep track of paginated resutls. E.g. instead of a vector
+  // of Shards make it into a std::vector<std::pair<Shard, PaginatedResultType>> (probably a struct instead of a pair)
+  // where PaginatedResultType is an enum signaling the progress on the given request. This way we can easily check if
+  // a partial response on a shard(if there is one) is finished and we can send off the request for the next batch.
   std::vector<Shard> shard_cache;
   // 1-1 mapping with `shard_cache`.
   // A vector that tracks request metatdata for each shard (For example, next_id for a ScanAll on Shard A)
@@ -234,35 +239,23 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     spdlog::info("shards_map_.size(): {}", shards_map_.GetShards(*state.label).size());
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
-    auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      auto &storage_client = GetStorageClientForShard(
-          *state.label, storage::conversions::ConvertPropertyVector(state.requests[id].start_id.second));
-      // TODO(kostasrim) Currently requests return the result directly. Adjust this when the API works MgFuture
-      // instead.
-      ReadRequests req = state.requests[id];
-      auto read_response_result = storage_client.SendReadRequest(req);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-      if (read_response_result.HasError()) {
-        throw std::runtime_error("ScanAll request timedout");
-      }
-      ReadResponses read_response_variant = read_response_result.GetValue();
-      auto &response = std::get<ScanVerticesResponse>(read_response_variant);
-      if (!response.success) {
-        throw std::runtime_error("ScanAll request did not succeed");
-      }
-      if (!response.next_start_id) {
-        shard_it = shard_cache_ref.erase(shard_it);
-      } else {
-        state.requests[id].start_id.second = response.next_start_id->second;
-        ++shard_it;
-      }
-      responses.push_back(std::move(response));
+
+    SendAllRequests(state);
+    auto all_requests_gathered = [](auto &paginated_rsp_tracker) {
+      return std::ranges::all_of(paginated_rsp_tracker, [](const auto &state) {
+        return state.second == PaginatedResponseState::PartiallyFinished;
+      });
+    };
+
+    std::map<Shard, PaginatedResponseState> paginated_response_tracker;
+    for (const auto &shard : state.shard_cache) {
+      paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
     }
-    spdlog::info("got responses back");
-    // We are done with this state
+
+    do {
+      AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
+    } while (!all_requests_gathered(paginated_response_tracker));
+
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
@@ -275,32 +268,15 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeInitializeExecutionState(state, new_vertices);
     std::vector<CreateVerticesResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      // This is fine because all new_vertices of each request end up on the same shard
-      const auto labels = state.requests[id].new_vertices[0].label_ids;
-      for (auto &new_vertex : state.requests[id].new_vertices) {
-        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
-      }
-      auto primary_key = state.requests[id].new_vertices[0].primary_key;
-      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
-      WriteRequests req = state.requests[id];
-      auto write_response_result = storage_client.SendWriteRequest(req);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map test
-      if (write_response_result.HasError()) {
-        throw std::runtime_error("CreateVertices request timedout");
-      }
-      WriteResponses response_variant = write_response_result.GetValue();
-      CreateVerticesResponse mapped_response = std::get<CreateVerticesResponse>(response_variant);
 
-      if (!mapped_response.success) {
-        throw std::runtime_error("CreateVertices request did not succeed");
-      }
-      responses.push_back(mapped_response);
-      shard_it = shard_cache_ref.erase(shard_it);
-    }
-    // We are done with this state
+    // 1. Send the requests.
+    SendAllRequests(state, shard_cache_ref);
+
+    // 2. Block untill all the futures are exhausted
+    do {
+      AwaitOnResponses(state, responses);
+    } while (!state.shard_cache.empty());
+
     MaybeCompleteState(state);
     // TODO(kostasrim) Before returning start prefetching the batch (this shall be done once we get MgFuture as return
     // result of storage_client.SendReadRequest()).
@@ -316,25 +292,22 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     MaybeInitializeExecutionState(state);
     std::vector<ExpandOneResponse> responses;
     auto &shard_cache_ref = state.shard_cache;
-    size_t id = 0;
-    // pending_requests on shards
-    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
-      const Label primary_label = state.requests[id].src_vertices[0].first;
-      auto &storage_client = GetStorageClientForShard(*shard_it, primary_label.id);
-      ReadRequests req = state.requests[id];
-      auto read_response_result = storage_client.SendReadRequest(req);
-      // RETRY on timeouts?
-      // Sometimes this produces a timeout. Temporary solution is to use a while(true) as was done in shard_map
-      if (read_response_result.HasError()) {
-        throw std::runtime_error("ExpandOne request timedout");
-      }
-      auto &response = std::get<ExpandOneResponse>(read_response_result.GetValue());
-      responses.push_back(std::move(response));
-    }
+
+    // 1. Send the requests.
+    SendAllRequests(state, shard_cache_ref);
+
+    // 2. Block untill all the futures are exhausted
+    do {
+      AwaitOnResponses(state, responses);
+    } while (!state.shard_cache.empty());
+
+    MaybeCompleteState(state);
     return responses;
   }
 
  private:
+  enum class PaginatedResponseState { Pending, PartiallyFinished };
+
   std::vector<VertexAccessor> PostProcess(std::vector<ScanVerticesResponse> &&responses) const {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
@@ -467,6 +440,170 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
     auto cli = StorageClient(io_, std::move(leader_addr.address), std::move(addresses));
     storage_cli_manager_.AddClient(label_id, target_shard, std::move(cli));
+  }
+
+  void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
+    for (const auto &request : state.requests) {
+      auto &storage_client =
+          GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
+      ReadRequests req = request;
+      storage_client.SendAsyncReadRequest(request);
+    }
+  }
+
+  void SendAllRequests(ExecutionState<CreateVerticesRequest> &state,
+                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
+    size_t id = 0;
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++shard_it) {
+      // This is fine because all new_vertices of each request end up on the same shard
+      const auto labels = state.requests[id].new_vertices[0].label_ids;
+      auto req_deep_copy = state.requests[id];
+
+      for (auto &new_vertex : req_deep_copy.new_vertices) {
+        new_vertex.label_ids.erase(new_vertex.label_ids.begin());
+      }
+
+      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
+
+      WriteRequests req = req_deep_copy;
+      storage_client.SendAsyncWriteRequest(req);
+      ++id;
+    }
+  }
+
+  void SendAllRequests(ExecutionState<ExpandOneRequest> &state,
+                       std::vector<memgraph::coordinator::Shard> &shard_cache_ref) {
+    size_t id = 0;
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++id) {
+      const Label primary_label = state.requests[id].src_vertices[0].first;
+      auto &storage_client = GetStorageClientForShard(*shard_it, primary_label.id);
+      ReadRequests req = state.requests[id];
+      storage_client.SendAsyncReadRequest(req);
+    }
+  }
+
+  void AwaitOnResponses(ExecutionState<CreateVerticesRequest> &state, std::vector<CreateVerticesResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    int64_t request_idx = 0;
+
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
+      // This is fine because all new_vertices of each request end up on the same shard
+      const auto labels = state.requests[request_idx].new_vertices[0].label_ids;
+
+      auto &storage_client = GetStorageClientForShard(*shard_it, labels[0].id);
+
+      auto poll_result = storage_client.AwaitAsyncWriteRequest();
+      if (!poll_result) {
+        ++shard_it;
+        ++request_idx;
+
+        continue;
+      }
+
+      if (poll_result->HasError()) {
+        throw std::runtime_error("CreateVertices request timed out");
+      }
+
+      WriteResponses response_variant = poll_result->GetValue();
+      auto response = std::get<CreateVerticesResponse>(response_variant);
+
+      if (!response.success) {
+        throw std::runtime_error("CreateVertices request did not succeed");
+      }
+      responses.push_back(response);
+
+      shard_it = shard_cache_ref.erase(shard_it);
+      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+      auto it = state.requests.begin() + request_idx;
+      state.requests.erase(it);
+    }
+  }
+
+  void AwaitOnResponses(ExecutionState<ExpandOneRequest> &state, std::vector<ExpandOneResponse> &responses) {
+    auto &shard_cache_ref = state.shard_cache;
+    int64_t request_idx = 0;
+
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end(); ++request_idx) {
+      auto &storage_client = GetStorageClientForShard(
+          *state.label,
+          storage::conversions::ConvertPropertyVector(state.requests[request_idx].src_vertices[0].second));
+
+      auto poll_result = storage_client.PollAsyncReadRequest();
+      if (!poll_result) {
+        continue;
+      }
+
+      if (poll_result->HasError()) {
+        throw std::runtime_error("ExpandOne request timed out");
+      }
+
+      ReadResponses response_variant = poll_result->GetValue();
+      auto response = std::get<ExpandOneResponse>(response_variant);
+      // -NOTE-
+      // Currently a boolean flag for signaling the overall success of the
+      // ExpandOne request does not exist. But it should, so here we assume
+      // that it is already in place.
+      if (!response.success) {
+        throw std::runtime_error("ExpandOne request did not succeed");
+      }
+
+      responses.push_back(std::move(response));
+      shard_it = shard_cache_ref.erase(shard_it);
+      // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+      auto it = state.requests.begin() + request_idx;
+      state.requests.erase(it);
+      --request_idx;
+    }
+  }
+
+  void AwaitOnPaginatedRequests(ExecutionState<ScanVerticesRequest> &state,
+                                std::vector<ScanVerticesResponse> &responses,
+                                std::map<Shard, PaginatedResponseState> &paginated_response_tracker) {
+    auto &shard_cache_ref = state.shard_cache;
+
+    // Find the first request that is not holding a paginated response.
+    int64_t request_idx = 0;
+    for (auto shard_it = shard_cache_ref.begin(); shard_it != shard_cache_ref.end();) {
+      if (paginated_response_tracker.at(*shard_it) != PaginatedResponseState::Pending) {
+        ++shard_it;
+        ++request_idx;
+        continue;
+      }
+
+      auto &storage_client = GetStorageClientForShard(
+          *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
+      auto await_result = storage_client.AwaitAsyncReadRequest();
+
+      if (!await_result) {
+        // Redirection has occured.
+        ++shard_it;
+        ++request_idx;
+        continue;
+      }
+
+      if (await_result->HasError()) {
+        throw std::runtime_error("ScanAll request timed out");
+      }
+
+      ReadResponses read_response_variant = await_result->GetValue();
+      auto response = std::get<ScanVerticesResponse>(read_response_variant);
+      if (!response.success) {
+        throw std::runtime_error("ScanAll request did not succeed");
+      }
+
+      if (!response.next_start_id) {
+        paginated_response_tracker.erase((*shard_it));
+        shard_cache_ref.erase(shard_it);
+        // Needed to maintain the 1-1 mapping between the ShardCache and the requests.
+        auto it = state.requests.begin() + request_idx;
+        state.requests.erase(it);
+
+      } else {
+        state.requests[request_idx].start_id.second = response.next_start_id->second;
+        paginated_response_tracker[*shard_it] = PaginatedResponseState::PartiallyFinished;
+      }
+      responses.push_back(std::move(response));
+    }
   }
 
   ShardMap shards_map_;

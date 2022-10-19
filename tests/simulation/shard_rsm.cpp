@@ -363,7 +363,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithoutBatchLi
                                                                                     msgs::VertexId start_id) {
   msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = {};
-  scan_req.filter_expressions = std::nullopt;
+  scan_req.filter_expressions.clear();
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::OLD;
@@ -389,7 +389,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithBatchLimit
                                                                                  uint64_t batch_limit) {
   msgs::ScanVerticesRequest scan_req{};
   scan_req.batch_limit = batch_limit;
-  scan_req.filter_expressions = std::nullopt;
+  scan_req.filter_expressions.clear();
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::OLD;

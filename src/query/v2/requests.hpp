@@ -352,11 +352,11 @@ struct ScanVerticesRequest {
   VertexId start_id;
   std::optional<std::vector<PropertyId>> props_to_return;
   // expression that determines if vertex is returned or not
-  std::optional<std::vector<std::string>> filter_expressions;
+  std::vector<std::string> filter_expressions;
   // expression whose result is returned for every vertex
-  std::optional<std::vector<std::string>> vertex_expressions;
+  std::vector<std::string> vertex_expressions;
   std::optional<size_t> batch_limit;
-  std::optional<std::vector<OrderBy>> order_bys;
+  std::vector<OrderBy> order_bys;
   StorageView storage_view{StorageView::NEW};
 
   std::optional<Label> label;
@@ -449,6 +449,7 @@ struct ExpandOneResultRow {
 };
 
 struct ExpandOneResponse {
+  bool success;
   std::vector<ExpandOneResultRow> result;
 };
 

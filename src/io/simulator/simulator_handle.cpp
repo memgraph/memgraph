@@ -75,8 +75,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
 
     // We tick the clock forward when all servers are blocked but
     // there are no in-flight messages to schedule delivery of.
-    std::poisson_distribution<> time_distrib(50);
-    Duration clock_advance = std::chrono::microseconds{time_distrib(rng_)};
+    const Duration clock_advance = std::chrono::microseconds{time_distrib_(rng_)};
     cluster_wide_time_microseconds_ += clock_advance;
 
     if (cluster_wide_time_microseconds_ >= config_.abort_time) {
@@ -101,8 +100,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
   auto [to_address, opaque_message] = std::move(in_flight_.back());
   in_flight_.pop_back();
 
-  std::uniform_int_distribution<int> drop_distrib(0, 99);
-  const int drop_threshold = drop_distrib(rng_);
+  const int drop_threshold = drop_distrib_(rng_);
   const bool should_drop = drop_threshold < config_.drop_percent;
 
   if (should_drop) {
