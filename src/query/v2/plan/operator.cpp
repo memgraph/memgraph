@@ -183,15 +183,22 @@ class DistributedCreateNodeCursor : public Cursor {
     std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
+      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info->labels[0];
+      // TODO(jbajic) Fix properties not send,
+      // suggestion: ignore distinction between properties and primary keys
+      // since schema validation is done on storage side
       std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          properties[key] = TypedValueToValue(val);
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
+
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+            rqst.primary_key.push_back(TypedValueToValue(val));
+          } else {
+            properties[key] = TypedValueToValue(val);
           }
         }
       } else {
@@ -199,9 +206,10 @@ class DistributedCreateNodeCursor : public Cursor {
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          properties[property_id] = TypedValueToValue(value);
-          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
             rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
+          } else {
+            properties[property_id] = TypedValueToValue(value);
           }
         }
       }
@@ -210,7 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
         throw QueryRuntimeException("Primary label must be defined!");
       }
       // TODO(kostasrim) Copy non primary labels as well
-      rqst.label_ids.push_back(msgs::Label{node_info->labels[0]});
+      rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       requests.push_back(std::move(rqst));
     }
     return requests;
@@ -280,10 +288,12 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
+class DistributedCreateExpandCursor;
+
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, input_, mem, *this);
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) const {
@@ -2337,5 +2347,104 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   }
   return visitor.PostVisit(*this);
 }
+
+class DistributedCreateExpandCursor : public Cursor {
+ public:
+  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
+  DistributedCreateExpandCursor(const InputOperator &op, utils::MemoryResource *mem, const CreateExpand &self)
+      : input_cursor_{op->MakeCursor(mem)}, self_{self} {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateExpand");
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+    auto &shard_manager = context.shard_request_manager;
+    ResetExecutionState();
+    shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+  // Get the existing node other vertex
+  accessors::VertexAccessor &OtherVertex(Frame &frame) const {
+    // This assumes that vertex exists
+    MG_ASSERT(self_.existing_node_, "Vertex creating with edge not supported!");
+    TypedValue &dest_node_value = frame[self_.node_info_.symbol];
+    ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
+    return dest_node_value.ValueVertex();
+  }
+
+  std::vector<msgs::NewExpand> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewExpand> edge_requests;
+    for (const auto &edge_info : std::vector{self_.edge_info_}) {
+      msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      request.type = {edge_info.edge_type.AsUint()};
+      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+        for (const auto &[property, value_expression] : *edge_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          request.properties.emplace_back(property, storage::v3::TypedValueToValue(val));
+        }
+      } else {
+        // handle parameter
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info.properties)).ValueMap();
+        for (const auto &[property, value] : property_map) {
+          const auto property_id = context.shard_request_manager->NameToProperty(std::string(property));
+          request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
+        }
+      }
+      // src, dest
+      TypedValue &v1_value = frame[self_.input_symbol_];
+      const auto &v1 = v1_value.ValueVertex();
+      const auto &v2 = OtherVertex(frame);
+
+      // Set src and dest vertices
+      // TODO(jbajic) Currently we are only handling scenario where vertices
+      // are matched
+      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
+        vertex_id.first = vertex.PrimaryLabel();
+        for (const auto &[key, val] : vertex.Properties()) {
+          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
+            vertex_id.second.push_back(val);
+          }
+        }
+      };
+      std::invoke([&]() {
+        switch (edge_info.direction) {
+          case EdgeAtom::Direction::IN: {
+            set_vertex(v1, request.src_vertex);
+            set_vertex(v2, request.dest_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::OUT: {
+            set_vertex(v1, request.dest_vertex);
+            set_vertex(v2, request.src_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::BOTH:
+            LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      });
+
+      edge_requests.push_back(std::move(request));
+    }
+    return edge_requests;
+  }
+
+ private:
+  void ResetExecutionState() { state_ = {}; }
+
+  const UniqueCursorPtr input_cursor_;
+  const CreateExpand &self_;
+  msgs::ExecutionState<msgs::CreateExpandRequest> state_;
+};
 
 }  // namespace memgraph::query::v2::plan
