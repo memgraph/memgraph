@@ -222,15 +222,14 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
   auto type = msgs::EdgeType{};
   type.id = edge_type_id;
 
-  auto edge = msgs::Edge{};
+  msgs::NewExpand edge;
   edge.id = id;
   edge.type = type;
-  edge.src = src;
-  edge.dst = dst;
-  edge.properties = std::nullopt;
+  edge.src_vertex = src;
+  edge.dest_vertex = dst;
 
-  msgs::CreateEdgesRequest create_req{};
-  create_req.edges = {edge};
+  msgs::CreateExpandRequest create_req{};
+  create_req.new_expands = {edge};
   create_req.transaction_id.logical_id = GetTransactionId();
 
   while (true) {
@@ -240,18 +239,19 @@ bool AttemptToAddEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t va
     }
 
     auto write_response_result = write_res.GetValue();
-    auto write_response = std::get<msgs::CreateEdgesResponse>(write_response_result);
+    auto write_response = std::get<msgs::CreateExpandResponse>(write_response_result);
 
     Commit(client, create_req.transaction_id);
 
     return write_response.success;
   }
+  return true;
 }
 
 bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex_1, int64_t value_of_vertex_2,
                                     int64_t edge_gid, uint64_t edge_prop_id, int64_t edge_prop_val,
                                     const std::vector<uint64_t> &edge_type_id) {
-  auto id1 = msgs::EdgeId{};
+  msgs::EdgeId id1;
   msgs::Label label = {.id = get_primary_label()};
 
   auto src = std::make_pair(label, GetPrimaryKey(value_of_vertex_1));
@@ -263,19 +263,19 @@ bool AttemptToAddEdgeWithProperties(ShardClient &client, int64_t value_of_vertex
 
   auto edge_prop = std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val));
 
-  auto edge = msgs::Edge{};
-  edge.id = id1;
-  edge.type = type1;
-  edge.src = src;
-  edge.dst = dst;
-  edge.properties = {edge_prop};
+  auto expand = msgs::NewExpand{};
+  expand.id = id1;
+  expand.type = type1;
+  expand.src_vertex = src;
+  expand.dest_vertex = dst;
+  expand.properties = {edge_prop};
 
-  msgs::CreateEdgesRequest create_req{};
-  create_req.edges = {edge};
+  msgs::CreateExpandRequest create_req{};
+  create_req.new_expands = {expand};
   create_req.transaction_id.logical_id = GetTransactionId();
 
   auto write_res = client.SendWriteRequest(create_req);
-  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateEdgesResponse>(write_res.GetValue()).success,
+  MG_ASSERT(write_res.HasValue() && std::get<msgs::CreateExpandResponse>(write_res.GetValue()).success,
             "Unexpected failure");
 
   Commit(client, create_req.transaction_id);

@@ -54,6 +54,9 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
+    return lhs.address == rhs.address;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
@@ -115,7 +118,12 @@ struct ShardMap {
     bool mutated = false;
 
     for (auto &[label_id, label_space] : label_spaces) {
-      for (auto &[low_key, shard] : label_space.shards) {
+      for (auto it = label_space.shards.begin(); it != label_space.shards.end(); it++) {
+        auto &[low_key, shard] = *it;
+        std::optional<PrimaryKey> high_key;
+        if (const auto next_it = std::next(it); next_it != label_space.shards.end()) {
+          high_key = next_it->first;
+        }
         // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
         bool machine_contains_shard = false;
 
@@ -133,7 +141,7 @@ struct ShardMap {
                   .uuid = aas.address.unique_id,
                   .label_id = label_id,
                   .min_key = low_key,
-                  .max_key = std::nullopt,
+                  .max_key = high_key,
                   .schema = schemas[label_id],
                   .config = Config{},
               });
@@ -150,7 +158,7 @@ struct ShardMap {
           ret.push_back(ShardToInitialize{.uuid = address.unique_id,
                                           .label_id = label_id,
                                           .min_key = low_key,
-                                          .max_key = std::nullopt,
+                                          .max_key = high_key,
                                           .schema = schemas[label_id],
                                           .config = Config{}});
 

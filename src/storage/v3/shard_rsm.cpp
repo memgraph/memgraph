@@ -53,6 +53,7 @@ using memgraph::storage::v3::View;
 
 namespace memgraph::storage::v3 {
 
+namespace {
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
@@ -251,15 +252,13 @@ std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std:
   return labels;
 }
 
-std::vector<PropertyId> GetPropertiesFromAcessor(
-    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
-  std::vector<PropertyId> ret_properties;
-  ret_properties.reserve(properties.size());
-
-  std::transform(properties.begin(), properties.end(), std::back_inserter(ret_properties),
-                 [](const auto &prop) { return prop.first; });
-
-  return ret_properties;
+template <class TExpression>
+auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
+          memgraph::storage::v3::ExpressionEvaluator &eval, DbAccessor &dba) {
+  ctx.properties = NamesToProperties(storage.properties_, dba);
+  ctx.labels = NamesToLabels(storage.labels_, dba);
+  auto value = expr->Accept(eval);
+  return value;
 }
 
 std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
@@ -283,41 +282,30 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   auto expr = ParseExpression(expression, storage);
 
   auto node_identifier = Identifier(std::string(node_name), false);
-  bool is_node_identifier_present = false;
   auto edge_identifier = Identifier(std::string(edge_name), false);
-  bool is_edge_identifier_present = false;
 
   std::vector<Identifier *> identifiers;
-
-  // TODO: use a visitor instead of string search
-  if (v_acc && expression.find(node_name) != std::string::npos) {
-    is_node_identifier_present = true;
-    identifiers.push_back(&node_identifier);
-  }
-  if (e_acc && expression.find(edge_name) != std::string::npos) {
-    is_edge_identifier_present = true;
-    identifiers.push_back(&edge_identifier);
-  }
+  identifiers.push_back(&node_identifier);
+  identifiers.push_back(&edge_identifier);
 
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
-  if (is_node_identifier_present) {
-    // We look for the position of node_identifier in the frame.
-    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                                          [&node_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                                            return position_symbol_pair.second.name() == node_identifier.name_;
-                                          });
-    MG_ASSERT(position_on_frame != symbol_table.table().end());
+  if (node_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == node_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(node_identifier)] = *v_acc;
   }
-  if (is_edge_identifier_present) {
-    // We look for the position of node_identifier in the frame.
-    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                                          [&edge_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                                            return position_symbol_pair.second.name() == edge_identifier.name_;
-                                          });
-    MG_ASSERT(position_on_frame != symbol_table.table().end());
+
+  if (edge_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == edge_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(edge_identifier)] = *e_acc;
   }
 
@@ -636,7 +624,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::s
       .edges_with_all_properties = std::move(edges_with_all_properties),
       .edges_with_specific_properties = std::move(edges_with_specific_properties)};
 }
-
+};  // namespace
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
@@ -783,38 +771,54 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   return memgraph::msgs::DeleteVerticesResponse{.success = action_successful};
 }
 
-msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  for (auto &edge : req.edges) {
-    auto vertex_acc_from_primary_key = edge.src.second;
+  for (auto &new_expand : req.new_expands) {
+    auto vertex_acc_from_primary_key = new_expand.src_vertex.second;
     auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.dst.second;
+    auto vertex_acc_to_primary_key = new_expand.dest_vertex.second;
     auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
-    if (!vertex_from_acc || !vertex_to_acc) {
+    if (!(vertex_from_acc || vertex_to_acc)) {
       action_successful = false;
       spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
                     req.transaction_id.logical_id);
       break;
     }
 
-    auto from_vertex_id = VertexId(edge.src.first.id, ConvertPropertyVector(std::move(edge.src.second)));
-    auto to_vertex_id = VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second)));
-    auto edge_acc =
-        acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
-
-    if (edge_acc.HasError()) {
+    auto from_vertex_id =
+        VertexId(new_expand.src_vertex.first.id, ConvertPropertyVector(std::move(new_expand.src_vertex.second)));
+    auto to_vertex_id =
+        VertexId(new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second)));
+    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(new_expand.type.id),
+                                   Gid::FromUint(new_expand.id.gid));
+    if (edge_acc.HasValue()) {
+      auto edge = edge_acc.GetValue();
+      if (!new_expand.properties.empty()) {
+        for (const auto &[property, value] : new_expand.properties) {
+          if (const auto maybe_error = edge.SetProperty(property, ToPropertyValue(value)); maybe_error.HasError()) {
+            action_successful = false;
+            spdlog::debug("Setting edge property was not successful. Transaction id: {}",
+                          req.transaction_id.logical_id);
+            break;
+          }
+          if (!action_successful) {
+            break;
+          }
+        }
+      }
+    } else {
       action_successful = false;
       spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
 
     // Add properties to the edge if there is any
-    if (edge.properties) {
-      for (auto &[edge_prop_key, edge_prop_val] : edge.properties.value()) {
+    if (!new_expand.properties.empty()) {
+      for (auto &[edge_prop_key, edge_prop_val] : new_expand.properties) {
         auto set_result = edge_acc->SetProperty(edge_prop_key, ToPropertyValue(std::move(edge_prop_val)));
         if (set_result.HasError()) {
           action_successful = false;
@@ -826,7 +830,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::CreateEdgesResponse{.success = action_successful};
+  return memgraph::msgs::CreateExpandResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
