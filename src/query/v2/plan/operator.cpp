@@ -26,7 +26,9 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
 #include "expr/exceptions.hpp"
+#include "query/exceptions.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/bindings/eval.hpp"
 #include "query/v2/bindings/symbol_table.hpp"
@@ -181,6 +183,8 @@ class DistributedCreateNodeCursor : public Cursor {
     std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
+      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info->labels[0];
       // TODO(jbajic) Fix properties not send,
       // suggestion: ignore distinction between properties and primary keys
       // since schema validation is done on storage side
@@ -190,9 +194,11 @@ class DistributedCreateNodeCursor : public Cursor {
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          properties[key] = TypedValueToValue(val);
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
+
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+            rqst.primary_key.push_back(TypedValueToValue(val));
+          } else {
+            properties[key] = TypedValueToValue(val);
           }
         }
       } else {
@@ -200,9 +206,10 @@ class DistributedCreateNodeCursor : public Cursor {
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          properties[property_id] = TypedValueToValue(value);
-          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
             rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
+          } else {
+            properties[property_id] = TypedValueToValue(value);
           }
         }
       }
@@ -211,7 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
         throw QueryRuntimeException("Primary label must be defined!");
       }
       // TODO(kostasrim) Copy non primary labels as well
-      rqst.label_ids.push_back(msgs::Label{node_info->labels[0]});
+      rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       requests.push_back(std::move(rqst));
     }
     return requests;
@@ -281,7 +288,7 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
-class DistributedCreateExpandCursor;  // TODO(jbajic) Move this to the top
+class DistributedCreateExpandCursor;
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
@@ -336,6 +343,82 @@ class ScanAllCursor : public Cursor {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request_state;
 };
 
+class DistributedScanAllAndFilterCursor : public Cursor {
+ public:
+  explicit DistributedScanAllAndFilterCursor(
+      Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name,
+      std::optional<storage::v3::LabelId> label,
+      std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair,
+      std::optional<std::vector<Expression *>> filter_expressions)
+      : output_symbol_(output_symbol),
+        input_cursor_(std::move(input_cursor)),
+        op_name_(op_name),
+        label_(label),
+        property_expression_pair_(property_expression_pair),
+        filter_expressions_(filter_expressions) {
+    ResetExecutionState();
+  }
+
+  using VertexAccessor = accessors::VertexAccessor;
+
+  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
+    current_batch = shard_manager.Request(request_state_);
+    current_vertex_it = current_batch.begin();
+    return !current_batch.empty();
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP(op_name_);
+    auto &shard_manager = *context.shard_request_manager;
+    if (MustAbort(context)) {
+      throw HintedAbortError();
+    }
+    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
+
+    if (request_state_.state == State::INITIALIZING) {
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
+    }
+
+    if (current_vertex_it == current_batch.end()) {
+      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
+        ResetExecutionState();
+        return Pull(frame, context);
+      }
+    }
+
+    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+    ++current_vertex_it;
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void ResetExecutionState() {
+    current_batch.clear();
+    current_vertex_it = current_batch.end();
+    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
+    request_state_.label = "label";
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+ private:
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  const char *op_name_;
+  std::vector<VertexAccessor> current_batch;
+  std::vector<VertexAccessor>::iterator current_vertex_it;
+  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
+  std::optional<storage::v3::LabelId> label_;
+  std::optional<std::pair<storage::v3::PropertyId, Expression *>> property_expression_pair_;
+  std::optional<std::vector<Expression *>> filter_expressions_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::v3::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
@@ -346,7 +429,9 @@ class DistributedScanAllCursor;
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
 
-  return MakeUniqueCursorPtr<DistributedScanAllCursor>(mem, output_symbol_, input_->MakeCursor(mem), "ScanAll");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAll", std::nullopt /*label*/,
+      std::nullopt /*property_expression_pair*/, std::nullopt /*filter_expressions*/);
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -361,10 +446,12 @@ ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input, Sy
 
 ACCEPT_WITH_INPUT(ScanAllByLabel)
 
-UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelOperator);
 
-  throw QueryRuntimeException("ScanAllByLabel is not supported");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByLabel", label_, std::nullopt /*property_expression_pair*/,
+      std::nullopt /*filter_expressions*/);
 }
 
 // TODO(buda): Implement ScanAllByLabelProperty operator to iterate over
@@ -408,10 +495,12 @@ ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<L
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyValue)
 
-UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource * /*mem*/) const {
+UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByLabelPropertyValueOperator);
 
-  throw QueryRuntimeException("ScanAllByLabelPropertyValue is not supported");
+  return MakeUniqueCursorPtr<DistributedScanAllAndFilterCursor>(
+      mem, output_symbol_, input_->MakeCursor(mem), "ScanAllByLabelPropertyValue", label_,
+      std::make_pair(property_, expression_), std::nullopt /*filter_expressions*/);
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -436,6 +525,7 @@ ACCEPT_WITH_INPUT(ScanAllById)
 
 UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllByIdOperator);
+  // TODO Reimplement when we have reliable conversion between hash value and pk
   auto vertices = [](Frame & /*frame*/, ExecutionContext & /*context*/) -> std::optional<std::vector<VertexAccessor>> {
     return std::nullopt;
   };
@@ -2262,65 +2352,6 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-class DistributedScanAllCursor : public Cursor {
- public:
-  explicit DistributedScanAllCursor(Symbol output_symbol, UniqueCursorPtr input_cursor, const char *op_name)
-      : output_symbol_(output_symbol), input_cursor_(std::move(input_cursor)), op_name_(op_name) {}
-
-  using VertexAccessor = accessors::VertexAccessor;
-
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
-    // TODO(antaljanosbenjamin) Use real label
-    request_state_.label = "label";
-    current_batch = shard_manager.Request(request_state_);
-    current_vertex_it = current_batch.begin();
-    return !current_batch.empty();
-  }
-
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    SCOPED_PROFILE_OP(op_name_);
-    auto &shard_manager = *context.shard_request_manager;
-    if (MustAbort(context)) throw HintedAbortError();
-    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
-
-    if (request_state_.state == State::INITIALIZING) {
-      if (!input_cursor_->Pull(frame, context)) return false;
-    }
-
-    if (current_vertex_it == current_batch.end()) {
-      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
-        ResetExecutionState();
-        return Pull(frame, context);
-      }
-    }
-
-    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-    ++current_vertex_it;
-    return true;
-  }
-
-  void Shutdown() override { input_cursor_->Shutdown(); }
-
-  void ResetExecutionState() {
-    current_batch.clear();
-    current_vertex_it = current_batch.end();
-    request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-  }
-
-  void Reset() override {
-    input_cursor_->Reset();
-    ResetExecutionState();
-  }
-
- private:
-  const Symbol output_symbol_;
-  const UniqueCursorPtr input_cursor_;
-  const char *op_name_;
-  std::vector<VertexAccessor> current_batch;
-  decltype(std::vector<VertexAccessor>().begin()) current_vertex_it;
-  msgs::ExecutionState<msgs::ScanVerticesRequest> request_state_;
-};
-
 class DistributedCreateExpandCursor : public Cursor {
  public:
   using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
@@ -2333,13 +2364,17 @@ class DistributedCreateExpandCursor : public Cursor {
       return false;
     }
     auto &shard_manager = context.shard_request_manager;
+    ResetExecutionState();
     shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
     return true;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { state_ = {}; }
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
 
   // Get the existing node other vertex
   accessors::VertexAccessor &OtherVertex(Frame &frame) const {
@@ -2381,7 +2416,7 @@ class DistributedCreateExpandCursor : public Cursor {
       const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
         vertex_id.first = vertex.PrimaryLabel();
         for (const auto &[key, val] : vertex.Properties()) {
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
+          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
             vertex_id.second.push_back(val);
           }
         }
@@ -2409,6 +2444,8 @@ class DistributedCreateExpandCursor : public Cursor {
   }
 
  private:
+  void ResetExecutionState() { state_ = {}; }
+
   const UniqueCursorPtr input_cursor_;
   const CreateExpand &self_;
   msgs::ExecutionState<msgs::CreateExpandRequest> state_;

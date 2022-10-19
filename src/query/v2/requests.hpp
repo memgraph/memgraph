@@ -370,10 +370,12 @@ struct ScanVerticesRequest {
   // std::nullopt means return all the properties
   // not empty optional means return all the (possibly empty) list of properties
   std::optional<std::vector<PropertyId>> props_to_return;
-  // This just should be std::vector, because there is no different between std::nullopt and empty vector
-  std::optional<std::vector<std::string>> filter_expressions;
   std::optional<size_t> batch_limit;
   StorageView storage_view{StorageView::NEW};
+
+  std::optional<Label> label;
+  std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
+  std::optional<std::vector<std::string>> filter_expressions;
 };
 
 struct ScanResultRow {

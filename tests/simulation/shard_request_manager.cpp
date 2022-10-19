@@ -169,10 +169,6 @@ void TestScanVertices(msgs::ShardRequestManagerInterface &io) {
     auto prop = result[0].GetProperty(msgs::PropertyId::FromUint(0));
     MG_ASSERT(prop.int_v == 1);
   }
-
-  // Exhaust it, request should be empty
-  result = io.Request(state);
-  MG_ASSERT(result.size() == 0);
 }
 
 void TestCreateVertices(msgs::ShardRequestManagerInterface &io) {

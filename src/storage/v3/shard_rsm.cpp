@@ -101,7 +101,7 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
   }
 
-  auto pk = maybe_pk.GetValue();
+  auto &pk = maybe_pk.GetValue();
   MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
   for (size_t i{0}; i < schema->second.size(); ++i) {
     ret.emplace(schema->second[i].property_id, ToValue(std::move(pk[i])));
@@ -738,6 +738,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   }
 
   memgraph::msgs::ExpandOneResponse resp{};
+  resp.success = action_successful;
   if (action_successful) {
     resp.result = std::move(results);
   }
