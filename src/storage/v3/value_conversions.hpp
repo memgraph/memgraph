@@ -61,14 +61,13 @@ inline v3::PropertyValue ToPropertyValue(Value value) {
     // These are not PropertyValues
     case Value::Type::Vertex:
     case Value::Type::Edge:
-    case Value::Type::Path:
       MG_ASSERT(false, "Not PropertyValue");
   }
   return ret;
 }
 
-inline Value ToValue(v3::PropertyValue &&pv) {
-  using v3::PropertyValue;
+inline Value FromPropertyValueToValue(memgraph::storage::v3::PropertyValue &&pv) {
+  using memgraph::storage::v3::PropertyValue;
 
   switch (pv.type()) {
     case PropertyValue::Type::Bool:
@@ -81,7 +80,7 @@ inline Value ToValue(v3::PropertyValue &&pv) {
       std::vector<Value> list;
       list.reserve(pv.ValueList().size());
       for (auto &elem : pv.ValueList()) {
-        list.emplace_back(ToValue(std::move(elem)));
+        list.emplace_back(FromPropertyValueToValue(std::move(elem)));
       }
 
       return Value(list);
@@ -90,7 +89,7 @@ inline Value ToValue(v3::PropertyValue &&pv) {
       std::map<std::string, Value> map;
       for (auto &[key, val] : pv.ValueMap()) {
         // maybe use std::make_pair once the && issue is resolved.
-        map.emplace(key, ToValue(std::move(val)));
+        map.emplace(key, FromPropertyValueToValue(std::move(val)));
       }
 
       return Value(map);
@@ -123,7 +122,7 @@ inline std::vector<Value> ConvertValueVector(const std::vector<v3::PropertyValue
   ret.reserve(vec.size());
 
   for (const auto &elem : vec) {
-    ret.push_back(ToValue(v3::PropertyValue{elem}));
+    ret.push_back(FromPropertyValueToValue(v3::PropertyValue{elem}));
   }
 
   return ret;

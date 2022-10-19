@@ -202,9 +202,8 @@ Value ToBoltValue(msgs::Value value) {
       return Value{std::move(map)};
     }
     case msgs::Value::Type::Vertex:
-    case msgs::Value::Type::Edge:
-    case msgs::Value::Type::Path: {
-      throw utils::BasicException("Path, Vertex and Edge not supported!");
+    case msgs::Value::Type::Edge: {
+      throw utils::BasicException("Vertex and Edge not supported!");
     }
       // TODO Value to Date types not supported
   }

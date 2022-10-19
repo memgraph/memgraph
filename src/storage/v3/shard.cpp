@@ -12,6 +12,7 @@
 #include "storage/v3/shard.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <memory>
@@ -392,15 +393,9 @@ ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
   OOMExceptionEnabler oom_exception;
   const auto schema = shard_->GetSchema(shard_->primary_label_)->second;
-  std::vector<std::pair<PropertyId, PropertyValue>> primary_properties_ordered;
-  // TODO(jbajic) Maybe react immediately and send Violation
-  MG_ASSERT("PrimaryKey is invalid size");
-  for (auto i{0}; i < schema.size(); ++i) {
-    primary_properties_ordered.emplace_back(schema[i].property_id, primary_properties[i]);
-  }
 
   auto maybe_schema_violation =
-      GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties_ordered);
+      GetSchemaValidator().ValidateVertexCreate(shard_->primary_label_, labels, primary_properties);
   if (maybe_schema_violation) {
     return {std::move(*maybe_schema_violation)};
   }
