@@ -205,7 +205,6 @@ Value ToBoltValue(msgs::Value value) {
     case msgs::Value::Type::Edge: {
       throw utils::BasicException("Vertex and Edge not supported!");
     }
-      // TODO Value to Date types not supported
   }
 }
 

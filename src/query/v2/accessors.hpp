@@ -73,6 +73,8 @@ class VertexAccessor final {
   using Label = msgs::Label;
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props);
 
+  Label PrimaryLabel() const;
+
   std::vector<Label> Labels() const;
 
   bool HasLabel(Label &label) const;
