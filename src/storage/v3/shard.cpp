@@ -533,7 +533,6 @@ Result<EdgeAccessor> Shard::Accessor::CreateEdge(VertexId from_vertex_id, Vertex
 
   const auto from_is_local = shard_->IsVertexBelongToShard(from_vertex_id);
   const auto to_is_local = shard_->IsVertexBelongToShard(to_vertex_id);
-  // TODO(antaljanosbenjamin): Fix before merge, Maybe return an error here?
   MG_ASSERT(from_is_local || to_is_local, "Trying to create an edge without having a local vertex");
 
   if (from_is_local) {

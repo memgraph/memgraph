@@ -55,14 +55,7 @@ bool VertexAccessor::HasLabel(Label &label) const {
                       [label](const auto &l) { return l.id == label.id; }) != vertex.labels.end();
 }
 
-std::vector<std::pair<PropertyId, Value>> VertexAccessor::Properties() const {
-  //    std::map<std::string, TypedValue> res;
-  //    for (const auto &[name, value] : *properties) {
-  //      res[name] = ValueToTypedValue(value);
-  //    }
-  //    return res;
-  return properties;
-}
+const std::vector<std::pair<PropertyId, Value>> &VertexAccessor::Properties() const { return properties; }
 
 Value VertexAccessor::GetProperty(PropertyId prop_id) const {
   return std::find_if(properties.begin(), properties.end(), [&](auto &pr) { return prop_id == pr.first; })->second;

@@ -48,7 +48,7 @@ using conversions::ToMsgsVertexId;
 using conversions::ToPropertyValue;
 
 namespace {
-namespace msgs = memgraph::msgs;
+namespace msgs = msgs;
 
 std::vector<std::pair<PropertyId, PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
@@ -125,17 +125,17 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
   return ret;
 }
 
-memgraph::msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
+msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
   // Get the vertex id
   auto prim_label = acc.PrimaryLabel(view).GetValue();
-  memgraph::msgs::Label value_label{.id = prim_label};
+  msgs::Label value_label{.id = prim_label};
 
   auto prim_key = ConvertValueVector(acc.PrimaryKey(view).GetValue());
-  memgraph::msgs::VertexId vertex_id = std::make_pair(value_label, prim_key);
+  msgs::VertexId vertex_id = std::make_pair(value_label, prim_key);
 
   // Get the labels
   auto vertex_labels = acc.Labels(view).GetValue();
-  std::vector<memgraph::msgs::Label> value_labels;
+  std::vector<msgs::Label> value_labels;
   value_labels.reserve(vertex_labels.size());
 
   std::transform(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(value_labels),
@@ -145,15 +145,14 @@ memgraph::msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view)
 }
 
 Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
-  memgraph::msgs::EdgeType type = {.id = acc.EdgeType()};
-  memgraph::msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
+  msgs::EdgeType type = {.id = acc.EdgeType()};
+  msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
 
   Label src_prim_label = {.id = acc.FromVertex().primary_label};
-  memgraph::msgs::VertexId src_vertex =
-      std::make_pair(src_prim_label, ConvertValueVector(acc.FromVertex().primary_key));
+  msgs::VertexId src_vertex = std::make_pair(src_prim_label, ConvertValueVector(acc.FromVertex().primary_key));
 
   Label dst_prim_label = {.id = acc.ToVertex().primary_label};
-  memgraph::msgs::VertexId dst_vertex = std::make_pair(dst_prim_label, ConvertValueVector(acc.ToVertex().primary_key));
+  msgs::VertexId dst_vertex = std::make_pair(dst_prim_label, ConvertValueVector(acc.ToVertex().primary_key));
 
   auto properties = acc.Properties(view);
 
@@ -168,8 +167,11 @@ Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
                    });
   }
 
-  return Value(msgs::Edge{
-      .src = src_vertex, .dst = dst_vertex, .properties = std::move(present_properties), .id = gid, .type = type});
+  return Value(msgs::Edge{.src = std::move(src_vertex),
+                          .dst = std::move(dst_vertex),
+                          .properties = std::move(present_properties),
+                          .id = gid,
+                          .type = type});
 }
 
 Value FromTypedValueToValue(TypedValue &&tv) {
@@ -348,12 +350,12 @@ std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccesso
   }
 
   auto &sec_labels = secondary_labels.GetValue();
-  memgraph::msgs::Vertex source_vertex;
+  msgs::Vertex source_vertex;
   source_vertex.id = src_vertex;
   source_vertex.labels.reserve(sec_labels.size());
 
   std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(source_vertex.labels),
-                 [](auto label_id) { return memgraph::msgs::Label{.id = label_id}; });
+                 [](auto label_id) { return msgs::Label{.id = label_id}; });
 
   return source_vertex;
 }
@@ -451,8 +453,9 @@ using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
 
+template <bool are_in_edges>
 bool FillEdges(const std::vector<EdgeAccessor> &edges, const msgs::ExpandOneRequest &req, msgs::ExpandOneResultRow &row,
-               const bool are_in_edges, const EdgeFiller &edge_filler) {
+               const EdgeFiller &edge_filler) {
   for (const auto &edge : edges) {
     if (!DoesEdgeTypeMatch(req.edge_types, edge)) {
       continue;
@@ -484,15 +487,13 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(Shard::Accessor &acc,
         value_properties.insert(std::make_pair(prop_key, FromPropertyValueToValue(std::move(prop_val))));
       }
       using EdgeWithAllProperties = msgs::ExpandOneResultRow::EdgeWithAllProperties;
-      std::vector<EdgeWithAllProperties> msgs::ExpandOneResultRow::*edges{nullptr};
+      EdgeWithAllProperties edges{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
+                                  edge.Gid().AsUint(), std::move(value_properties)};
       if (is_in_edge) {
-        edges = &msgs::ExpandOneResultRow::in_edges_with_all_properties;
+        result_row.in_edges_with_all_properties.push_back(std::move(edges));
       } else {
-        edges = &msgs::ExpandOneResultRow::out_edges_with_all_properties;
+        result_row.out_edges_with_all_properties.push_back(std::move(edges));
       }
-      (result_row.*edges)
-          .push_back(EdgeWithAllProperties{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
-                                           edge.Gid().AsUint(), std::move(value_properties)});
       return true;
     };
   } else {
@@ -511,15 +512,13 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(Shard::Accessor &acc,
         value_properties.emplace_back(FromPropertyValueToValue(std::move(property_result.GetValue())));
       }
       using EdgeWithSpecificProperties = msgs::ExpandOneResultRow::EdgeWithSpecificProperties;
-      std::vector<EdgeWithSpecificProperties> msgs::ExpandOneResultRow::*edges{nullptr};
+      EdgeWithSpecificProperties edges{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
+                                       edge.Gid().AsUint(), std::move(value_properties)};
       if (is_in_edge) {
-        edges = &msgs::ExpandOneResultRow::in_edges_with_specific_properties;
+        result_row.in_edges_with_specific_properties.push_back(std::move(edges));
       } else {
-        edges = &msgs::ExpandOneResultRow::out_edges_with_specific_properties;
+        result_row.out_edges_with_specific_properties.push_back(std::move(edges));
       }
-      (result_row.*edges)
-          .push_back(EdgeWithSpecificProperties{ToMsgsVertexId(edge.FromVertex()), msgs::EdgeType{edge.EdgeType()},
-                                                edge.Gid().AsUint(), std::move(value_properties)});
       return true;
     };
   }
@@ -552,10 +551,10 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(Shard::Accessor &acc,
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
-  if (!in_edges.empty() && !FillEdges(in_edges, req, result_row, kInEdges, edge_filler)) {
+  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, req, result_row, edge_filler)) {
     return std::nullopt;
   }
-  if (!out_edges.empty() && !FillEdges(out_edges, req, result_row, kOutEdges, edge_filler)) {
+  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, req, result_row, edge_filler)) {
     return std::nullopt;
   }
 
@@ -612,7 +611,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::CreateVerticesResponse{.success = action_successful};
+  return msgs::CreateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
@@ -661,7 +660,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::UpdateVerticesResponse{.success = action_successful};
+  return msgs::UpdateVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
@@ -684,7 +683,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
       // Since we will not have different kinds of deletion types in one transaction,
       // we dont have to enter the switch statement on every iteration. Optimize this.
       switch (req.deletion_type) {
-        case memgraph::msgs::DeleteVerticesRequest::DeletionType::DELETE: {
+        case msgs::DeleteVerticesRequest::DeletionType::DELETE: {
           auto result = acc.DeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -693,7 +692,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
 
           break;
         }
-        case memgraph::msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
+        case msgs::DeleteVerticesRequest::DeletionType::DETACH_DELETE: {
           auto result = acc.DetachDeleteVertex(&vertex_acc.value());
           if (result.HasError() || !(result.GetValue().has_value())) {
             action_successful = false;
@@ -707,7 +706,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::DeleteVerticesResponse{.success = action_successful};
+  return msgs::DeleteVerticesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
@@ -764,7 +763,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
     }
   }
 
-  return memgraph::msgs::CreateExpandResponse{.success = action_successful};
+  return msgs::CreateExpandResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
@@ -786,7 +785,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::DeleteEdgesResponse{.success = action_successful};
+  return msgs::DeleteEdgesResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
@@ -845,15 +844,15 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateEdgesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::UpdateEdgesResponse{.success = action_successful};
+  return msgs::UpdateEdgesResponse{.success = action_successful};
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  std::vector<memgraph::msgs::ScanResultRow> results;
-  std::optional<memgraph::msgs::VertexId> next_start_id;
+  std::vector<msgs::ScanResultRow> results;
+  std::optional<msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
   auto vertex_iterable = acc.Vertices(view);
@@ -925,7 +924,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  memgraph::msgs::ScanVerticesResponse resp{};
+  msgs::ScanVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -940,7 +939,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  std::vector<memgraph::msgs::ExpandOneResultRow> results;
+  std::vector<msgs::ExpandOneResultRow> results;
 
   for (auto &src_vertex : req.src_vertices) {
     auto result = GetExpandOneResult(acc, src_vertex, req);
@@ -953,7 +952,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     results.emplace_back(result.value());
   }
 
-  memgraph::msgs::ExpandOneResponse resp{};
+  msgs::ExpandOneResponse resp{};
   resp.success = action_successful;
   if (action_successful) {
     resp.result = std::move(results);
@@ -964,12 +963,12 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
   shard_->Access(req.transaction_id).Commit(req.commit_timestamp);
-  return memgraph::msgs::CommitResponse{true};
+  return msgs::CommitResponse{true};
 };
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) {
-  return memgraph::msgs::GetPropertiesResponse{};
+  return msgs::GetPropertiesResponse{};
 }
 
 }  //    namespace memgraph::storage::v3

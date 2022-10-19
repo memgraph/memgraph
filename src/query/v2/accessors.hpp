@@ -81,7 +81,7 @@ class VertexAccessor final {
 
   [[nodiscard]] bool HasLabel(Label &label) const;
 
-  [[nodiscard]] std::vector<std::pair<PropertyId, Value>> Properties() const;
+  [[nodiscard]] const std::vector<std::pair<PropertyId, Value>> &Properties() const;
 
   [[nodiscard]] Value GetProperty(PropertyId prop_id) const;
   [[nodiscard]] Value GetProperty(const std::string &prop_name) const;
