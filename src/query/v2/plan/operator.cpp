@@ -181,6 +181,9 @@ class DistributedCreateNodeCursor : public Cursor {
 
   std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
     std::vector<msgs::NewVertex> requests;
+    // TODO(kostasrim) this assertion should be removed once we support multiple vertex creation
+    MG_ASSERT(nodes_info_.size() == 1);
+    msgs::VertexId result_vertex;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
       MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
@@ -221,6 +224,10 @@ class DistributedCreateNodeCursor : public Cursor {
       rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       requests.push_back(std::move(rqst));
     }
+    const auto &rqst = requests.front();
+    msgs::Vertex v{.id = std::make_pair(rqst.label_ids.front(), rqst.primary_key)};
+    frame[nodes_info_.front()->symbol] =
+        TypedValue(query::v2::accessors::VertexAccessor(std::move(v), rqst.properties));
     return requests;
   }
 
