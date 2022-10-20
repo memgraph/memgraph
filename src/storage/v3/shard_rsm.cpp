@@ -935,92 +935,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 }
 
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
-  using EdgeProperties =
-      std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
-  std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
-
-  // Functions to obtain edge properties
-  if (!req.edge_properties) {
-    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
-      std::map<PropertyId, memgraph::msgs::Value> ret;
-      auto property_results = edge.Properties(View::OLD);
-      if (property_results.HasError()) {
-        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        return LocalError{};
-      }
-
-      auto &properties = property_results.GetValue();
-      std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.end()), [](auto &prop) {
-        return (std::make_pair(prop.first, FromPropertyValueToValue(std::move(prop.second))));
-      });
-
-      return ret;
-    };
-  } else {
-    // TODO(gvolfing) - do we want to set the action_successful here?
-    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
-      std::vector<memgraph::msgs::Value> ret;
-      ret.reserve(req.edge_properties.value().size());
-
-      // TODO(gvolfing) maybe check for the absence of certain properties
-      const auto &edge_properties = req.edge_properties.value();
-      std::transform(edge_properties.begin(), edge_properties.end(), std::back_inserter(ret),
-                     [&edge](const auto &edge_prop) {
-                       return FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue());
-                     });
-
-      return ret;
-    };
-  }
-
-  // Functions to select connecting edges based on uniquness
-  using EdgeAccessors = std::vector<memgraph::storage::v3::EdgeAccessor>;
-  std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)> maybe_filter_based_on_edge_uniquness;
-  if (req.only_unique_neighbor_rows) {
-    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
-                                              memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
-      std::function<bool(std::unordered_set<const storage::v3::VertexId *> &,
-                         const memgraph::storage::v3::EdgeAccessor &)>
-          check_and_insert_unique_other_vertex;
-      switch (edge_direction) {
-        case memgraph::msgs::EdgeDirection::OUT: {
-          check_and_insert_unique_other_vertex = [](std::unordered_set<const storage::v3::VertexId *> &other_vertex_set,
-                                                    const memgraph::storage::v3::EdgeAccessor &edge_acc) {
-            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
-            return insertion_happened;
-          };
-          break;
-        }
-        case memgraph::msgs::EdgeDirection::IN: {
-          check_and_insert_unique_other_vertex = [](std::unordered_set<const storage::v3::VertexId *> &other_vertex_set,
-                                                    const memgraph::storage::v3::EdgeAccessor &edge_acc) {
-            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
-            return insertion_happened;
-          };
-          break;
-        }
-        case memgraph::msgs::EdgeDirection::BOTH:
-          MG_ASSERT(false,
-                    "This is should never happen, memgraph::msgs::EdgeDirection::BOTH should not be passed here.");
-      }
-
-      EdgeAccessors ret;
-      std::unordered_set<const storage::v3::VertexId *> other_vertex_set;
-
-      for (const auto &edge : edges) {
-        if (check_and_insert_unique_other_vertex(other_vertex_set, edge)) {
-          ret.emplace_back(edge);
-        }
-      }
-
-      return ret;
-    };
-  } else {
-    maybe_filter_based_on_edge_uniquness =
-        [](EdgeAccessors &&edges, memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return edges; };
-  }
-
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
@@ -1028,7 +942,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   for (auto &src_vertex : req.src_vertices) {
     // Get Vertex acc
-    auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::OLD);
+    auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
     if (!src_vertex_acc_opt) {
       action_successful = false;
       spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
