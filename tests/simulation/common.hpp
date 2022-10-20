@@ -43,26 +43,18 @@
 #include "storage/v3/value_conversions.hpp"
 #include "utils/logging.hpp"
 
-using memgraph::coordinator::Hlc;
-using memgraph::io::rsm::StorageWriteRequest;
-using memgraph::io::rsm::StorageWriteResponse;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
-using memgraph::msgs::CreateVerticesRequest;
-using memgraph::msgs::CreateVerticesResponse;
-using memgraph::msgs::ExpandOneRequest;
-using memgraph::msgs::ExpandOneResponse;
-using memgraph::msgs::ListedValues;
-using memgraph::msgs::ScanVerticesRequest;
-using memgraph::msgs::ScanVerticesResponse;
-using memgraph::msgs::Value;
-using memgraph::msgs::VertexId;
-using memgraph::storage::v3::LabelId;
-using memgraph::storage::v3::PropertyValue;
+namespace memgraph::storage::v3::tests {
+using coordinator::Hlc;
+using io::rsm::StorageWriteRequest;
+using io::rsm::StorageWriteResponse;
+using io::simulator::Simulator;
+using io::simulator::SimulatorConfig;
+using io::simulator::SimulatorStats;
+using io::simulator::SimulatorTransport;
+using storage::v3::LabelId;
+using storage::v3::PropertyValue;
 
-using ShardRsmKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using ShardRsmKey = std::vector<storage::v3::PropertyValue>;
 
 class MockedShardRsm {
   std::map<ShardRsmKey, int> state_;
@@ -79,32 +71,37 @@ class MockedShardRsm {
   }
 
  public:
+  using ReadRequests = msgs::ReadRequests;
+  using ReadResponses = msgs::ReadResponses;
+  using WriteRequests = msgs::WriteRequests;
+  using WriteResponses = msgs::WriteResponses;
+
   //  ExpandOneResponse Read(ExpandOneRequest rqst);
   //  GetPropertiesResponse Read(GetPropertiesRequest rqst);
-  ScanVerticesResponse ReadImpl(ScanVerticesRequest rqst) {
-    ScanVerticesResponse ret;
-    auto as_prop_val = memgraph::storage::conversions::ConvertPropertyVector(rqst.start_id.second);
+  msgs::ScanVerticesResponse ReadImpl(msgs::ScanVerticesRequest rqst) {
+    msgs::ScanVerticesResponse ret;
+    auto as_prop_val = storage::conversions::ConvertPropertyVector(rqst.start_id.second);
     if (!IsKeyInRange(as_prop_val)) {
       ret.success = false;
     } else if (as_prop_val == ShardRsmKey{PropertyValue(0), PropertyValue(0)}) {
-      Value val(int64_t(0));
-      ret.next_start_id = std::make_optional<VertexId>();
+      msgs::Value val(int64_t(0));
+      ret.next_start_id = std::make_optional<msgs::VertexId>();
       ret.next_start_id->second =
-          memgraph::storage::conversions::ConvertValueVector(ShardRsmKey{PropertyValue(1), PropertyValue(0)});
-      memgraph::msgs::ScanResultRow result;
-      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
+          storage::conversions::ConvertValueVector(ShardRsmKey{PropertyValue(1), PropertyValue(0)});
+      msgs::ScanResultRow result;
+      result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
     } else if (as_prop_val == ShardRsmKey{PropertyValue(1), PropertyValue(0)}) {
-      memgraph::msgs::ScanResultRow result;
-      Value val(int64_t(1));
-      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
+      msgs::ScanResultRow result;
+      msgs::Value val(int64_t(1));
+      result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
     } else if (as_prop_val == ShardRsmKey{PropertyValue(12), PropertyValue(13)}) {
-      memgraph::msgs::ScanResultRow result;
-      Value val(int64_t(444));
-      result.props.push_back(std::make_pair(memgraph::msgs::PropertyId::FromUint(0), val));
+      msgs::ScanResultRow result;
+      msgs::Value val(int64_t(444));
+      result.props.push_back(std::make_pair(msgs::PropertyId::FromUint(0), val));
       ret.results.push_back(std::move(result));
       ret.success = true;
     } else {
@@ -113,14 +110,25 @@ class MockedShardRsm {
     return ret;
   }
 
-  ExpandOneResponse ReadImpl(ExpandOneRequest rqst) { return {}; }
-  using ReadRequests = std::variant<ScanVerticesRequest, ExpandOneRequest>;
-  using ReadResponses = std::variant<ScanVerticesResponse, ExpandOneResponse>;
+  msgs::ExpandOneResponse ReadImpl(msgs::ExpandOneRequest rqst) { return {}; }
+  msgs::ExpandOneResponse ReadImpl(msgs::GetPropertiesRequest rqst) { return {}; }
 
   ReadResponses Read(ReadRequests read_requests) {
-    return {std::visit([this](auto &&request) { return ReadResponses{ReadImpl(std::move(request))}; },
+    return {std::visit([this]<typename T>(T &&request) { return ReadResponses{ReadImpl(std::forward<T>(request))}; },
                        std::move(read_requests))};
   }
 
-  CreateVerticesResponse Apply(CreateVerticesRequest request) { return CreateVerticesResponse{.success = true}; }
+  msgs::CreateVerticesResponse ApplyImpl(msgs::CreateVerticesRequest rqst) { return {.success = true}; }
+  msgs::DeleteVerticesResponse ApplyImpl(msgs::DeleteVerticesRequest rqst) { return {}; }
+  msgs::UpdateVerticesResponse ApplyImpl(msgs::UpdateVerticesRequest rqst) { return {}; }
+  msgs::CreateExpandResponse ApplyImpl(msgs::CreateExpandRequest rqst) { return {.success = true}; }
+  msgs::DeleteEdgesResponse ApplyImpl(msgs::DeleteEdgesRequest rqst) { return {}; }
+  msgs::UpdateEdgesResponse ApplyImpl(msgs::UpdateEdgesRequest rqst) { return {}; }
+  msgs::CommitResponse ApplyImpl(msgs::CommitRequest rqst) { return {}; }
+
+  WriteResponses Apply(WriteRequests write_requests) {
+    return {std::visit([this]<typename T>(T &&request) { return WriteResponses{ApplyImpl(std::forward<T>(request))}; },
+                       std::move(write_requests))};
+  }
 };
+}  // namespace memgraph::storage::v3::tests

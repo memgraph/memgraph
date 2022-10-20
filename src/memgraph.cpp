@@ -643,10 +643,10 @@ int main(int argc, char **argv) {
   const std::string label{"label"};
   memgraph::coordinator::ShardMap sm;
   auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{property});
-  auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"edge_type"});
+  auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"TO"});
   std::vector<memgraph::storage::v3::SchemaProperty> schema{{prop_map.at(property), memgraph::common::SchemaType::INT}};
   sm.InitializeNewLabel(label, schema, 1, sm.shard_map_version);
-  sm.SplitShard(sm.GetHlc(), sm.GetLabelId(label),
+  sm.SplitShard(sm.GetHlc(), *sm.GetLabelId(label),
                 std::vector<memgraph::storage::v3::PropertyValue>{memgraph::storage::v3::PropertyValue{2}});
 
   memgraph::coordinator::Coordinator coordinator{sm};
