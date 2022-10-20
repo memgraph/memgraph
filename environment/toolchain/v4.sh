@@ -10,6 +10,14 @@ cd "$DIR"
 source "$DIR/../util.sh"
 DISTRO="$(operating_system)"
 
+function log_tool_name () {
+    echo ""
+    echo ""
+    echo "#### $1 ####"
+    echo ""
+    echo ""
+}
+
 for_arm=false
 if [[ "$#" -eq 1 ]]; then
     if [[ "$1" == "--for-arm" ]]; then
@@ -20,9 +28,11 @@ if [[ "$#" -eq 1 ]]; then
    fi
 fi
 
-os="$1"
-
-# toolchain version
+TOOLCHAIN_STDCXX="${TOOLCHAIN_STDCXX:-libstdc++}"
+if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; then
+    echo "Only GCC (libstdc++) or LLVM (libc++) C++ standard library implementations are supported."
+    exit 1
+fi
 TOOLCHAIN_VERSION=4
 
 # package versions used
@@ -99,6 +109,8 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -156,6 +168,8 @@ if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
     wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz.sig
+    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz.sig
 fi
 # list of valid llvm gnupg keys: https://releases.llvm.org/download.html
 $GPG --keyserver $KEYSERVER --recv-keys 0x474E22316ABF4785A88C6E8EA2C794A986419D8A
@@ -165,6 +179,8 @@ $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
 $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
 $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
 $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
+$GPG --verify libcxx-$LLVM_VERSION.src.tar.xz.sig libcxx-$LLVM_VERSION.src.tar.xz
+$GPG --verify libcxxabi-$LLVM_VERSION.src.tar.xz.sig libcxxabi-$LLVM_VERSION.src.tar.xz
 
 popd
 
@@ -172,7 +188,7 @@ popd
 mkdir -p build
 pushd build
 
-# compile gcc
+log_tool_name "GCC $GCC_VERSION"
 if [ ! -f $PREFIX/bin/gcc ]; then
     if [ -d gcc-$GCC_VERSION ]; then
         rm -rf gcc-$GCC_VERSION
@@ -263,7 +279,7 @@ fi
 export PATH=$PREFIX/bin:$PATH
 export LD_LIBRARY_PATH=$PREFIX/lib64
 
-# compile binutils
+log_tool_name "binutils $BINUTILS_VERSION"
 if [ ! -f $PREFIX/bin/ld.gold ]; then
     if [ -d binutils-$BINUTILS_VERSION ]; then
         rm -rf binutils-$BINUTILS_VERSION
@@ -327,7 +343,7 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
     popd && popd
 fi
 
-# compile gdb
+log_tool_name "GDB $GDB_VERSION"
 if [ ! -f $PREFIX/bin/gdb ]; then
     if [ -d gdb-$GDB_VERSION ]; then
         rm -rf gdb-$GDB_VERSION
@@ -398,13 +414,13 @@ if [ ! -f $PREFIX/bin/gdb ]; then
     popd && popd
 fi
 
-# install pahole
+log_tool_name "install pahole"
 if [ ! -d $PREFIX/share/pahole-gdb ]; then
     unzip ../archives/pahole-gdb-master.zip
     mv pahole-gdb-master $PREFIX/share/pahole-gdb
 fi
 
-# setup system gdbinit
+log_tool_name "setup system gdbinit"
 if [ ! -f $PREFIX/etc/gdb/gdbinit ]; then
     mkdir -p $PREFIX/etc/gdb
     cat >$PREFIX/etc/gdb/gdbinit <<EOF
@@ -430,7 +446,7 @@ end
 EOF
 fi
 
-# compile cmake
+log_tool_name "cmake $CMAKE_VERSION"
 if [ ! -f $PREFIX/bin/cmake ]; then
     if [ -d cmake-$CMAKE_VERSION ]; then
         rm -rf cmake-$CMAKE_VERSION
@@ -456,7 +472,7 @@ if [ ! -f $PREFIX/bin/cmake ]; then
     popd && popd
 fi
 
-# compile cppcheck
+log_tool_name "cppcheck $CPPCHECK_VERSION"
 if [ ! -f $PREFIX/bin/cppcheck ]; then
     if [ -d cppcheck-$CPPCHECK_VERSION ]; then
         rm -rf cppcheck-$CPPCHECK_VERSION
@@ -480,7 +496,7 @@ if [ ! -f $PREFIX/bin/cppcheck ]; then
     popd
 fi
 
-# compile swig
+log_tool_name "swig $SWIG_VERSION"
 if [ ! -d swig-$SWIG_VERSION/install ]; then
     if [ -d swig-$SWIG_VERSION ]; then
         rm -rf swig-$SWIG_VERSION
@@ -496,7 +512,7 @@ if [ ! -d swig-$SWIG_VERSION/install ]; then
     popd && popd
 fi
 
-# compile llvm
+log_tool_name "LLVM $LLVM_VERSION"
 if [ ! -f $PREFIX/bin/clang ]; then
     if [ -d llvm-$LLVM_VERSION ]; then
         rm -rf llvm-$LLVM_VERSION
@@ -513,8 +529,19 @@ if [ ! -f $PREFIX/bin/clang ]; then
     mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
     tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
     mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
+
+    # The following is required because of libc++
+    tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
+    mv libcxx-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxx
+    tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
+    mv libcxxabi-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxxabi
+    # NOTE: We moved part of the libunwind in one of the previous step.
+    rm -r libunwind-$LLVM_VERSION.src
+    tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
+    mv libunwind-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libunwind
+
     pushd llvm-$LLVM_VERSION
-    mkdir build && pushd build
+    mkdir -p build && pushd build
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
@@ -820,7 +847,11 @@ source $PREFIX/activate
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
 export CFLAGS="$CFLAGS -fPIC"
-export CXXFLAGS="$CXXFLAGS -fPIC"
+if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+    export CXXFLAGS="$CXXFLAGS -fPIC"
+else
+    export CXXFLAGS="$CXXFLAGS -fPIC -stdlib=libc++"
+fi
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
                     -DCMAKE_BUILD_TYPE=Release
@@ -834,7 +865,7 @@ COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
 COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
-# install bzip2
+log_tool_name "bzip2 $BZIP2_VERSION"
 if [ ! -f $PREFIX/include/bzlib.h ]; then
     if [ -d bzip2-$BZIP2_VERSION ]; then
         rm -rf bzip2-$BZIP2_VERSION
@@ -845,7 +876,7 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     popd
 fi
 
-# install fmt
+log_tool_name "fmt $FMT_VERSION"
 if [ ! -d $PREFIX/include/fmt ]; then
     if [ -d fmt-$FMT_VERSION ]; then
         rm -rf fmt-$FMT_VERSION
@@ -858,7 +889,7 @@ if [ ! -d $PREFIX/include/fmt ]; then
     popd && popd
 fi
 
-# install lz4
+log_tool_name "lz4 $LZ4_VERSION"
 if [ ! -f $PREFIX/include/lz4.h ]; then
     if [ -d lz4-$LZ4_VERSION ]; then
         rm -rf lz4-$LZ4_VERSION
@@ -869,7 +900,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     popd
 fi
 
-# install xz
+log_tool_name "xz $XZ_VERSION"
 if [ ! -f $PREFIX/include/lzma.h ]; then
     if [ -d xz-$XZ_VERSION ]; then
         rm -rf xz-$XZ_VERSION
@@ -881,7 +912,7 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     popd
 fi
 
-# install zlib
+log_tool_name "zlib $ZLIB_VERSION"
 if [ ! -f $PREFIX/include/zlib.h ]; then
     if [ -d zlib-$ZLIB_VERSION ]; then
         rm -rf zlib-$ZLIB_VERSION
@@ -895,7 +926,7 @@ if [ ! -f $PREFIX/include/zlib.h ]; then
     popd && popd
 fi
 
-# install zstd
+log_tool_name "zstd $ZSTD_VERSION"
 if [ ! -f $PREFIX/include/zstd.h ]; then
     if [ -d zstd-$ZSTD_VERSION ]; then
         rm -rf zstd-$ZSTD_VERSION
@@ -910,7 +941,8 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     popd && popd
 fi
 
-#install jemalloc
+# TODO(gitbuda): Freeze jmalloc version.
+log_tool_name "jmalloc"
 if [ ! -d $PREFIX/include/jemalloc ]; then
     if [ -d jemalloc ]; then
         rm -rf jemalloc
@@ -927,7 +959,7 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     popd
 fi
 
-# install boost
+log_tool_name "BOOST $BOOST_VERSION"
 if [ ! -d $PREFIX/include/boost ]; then
     if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
         rm -rf boost_$BOOST_VERSION_UNDERSCORES
@@ -935,15 +967,24 @@ if [ ! -d $PREFIX/include/boost ]; then
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3  --without-icu
-    ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-        -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-        -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-        -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-        -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    else
+        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
+            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    fi
     popd
 fi
 
-# install double-conversion
+log_tool_name "double-conversion $DOUBLE_CONVERSION_VERSION"
 if [ ! -d $PREFIX/include/double-conversion ]; then
     if [ -d double-conversion-$DOUBLE_CONVERSION_VERSION ]; then
         rm -rf double-conversion-$DOUBLE_CONVERSION_VERSION
@@ -958,7 +999,8 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     popd && popd
 fi
 
-# install gflags
+# TODO(gitbuda): Freeze gflags version.
+log_tool_name "gflags"
 if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags ]; then
         rm -rf gflags
@@ -977,7 +1019,7 @@ if [ ! -d $PREFIX/include/gflags ]; then
     popd && popd
 fi
 
-# install libunwind
+log_tool_name "libunwind $LIBUNWIND_VERSION"
 if [ ! -f $PREFIX/include/libunwind.h ]; then
     if [ -d libunwind-$LIBUNWIND_VERSION ]; then
         rm -rf libunwind-$LIBUNWIND_VERSION
@@ -990,7 +1032,7 @@ if [ ! -f $PREFIX/include/libunwind.h ]; then
     popd
 fi
 
-# install glog
+log_tool_name "glog $GLOG_VERSION"
 if [ ! -d $PREFIX/include/glog ]; then
     if [ -d glog-$GLOG_VERSION ]; then
         rm -rf glog-$GLOG_VERSION
@@ -1004,7 +1046,7 @@ if [ ! -d $PREFIX/include/glog ]; then
     popd && popd
 fi
 
-# install libevent
+log_tool_name "libevent $LIBEVENT_VERSION"
 if [ ! -d $PREFIX/include/event2 ]; then
     if [ -d libevent-$LIBEVENT_VERSION ]; then
         rm -rf libevent-$LIBEVENT_VERSION
@@ -1023,7 +1065,7 @@ if [ ! -d $PREFIX/include/event2 ]; then
     popd && popd
 fi
 
-# install snappy
+log_tool_name "snappy $SNAPPY_VERSION"
 if [ ! -f $PREFIX/include/snappy.h ]; then
     if [ -d snappy-$SNAPPY_VERSION ]; then
         rm -rf snappy-$SNAPPY_VERSION
@@ -1041,7 +1083,7 @@ if [ ! -f $PREFIX/include/snappy.h ]; then
     popd && popd
 fi
 
-# install libsodium
+log_tool_name "libsodium $LIBSODIUM_VERSION"
 if [ ! -f $PREFIX/include/sodium.h ]; then
     if [ -d libsodium-$LIBSODIUM_VERSION ]; then
         rm -rf libsodium-$LIBSODIUM_VERSION
@@ -1053,7 +1095,7 @@ if [ ! -f $PREFIX/include/sodium.h ]; then
     popd
 fi
 
-# install libaio
+log_tool_name "libaio $LIBAIO_VERSION"
 if [ ! -f $PREFIX/include/libaio.h ]; then
     if [ -d libaio-$LIBAIO_VERSION ]; then
         rm -rf libaio-$LIBAIO_VERSION
@@ -1064,7 +1106,7 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-# install folly
+log_tool_name "folly $FBLIBS_VERSION"
 if [ ! -d $PREFIX/include/folly ]; then
     if [ -d folly-$FBLIBS_VERSION ]; then
         rm -rf folly-$FBLIBS_VERSION
@@ -1085,7 +1127,7 @@ if [ ! -d $PREFIX/include/folly ]; then
     popd && popd
 fi
 
-# install fizz
+log_tool_name "fizz $FBLIBS_VERSION"
 if [ ! -d $PREFIX/include/fizz ]; then
     if [ -d fizz-$FBLIBS_VERSION ]; then
         rm -rf fizz-$FBLIBS_VERSION
@@ -1104,7 +1146,7 @@ if [ ! -d $PREFIX/include/fizz ]; then
     popd && popd
 fi
 
-# install wangle
+log_tool_name "wangle FBLIBS_VERSION"
 if [ ! -d $PREFIX/include/wangle ]; then
     if [ -d wangle-$FBLIBS_VERSION ]; then
         rm -rf wangle-$FBLIBS_VERSION
@@ -1123,7 +1165,7 @@ if [ ! -d $PREFIX/include/wangle ]; then
     popd && popd
 fi
 
-# install proxygen
+log_tool_name "proxygen $FBLIBS_VERSION"
 if [ ! -d $PREFIX/include/proxygen ]; then
     if [ -d proxygen-$FBLIBS_VERSION ]; then
         rm -rf proxygen-$FBLIBS_VERSION
@@ -1144,7 +1186,7 @@ if [ ! -d $PREFIX/include/proxygen ]; then
     popd && popd
 fi
 
-# install flex
+log_tool_name "flex $FBLIBS_VERSION"
 if [ ! -f $PREFIX/include/FlexLexer.h ]; then
     if [ -d flex-$FLEX_VERSION ]; then
         rm -rf flex-$FLEX_VERSION
@@ -1156,7 +1198,7 @@ if [ ! -f $PREFIX/include/FlexLexer.h ]; then
     popd
 fi
 
-# install fbthrift
+log_tool_name "fbthrift $FBLIBS_VERSION"
 if [ ! -d $PREFIX/include/thrift ]; then
     if [ -d fbthrift-$FBLIBS_VERSION ]; then
         rm -rf fbthrift-$FBLIBS_VERSION
@@ -1166,10 +1208,15 @@ if [ ! -d $PREFIX/include/thrift ]; then
     # build is used by facebook builder
     mkdir _build
     pushd _build
+    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+        CMAKE_CXX_FLAGS="-fsized-deallocation"
+    else
+        CMAKE_CXX_FLAGS="-fsized-deallocation -stdlib=libc++"
+    fi
     cmake .. $COMMON_CMAKE_FLAGS \
         -Denable_tests=OFF \
         -DGFLAGS_NOTHREADS=OFF \
-        -DCMAKE_CXX_FLAGS=-fsized-deallocation
+        -DCMAKE_CXX_FLAGS="$CMAKE_CXX_FLAGS"
     make -j$CPUS install
     popd
 fi
@@ -1192,7 +1239,12 @@ if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
             DISTRO_FULL_NAME="$DISTRO_FULL_NAME-amd64"
         fi
     fi
-
+    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+        # Pass because infra scripts assume there is not C++ standard lib in the name.
+        echo "NOTE: Not adding anything to the archive name that GCC C++ standard lib is used."
+    else
+        DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
+    fi
     tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
 fi
 
