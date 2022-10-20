@@ -49,7 +49,7 @@ msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
 }
 
 msgs::Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
-  msgs::EdgeType type = {.id = acc.EdgeType().AsUint()};
+  msgs::EdgeType type = {.id = acc.EdgeType()};
   msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
 
   msgs::Label src_prim_label = {.id = acc.FromVertex().primary_label};
@@ -60,22 +60,25 @@ msgs::Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
   msgs::VertexId dst_vertex =
       std::make_pair(dst_prim_label, conversions::ConvertValueVector(acc.ToVertex().primary_key));
 
-  std::optional<std::vector<std::pair<PropertyId, msgs::Value>>> properties_opt;
-  const auto &properties = acc.Properties(view);
+  auto properties = acc.Properties(view);
 
+  std::vector<std::pair<PropertyId, msgs::Value>> present_properties;
   if (properties.HasValue()) {
-    const auto &props = properties.GetValue();
+    auto props = properties.GetValue();
     std::vector<std::pair<PropertyId, msgs::Value>> present_properties;
     present_properties.reserve(props.size());
 
-    std::transform(props.begin(), props.end(), std::back_inserter(present_properties), [](const auto &prop) {
-      return std::make_pair(prop.first, conversions::FromPropertyValueToValue(prop.second));
-    });
-
-    properties_opt = std::move(present_properties);
+    std::transform(props.begin(), props.end(), std::back_inserter(present_properties),
+                   [](std::pair<const PropertyId, PropertyValue> &prop) {
+                     return std::make_pair(prop.first, conversions::FromPropertyValueToValue(std::move(prop.second)));
+                   });
   }
 
-  return msgs::Value({.src = src_vertex, .dst = dst_vertex, .properties = properties_opt, .id = gid, .type = type});
+  return msgs::Value(msgs::Edge{.src = std::move(src_vertex),
+                                .dst = std::move(dst_vertex),
+                                .properties = std::move(present_properties),
+                                .id = gid,
+                                .type = type});
 }
 
 msgs::Value FromTypedValueToValue(TypedValue &&tv) {
