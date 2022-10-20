@@ -339,7 +339,7 @@ bool AttemptToUpdateEdge(ShardClient &client, int64_t value_of_vertex_1, int64_t
   auto edge_prop = std::vector<std::pair<PropertyId, msgs::Value>>{
       std::make_pair(PropertyId::FromUint(edge_prop_id), msgs::Value(edge_prop_val))};
 
-  msgs::UpdateEdgeProp update_props{.src = src, .dst = dst, .edge_id = id, .property_updates = edge_prop};
+  msgs::UpdateEdgeProp update_props{.src = src, .edge_id = id, .dst = dst, .property_updates = edge_prop};
 
   msgs::UpdateEdgesRequest update_req{};
   update_req.transaction_id.logical_id = GetTransactionId();
@@ -414,7 +414,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
                                                                                  msgs::VertexId start_id,
                                                                                  uint64_t batch_limit,
                                                                                  uint64_t prop_val_to_check_against) {
-  std::string filter_expr1 = "MG_SYMBOL_NODE.property = " + std::to_string(prop_val_to_check_against);
+  std::string filter_expr1 = "MG_SYMBOL_NODE.prop1 = " + std::to_string(prop_val_to_check_against);
   std::vector<std::string> filter_expressions = {filter_expr1};
 
   std::string regular_expr1 = "2+2";
@@ -448,7 +448,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
 void AttemptToScanAllWithOrderByOnPrimaryProperty(ShardClient &client, msgs::VertexId start_id, uint64_t batch_limit) {
   msgs::ScanVerticesRequest scan_req;
   scan_req.batch_limit = batch_limit;
-  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.property"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::NEW;
@@ -949,9 +949,9 @@ int TestMessages() {
   auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
 
-  shard_ptr1->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr2->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr3->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr1->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr2->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr3->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};
