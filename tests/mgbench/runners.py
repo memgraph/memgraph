@@ -143,9 +143,6 @@ class Neo4j:
         self._cleanup()
         atexit.unregister(self._cleanup)
 
-    # def _get_args(self, **kwargs):
-    #     #kwargs["bolt_port"] = self._bolt_port
-    #     return _convert_args_to_flags(self._neo4j_binary, "start", "--verbose",  **kwargs)
 
     def _start(self, **kwargs):
         if self._proc_neo4j is not None:

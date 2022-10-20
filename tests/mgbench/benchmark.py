@@ -77,6 +77,41 @@ def filter_benchmarks(generators, patterns):
                 filtered.append((generator(variant), dict(current)))
     return filtered
 
+def warmup(client):
+    print("Running warm-up process.")
+    client.execute(
+        queries=[
+            ("CREATE ();", {}),
+            ("CREATE ()-[:TempEdge]->();", {}),
+            ("MATCH (n) RETURN n LIMIT 1;", {})
+        ],
+        num_workers=1
+   )
+
+def tail_latency(client, vendor, func): 
+    vendor.start_benchmark()
+    if args.warmup_run:
+        warmup(client)
+    latency = []
+    iteration = 100
+    for i in range (0, iteration):
+        ret = client.execute(queries=get_queries(func, 1), num_workers=1)
+        latency.append(ret[0]["duration"])
+    latency.sort()
+    query_stats = {
+        "iterations" : iteration,
+        "min" : latency[0],
+        "max" : latency[99],
+        "mean": statistics.fmean(latency),
+        "p99" : latency[98],
+        "p95" : latency[94],
+        "p90" : latency[89],
+        "p50" : latency[49],
+    }
+    print("Query statistics for tail latency: ")
+    print(query_stats)
+    vendor.stop()
+    return query_stats
 
 # Parse options.
 parser = argparse.ArgumentParser(
@@ -98,14 +133,19 @@ parser.add_argument(
     "default test is '*' which selects all tests",
 )
 parser.add_argument(
-    "--memgraph-binary",
-    default=helpers.get_binary_path("memgraph"),
-    help="Memgraph binary used for benchmarking",
+    "--vendor-binary",
+    help="Vendor binary used for benchmarking",
+)
+
+parser.add_argument(
+    "--vendor-name",
+    default="memgraph",
+    help="Input vendor binary name (memgraph, neo4j)",
 )
 parser.add_argument(
     "--client-binary",
     default=helpers.get_binary_path("tests/mgbench/client"),
-    help="client binary used for benchmarking",
+    help="Client binary used for benchmarking",
 )
 parser.add_argument(
     "--num-workers-for-import",
@@ -148,10 +188,10 @@ parser.add_argument(
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 parser.add_argument("--bolt-port", default=7687, help="memgraph bolt port")
 parser.add_argument(
-    "--warm-run",
-    type=int, 
-    default=0,
-    help="Number of seconds worth of warmup"
+    "--warmup-run",
+    action="store_true", 
+    default=False,
+    help="Run warmup before benchmarks",
     )
 
 args = parser.parse_args()
@@ -208,24 +248,25 @@ for dataset, tests in benchmarks:
     log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
     dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
-    # Prepare runners and import the dataset.
-    vendor = runners.Memgraph(
-        args.memgraph_binary,
+    #TODO: Create some apstract class for vendors, that will hold this data 
+    if args.vendor_name == "neo4j":
+        vendor = runners.Neo4j(
+            args.vendor_binary, 
+            args.temporary_directory, 
+            args.bolt_port, 
+        )
+    else:
+        vendor = runners.Memgraph(
+        args.vendor_binary,
         args.temporary_directory,
         not args.no_properties_on_edges,
         args.bolt_port,
-    )
-    # vendor = runners.Neo4j(
-    #     args.memgraph_binary, 
-    #     args.temporary_directory, 
-    #     args.bolt_port, 
-    #     )
- 
+        )
+        
     client = runners.Client(args.client_binary, args.temporary_directory, args.bolt_port)
     vendor.start_preparation()
-    # client.execute(queries=[
-    #     ("DROP INDEX ON:User(id)", {}),
-    # ])
+    #TODO:Neo4j doesn't like duplicated triggers, add this do dataset files. 
+    client.execute(queries=[("DROP INDEX ON:User(id)", {}),])
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = vendor.stop()
     # Display import statistics.
@@ -288,79 +329,8 @@ for dataset, tests in benchmarks:
             for test, funcname in tests[group]:
                 log.info("Running test:", "{}/{}/{}".format(group, test, test_type))
                 func = getattr(dataset, funcname)
-             
-                #Warmup
-                if args.warm_run > 0: 
-                    print(
-                        "Determining the number of queries necessary for",
-                        args.warm_run,
-                        "seconds of single-threaded runtime...",
-                    )
-                    # First run to prime the query caches.
-                    vendor.start_benchmark()
-                    client.execute(queries=get_queries(func, 1), num_workers=1)
-                    # Get a sense of the runtime.
-                    count = 1
-                    while True:
-                        ret = client.execute(queries=get_queries(func, count), num_workers=1)
-                        duration = ret[0]["duration"]
-                        should_execute = int(args.warm_run / (duration / count))
-                        print(
-                            "executed_queries={}, total_duration={}, "
-                            "query_duration={}, estimated_count={}".format(
-                                count, duration, duration / count, should_execute
-                            )
-                        )
-                        # We don't have to execute the next iteration when
-                        # `should_execute` becomes the same order of magnitude as
-                        # `count * 10`.
-                        if should_execute / (count * 10) < 10:
-                            count = should_execute
-                            break
-                        else:
-                            count = count * 10
-                    vendor.stop()
-
-                    print("Sample query:", get_queries(func, 1)[0][0])
-                    print(
-                        "Executing warmup with",
-                        count,
-                        "queries that should " "yield a single-threaded runtime of",
-                        args.warm_run,
-                        "seconds.",
-                    )
-                    print(
-                        "Queries are executed using",
-                        args.num_workers_for_benchmark,
-                        "concurrent clients.",
-                    )
-                    vendor.start_benchmark()
-                    ret = client.execute(
-                    queries=get_queries(func, count),
-                    num_workers=args.num_workers_for_benchmark,)[0]
-
-                 #Tail latency
-                vendor.start_benchmark()
-                tail_latency = []
-                iteration = 100
-                for i in range (0, iteration):
-                    ret = client.execute(queries=get_queries(func, 1), num_workers=1)
-                    tail_latency.append(ret[0]["duration"])
-                tail_latency.sort()
-                query_stats = {
-                    "iterations" : iteration,
-                    "min" : tail_latency[0],
-                    "max" : tail_latency[99],
-                    "mean": statistics.fmean(tail_latency),
-                    "p99" : tail_latency[98],
-                    "p95" : tail_latency[94],
-                    "p90" : tail_latency[89],
-                    "p50" : tail_latency[49],
-                }
-                vendor.stop()
-                print("Tail latency stats: ")
-                print(query_stats)
-
+                
+                query_statistics = tail_latency(client, vendor, func)
 
                 # Get number of queries to execute.
                 # TODO: implement minimum number of queries, `max(10, num_workers)`
@@ -374,6 +344,8 @@ for dataset, tests in benchmarks:
                     )
                     # First run to prime the query caches.
                     vendor.start_benchmark()
+                    if args.warmup_run: 
+                        warmup(client)
                     client.execute(queries=get_queries(func, 1), num_workers=1)
                     # Get a sense of the runtime.
                     count = 1
@@ -428,13 +400,15 @@ for dataset, tests in benchmarks:
                     "concurrent clients.",
                 )
                 vendor.start_benchmark()
+                if args.warmup_run: 
+                    warmup(client)
                 ret = client.execute(
                     queries=get_queries(func, count),
                     num_workers=args.num_workers_for_benchmark,
                 )[0]
                 usage = vendor.stop()
                 ret["database"] = usage
-                ret["query_statistics"] = query_stats
+                ret["query_statistics"] = query_statistics
 
                 # Output summary.
                 print()
