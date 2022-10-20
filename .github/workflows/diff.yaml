@@ -227,4 +227,4 @@ jobs:
           ./setup.sh
           source ve3/bin/activate
           cd e2e
-          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory . --workload-name  "Distributed queries"
+          LD_LIBRARY_PATH=$LD_LIBRARY_PATH:../../libs/mgclient/lib python runner.py --workloads-root-directory ./distributed_queries

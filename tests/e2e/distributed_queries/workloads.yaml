@@ -11,3 +11,18 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["distributed_queries/distributed_queries.py"]
     <<: *template_cluster
+
+  - name: "Distributed unwind collect"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["distributed_queries/unwind_collect.py"]
+    <<: *template_cluster
+
+  - name: "Distributed order by and limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["distributed_queries/order_by_and_limit.py"]
+    <<: *template_cluster
+
+  - name: "Distributed distinct"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["distributed_queries/distinct.py"]
+    <<: *template_cluster
