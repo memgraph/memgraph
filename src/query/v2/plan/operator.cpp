@@ -424,6 +424,8 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
 
 ACCEPT_WITH_INPUT(ScanAll)
 
+class DistributedScanAllCursor;
+
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
 
@@ -562,10 +564,12 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 
 ACCEPT_WITH_INPUT(Expand)
 
+class DistributedExpandCursor;
+
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ExpandOperator);
 
-  return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedExpandCursor>(mem, *this, mem);
 }
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
@@ -2387,7 +2391,7 @@ class DistributedCreateExpandCursor : public Cursor {
       msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
-      request.type = {edge_info.edge_type.AsUint()};
+      request.type = {edge_info.edge_type};
       if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
         for (const auto &[property, value_expression] : *edge_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
@@ -2445,6 +2449,158 @@ class DistributedCreateExpandCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   const CreateExpand &self_;
   msgs::ExecutionState<msgs::CreateExpandRequest> state_;
+};
+
+class DistributedExpandCursor : public Cursor {
+ public:
+  explicit DistributedExpandCursor(const Expand &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        current_in_edge_it_(current_in_edges_.begin()),
+        current_out_edge_it_(current_out_edges_.begin()) {
+    if (self_.common_.existing_node) {
+      throw QueryRuntimeException("Cannot use existing node with DistributedExpandOne cursor!");
+    }
+  }
+
+  using VertexAccessor = accessors::VertexAccessor;
+  using EdgeAccessor = accessors::EdgeAccessor;
+
+  bool InitEdges(Frame &frame, ExecutionContext &context) {
+    // Input Vertex could be null if it is created by a failed optional match. In
+    // those cases we skip that input pull and continue with the next.
+
+    while (true) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      TypedValue &vertex_value = frame[self_.input_symbol_];
+
+      // Null check due to possible failed optional match.
+      if (vertex_value.IsNull()) continue;
+
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.ValueVertex();
+      static constexpr auto direction_to_msgs_direction = [](const EdgeAtom::Direction direction) {
+        switch (direction) {
+          case EdgeAtom::Direction::IN:
+            return msgs::EdgeDirection::IN;
+          case EdgeAtom::Direction::OUT:
+            return msgs::EdgeDirection::OUT;
+          case EdgeAtom::Direction::BOTH:
+            return msgs::EdgeDirection::BOTH;
+        }
+      };
+
+      msgs::ExpandOneRequest request;
+      request.direction = direction_to_msgs_direction(self_.common_.direction);
+      // to not fetch any properties of the edges
+      request.edge_properties.emplace();
+      request.src_vertices.push_back(vertex.Id());
+      msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+      auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+      MG_ASSERT(result_rows.size() == 1);
+      auto &result_row = result_rows.front();
+
+      const auto convert_edges = [&vertex](
+                                     std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
+                                     const EdgeAtom::Direction direction) {
+        std::vector<EdgeAccessor> edge_accessors;
+        edge_accessors.reserve(edge_messages.size());
+        switch (direction) {
+          case EdgeAtom::Direction::IN: {
+            for (auto &edge : edge_messages) {
+              edge_accessors.emplace_back(
+                  msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type});
+            }
+            break;
+          }
+          case EdgeAtom::Direction::OUT: {
+            for (auto &edge : edge_messages) {
+              edge_accessors.emplace_back(
+                  msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type});
+            }
+            break;
+          }
+          case EdgeAtom::Direction::BOTH: {
+            LOG_FATAL("Must indicate exact expansion direction here");
+          }
+        }
+        return edge_accessors;
+      };
+      current_in_edges_ =
+          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::IN);
+      current_in_edge_it_ = current_in_edges_.begin();
+      current_in_edges_ =
+          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::OUT);
+      current_in_edge_it_ = current_in_edges_.begin();
+      return true;
+    }
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("DistributedExpand");
+    // A helper function for expanding a node from an edge.
+    auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+      if (self_.common_.existing_node) return;
+      switch (direction) {
+        case EdgeAtom::Direction::IN:
+          frame[self_.common_.node_symbol] = new_edge.From();
+          break;
+        case EdgeAtom::Direction::OUT:
+          frame[self_.common_.node_symbol] = new_edge.To();
+          break;
+        case EdgeAtom::Direction::BOTH:
+          LOG_FATAL("Must indicate exact expansion direction here");
+      }
+    };
+
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      // attempt to get a value from the incoming edges
+      if (current_in_edge_it_ != current_in_edges_.end()) {
+        auto &edge = *current_in_edge_it_;
+        ++current_in_edge_it_;
+        frame[self_.common_.edge_symbol] = edge;
+        pull_node(edge, EdgeAtom::Direction::IN);
+        return true;
+      }
+
+      // attempt to get a value from the outgoing edges
+      if (current_out_edge_it_ != current_out_edges_.end()) {
+        auto &edge = *current_out_edge_it_;
+        ++current_out_edge_it_;
+        if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) {
+          continue;
+        };
+        frame[self_.common_.edge_symbol] = edge;
+        pull_node(edge, EdgeAtom::Direction::OUT);
+        return true;
+      }
+
+      // If we are here, either the edges have not been initialized,
+      // or they have been exhausted. Attempt to initialize the edges.
+      if (!InitEdges(frame, context)) return false;
+
+      // we have re-initialized the edges, continue with the loop
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    current_in_edges_.clear();
+    current_out_edges_.clear();
+    current_in_edge_it_ = current_in_edges_.end();
+    current_out_edge_it_ = current_out_edges_.end();
+  }
+
+ private:
+  const Expand &self_;
+  const UniqueCursorPtr input_cursor_;
+  std::vector<EdgeAccessor> current_in_edges_;
+  std::vector<EdgeAccessor> current_out_edges_;
+  std::vector<EdgeAccessor>::iterator current_in_edge_it_;
+  std::vector<EdgeAccessor>::iterator current_out_edge_it_;
 };
 
 }  // namespace memgraph::query::v2::plan
