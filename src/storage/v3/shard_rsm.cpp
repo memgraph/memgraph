@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <iterator>
+#include <unordered_set>
 #include <utility>
 
 #include "parser/opencypher/parser.hpp"
@@ -49,6 +50,24 @@ using conversions::ToPropertyValue;
 
 namespace {
 namespace msgs = msgs;
+
+using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
+using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
+
+using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
+using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
+
+using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
+using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
+
+using EdgeAccessors = std::vector<memgraph::storage::v3::EdgeAccessor>;
+
+using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
+using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)>;
+
+struct VertexIdCmpr {
+  bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const { return *lhs < *rhs; }
+};
 
 std::vector<std::pair<PropertyId, PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
@@ -392,7 +411,8 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
 }
 
 std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
-    const std::optional<VertexAccessor> &v_acc, const msgs::ExpandOneRequest &req) {
+    const std::optional<VertexAccessor> &v_acc, const msgs::ExpandOneRequest &req,
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness) {
   std::vector<EdgeAccessor> in_edges;
   std::vector<EdgeAccessor> out_edges;
 
@@ -404,7 +424,8 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = std::move(out_edges_result.GetValue());
+      out_edges =
+          maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
       break;
     }
     case msgs::EdgeDirection::IN: {
@@ -415,7 +436,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
                                                                                                       .logical_id]);
         return std::nullopt;
       }
-      in_edges = std::move(in_edges_result.GetValue());
+      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
       break;
     }
     case msgs::EdgeDirection::BOTH: {
@@ -425,7 +446,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      in_edges = std::move(in_edges_result.GetValue());
+      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
 
       auto out_edges_result = v_acc->OutEdges(View::NEW);
       if (out_edges_result.HasError()) {
@@ -433,23 +454,13 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = std::move(out_edges_result.GetValue());
+      out_edges =
+          maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()), msgs::EdgeDirection::OUT);
       break;
     }
   }
   return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
 }
-
-using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
-using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
-
-using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
-using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
-
-using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
-using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
-
-using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
 
 template <bool are_in_edges>
 bool FillEdges(const std::vector<EdgeAccessor> &edges, const msgs::ExpandOneRequest &req, msgs::ExpandOneResultRow &row,
@@ -467,8 +478,101 @@ bool FillEdges(const std::vector<EdgeAccessor> &edges, const msgs::ExpandOneRequ
   return true;
 }
 
-std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(Shard::Accessor &acc, msgs::VertexId src_vertex,
-                                                           const msgs::ExpandOneRequest &req) {
+std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
+    Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler) {
+  /// Fill up source vertex
+  const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
+  auto v_acc = acc.FindVertex(primary_key, View::NEW);
+
+  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
+  if (!source_vertex) {
+    return std::nullopt;
+  }
+
+  /// Fill up source vertex properties
+  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  if (!src_vertex_properties) {
+    return std::nullopt;
+  }
+
+  /// Fill up connecting edges
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniquness);
+  if (!fill_up_connecting_edges) {
+    return std::nullopt;
+  }
+
+  auto [in_edges, out_edges] = fill_up_connecting_edges.value();
+
+  msgs::ExpandOneResultRow result_row;
+  result_row.src_vertex = std::move(*source_vertex);
+  result_row.src_vertex_properties = std::move(*src_vertex_properties);
+  static constexpr bool kInEdges = true;
+  static constexpr bool kOutEdges = false;
+  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, req, result_row, edge_filler)) {
+    return std::nullopt;
+  }
+  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, req, result_row, edge_filler)) {
+    return std::nullopt;
+  }
+
+  return result_row;
+}
+
+EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_rows) {
+  // Functions to select connecting edges based on uniquness
+  EdgeUniqunessFunction maybe_filter_based_on_edge_uniquness;
+
+  if (only_unique_neighbor_rows) {
+    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
+                                              memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
+      std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &,
+                         const memgraph::storage::v3::EdgeAccessor &)>
+          is_edge_unique;
+      switch (edge_direction) {
+        case memgraph::msgs::EdgeDirection::OUT: {
+          is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
+                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
+            return insertion_happened;
+          };
+          break;
+        }
+        case memgraph::msgs::EdgeDirection::IN: {
+          is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
+                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+            auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
+            return insertion_happened;
+          };
+          break;
+        }
+        case memgraph::msgs::EdgeDirection::BOTH:
+          MG_ASSERT(false,
+                    "This is should never happen, memgraph::msgs::EdgeDirection::BOTH should not be passed here.");
+      }
+
+      EdgeAccessors ret;
+      std::set<const storage::v3::VertexId *, VertexIdCmpr> other_vertex_set;
+
+      for (const auto &edge : edges) {
+        if (is_edge_unique(other_vertex_set, edge)) {
+          ret.emplace_back(edge);
+        }
+      }
+
+      return ret;
+    };
+  } else {
+    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
+                                              memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors {
+      return std::move(edges);
+    };
+  }
+
+  return maybe_filter_based_on_edge_uniquness;
+}
+
+EdgeFiller InitializeEdgeFillerFunction(const msgs::ExpandOneRequest &req) {
   EdgeFiller edge_filler;
 
   if (!req.edge_properties) {
@@ -521,43 +625,9 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(Shard::Accessor &acc,
     };
   }
 
-  /// Fill up source vertex
-  const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
-  auto v_acc = acc.FindVertex(primary_key, View::NEW);
-
-  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
-  if (!source_vertex) {
-    return std::nullopt;
-  }
-
-  /// Fill up source vertex properties
-  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
-  if (!src_vertex_properties) {
-    return std::nullopt;
-  }
-
-  /// Fill up connecting edges
-  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req);
-  if (!fill_up_connecting_edges) {
-    return std::nullopt;
-  }
-
-  auto [in_edges, out_edges] = fill_up_connecting_edges.value();
-
-  msgs::ExpandOneResultRow result_row;
-  result_row.src_vertex = std::move(*source_vertex);
-  result_row.src_vertex_properties = std::move(*src_vertex_properties);
-  static constexpr bool kInEdges = true;
-  static constexpr bool kOutEdges = false;
-  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, req, result_row, edge_filler)) {
-    return std::nullopt;
-  }
-  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, req, result_row, edge_filler)) {
-    return std::nullopt;
-  }
-
-  return result_row;
+  return edge_filler;
 }
+
 };  // namespace
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
@@ -939,8 +1009,28 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
 
   std::vector<msgs::ExpandOneResultRow> results;
 
+  auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
+  auto edge_filler = InitializeEdgeFillerFunction(req);
+
   for (auto &src_vertex : req.src_vertices) {
-    auto result = GetExpandOneResult(acc, src_vertex, req);
+    // Get Vertex acc
+    auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
+    if (!src_vertex_acc_opt) {
+      action_successful = false;
+      spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+      break;
+    }
+
+    if (!req.filters.empty()) {
+      // NOTE - DbAccessor might get removed in the future.
+      auto dba = DbAccessor{&acc};
+      const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
+      if (!eval) {
+        continue;
+      }
+    }
+    auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
 
     if (!result) {
       action_successful = false;

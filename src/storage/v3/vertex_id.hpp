@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <tuple>
+
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 
@@ -29,4 +31,9 @@ struct VertexId {
 inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
   return lhs.primary_label == rhs.primary_label && lhs.primary_key == rhs.primary_key;
 }
+
+inline bool operator<(const VertexId &lhs, const VertexId &rhs) {
+  return std::tie(lhs.primary_label, lhs.primary_key) < std::tie(rhs.primary_label, rhs.primary_key);
+}
+
 }  // namespace memgraph::storage::v3
