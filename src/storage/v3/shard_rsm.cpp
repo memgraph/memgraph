@@ -1016,9 +1016,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         return LocalError{};
       }
 
-      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
-        ret.insert(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
-      }
+      const auto &properties = property_results.GetValue();
+      std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.end()), [](const auto &prop) {
+        return (std::make_pair(prop.first, FromPropertyValueToValue(prop.second)));
+      });
+
       return ret;
     };
   } else {
@@ -1026,10 +1028,14 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
     get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
       std::vector<memgraph::msgs::Value> ret;
       ret.reserve(req.edge_properties.value().size());
-      for (const auto &edge_prop : req.edge_properties.value()) {
-        // TODO(gvolfing) maybe check for the absence of certain properties
-        ret.emplace_back(FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
-      }
+
+      // TODO(gvolfing) maybe check for the absence of certain properties
+      const auto &edge_properties = req.edge_properties.value();
+      std::transform(edge_properties.begin(), edge_properties.end(), std::back_inserter(ret),
+                     [&edge](const auto &edge_prop) {
+                       return FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue());
+                     });
+
       return ret;
     };
   }
