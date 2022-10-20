@@ -530,19 +530,19 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
                                               memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
       std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &,
                          const memgraph::storage::v3::EdgeAccessor &)>
-          vertex_selector;
+          is_edge_unique;
       switch (edge_direction) {
         case memgraph::msgs::EdgeDirection::OUT: {
-          vertex_selector = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                               const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+          is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
+                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
             return insertion_happened;
           };
           break;
         }
         case memgraph::msgs::EdgeDirection::IN: {
-          vertex_selector = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                               const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+          is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
+                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
             return insertion_happened;
           };
@@ -557,7 +557,7 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
       std::set<const storage::v3::VertexId *, VertexIdCmpr> other_vertex_set;
 
       for (const auto &edge : edges) {
-        if (vertex_selector(other_vertex_set, edge)) {
+        if (is_edge_unique(other_vertex_set, edge)) {
           ret.emplace_back(edge);
         }
       }
@@ -565,8 +565,10 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
       return ret;
     };
   } else {
-    maybe_filter_based_on_edge_uniquness =
-        [](EdgeAccessors &&edges, memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return std::move(edges); };
+    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
+                                              memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors {
+      return std::move(edges);
+    };
   }
 
   return maybe_filter_based_on_edge_uniquness;
