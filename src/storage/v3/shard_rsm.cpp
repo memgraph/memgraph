@@ -107,6 +107,8 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
                  });
   properties.clear();
 
+  // TODO(antaljanosbenjamin): Once the VertexAccessor::Properties returns also the primary keys, we can get rid of this
+  // code.
   auto maybe_pk = acc.PrimaryKey(view);
   if (maybe_pk.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
