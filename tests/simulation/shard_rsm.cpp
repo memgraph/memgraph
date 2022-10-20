@@ -465,7 +465,7 @@ void AttemptToExpandOneWithWrongEdgeType(ShardClient &client, uint64_t src_verte
   std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<std::vector<std::string>> filter = {};
+  std::vector<std::string> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
@@ -519,7 +519,7 @@ void AttemptToExpandOneSimple(ShardClient &client, uint64_t src_vertex_val, uint
   std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<std::vector<std::string>> filter = {};
+  std::vector<std::string> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
@@ -575,7 +575,7 @@ void AttemptToExpandOneWithSpecifiedSrcVertexProperties(ShardClient &client, uin
   std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<std::vector<std::string>> filter = {};
+  std::vector<std::string> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 
@@ -633,7 +633,7 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
   std::vector<std::string> expressions;
   std::optional<std::vector<msgs::OrderBy>> order_by = {};
   std::optional<size_t> limit = {};
-  std::optional<std::vector<std::string>> filter = {};
+  std::vector<std::string> filter = {};
 
   msgs::ExpandOneRequest expand_one_req{};
 

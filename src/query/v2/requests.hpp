@@ -421,12 +421,12 @@ struct ExpandOneRequest {
   //  * __mg__type (binary)
   std::optional<std::vector<PropertyId>> edge_properties;
 
-  std::optional<std::vector<std::string>> vertex_expressions;
-  std::optional<std::vector<std::string>> edge_expressions;
+  std::vector<std::string> vertex_expressions;
+  std::vector<std::string> edge_expressions;
 
   std::optional<std::vector<OrderBy>> order_by;
   std::optional<size_t> limit;
-  std::optional<std::vector<std::string>> filters;
+  std::vector<std::string> filters;
 };
 
 struct ExpandOneResultRow {

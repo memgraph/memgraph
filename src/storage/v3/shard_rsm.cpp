@@ -1102,11 +1102,10 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       break;
     }
 
-    if (req.filters) {
+    if (!req.filters.empty()) {
       // NOTE - DbAccessor might get removed in the future.
       auto dba = DbAccessor{&acc};
-      const bool eval =
-          FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters.value(), expr::identifier_node_symbol);
+      const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
       if (!eval) {
         continue;
       }
