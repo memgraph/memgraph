@@ -453,6 +453,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
+    // TODO(antaljanosbenjamin): This should also return the primary key
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
   }
