@@ -66,9 +66,7 @@ using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge,
 using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)>;
 
 struct VertexIdCmpr {
-  bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const {
-    return lhs->primary_label < rhs->primary_label && lhs->primary_key < rhs->primary_key;
-  }
+  bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const { return *lhs < *rhs; }
 };
 
 std::vector<std::pair<PropertyId, PropertyValue>> ConvertPropertyMap(
