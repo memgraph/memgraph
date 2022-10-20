@@ -566,7 +566,7 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
     };
   } else {
     maybe_filter_based_on_edge_uniquness =
-        [](EdgeAccessors &&edges, memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return edges; };
+        [](EdgeAccessors &&edges, memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return std::move(edges); };
   }
 
   return maybe_filter_based_on_edge_uniquness;
