@@ -950,9 +950,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         return LocalError{};
       }
 
-      const auto &properties = property_results.GetValue();
-      std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.end()), [](const auto &prop) {
-        return (std::make_pair(prop.first, FromPropertyValueToValue(prop.second)));
+      auto &properties = property_results.GetValue();
+      std::transform(properties.begin(), properties.end(), std::inserter(ret, ret.end()), [](auto &prop) {
+        return (std::make_pair(prop.first, FromPropertyValueToValue(std::move(prop.second))));
       });
 
       return ret;
