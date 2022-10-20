@@ -85,10 +85,6 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
       return std::nullopt;
     }
     auto &value = result.GetValue();
-    if (value.IsNull()) {
-      spdlog::debug("The specified property does not exist but it should");
-      return std::nullopt;
-    }
     ret.emplace(std::make_pair(prop, FromPropertyValueToValue(std::move(value))));
   }
 
