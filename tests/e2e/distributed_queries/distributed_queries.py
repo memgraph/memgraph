@@ -14,34 +14,7 @@ import mgclient
 import sys
 import pytest
 import time
-
-
-@pytest.fixture(autouse=True)
-def connection():
-    connection = connect()
-    return connection
-
-
-def connect(**kwargs) -> mgclient.Connection:
-    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = True
-    return connection
-
-
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
-    return cursor.fetchall()
-
-
-def has_n_result_row(cursor: mgclient.Cursor, query: str, n: int):
-    results = execute_and_fetch_all(cursor, query)
-    return len(results) == n
-
-
-def wait_for_shard_manager_to_initialize():
-    # The ShardManager in memgraph takes some time to initialize
-    # the shards, thus we cannot just run the queries right away
-    time.sleep(3)
+from common import *
 
 
 def test_vertex_creation_and_scanall(connection):
