@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #include "query/v2/requests.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/vertex_id.hpp"
 #include "utils/logging.hpp"
 
 #include <map>
@@ -29,8 +30,8 @@ using memgraph::msgs::Value;
 using memgraph::msgs::VertexId;
 
 // TODO(gvolfing use come algorithm instead of explicit for loops)
-inline memgraph::storage::v3::PropertyValue ToPropertyValue(Value value) {
-  using PV = memgraph::storage::v3::PropertyValue;
+inline v3::PropertyValue ToPropertyValue(Value value) {
+  using PV = v3::PropertyValue;
   PV ret;
   switch (value.type) {
     case Value::Type::Null:
@@ -65,7 +66,7 @@ inline memgraph::storage::v3::PropertyValue ToPropertyValue(Value value) {
   return ret;
 }
 
-inline Value FromPropertyValueToValue(const memgraph::storage::v3::PropertyValue &pv) {
+inline Value FromPropertyValueToValue(memgraph::storage::v3::PropertyValue &&pv) {
   using memgraph::storage::v3::PropertyValue;
 
   switch (pv.type()) {
@@ -78,17 +79,17 @@ inline Value FromPropertyValueToValue(const memgraph::storage::v3::PropertyValue
     case PropertyValue::Type::List: {
       std::vector<Value> list;
       list.reserve(pv.ValueList().size());
-      for (const auto &elem : pv.ValueList()) {
-        list.emplace_back(FromPropertyValueToValue(elem));
+      for (auto &elem : pv.ValueList()) {
+        list.emplace_back(FromPropertyValueToValue(std::move(elem)));
       }
 
       return Value(list);
     }
     case PropertyValue::Type::Map: {
       std::map<std::string, Value> map;
-      for (const auto &[key, val] : pv.ValueMap()) {
+      for (auto &[key, val] : pv.ValueMap()) {
         // maybe use std::make_pair once the && issue is resolved.
-        map.emplace(key, FromPropertyValueToValue(val));
+        map.emplace(key, FromPropertyValueToValue(std::move(val)));
       }
 
       return Value(map);
@@ -96,7 +97,7 @@ inline Value FromPropertyValueToValue(const memgraph::storage::v3::PropertyValue
     case PropertyValue::Type::Null:
       return Value{};
     case PropertyValue::Type::String:
-      return Value(pv.ValueString());
+      return Value(std::move(pv.ValueString()));
     case PropertyValue::Type::TemporalData: {
       // TBD -> we need to specify this in the messages, not a priority.
       MG_ASSERT(false, "Temporal datatypes are not yet implemented on Value!");
@@ -105,8 +106,8 @@ inline Value FromPropertyValueToValue(const memgraph::storage::v3::PropertyValue
   }
 }
 
-inline std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(std::vector<Value> vec) {
-  std::vector<memgraph::storage::v3::PropertyValue> ret;
+inline std::vector<v3::PropertyValue> ConvertPropertyVector(std::vector<Value> vec) {
+  std::vector<v3::PropertyValue> ret;
   ret.reserve(vec.size());
 
   for (auto &elem : vec) {
@@ -116,15 +117,18 @@ inline std::vector<memgraph::storage::v3::PropertyValue> ConvertPropertyVector(s
   return ret;
 }
 
-inline std::vector<Value> ConvertValueVector(const std::vector<memgraph::storage::v3::PropertyValue> &vec) {
+inline std::vector<Value> ConvertValueVector(const std::vector<v3::PropertyValue> &vec) {
   std::vector<Value> ret;
   ret.reserve(vec.size());
 
   for (const auto &elem : vec) {
-    ret.push_back(FromPropertyValueToValue(elem));
+    ret.push_back(FromPropertyValueToValue(v3::PropertyValue{elem}));
   }
 
   return ret;
 }
 
+inline msgs::VertexId ToMsgsVertexId(const v3::VertexId &vertex_id) {
+  return {msgs::Label{vertex_id.primary_label}, ConvertValueVector(vertex_id.primary_key)};
+}
 }  // namespace memgraph::storage::conversions
