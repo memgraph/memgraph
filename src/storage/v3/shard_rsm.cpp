@@ -799,8 +799,11 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
       if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
-        const auto &next_vertex = (++it)->vertex_acc;
-        next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+        ++it;
+        if (it != ordered.end()) {
+          const auto &next_vertex = it->vertex_acc;
+          next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+        }
 
         break;
       }
