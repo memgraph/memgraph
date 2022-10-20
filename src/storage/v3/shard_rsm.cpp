@@ -50,6 +50,7 @@ using memgraph::storage::v3::View;
 
 namespace memgraph::storage::v3 {
 
+namespace {
 std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ConvertPropertyMap(
     std::vector<std::pair<PropertyId, Value>> &&properties) {
   std::vector<std::pair<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue>> ret;
@@ -257,17 +258,6 @@ auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage,
   return value;
 }
 
-std::vector<PropertyId> GetPropertiesFromAcessor(
-    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
-  std::vector<PropertyId> ret_properties;
-  ret_properties.reserve(properties.size());
-
-  std::transform(properties.begin(), properties.end(), std::back_inserter(ret_properties),
-                 [](const auto &prop) { return prop.first; });
-
-  return ret_properties;
-}
-
 std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
   memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
   ParsingContext pc;
@@ -289,41 +279,30 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   auto expr = ParseExpression(expression, storage);
 
   auto node_identifier = Identifier(std::string(node_name), false);
-  bool is_node_identifier_present = false;
   auto edge_identifier = Identifier(std::string(edge_name), false);
-  bool is_edge_identifier_present = false;
 
   std::vector<Identifier *> identifiers;
-
-  // TODO: use a visitor instead of string search
-  if (v_acc && expression.find(node_name) != std::string::npos) {
-    is_node_identifier_present = true;
-    identifiers.push_back(&node_identifier);
-  }
-  if (e_acc && expression.find(edge_name) != std::string::npos) {
-    is_edge_identifier_present = true;
-    identifiers.push_back(&edge_identifier);
-  }
+  identifiers.push_back(&node_identifier);
+  identifiers.push_back(&edge_identifier);
 
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
-  if (is_node_identifier_present) {
-    // We look for the position of node_identifier in the frame.
-    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                                          [&node_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                                            return position_symbol_pair.second.name() == node_identifier.name_;
-                                          });
-    MG_ASSERT(position_on_frame != symbol_table.table().end());
+  if (node_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == node_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(node_identifier)] = *v_acc;
   }
-  if (is_edge_identifier_present) {
-    // We look for the position of node_identifier in the frame.
-    auto position_on_frame = std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                                          [&edge_identifier](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                                            return position_symbol_pair.second.name() == edge_identifier.name_;
-                                          });
-    MG_ASSERT(position_on_frame != symbol_table.table().end());
+
+  if (edge_identifier.symbol_pos_ != -1) {
+    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
+                           [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
+                             return position_symbol_pair.second.name() == edge_name;
+                           }) != symbol_table.table().end());
+
     frame[symbol_table.at(edge_identifier)] = *e_acc;
   }
 
@@ -417,10 +396,8 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(
   return src_vertex_properties;
 }
 
-template <typename UniqueEdgeCheckFunc>
 std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> FillUpConnectingEdges(
-    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req,
-    UniqueEdgeCheckFunc maybe_filter_based_on_edge_uniquness) {
+    const std::optional<memgraph::storage::v3::VertexAccessor> &v_acc, memgraph::msgs::ExpandOneRequest &req) {
   std::vector<memgraph::storage::v3::EdgeAccessor> in_edges;
   std::vector<memgraph::storage::v3::EdgeAccessor> out_edges;
 
@@ -432,8 +409,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()),
-                                                       memgraph::msgs::EdgeDirection::OUT);
+      out_edges = std::move(out_edges_result.GetValue());
       break;
     }
     case memgraph::msgs::EdgeDirection::IN: {
@@ -444,8 +420,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                                                                                                       .logical_id]);
         return std::nullopt;
       }
-      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()),
-                                                      memgraph::msgs::EdgeDirection::IN);
+      in_edges = std::move(in_edges_result.GetValue());
       break;
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
@@ -455,8 +430,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()),
-                                                      memgraph::msgs::EdgeDirection::IN);
+      in_edges = std::move(in_edges_result.GetValue());
 
       auto out_edges_result = v_acc->OutEdges(View::OLD);
       if (out_edges_result.HasError()) {
@@ -464,27 +438,7 @@ std::optional<std::array<std::vector<memgraph::storage::v3::EdgeAccessor>, 2>> F
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
-      out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edges_result.GetValue()),
-                                                       memgraph::msgs::EdgeDirection::OUT);
-
-      // The uniqness of the elements are only true for the in_- and out_edges
-      // separately, together they can still contain overlapping elements so we
-      // need to handle that case here.
-      if (req.only_unique_neighbor_rows) {
-        std::unordered_set<const memgraph::storage::v3::VertexId *> unique_other_vertices;
-        for (const auto &in_edge : in_edges) {
-          unique_other_vertices.insert(&in_edge.FromVertex());
-        }
-
-        for (auto it = out_edges.begin(); it != out_edges.end();) {
-          if (unique_other_vertices.contains(&(it->ToVertex()))) {
-            out_edges.erase(it);
-          } else {
-            ++it;
-          }
-        }
-      }
-
+      out_edges = std::move(out_edges_result.GetValue());
       break;
     }
   }
@@ -560,11 +514,41 @@ void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
   properties_to_nullopt = {};
 }
 
-template <typename EgdePropertyFunc, typename UniqueEdgeCheckFunc>
-std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(
-    memgraph::storage::v3::Shard::Accessor &acc, memgraph::msgs::VertexId src_vertex,
-    memgraph::msgs::ExpandOneRequest req, EgdePropertyFunc get_edge_properties,
-    UniqueEdgeCheckFunc maybe_filter_based_on_edge_uniquness) {
+std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(memgraph::storage::v3::Shard::Accessor &acc,
+                                                                     memgraph::msgs::VertexId src_vertex,
+                                                                     memgraph::msgs::ExpandOneRequest req) {
+  using EdgeProperties =
+      std::variant<LocalError, std::map<PropertyId, memgraph::msgs::Value>, std::vector<memgraph::msgs::Value>>;
+  std::function<EdgeProperties(const memgraph::storage::v3::EdgeAccessor &)> get_edge_properties;
+
+  if (!req.edge_properties) {
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) -> EdgeProperties {
+      std::map<PropertyId, memgraph::msgs::Value> ret;
+      auto property_results = edge.Properties(View::OLD);
+      if (property_results.HasError()) {
+        spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
+                      req.transaction_id.logical_id);
+        return LocalError{};
+      }
+
+      for (const auto &[prop_key, prop_val] : property_results.GetValue()) {
+        ret.insert(std::make_pair(prop_key, FromPropertyValueToValue(prop_val)));
+      }
+      return ret;
+    };
+  } else {
+    // TODO(gvolfing) - do we want to set the action_successful here?
+    get_edge_properties = [&req](const memgraph::storage::v3::EdgeAccessor &edge) {
+      std::vector<memgraph::msgs::Value> ret;
+      ret.reserve(req.edge_properties.value().size());
+      for (const auto &edge_prop : req.edge_properties.value()) {
+        // TODO(gvolfing) maybe check for the absence of certain properties
+        ret.emplace_back(FromPropertyValueToValue(edge.GetProperty(edge_prop, View::OLD).GetValue()));
+      }
+      return ret;
+    };
+  }
+
   /// Fill up source vertex
   auto v_acc = acc.FindVertex(ConvertPropertyVector(std::move(src_vertex.second)), View::OLD);
 
@@ -580,7 +564,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(
   }
 
   /// Fill up connecting edges
-  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req, maybe_filter_based_on_edge_uniquness);
+  auto fill_up_connecting_edges = FillUpConnectingEdges(v_acc, req);
   if (!fill_up_connecting_edges) {
     return std::nullopt;
   }
@@ -637,7 +621,7 @@ std::optional<memgraph::msgs::ExpandOneResultRow> GetExpandOneResult(
       .edges_with_all_properties = std::move(edges_with_all_properties),
       .edges_with_specific_properties = std::move(edges_with_specific_properties)};
 }
-
+};  // namespace
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
 
@@ -786,38 +770,54 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteVerticesRequest &&req) {
   return memgraph::msgs::DeleteVerticesResponse{.success = action_successful};
 }
 
-msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
+msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateExpandRequest &&req) {
   auto acc = shard_->Access(req.transaction_id);
   bool action_successful = true;
 
-  for (auto &edge : req.edges) {
-    auto vertex_acc_from_primary_key = edge.src.second;
+  for (auto &new_expand : req.new_expands) {
+    auto vertex_acc_from_primary_key = new_expand.src_vertex.second;
     auto vertex_from_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_from_primary_key)), View::OLD);
 
-    auto vertex_acc_to_primary_key = edge.dst.second;
+    auto vertex_acc_to_primary_key = new_expand.dest_vertex.second;
     auto vertex_to_acc = acc.FindVertex(ConvertPropertyVector(std::move(vertex_acc_to_primary_key)), View::OLD);
 
-    if (!vertex_from_acc || !vertex_to_acc) {
+    if (!(vertex_from_acc || vertex_to_acc)) {
       action_successful = false;
       spdlog::debug("Error while trying to insert edge, vertex does not exist. Transaction id: {}",
                     req.transaction_id.logical_id);
       break;
     }
 
-    auto from_vertex_id = VertexId(edge.src.first.id, ConvertPropertyVector(std::move(edge.src.second)));
-    auto to_vertex_id = VertexId(edge.dst.first.id, ConvertPropertyVector(std::move(edge.dst.second)));
-    auto edge_acc =
-        acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(edge.type.id), Gid::FromUint(edge.id.gid));
-
-    if (edge_acc.HasError()) {
+    auto from_vertex_id =
+        VertexId(new_expand.src_vertex.first.id, ConvertPropertyVector(std::move(new_expand.src_vertex.second)));
+    auto to_vertex_id =
+        VertexId(new_expand.dest_vertex.first.id, ConvertPropertyVector(std::move(new_expand.dest_vertex.second)));
+    auto edge_acc = acc.CreateEdge(from_vertex_id, to_vertex_id, EdgeTypeId::FromUint(new_expand.type.id),
+                                   Gid::FromUint(new_expand.id.gid));
+    if (edge_acc.HasValue()) {
+      auto edge = edge_acc.GetValue();
+      if (!new_expand.properties.empty()) {
+        for (const auto &[property, value] : new_expand.properties) {
+          if (const auto maybe_error = edge.SetProperty(property, ToPropertyValue(value)); maybe_error.HasError()) {
+            action_successful = false;
+            spdlog::debug("Setting edge property was not successful. Transaction id: {}",
+                          req.transaction_id.logical_id);
+            break;
+          }
+          if (!action_successful) {
+            break;
+          }
+        }
+      }
+    } else {
       action_successful = false;
       spdlog::debug("Creating edge was not successful. Transaction id: {}", req.transaction_id.logical_id);
       break;
     }
 
     // Add properties to the edge if there is any
-    if (edge.properties) {
-      for (auto &[edge_prop_key, edge_prop_val] : edge.properties.value()) {
+    if (!new_expand.properties.empty()) {
+      for (auto &[edge_prop_key, edge_prop_val] : new_expand.properties) {
         auto set_result = edge_acc->SetProperty(edge_prop_key, ToPropertyValue(std::move(edge_prop_val)));
         if (set_result.HasError()) {
           action_successful = false;
@@ -829,7 +829,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateEdgesRequest &&req) {
     }
   }
 
-  return memgraph::msgs::CreateEdgesResponse{.success = action_successful};
+  return memgraph::msgs::CreateExpandResponse{.success = action_successful};
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::DeleteEdgesRequest &&req) {
@@ -1105,7 +1105,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         continue;
       }
     }
-    auto result = GetExpandOneResult(acc, src_vertex, req, get_edge_properties, maybe_filter_based_on_edge_uniquness);
+    auto result = GetExpandOneResult(acc, src_vertex, req);
 
     if (!result) {
       action_successful = false;

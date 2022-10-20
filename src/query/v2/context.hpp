@@ -25,6 +25,23 @@
 
 namespace memgraph::query::v2 {
 
+// Used to store range of ids that are available
+// Used for edge id assignment
+class IdAllocator {
+ public:
+  IdAllocator() = default;
+  IdAllocator(uint64_t low, uint64_t high) : current_edge_id_{low}, max_id_{high} {};
+
+  uint64_t AllocateId() {
+    MG_ASSERT(current_edge_id_ < max_id_, "Current Edge Id went above max id");
+    return current_edge_id_++;
+  }
+
+ private:
+  uint64_t current_edge_id_;
+  uint64_t max_id_;
+};
+
 struct EvaluationContext {
   /// Memory for allocations during evaluation of a *single* Pull call.
   ///
@@ -79,9 +96,9 @@ struct ExecutionContext {
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
   ExecutionStats execution_stats;
-  //  TriggerContextCollector *trigger_context_collector{nullptr};
   utils::AsyncTimer timer;
   msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
+  IdAllocator edge_ids_alloc;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

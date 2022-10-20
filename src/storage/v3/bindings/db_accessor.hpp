@@ -83,7 +83,7 @@ class DbAccessor final {
   }
 
   storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
-      const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
+      storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
       const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
     auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(primary_label, labels, properties);
     if (maybe_vertex_acc.HasError()) {
