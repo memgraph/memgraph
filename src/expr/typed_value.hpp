@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+#include "expr/typed_value_exception.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -31,16 +32,6 @@
 #include "utils/temporal.hpp"
 
 namespace memgraph::expr {
-
-/**
- * An exception raised by the TypedValue system. Typically when
- * trying to perform operations (such as addition) on TypedValues
- * of incompatible Types.
- */
-class TypedValueException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-};
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**

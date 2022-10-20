@@ -11,9 +11,9 @@
 
 #pragma once
 
-#ifdef MG_AST_INCLUDE_PATH
-#error You are probably trying to include files from expr from both the storage and query engines! You will have a rough time kid!
-#endif
+#include "storage/v3/bindings/bindings.hpp"
 
-#define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"  // NOLINT(cppcoreguidelines-macro-usage)
-#define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2       // NOLINT(cppcoreguidelines-macro-usage)
+#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
+#include "storage/v3/bindings/typed_value.hpp"
+
+namespace memgraph::storage::v3 {}  // namespace memgraph::storage::v3
