@@ -46,8 +46,6 @@ auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage, Expres
   return value;
 }
 
-std::vector<PropertyId> GetPropertiesFromAcessors(const std::map<PropertyId, PropertyValue> &properties);
-
 std::any ParseExpression(const std::string &expr, AstStorage &storage);
 
 TypedValue ComputeExpression(DbAccessor &dba, const std::optional<VertexAccessor> &v_acc,

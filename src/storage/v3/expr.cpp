@@ -156,17 +156,6 @@ std::vector<memgraph::storage::v3::LabelId> NamesToLabels(const std::vector<std:
   return labels;
 }
 
-std::vector<PropertyId> GetPropertiesFromAcessors(
-    const std::map<memgraph::storage::v3::PropertyId, memgraph::storage::v3::PropertyValue> &properties) {
-  std::vector<PropertyId> ret_properties;
-  ret_properties.reserve(properties.size());
-
-  std::transform(properties.begin(), properties.end(), std::back_inserter(ret_properties),
-                 [](const auto &prop) { return prop.first; });
-
-  return ret_properties;
-}
-
 std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
   memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
   ParsingContext pc;
