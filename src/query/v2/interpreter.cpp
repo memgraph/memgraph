@@ -942,6 +942,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                                   InterpreterContext *interpreter_context,
                                   msgs::ShardRequestManagerInterface *shard_request_manager,
                                   utils::MemoryResource *execution_memory) {
+  shard_request_manager->StartTransaction();
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -959,10 +960,10 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
 
-  auto cypher_query_plan =
-      CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters,
-                        parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, nullptr);
+  auto cypher_query_plan = CypherQueryToPlan(
+      parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
+      parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr,
+      shard_request_manager);
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*shard_request_manager, &cypher_query_plan->plan(), &printed_plan);
