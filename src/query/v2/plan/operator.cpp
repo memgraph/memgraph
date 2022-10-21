@@ -371,6 +371,10 @@ class DistributedScanAllAndFilterCursor : public Cursor {
       }
     }
 
+    // Some logic that goes through all the avalabe shards
+    // The individual requests should be started from here?
+    request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+
     if (current_vertex_it == current_batch.end()) {
       if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
         ResetExecutionState();
@@ -389,7 +393,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     current_batch.clear();
     current_vertex_it = current_batch.end();
     request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-    request_state_.label = "label";
+    // request_state_.label = "label";
   }
 
   void Reset() override {

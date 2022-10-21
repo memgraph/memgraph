@@ -222,7 +222,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return str;
   }
   const std::string &LabelToName(memgraph::storage::v3::LabelId /*label*/) const override {
-    static std::string str{"dummy__label"};
+    static std::string str{"label"};
     return str;
   }
   const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId /*type*/) const override {
