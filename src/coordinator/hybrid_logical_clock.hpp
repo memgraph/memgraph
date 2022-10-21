@@ -37,7 +37,7 @@ struct Hlc {
 
   friend std::ostream &operator<<(std::ostream &in, const Hlc &hlc) {
     auto wall_clock = std::chrono::system_clock::to_time_t(hlc.coordinator_wall_clock);
-    in << "Hlc { logical_id: " << (int)hlc.logical_id;
+    in << "Hlc { logical_id: " << hlc.logical_id;
     in << ", coordinator_wall_clock: " << std::put_time(std::localtime(&wall_clock), "%F %T");
     in << " }";
 

@@ -54,7 +54,7 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
-  
+
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
 
   friend std::ostream &operator<<(std::ostream &in, const AddressAndStatus &address_and_status) {
@@ -106,7 +106,7 @@ struct LabelSpace {
     in << label_space.schema;
     in << ", shards: ";
     in << label_space.shards;
-    in << ", replication_factor: " << (int)label_space.replication_factor << "}";
+    in << ", replication_factor: " << label_space.replication_factor << "}";
 
     return in;
   }
