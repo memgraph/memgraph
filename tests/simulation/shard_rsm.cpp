@@ -497,8 +497,8 @@ void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::V
     MG_ASSERT(write_response.success);
     MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
     for (int64_t i{0}; i < 5; ++i) {
-      const auto expected_secondary_key = std::vector{msgs::Value(1023 - i)};
-      const auto actual_secondary_key = std::invoke([&write_response, i]() {
+      const auto expected_prop4 = std::vector{msgs::Value(1023 - i)};
+      const auto actual_prop4 = std::invoke([&write_response, i]() {
         const auto res = std::ranges::find_if(write_response.results[i].props, [](const auto &id_value_prop_pair) {
           return id_value_prop_pair.first.AsInt() == 4;
         });
@@ -506,7 +506,7 @@ void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::V
         return std::vector{res->second};
       });
 
-      MG_ASSERT(expected_secondary_key == actual_secondary_key, "The order of vertices is not correct");
+      MG_ASSERT(expected_prop4 == actual_prop4, "The order of vertices is not correct");
     }
     break;
   }
