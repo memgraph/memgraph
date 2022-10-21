@@ -21,7 +21,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
-#include "interactive/plan.hpp"
+#include "plan.hpp"
 
 namespace database {
 class GraphDbAccessor;

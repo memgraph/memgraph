@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "interactive_planning.hpp"
+#include "planning.hpp"
 
 #include <chrono>
 #include <cstdlib>
@@ -18,8 +18,8 @@
 
 #include <gflags/gflags.h>
 
-#include "interactive/db_accessor.hpp"
-#include "interactive/plan.hpp"
+#include "db_accessor.hpp"
+#include "plan.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
