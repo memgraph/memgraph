@@ -479,7 +479,7 @@ void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::V
                                                     uint64_t batch_limit) {
   msgs::ScanVerticesRequest scan_req;
   scan_req.batch_limit = batch_limit;
-  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop4"}, msgs::OrderingDirection::DESCENDING}};
   scan_req.props_to_return = std::nullopt;
   scan_req.start_id = start_id;
   scan_req.storage_view = msgs::StorageView::NEW;
