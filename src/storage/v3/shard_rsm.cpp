@@ -293,64 +293,6 @@ using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdg
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 
-template <typename ReturnType, typename EdgeProperties, typename EdgePropertyDataStructure, typename Functor>
-std::optional<ReturnType> GetEdgesWithProperties(const std::vector<storage::v3::EdgeAccessor> &edges,
-                                                 const msgs::ExpandOneRequest &req, Functor get_edge_properties) {
-  ReturnType ret;
-  ret.reserve(edges.size());
-
-  for (const auto &edge : edges) {
-    if (!DoesEdgeTypeMatch(req.edge_types, edge)) {
-      continue;
-    }
-
-    EdgeProperties ret_tuple;
-
-    msgs::Label label;
-    label.id = edge.FromVertex().primary_label;
-    msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
-
-    const auto edge_props_var = get_edge_properties(edge);
-
-    if (std::get_if<LocalError>(&edge_props_var) != nullptr) {
-      return std::nullopt;
-    }
-
-    auto edge_props = std::get<EdgePropertyDataStructure>(edge_props_var);
-    msgs::Gid gid = edge.Gid().AsUint();
-
-    ret.emplace_back(EdgeProperties{other_vertex, gid, edge_props});
-  }
-
-  return ret;
-}
-
-template <typename TPropertyValue, typename TPropertyNullopt>
-void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
-                            std::optional<TPropertyNullopt> &properties_to_nullopt, const TPropertyValue &ret_out,
-                            const TPropertyValue &ret_in, const msgs::ExpandOneRequest &req) {
-  switch (req.direction) {
-    case msgs::EdgeDirection::OUT: {
-      properties_to_value = std::move(ret_out);
-      break;
-    }
-    case msgs::EdgeDirection::IN: {
-      properties_to_value = std::move(ret_in);
-      break;
-    }
-    case msgs::EdgeDirection::BOTH: {
-      TPropertyValue ret;
-      ret.resize(ret_out.size() + ret_in.size());
-      ret.insert(ret.end(), std::make_move_iterator(ret_in.begin()), std::make_move_iterator(ret_in.end()));
-      ret.insert(ret.end(), std::make_move_iterator(ret_out.begin()), std::make_move_iterator(ret_out.end()));
-
-      properties_to_value = ret;
-      break;
-    }
-  }
-  properties_to_nullopt = {};
-}
-
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
 
 template <bool are_in_edges>
