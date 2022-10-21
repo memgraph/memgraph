@@ -131,14 +131,8 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   RC_ASSERT(label_id.has_value());
 
   // split the shard at N split points
-  // NB: this is the logic that should be provided by the "split file"
-  // TODO(tyler) split points should account for signedness
-  const auto split_interval = std::numeric_limits<int64_t>::max() / n_splits;
-
-  for (int64_t i = 0; i < n_splits; ++i) {
-    const int64_t value = i * split_interval;
-
-    const auto key1 = memgraph::storage::v3::PropertyValue(value);
+  for (int64_t i = 1; i < n_splits; ++i) {
+    const auto key1 = memgraph::storage::v3::PropertyValue(i);
     const auto key2 = memgraph::storage::v3::PropertyValue(0);
 
     const CompoundKey split_point = {key1, key2};
