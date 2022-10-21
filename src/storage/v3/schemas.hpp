@@ -34,7 +34,7 @@ struct SchemaProperty {
   friend bool operator==(const SchemaProperty &lhs, const SchemaProperty &rhs);
 
   friend std::ostream &operator<<(std::ostream &in, const SchemaProperty &schema_property) {
-    in << "SchemaProperty { property_id: ", in << (int)schema_property.property_id.AsUint();
+    in << "SchemaProperty { property_id: ", in << schema_property.property_id.AsUint();
     in << ", type: ";
     in << SchemaTypeToString(schema_property.type);
     in << " }";
