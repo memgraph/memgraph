@@ -976,7 +976,6 @@ void TestExpandOneGraphTwo(ShardClient &client) {
     MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
 
     auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
-    auto wrong_edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
     auto edge_gid_1 = GetUniqueInteger();
     auto edge_gid_2 = GetUniqueInteger();
