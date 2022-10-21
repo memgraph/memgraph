@@ -22,21 +22,29 @@
 #include "generated_operations.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/time.hpp"
+#include "storage/v3/shard_manager.hpp"
 #include "test_cluster.hpp"
 
 namespace memgraph::tests::simulation {
 
+using memgraph::io::Duration;
 using memgraph::io::Time;
 using memgraph::io::simulator::SimulatorConfig;
+using memgraph::storage::v3::kMaximumCronInterval;
 
 RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, NonEmptyOpVec ops)) {
+  Duration startup_budget = kMaximumCronInterval * 3;
+  // we give 250ms of execution per operation
+  Duration op_budget = std::chrono::microseconds{ops.ops.size() * 250 * 1000};
+  Time abort_time = Time::min() + startup_budget + op_budget;
+
   SimulatorConfig sim_config{
       .drop_percent = 0,
       .perform_timeouts = false,
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{64 * 1024 * 1024},
+      .abort_time = abort_time,
   };
 
   RunClusterSimulation(sim_config, cluster_config, ops.ops);
