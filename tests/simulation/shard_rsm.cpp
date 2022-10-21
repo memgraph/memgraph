@@ -25,6 +25,7 @@
 #include "io/simulator/simulator_transport.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
@@ -414,7 +415,7 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
                                                                                  msgs::VertexId start_id,
                                                                                  uint64_t batch_limit,
                                                                                  uint64_t prop_val_to_check_against) {
-  std::string filter_expr1 = "MG_SYMBOL_NODE.property = " + std::to_string(prop_val_to_check_against);
+  std::string filter_expr1 = "MG_SYMBOL_NODE.prop1 = " + std::to_string(prop_val_to_check_against);
   std::vector<std::string> filter_expressions = {filter_expr1};
 
   std::string regular_expr1 = "2+2";
@@ -442,6 +443,72 @@ std::tuple<size_t, std::optional<msgs::VertexId>> AttemptToScanAllWithExpression
     MG_ASSERT(!write_response.results.empty(), "There are no results!");
     MG_ASSERT(write_response.results[0].evaluated_vertex_expressions[0].int_v == 4);
     return {write_response.results.size(), write_response.next_start_id};
+  }
+}
+
+void AttemptToScanAllWithOrderByOnPrimaryProperty(ShardClient &client, msgs::VertexId start_id, uint64_t batch_limit) {
+  msgs::ScanVerticesRequest scan_req;
+  scan_req.batch_limit = batch_limit;
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
+    for (int64_t i{0}; i < 5; ++i) {
+      const auto expected_primary_key = std::vector{msgs::Value(1023 - i)};
+      const auto actual_primary_key = write_response.results[i].vertex.id.second;
+      MG_ASSERT(expected_primary_key == actual_primary_key, "The order of vertices is not correct");
+    }
+    break;
+  }
+}
+
+void AttemptToScanAllWithOrderByOnSecondaryProperty(ShardClient &client, msgs::VertexId start_id,
+                                                    uint64_t batch_limit) {
+  msgs::ScanVerticesRequest scan_req;
+  scan_req.batch_limit = batch_limit;
+  scan_req.order_bys = {{msgs::Expression{"MG_SYMBOL_NODE.prop4"}, msgs::OrderingDirection::DESCENDING}};
+  scan_req.props_to_return = std::nullopt;
+  scan_req.start_id = start_id;
+  scan_req.storage_view = msgs::StorageView::NEW;
+  scan_req.transaction_id.logical_id = GetTransactionId();
+
+  while (true) {
+    auto read_res = client.SendReadRequest(scan_req);
+    if (read_res.HasError()) {
+      continue;
+    }
+
+    auto write_response_result = read_res.GetValue();
+    auto write_response = std::get<msgs::ScanVerticesResponse>(write_response_result);
+
+    MG_ASSERT(write_response.success);
+    MG_ASSERT(write_response.results.size() == 5, "Expecting 5 results!");
+    for (int64_t i{0}; i < 5; ++i) {
+      const auto expected_prop4 = std::vector{msgs::Value(1023 - i)};
+      const auto actual_prop4 = std::invoke([&write_response, i]() {
+        const auto res = std::ranges::find_if(write_response.results[i].props, [](const auto &id_value_prop_pair) {
+          return id_value_prop_pair.first.AsInt() == 4;
+        });
+        MG_ASSERT(res != write_response.results[i].props.end(), "Property does not exist!");
+        return std::vector{res->second};
+      });
+
+      MG_ASSERT(expected_prop4 == actual_prop4, "The order of vertices is not correct");
+    }
+    break;
   }
 }
 
@@ -733,7 +800,7 @@ void AttemptToExpandOneWithSpecifiedEdgeProperties(ShardClient &client, uint64_t
 
 void AttemptToExpandOneWithFilters(ShardClient &client, uint64_t src_vertex_val, EdgeTypeId edge_type_id,
                                    uint64_t edge_prop_id, uint64_t prop_val_to_check_against) {
-  std::string filter_expr1 = "MG_SYMBOL_NODE.property = " + std::to_string(prop_val_to_check_against);
+  std::string filter_expr1 = "MG_SYMBOL_NODE.prop1 = " + std::to_string(prop_val_to_check_against);
 
   // Source vertex
   msgs::Label label = {.id = get_primary_label()};
@@ -881,6 +948,9 @@ void TestScanAllOneGo(ShardClient &client) {
 
   auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
   MG_ASSERT(result_size_2 == 1);
+
+  AttemptToScanAllWithOrderByOnPrimaryProperty(client, v_id, 5);
+  AttemptToScanAllWithOrderByOnSecondaryProperty(client, v_id, 5);
 
   auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
   auto [result_size_without_batch, next_id_without_batch] = AttemptToScanAllWithoutBatchLimit(client, v_id);
@@ -1033,9 +1103,9 @@ int TestMessages() {
   auto shard_ptr2 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
   auto shard_ptr3 = std::make_unique<Shard>(get_primary_label(), min_prim_key, max_prim_key, schema_prop);
 
-  shard_ptr1->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr2->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
-  shard_ptr3->StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr1->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr2->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
+  shard_ptr3->StoreMapping({{1, "label"}, {2, "prop1"}, {3, "label1"}, {4, "prop2"}, {5, "prop3"}, {6, "prop4"}});
 
   std::vector<Address> address_for_1{shard_server_2_address, shard_server_3_address};
   std::vector<Address> address_for_2{shard_server_1_address, shard_server_3_address};

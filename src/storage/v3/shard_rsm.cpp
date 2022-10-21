@@ -26,10 +26,13 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
 #include "storage/v3/property_value.hpp"
+#include "storage/v3/request_helper.hpp"
 #include "storage/v3/schemas.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/shard_rsm.hpp"
 #include "storage/v3/storage.hpp"
 #include "storage/v3/value_conversions.hpp"
@@ -60,10 +63,10 @@ using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdg
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 
-using EdgeAccessors = std::vector<memgraph::storage::v3::EdgeAccessor>;
+using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
 
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
-using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)>;
+using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
 
 struct VertexIdCmpr {
   bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const { return *lhs < *rhs; }
@@ -142,188 +145,7 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
   return ret;
 }
 
-msgs::Value ConstructValueVertex(const VertexAccessor &acc, View view) {
-  // Get the vertex id
-  auto prim_label = acc.PrimaryLabel(view).GetValue();
-  msgs::Label value_label{.id = prim_label};
-
-  auto prim_key = ConvertValueVector(acc.PrimaryKey(view).GetValue());
-  msgs::VertexId vertex_id = std::make_pair(value_label, prim_key);
-
-  // Get the labels
-  auto vertex_labels = acc.Labels(view).GetValue();
-  std::vector<msgs::Label> value_labels;
-  value_labels.reserve(vertex_labels.size());
-
-  std::transform(vertex_labels.begin(), vertex_labels.end(), std::back_inserter(value_labels),
-                 [](const auto &label) { return msgs::Label{.id = label}; });
-
-  return Value({.id = vertex_id, .labels = value_labels});
-}
-
-Value ConstructValueEdge(const EdgeAccessor &acc, View view) {
-  msgs::EdgeType type = {.id = acc.EdgeType()};
-  msgs::EdgeId gid = {.gid = acc.Gid().AsUint()};
-
-  Label src_prim_label = {.id = acc.FromVertex().primary_label};
-  msgs::VertexId src_vertex = std::make_pair(src_prim_label, ConvertValueVector(acc.FromVertex().primary_key));
-
-  Label dst_prim_label = {.id = acc.ToVertex().primary_label};
-  msgs::VertexId dst_vertex = std::make_pair(dst_prim_label, ConvertValueVector(acc.ToVertex().primary_key));
-
-  auto properties = acc.Properties(view);
-
-  std::vector<std::pair<PropertyId, Value>> present_properties;
-  if (properties.HasValue()) {
-    auto &props = properties.GetValue();
-    present_properties.reserve(props.size());
-
-    std::transform(props.begin(), props.end(), std::back_inserter(present_properties),
-                   [](std::pair<const PropertyId, PropertyValue> &prop) {
-                     return std::make_pair(prop.first, FromPropertyValueToValue(std::move(prop.second)));
-                   });
-  }
-
-  return Value(msgs::Edge{.src = std::move(src_vertex),
-                          .dst = std::move(dst_vertex),
-                          .properties = std::move(present_properties),
-                          .id = gid,
-                          .type = type});
-}
-
-Value FromTypedValueToValue(TypedValue &&tv) {
-  switch (tv.type()) {
-    case TypedValue::Type::Bool:
-      return Value(tv.ValueBool());
-    case TypedValue::Type::Double:
-      return Value(tv.ValueDouble());
-    case TypedValue::Type::Int:
-      return Value(tv.ValueInt());
-    case TypedValue::Type::List: {
-      std::vector<Value> list;
-      auto &tv_list = tv.ValueList();
-      list.reserve(tv_list.size());
-      std::transform(tv_list.begin(), tv_list.end(), std::back_inserter(list),
-                     [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
-      return Value(list);
-    }
-    case TypedValue::Type::Map: {
-      std::map<std::string, Value> map;
-      for (auto &[key, val] : tv.ValueMap()) {
-        map.emplace(key, FromTypedValueToValue(std::move(val)));
-      }
-      return Value(map);
-    }
-    case TypedValue::Type::Null:
-      return Value{};
-    case TypedValue::Type::String:
-      return Value((std::string(tv.ValueString())));
-    case TypedValue::Type::Vertex:
-      return ConstructValueVertex(tv.ValueVertex(), View::OLD);
-    case TypedValue::Type::Edge:
-      return ConstructValueEdge(tv.ValueEdge(), View::OLD);
-
-    // TBD -> we need to specify temporal types, not a priority.
-    case TypedValue::Type::Date:
-    case TypedValue::Type::LocalTime:
-    case TypedValue::Type::LocalDateTime:
-    case TypedValue::Type::Duration:
-    case TypedValue::Type::Path: {
-      MG_ASSERT(false, "This conversion between TypedValue and Value is not implemented yet!");
-      break;
-    }
-  }
-  return Value{};
-}
-
-std::vector<Value> ConvertToValueVectorFromTypedValueVector(std::vector<TypedValue> &&vec) {
-  std::vector<Value> ret;
-  ret.reserve(vec.size());
-
-  std::transform(vec.begin(), vec.end(), std::back_inserter(ret),
-                 [](auto &elem) { return FromTypedValueToValue(std::move(elem)); });
-  return ret;
-}
-
-std::vector<PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor &dba) {
-  std::vector<PropertyId> properties;
-  properties.reserve(property_names.size());
-
-  for (const auto &name : property_names) {
-    properties.push_back(dba.NameToProperty(name));
-  }
-  return properties;
-}
-
-std::vector<LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor &dba) {
-  std::vector<LabelId> labels;
-  labels.reserve(label_names.size());
-  for (const auto &name : label_names) {
-    labels.push_back(dba.NameToLabel(name));
-  }
-  return labels;
-}
-
-template <class TExpression>
-auto Eval(TExpression *expr, EvaluationContext &ctx, AstStorage &storage, ExpressionEvaluator &eval, DbAccessor &dba) {
-  ctx.properties = NamesToProperties(storage.properties_, dba);
-  ctx.labels = NamesToLabels(storage.labels_, dba);
-  auto value = expr->Accept(eval);
-  return value;
-}
-
-std::any ParseExpression(const std::string &expr, memgraph::expr::AstStorage &storage) {
-  memgraph::frontend::opencypher::Parser<memgraph::frontend::opencypher::ParserOpTag::EXPRESSION> parser(expr);
-  ParsingContext pc;
-  CypherMainVisitor visitor(pc, &storage);
-
-  auto *ast = parser.tree();
-  return visitor.visit(ast);
-}
-
-TypedValue ComputeExpression(DbAccessor &dba, const std::optional<VertexAccessor> &v_acc,
-                             const std::optional<EdgeAccessor> &e_acc, const std::string &expression,
-                             std::string_view node_name, std::string_view edge_name) {
-  AstStorage storage;
-  Frame frame{1 + 1};  // 1 for the node_identifier, 1 for the edge_identifier
-  SymbolTable symbol_table;
-  EvaluationContext ctx;
-
-  ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, View::OLD};
-  auto expr = ParseExpression(expression, storage);
-
-  auto node_identifier = Identifier(std::string(node_name), false);
-  auto edge_identifier = Identifier(std::string(edge_name), false);
-
-  std::vector<Identifier *> identifiers;
-  identifiers.push_back(&node_identifier);
-  identifiers.push_back(&edge_identifier);
-
-  expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
-  (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
-
-  if (node_identifier.symbol_pos_ != -1) {
-    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                           [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                             return position_symbol_pair.second.name() == node_name;
-                           }) != symbol_table.table().end());
-
-    frame[symbol_table.at(node_identifier)] = *v_acc;
-  }
-
-  if (edge_identifier.symbol_pos_ != -1) {
-    MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
-                           [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
-                             return position_symbol_pair.second.name() == edge_name;
-                           }) != symbol_table.table().end());
-
-    frame[symbol_table.at(edge_identifier)] = *e_acc;
-  }
-
-  return Eval(std::any_cast<Expression *>(expr), ctx, storage, eval, dba);
-}
-
-bool FilterOnVertex(DbAccessor &dba, const VertexAccessor &v_acc, const std::vector<std::string> &filters,
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
                     const std::string_view node_name) {
   return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
     auto res = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "");
@@ -462,6 +284,17 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
   return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
 }
 
+using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
+using SpecificEdgePropertyDataSructure = std::vector<msgs::Value>;
+
+using AllEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, AllEdgePropertyDataSructure>;
+using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdgePropertyDataSructure>;
+
+using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
+using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
+
+using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
+
 template <bool are_in_edges>
 bool FillEdges(const std::vector<EdgeAccessor> &edges, const msgs::ExpandOneRequest &req, msgs::ExpandOneResultRow &row,
                const EdgeFiller &edge_filler) {
@@ -525,30 +358,28 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
 
   if (only_unique_neighbor_rows) {
     maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
-                                              memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
-      std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &,
-                         const memgraph::storage::v3::EdgeAccessor &)>
+                                              msgs::EdgeDirection edge_direction) -> EdgeAccessors {
+      std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &, const storage::v3::EdgeAccessor &)>
           is_edge_unique;
       switch (edge_direction) {
-        case memgraph::msgs::EdgeDirection::OUT: {
+        case msgs::EdgeDirection::OUT: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+                              const storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
             return insertion_happened;
           };
           break;
         }
-        case memgraph::msgs::EdgeDirection::IN: {
+        case msgs::EdgeDirection::IN: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+                              const storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
             return insertion_happened;
           };
           break;
         }
-        case memgraph::msgs::EdgeDirection::BOTH:
-          MG_ASSERT(false,
-                    "This is should never happen, memgraph::msgs::EdgeDirection::BOTH should not be passed here.");
+        case msgs::EdgeDirection::BOTH:
+          MG_ASSERT(false, "This is should never happen, msgs::EdgeDirection::BOTH should not be passed here.");
       }
 
       EdgeAccessors ret;
@@ -563,10 +394,8 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
       return ret;
     };
   } else {
-    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
-                                              memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors {
-      return std::move(edges);
-    };
+    maybe_filter_based_on_edge_uniquness =
+        [](EdgeAccessors &&edges, msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return std::move(edges); };
   }
 
   return maybe_filter_based_on_edge_uniquness;
@@ -920,65 +749,82 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   bool action_successful = true;
 
   std::vector<msgs::ScanResultRow> results;
+  if (req.batch_limit) {
+    results.reserve(*req.batch_limit);
+  }
   std::optional<msgs::VertexId> next_start_id;
 
   const auto view = View(req.storage_view);
-  auto vertex_iterable = acc.Vertices(view);
-  bool did_reach_starting_point = false;
-  uint64_t sample_counter = 0;
-
-  const auto start_ids = ConvertPropertyVector(std::move(req.start_id.second));
   auto dba = DbAccessor{&acc};
-
-  for (auto it = vertex_iterable.begin(); it != vertex_iterable.end(); ++it) {
-    const auto &vertex = *it;
-
-    if (start_ids <= vertex.PrimaryKey(View(req.storage_view)).GetValue()) {
-      did_reach_starting_point = true;
+  const auto emplace_scan_result = [&](const VertexAccessor &vertex) {
+    std::vector<Value> expression_results;
+    // TODO(gvolfing) it should be enough to check these only once.
+    if (vertex.Properties(View(req.storage_view)).HasError()) {
+      action_successful = false;
+      spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
+                    req.transaction_id.logical_id);
+    }
+    if (!req.filter_expressions.empty()) {
+      // NOTE - DbAccessor might get removed in the future.
+      const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
+      if (!eval) {
+        return;
+      }
+    }
+    if (!req.vertex_expressions.empty()) {
+      // NOTE - DbAccessor might get removed in the future.
+      expression_results = ConvertToValueVectorFromTypedValueVector(
+          EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
     }
 
-    if (did_reach_starting_point) {
-      std::vector<Value> expression_results;
+    std::optional<std::map<PropertyId, Value>> found_props;
 
-      // TODO(gvolfing) it should be enough to check these only once.
-      if (vertex.Properties(View(req.storage_view)).HasError()) {
-        action_successful = false;
-        spdlog::debug("Could not retrive properties from VertexAccessor. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        break;
-      }
-      if (!req.filter_expressions.empty()) {
-        // NOTE - DbAccessor might get removed in the future.
-        const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
-        if (!eval) {
-          continue;
-        }
-      }
-      if (!req.vertex_expressions.empty()) {
-        expression_results = ConvertToValueVectorFromTypedValueVector(
-            EvaluateVertexExpressions(dba, vertex, req.vertex_expressions, expr::identifier_node_symbol));
-      }
-
-      std::optional<std::map<PropertyId, Value>> found_props;
-
+    if (req.props_to_return) {
+      found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
+    } else {
       const auto *schema = shard_->GetSchema(shard_->PrimaryLabel());
-      if (req.props_to_return) {
-        found_props = CollectSpecificPropertiesFromAccessor(vertex, req.props_to_return.value(), view);
-      } else {
-        found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
-      }
+      found_props = CollectAllPropertiesFromAccessor(vertex, view, schema);
+    }
 
-      // TODO(gvolfing) -VERIFY-
-      // Vertex is seperated from the properties in the response.
-      // Is it useful to return just a vertex without the properties?
-      if (!found_props) {
-        action_successful = false;
+    // TODO(gvolfing) -VERIFY-
+    // Vertex is separated from the properties in the response.
+    // Is it useful to return just a vertex without the properties?
+    if (!found_props) {
+      action_successful = false;
+    }
+
+    results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
+                                             .props = FromMap(found_props.value()),
+                                             .evaluated_vertex_expressions = std::move(expression_results)});
+  };
+
+  const auto start_id = ConvertPropertyVector(std::move(req.start_id.second));
+  uint64_t sample_counter{0};
+  auto vertex_iterable = acc.Vertices(view);
+  if (!req.order_bys.empty()) {
+    const auto ordered = OrderByElements(acc, dba, vertex_iterable, req.order_bys);
+    // we are traversing Elements
+    auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
+    for (; it != ordered.end(); ++it) {
+      emplace_scan_result(it->vertex_acc);
+      ++sample_counter;
+      if (req.batch_limit && sample_counter == req.batch_limit) {
+        // Reached the maximum specified batch size.
+        // Get the next element before exiting.
+        ++it;
+        if (it != ordered.end()) {
+          const auto &next_vertex = it->vertex_acc;
+          next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
+        }
+
         break;
       }
-
-      results.emplace_back(msgs::ScanResultRow{.vertex = ConstructValueVertex(vertex, view).vertex_v,
-                                               .props = FromMap(found_props.value()),
-                                               .evaluated_vertex_expressions = std::move(expression_results)});
+    }
+  } else {
+    // We are going through VerticesIterable::Iterator
+    auto it = GetStartVertexIterator(vertex_iterable, start_id, View(req.storage_view));
+    for (; it != vertex_iterable.end(); ++it) {
+      emplace_scan_result(*it);
 
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
@@ -1059,4 +905,4 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) 
   return msgs::GetPropertiesResponse{};
 }
 
-}  //    namespace memgraph::storage::v3
+}  // namespace memgraph::storage::v3
