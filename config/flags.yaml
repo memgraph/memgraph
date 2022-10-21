@@ -83,13 +83,9 @@ modifications:
     value: "true"
     override: true
 
-  - name: "query_modules_directory"
-    value: "/usr/lib/memgraph/query_modules"
-    override: true
-
-  - name: "auth_module_executable"
-    value: "/usr/lib/memgraph/auth_module/example.py"
-    override: false
+  # - name: "query_modules_directory"
+  #   value: "/usr/lib/memgraph/query_modules"
+  #   override: true
 
   - name: "memory_limit"
     value: "0"

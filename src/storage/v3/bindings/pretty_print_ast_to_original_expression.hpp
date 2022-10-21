@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include <functional>
-#include <memory>
+#include "storage/v3/bindings/bindings.hpp"
 
-namespace memgraph::query::v2::procedure {
-class CypherType;
-using CypherTypePtr = std::unique_ptr<CypherType, std::function<void(CypherType *)>>;
-}  // namespace memgraph::query::v2::procedure
+#include "expr/ast/pretty_print_ast_to_original_expression.hpp"
+#include "storage/v3/bindings/typed_value.hpp"
+
+namespace memgraph::storage::v3 {}  // namespace memgraph::storage::v3

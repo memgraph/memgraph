@@ -208,14 +208,13 @@ class Shard final {
     // TODO(gvolfing) this is just a workaround for stitching remove this later.
     LabelId GetPrimaryLabel() const noexcept { return shard_->primary_label_; }
 
-    /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         LabelId primary_label, const std::vector<LabelId> &labels,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
-        LabelId primary_label, const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
+        const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
         const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
 
     std::optional<VertexAccessor> FindVertex(std::vector<PropertyValue> primary_key, View view);
@@ -341,6 +340,10 @@ class Shard final {
 
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const;
 
+  LabelId PrimaryLabel() const;
+
+  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
+
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
@@ -374,8 +377,6 @@ class Shard final {
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
 
   // Main object storage
   NameIdMapper name_id_mapper_;

@@ -14,6 +14,8 @@
 #include <functional>
 #include <utility>
 
+#include "query/db_accessor.hpp"
+#include "query/v2/accessors.hpp"
 #include "query/v2/db_accessor.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -28,6 +30,8 @@ namespace memgraph::query::v2 {
  */
 class Path {
  public:
+  using VertexAccessor = accessors::VertexAccessor;
+  using EdgeAccessor = accessors::EdgeAccessor;
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<char>;
 

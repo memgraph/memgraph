@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <limits>
 #include <map>
 #include <set>
@@ -27,6 +28,7 @@
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::coordinator {
 
@@ -34,6 +36,7 @@ constexpr int64_t kNotExistingId{0};
 
 using memgraph::io::Address;
 using memgraph::storage::v3::Config;
+using memgraph::storage::v3::EdgeTypeId;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::PropertyId;
 using memgraph::storage::v3::PropertyValue;
@@ -51,6 +54,9 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
+    return lhs.address == rhs.address;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
@@ -58,7 +64,9 @@ using Shard = std::vector<AddressAndStatus>;
 using Shards = std::map<PrimaryKey, Shard>;
 using LabelName = std::string;
 using PropertyName = std::string;
+using EdgeTypeName = std::string;
 using PropertyMap = std::map<PropertyName, PropertyId>;
+using EdgeTypeIdMap = std::map<EdgeTypeName, EdgeTypeId>;
 
 struct ShardToInitialize {
   boost::uuids::uuid uuid;
@@ -80,7 +88,9 @@ struct LabelSpace {
 struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id{kNotExistingId};
+  uint64_t max_edge_type_id{kNotExistingId};
   std::map<PropertyName, PropertyId> properties;
+  std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
@@ -108,7 +118,12 @@ struct ShardMap {
     bool mutated = false;
 
     for (auto &[label_id, label_space] : label_spaces) {
-      for (auto &[low_key, shard] : label_space.shards) {
+      for (auto it = label_space.shards.begin(); it != label_space.shards.end(); it++) {
+        auto &[low_key, shard] = *it;
+        std::optional<PrimaryKey> high_key;
+        if (const auto next_it = std::next(it); next_it != label_space.shards.end()) {
+          high_key = next_it->first;
+        }
         // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
         bool machine_contains_shard = false;
 
@@ -129,8 +144,8 @@ struct ShardMap {
                   .uuid = aas.address.unique_id,
                   .label_id = label_id,
                   .min_key = low_key,
-                  .max_key = std::nullopt,
-                  .schema = label_space.schema,
+                  .max_key = high_key,
+                  .schema = schemas[label_id],
                   .config = Config{},
               });
             }
@@ -149,7 +164,8 @@ struct ShardMap {
               .uuid = address.unique_id,
               .label_id = label_id,
               .min_key = low_key,
-              .max_key = std::nullopt,
+              .max_key = high_key,
+              .schema = schemas[label_id],
               .config = Config{},
           });
 
@@ -199,7 +215,56 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+  std::optional<LabelId> GetLabelId(const std::string &label) const {
+    if (const auto it = labels.find(label); it != labels.end()) {
+      return it->second;
+    }
+
+    return std::nullopt;
+  }
+
+  std::string GetLabelName(const LabelId label) const {
+    if (const auto it =
+            std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
+        it != labels.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("GetLabelName fails on the given label id!");
+  }
+
+  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
+    if (const auto it = properties.find(property_name); it != properties.end()) {
+      return it->second;
+    }
+
+    return std::nullopt;
+  }
+
+  std::string GetPropertyName(const PropertyId property) const {
+    if (const auto it = std::ranges::find_if(
+            properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
+        it != properties.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("PropertyId not found!");
+  }
+
+  std::optional<EdgeTypeId> GetEdgeTypeId(const std::string &edge_type) const {
+    if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
+      return it->second;
+    }
+
+    return std::nullopt;
+  }
+
+  std::string GetEdgeTypeName(const EdgeTypeId property) const {
+    if (const auto it = std::ranges::find_if(
+            edge_types, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
+        it != edge_types.end()) {
+      return it->first;
+    }
+    throw utils::BasicException("EdgeTypeId not found!");
+  }
 
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const {
     MG_ASSERT(start_key <= end_key);
@@ -273,12 +338,29 @@ struct ShardMap {
     return ret;
   }
 
-  std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
-    if (properties.contains(property_name)) {
-      return properties.at(property_name);
+  EdgeTypeIdMap AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new_edge_types) {
+    EdgeTypeIdMap ret;
+
+    bool mutated = false;
+
+    for (const auto &edge_type_name : new_edge_types) {
+      if (edge_types.contains(edge_type_name)) {
+        auto edge_type_id = edge_types.at(edge_type_name);
+        ret.emplace(edge_type_name, edge_type_id);
+      } else {
+        mutated = true;
+
+        const EdgeTypeId edge_type_id = EdgeTypeId::FromUint(++max_edge_type_id);
+        ret.emplace(edge_type_name, edge_type_id);
+        edge_types.emplace(edge_type_name, edge_type_id);
+      }
     }
 
-    return std::nullopt;
+    if (mutated) {
+      IncrementShardMapVersion();
+    }
+
+    return ret;
   }
 
   /// Returns true if all shards have the desired number of replicas and they are in

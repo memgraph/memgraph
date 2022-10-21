@@ -26,6 +26,7 @@
 #include <query/v2/requests.hpp>
 #include <storage/v3/shard.hpp>
 #include <storage/v3/shard_rsm.hpp>
+#include "coordinator/shard_map.hpp"
 #include "storage/v3/config.hpp"
 
 namespace memgraph::storage::v3 {
@@ -76,7 +77,8 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, Address coordinator_leader) : io_(io), coordinator_leader_(coordinator_leader) {}
+  ShardManager(io::Io<IoImpl> io, Address coordinator_leader, coordinator::ShardMap shard_map)
+      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)} {}
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -135,6 +137,7 @@ class ShardManager {
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
   Time next_cron_ = Time::min();
   Address coordinator_leader_;
+  coordinator::ShardMap shard_map_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
 
   // TODO(tyler) over time remove items from initialized_but_not_confirmed_rsm_
@@ -212,6 +215,17 @@ class ShardManager {
 
     std::unique_ptr<Shard> shard =
         std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.schema, to_init.config);
+    // TODO(jbajic) Should be sync with coordinator and not passed
+    std::unordered_map<uint64_t, std::string> id_to_name;
+    const auto map_type_ids = [&id_to_name](const auto &name_to_id_type) {
+      for (const auto &[name, id] : name_to_id_type) {
+        id_to_name.insert({id.AsUint(), name});
+      }
+    };
+    map_type_ids(shard_map_.edge_types);
+    map_type_ids(shard_map_.labels);
+    map_type_ids(shard_map_.properties);
+    shard->StoreMapping(std::move(id_to_name));
 
     ShardRsm rsm_state{std::move(shard)};
 

@@ -30,6 +30,7 @@
 #include "communication/context.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
+#include "utils/message.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -58,10 +59,10 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   bool IsRunning() const noexcept { return alive_.load(std::memory_order_relaxed); }
 
  private:
-  Listener(boost::asio::io_context &io_context, TSessionData *data, ServerContext *server_context,
+  Listener(boost::asio::io_context &io_context, TSessionData &data, ServerContext *server_context,
            tcp::endpoint &endpoint, const std::string_view service_name, const uint64_t inactivity_timeout_sec)
       : io_context_(io_context),
-        data_(data),
+        data_(&data),
         server_context_(server_context),
         acceptor_(io_context_),
         endpoint_{endpoint},
@@ -110,7 +111,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    auto session = SessionHandler::Create(std::move(socket), data_, *server_context_, endpoint_, inactivity_timeout_,
+    auto session = SessionHandler::Create(std::move(socket), *data_, *server_context_, endpoint_, inactivity_timeout_,
                                           service_name_);
     session->Start();
     DoAccept();
