@@ -79,7 +79,7 @@ MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Addres
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator};
+  return MachineManager{io, config, coordinator, shard_map};
 }
 
 void RunMachine(MachineManager<SimulatorTransport> mm) { mm.Run(); }
@@ -164,7 +164,7 @@ void executeOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
 
   msgs::ExecutionState<msgs::CreateVerticesRequest> state;
 
-  auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
+  auto label_id = shard_request_manager.NameToLabel("test_label");
 
   std::vector<msgs::Value> new_vertex_key = {msgs::Value(int64_t(create_vertex.key)),
                                              msgs::Value(int64_t(create_vertex.value))};

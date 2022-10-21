@@ -38,6 +38,11 @@ struct PartialAddress {
   }
 
   std::string ToString() const { return fmt::format("PartialAddress {{ ip: {}, port: {} }}", ip.to_string(), port); }
+
+  friend std::ostream &operator<<(std::ostream &in, const PartialAddress &partial_address) {
+    in << partial_address.ToString();
+    return in;
+  }
 };
 
 struct Address {
@@ -99,6 +104,11 @@ struct Address {
   std::string ToString() const {
     return fmt::format("Address {{ unique_id: {}, last_known_ip: {}, last_known_port: {} }}",
                        boost::uuids::to_string(unique_id), last_known_ip.to_string(), last_known_port);
+  }
+
+  friend std::ostream &operator<<(std::ostream &in, const Address &address) {
+    in << address.ToString();
+    return in;
   }
 };
 
