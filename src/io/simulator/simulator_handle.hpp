@@ -76,6 +76,14 @@ class SimulatorHandle {
   explicit SimulatorHandle(SimulatorConfig config)
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
+  ~SimulatorHandle() {
+    for (auto it = promises_.begin(); it != promises_.end();) {
+      auto &[promise_key, dop] = *it;
+      std::move(dop).promise.TimeOut();
+      it = promises_.erase(it);
+    }
+  }
+
   void IncrementServerCountAndWaitForQuiescentState(Address address);
 
   /// This method causes most of the interesting simulation logic to happen, wrt network behavior.
