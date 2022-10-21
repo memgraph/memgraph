@@ -48,12 +48,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
-    #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
-    # Install it manually using `pip3 install PyYAML`
-    #
-    PyYAML # Package name here does not correspond to the dnf package!
+    python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-pyyaml nmap-ncat # for tests
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
@@ -70,15 +65,6 @@ list() {
 check() {
     local missing=""
     for pkg in $1; do
-        if [ "$pkg" == "PyYAML" ]; then
-            if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == "python3-virtualenv" ]; then
-            continue
-        fi
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -96,33 +82,14 @@ install() {
         exit 1
     fi
     # If GitHub Actions runner is installed, append LANG to the environment.
-    # Python related tests doesn't work the LANG export.
+    # Python related tests don't work without the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
         echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
     dnf update -y
-    dnf install -y wget git python3 python3-pip
     for pkg in $1; do
-        if [ "$pkg" == PyYAML ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install --user PyYAML
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-            fi
-            continue
-        fi
-        if [ "$pkg" == python3-virtualenv ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install virtualenv
-                pip3 install virtualenvwrapper
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-            fi
-            continue
-        fi
         dnf install -y "$pkg"
     done
 }
