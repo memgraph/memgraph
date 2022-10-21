@@ -26,3 +26,9 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["distributed_queries/distinct.py"]
     <<: *template_cluster
+# TODO(kostasrim) This should be enabled once OPTIONAL match works
+#
+#  - name: "Distributed optional match"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["distributed_queries/optional_match.py"]
+#    <<: *template_cluster
