@@ -7,7 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 CPUS=$( grep -c processor < /proc/cpuinfo )
 cd "$DIR"
 
-source "$DIR/../util.sh"
+source "$DIR/../../util.sh"
 DISTRO="$(operating_system)"
 
 function log_tool_name () {
@@ -33,29 +33,29 @@ if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; 
     echo "Only GCC (libstdc++) or LLVM (libc++) C++ standard library implementations are supported."
     exit 1
 fi
-TOOLCHAIN_VERSION=4
+TOOLCHAIN_VERSION=5
 
 # package versions used
-GCC_VERSION=11.2.0
-BINUTILS_VERSION=2.37
+GCC_VERSION=12.2.0
+BINUTILS_VERSION=2.39
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=11.2
+        GDB_VERSION=12.1
     ;;
 esac
-CMAKE_VERSION=3.22.1
-CPPCHECK_VERSION=2.6
-LLVM_VERSION=13.0.0
+CMAKE_VERSION=3.24.2
+CPPCHECK_VERSION=2.9
+LLVM_VERSION=15.0.3
 SWIG_VERSION=4.0.2 # used only for LLVM compilation
 
 # Check for the dependencies.
-echo "ALL BUILD PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
-$DIR/../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
-echo "ALL RUN PACKAGES: $($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
-$DIR/../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
+echo "ALL BUILD PACKAGES: $($DIR/../../os/$DISTRO.sh list TOOLCHAIN_BUILD_DEPS)"
+$DIR/../../os/$DISTRO.sh check TOOLCHAIN_BUILD_DEPS
+echo "ALL RUN PACKAGES: $($DIR/../../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)"
+$DIR/../../os/$DISTRO.sh check TOOLCHAIN_RUN_DEPS
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION
@@ -594,7 +594,7 @@ In order to be able to run all of these tools you should install the following
 packages:
 
 \`\`\`
-$($DIR/../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
+$($DIR/../../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
