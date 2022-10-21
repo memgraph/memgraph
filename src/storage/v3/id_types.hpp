@@ -37,7 +37,7 @@ namespace memgraph::storage::v3 {
     constexpr int64_t AsInt() const { return std::bit_cast<int64_t>(id_); }                                           \
                                                                                                                       \
     friend std::ostream &operator<<(std::ostream &in, const name &n) {                                                \
-      in << n.id_.AsInt();                                                                                            \
+      in << n.AsInt();                                                                                            \
       return in;                                                                                                      \
     }                                                                                                                 \
                                                                                                                       \
