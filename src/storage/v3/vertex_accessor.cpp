@@ -11,6 +11,7 @@
 
 #include "storage/v3/vertex_accessor.hpp"
 
+#include <cstddef>
 #include <memory>
 
 #include "storage/v3/conversions.hpp"
@@ -21,6 +22,7 @@
 #include "storage/v3/mvcc.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schema_validator.hpp"
+#include "storage/v3/shard.hpp"
 #include "storage/v3/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -378,6 +380,32 @@ Result<PropertyValue> VertexAccessor::GetProperty(View view, PropertyId property
   return GetProperty(property, view).GetValue();
 }
 
+PropertyValue VertexAccessor::GetPropertyValue(PropertyId property, View view) const {
+  PropertyValue value;
+
+  const auto primary_label = PrimaryLabel(view);
+  if (primary_label.HasError()) {
+    return value;
+  }
+  const auto *schema = vertex_validator_->schema_validator->GetSchema(*primary_label);
+  if (!schema) {
+    return value;
+  }
+  // Find PropertyId index in keystore
+  size_t property_index{0};
+  for (; property_index < schema->second.size(); ++property_index) {
+    if (schema->second[property_index].property_id == property) {
+      break;
+    }
+  }
+
+  value = vertex_->keys.GetKey(property_index);
+  if (value.IsNull()) {
+    value = vertex_->properties.GetProperty(property);
+  }
+  return value;
+}
+
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
@@ -385,7 +413,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
+    value = GetPropertyValue(property, view);
     delta = vertex_->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {
@@ -425,6 +453,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   Delta *delta = nullptr;
   {
     deleted = vertex_->deleted;
+    // TODO(antaljanosbenjamin): This should also return the primary key
     properties = vertex_->properties.Properties();
     delta = vertex_->delta;
   }

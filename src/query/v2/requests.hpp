@@ -47,41 +47,33 @@ inline bool operator==(const VertexId &lhs, const VertexId &rhs) {
 
 using Gid = size_t;
 using PropertyId = memgraph::storage::v3::PropertyId;
+using EdgeTypeId = memgraph::storage::v3::EdgeTypeId;
 
 struct EdgeType {
-  uint64_t id;
+  EdgeTypeId id;
   friend bool operator==(const EdgeType &lhs, const EdgeType &rhs) = default;
 };
 
 struct EdgeId {
   Gid gid;
+
+  friend bool operator==(const EdgeId &lhs, const EdgeId &rhs) { return lhs.gid == rhs.gid; }
+  friend bool operator<(const EdgeId &lhs, const EdgeId &rhs) { return lhs.gid < rhs.gid; }
 };
 
 struct Edge {
   VertexId src;
   VertexId dst;
-  std::optional<std::vector<std::pair<PropertyId, Value>>> properties;
+  std::vector<std::pair<PropertyId, Value>> properties;
   EdgeId id;
   EdgeType type;
-  friend bool operator==(const Edge &lhs, const Edge &rhs) {
-    return (lhs.src == rhs.src) && (lhs.dst == rhs.dst) && (lhs.type == rhs.type);
-  }
+  friend bool operator==(const Edge &lhs, const Edge &rhs) { return lhs.id == rhs.id; }
 };
 
 struct Vertex {
   VertexId id;
   std::vector<Label> labels;
   friend bool operator==(const Vertex &lhs, const Vertex &rhs) { return lhs.id == rhs.id; }
-};
-
-struct PathPart {
-  Vertex dst;
-  Gid edge;
-};
-
-struct Path {
-  Vertex src;
-  std::vector<PathPart> parts;
 };
 
 struct Null {};
@@ -133,12 +125,8 @@ struct Value {
       case Type::Map:
         std::destroy_at(&map_v);
         return;
-
       case Type::Vertex:
         std::destroy_at(&vertex_v);
-        return;
-      case Type::Path:
-        std::destroy_at(&path_v);
         return;
       case Type::Edge:
         std::destroy_at(&edge_v);
@@ -173,9 +161,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(other.edge_v);
         return;
-      case Type::Path:
-        new (&path_v) Path(other.path_v);
-        return;
     }
   }
 
@@ -206,9 +191,6 @@ struct Value {
         break;
       case Type::Edge:
         new (&edge_v) Edge(std::move(other.edge_v));
-        break;
-      case Type::Path:
-        new (&path_v) Path(std::move(other.path_v));
         break;
     }
 
@@ -249,9 +231,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(other.edge_v);
         break;
-      case Type::Path:
-        new (&path_v) Path(other.path_v);
-        break;
     }
 
     return *this;
@@ -290,9 +269,6 @@ struct Value {
       case Type::Edge:
         new (&edge_v) Edge(std::move(other.edge_v));
         break;
-      case Type::Path:
-        new (&path_v) Path(std::move(other.path_v));
-        break;
     }
 
     other.DestroyValue();
@@ -300,7 +276,7 @@ struct Value {
 
     return *this;
   }
-  enum class Type : uint8_t { Null, Bool, Int64, Double, String, List, Map, Vertex, Edge, Path };
+  enum class Type : uint8_t { Null, Bool, Int64, Double, String, List, Map, Vertex, Edge };
   Type type{Type::Null};
   union {
     Null null_v;
@@ -312,7 +288,6 @@ struct Value {
     std::map<std::string, Value> map_v;
     Vertex vertex_v;
     Edge edge_v;
-    Path path_v;
   };
 
   friend bool operator==(const Value &lhs, const Value &rhs) {
@@ -338,25 +313,9 @@ struct Value {
         return lhs.vertex_v == rhs.vertex_v;
       case Value::Type::Edge:
         return lhs.edge_v == rhs.edge_v;
-      case Value::Type::Path:
-        return true;
     }
   }
 };
-
-struct ValuesMap {
-  std::unordered_map<PropertyId, Value> values_map;
-};
-
-struct MappedValues {
-  std::vector<ValuesMap> values_map;
-};
-
-struct ListedValues {
-  std::vector<std::vector<Value>> properties;
-};
-
-using Values = std::variant<ListedValues, MappedValues>;
 
 struct Expression {
   std::string expression;
@@ -377,17 +336,28 @@ enum class StorageView { OLD = 0, NEW = 1 };
 
 struct ScanVerticesRequest {
   Hlc transaction_id;
+  // This should be optional
   VertexId start_id;
+  //  The empty optional means return all of the properties, while an empty list means do not return any properties
   std::optional<std::vector<PropertyId>> props_to_return;
-  std::optional<std::vector<std::string>> filter_expressions;
+  // expression that determines if vertex is returned or not
+  std::vector<std::string> filter_expressions;
+  // expression whose result is returned for every vertex
+  std::vector<std::string> vertex_expressions;
   std::optional<size_t> batch_limit;
+  std::vector<OrderBy> order_bys;
   StorageView storage_view{StorageView::NEW};
+
+  std::optional<Label> label;
+  std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
 };
 
 struct ScanResultRow {
   Vertex vertex;
   // empty() is no properties returned
+  // This should be changed to std::map<PropertyId, Value>
   std::vector<std::pair<PropertyId, Value>> props;
+  std::vector<Value> evaluated_vertex_expressions;
 };
 
 struct ScanVerticesResponse {
@@ -400,6 +370,7 @@ using VertexOrEdgeIds = std::variant<VertexId, EdgeId>;
 
 struct GetPropertiesRequest {
   Hlc transaction_id;
+  // Shouldn't contain mixed vertex and edge ids
   VertexOrEdgeIds vertex_or_edge_ids;
   std::vector<PropertyId> property_ids;
   std::vector<Expression> expressions;
@@ -411,44 +382,49 @@ struct GetPropertiesRequest {
 
 struct GetPropertiesResponse {
   bool success;
-  Values values;
 };
 
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
-struct VertexEdgeId {
-  VertexId vertex_id;
-  std::optional<EdgeId> next_id;
-};
-
 struct ExpandOneRequest {
+  // TODO(antaljanosbenjamin): Filtering based on the id of the other end of the edge?
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
+  // return types that type is in this list
+  // empty means all the types
   std::vector<EdgeType> edge_types;
-  EdgeDirection direction;
+  EdgeDirection direction{EdgeDirection::OUT};
+  // Wether to return multiple edges between the same neighbors
   bool only_unique_neighbor_rows = false;
-  //  The empty optional means return all of the properties, while an empty
-  //  list means do not return any properties
-  //  TODO(antaljanosbenjamin): All of the special values should be communicated through a single vertex object
-  //                            after schema is implemented
-  //  Special values are accepted:
-  //  * __mg__labels
+  //  The empty optional means return all of the properties, while an empty list means do not return any properties
   std::optional<std::vector<PropertyId>> src_vertex_properties;
-  //  TODO(antaljanosbenjamin): All of the special values should be communicated through a single vertex object
-  //                            after schema is implemented
-  //  Special values are accepted:
-  //  * __mg__dst_id (Vertex, but without labels)
-  //  * __mg__type (binary)
+  //  The empty optional means return all of the properties, while an empty list means do not return any properties
   std::optional<std::vector<PropertyId>> edge_properties;
-  //  QUESTION(antaljanosbenjamin): Maybe also add possibility to expressions evaluated on the source vertex?
-  //  List of expressions evaluated on edges
-  std::vector<Expression> expressions;
+
+  std::vector<std::string> vertex_expressions;
+  std::vector<std::string> edge_expressions;
+
   std::optional<std::vector<OrderBy>> order_by;
+  // Limit the edges or the vertices?
   std::optional<size_t> limit;
-  std::optional<Filter> filter;
+  std::vector<std::string> filters;
 };
 
 struct ExpandOneResultRow {
+  struct EdgeWithAllProperties {
+    VertexId other_end;
+    EdgeType type;
+    Gid gid;
+    std::map<PropertyId, Value> properties;
+  };
+
+  struct EdgeWithSpecificProperties {
+    VertexId other_end;
+    EdgeType type;
+    Gid gid;
+    std::vector<Value> properties;
+  };
+
   // NOTE: This struct could be a single Values with columns something like this:
   // src_vertex(Vertex), vertex_prop1(Value), vertex_prop2(Value), edges(list<Value>)
   // where edges might be a list of:
@@ -457,23 +433,27 @@ struct ExpandOneResultRow {
   // The drawback of this is currently the key of the map is always interpreted as a string in Value, not as an
   // integer, which should be in case of mapped properties.
   Vertex src_vertex;
-  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
+  std::map<PropertyId, Value> src_vertex_properties;
 
   // NOTE: If the desired edges are specified in the request,
   // edges_with_specific_properties will have a value and it will
   // return the properties as a vector of property values. The order
   // of the values returned should be the same as the PropertyIds
   // were defined in the request.
-  std::optional<std::vector<std::tuple<VertexId, Gid, std::map<PropertyId, Value>>>> edges_with_all_properties;
-  std::optional<std::vector<std::tuple<VertexId, Gid, std::vector<Value>>>> edges_with_specific_properties;
+  std::vector<EdgeWithAllProperties> in_edges_with_all_properties;
+  std::vector<EdgeWithSpecificProperties> in_edges_with_specific_properties;
+  std::vector<EdgeWithAllProperties> out_edges_with_all_properties;
+  std::vector<EdgeWithSpecificProperties> out_edges_with_specific_properties;
 };
 
 struct ExpandOneResponse {
+  bool success;
   std::vector<ExpandOneResultRow> result;
 };
 
 struct UpdateVertexProp {
   PrimaryKey primary_key;
+  // This should be a map
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
@@ -481,6 +461,7 @@ struct UpdateEdgeProp {
   EdgeId edge_id;
   VertexId src;
   VertexId dst;
+  // This should be a map
   std::vector<std::pair<PropertyId, Value>> property_updates;
 };
 
@@ -490,12 +471,7 @@ struct UpdateEdgeProp {
 struct NewVertex {
   std::vector<Label> label_ids;
   PrimaryKey primary_key;
-  std::vector<std::pair<PropertyId, Value>> properties;
-};
-
-struct NewVertexLabel {
-  std::string label;
-  PrimaryKey primary_key;
+  // This should be a map
   std::vector<std::pair<PropertyId, Value>> properties;
 };
 
@@ -531,12 +507,22 @@ struct UpdateVerticesResponse {
 /*
  * Edges
  */
-struct CreateEdgesRequest {
-  Hlc transaction_id;
-  std::vector<Edge> edges;
+// No need for specifying direction since it has to be in one, and src and dest
+// vertices clearly communicate the direction
+struct NewExpand {
+  EdgeId id;
+  EdgeType type;
+  VertexId src_vertex;
+  VertexId dest_vertex;
+  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
-struct CreateEdgesResponse {
+struct CreateExpandRequest {
+  Hlc transaction_id;
+  std::vector<NewExpand> new_expands;
+};
+
+struct CreateExpandResponse {
   bool success;
 };
 
@@ -571,8 +557,8 @@ using ReadRequests = std::variant<ExpandOneRequest, GetPropertiesRequest, ScanVe
 using ReadResponses = std::variant<ExpandOneResponse, GetPropertiesResponse, ScanVerticesResponse>;
 
 using WriteRequests = std::variant<CreateVerticesRequest, DeleteVerticesRequest, UpdateVerticesRequest,
-                                   CreateEdgesRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
+                                   CreateExpandRequest, DeleteEdgesRequest, UpdateEdgesRequest, CommitRequest>;
 using WriteResponses = std::variant<CreateVerticesResponse, DeleteVerticesResponse, UpdateVerticesResponse,
-                                    CreateEdgesResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
+                                    CreateExpandResponse, DeleteEdgesResponse, UpdateEdgesResponse, CommitResponse>;
 
 }  // namespace memgraph::msgs

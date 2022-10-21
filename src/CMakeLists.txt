@@ -37,13 +37,13 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 # Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
 set(mg_single_node_v2_sources
-    glue/communication.cpp
-    memgraph.cpp
-    glue/auth.cpp
+        glue/v2/communication.cpp
+        memgraph.cpp
+        glue/v2/auth.cpp
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-    telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings)
+    telemetry_lib mg-query-v2 mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-io mg-coordinator)
 if (MG_ENTERPRISE)
   # These are enterprise subsystems
   set(mg_single_node_v2_libs ${mg_single_node_v2_libs} mg-audit)
@@ -122,22 +122,6 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------
-# Memgraph CSV Import Tool Executable
-# ----------------------------------------------------------------------------
-
-add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg-storage-v2)
-
-# Strip the executable in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET mg_import_csv POST_BUILD
-                     COMMAND strip -s mg_import_csv
-                     COMMENT "Stripping symbols and sections from mg_import_csv")
-endif()
-
-install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
 
 # ----------------------------------------------------------------------------
 # Memgraph CSV Import Tool Executable
