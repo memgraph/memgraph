@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include <unordered_map>
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
+#include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
@@ -802,18 +804,18 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   uint64_t sample_counter{0};
   auto vertex_iterable = acc.Vertices(view);
   if (!req.order_bys.empty()) {
-    const auto ordered = OrderByElements(acc, dba, vertex_iterable, req.order_bys);
+    const auto ordered = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_bys);
     // we are traversing Elements
     auto it = GetStartOrderedElementsIterator(ordered, start_id, View(req.storage_view));
     for (; it != ordered.end(); ++it) {
-      emplace_scan_result(it->vertex_acc);
+      emplace_scan_result(it->object_acc);
       ++sample_counter;
       if (req.batch_limit && sample_counter == req.batch_limit) {
         // Reached the maximum specified batch size.
         // Get the next element before exiting.
         ++it;
         if (it != ordered.end()) {
-          const auto &next_vertex = it->vertex_acc;
+          const auto &next_vertex = it->object_acc;
           next_start_id = ConstructValueVertex(next_vertex, view).vertex_v.id;
         }
 
@@ -854,36 +856,97 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   bool action_successful = true;
 
   std::vector<msgs::ExpandOneResultRow> results;
+  auto batch_limit = req.limit;
+  auto dba = DbAccessor{&acc};
 
   auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
   auto edge_filler = InitializeEdgeFillerFunction(req);
 
-  for (auto &src_vertex : req.src_vertices) {
-    // Get Vertex acc
-    auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
-    if (!src_vertex_acc_opt) {
-      action_successful = false;
-      spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
-                    req.transaction_id.logical_id);
-      break;
-    }
+  //#NoCommit code below is duplicated, one needs to factor it once it's clear
+  if (req.order_by) {
+    auto vertex_iterable = acc.Vertices(View::OLD);
+    const auto ordered_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_by);
+    std::vector<std::pair<VertexAccessor, std::vector<Element<EdgeAccessor>>>> vertex_ordered_edges;
+    vertex_ordered_edges.reserve(req.src_vertices.size());
 
-    if (!req.filters.empty()) {
-      // NOTE - DbAccessor might get removed in the future.
-      auto dba = DbAccessor{&acc};
-      const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
-      if (!eval) {
-        continue;
+    for (auto &src_vertex : req.src_vertices) {
+      // Get Vertex acc
+      auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
+      if (!src_vertex_acc_opt) {
+        action_successful = false;
+        spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
+                      req.transaction_id.logical_id);
+        break;
+      }
+
+      if (!req.filters.empty()) {
+        // NOTE - DbAccessor might get removed in the future.
+        auto dba = DbAccessor{&acc};
+        const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
+        if (!eval) {
+          continue;
+        }
+      }
+      auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
+
+      if (!result) {
+        action_successful = false;
+        break;
+      }
+
+      results.emplace_back(result.value());
+      if (batch_limit) {  // #NoCommit can ebd one differently
+        --*batch_limit;
+        if (batch_limit < 0) {
+          break;
+        }
       }
     }
-    auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
+    // Now we have to construct response like this, and here we will care about
+    // limit:
+    // v1 e1
+    // v1 e2
+    // v1 e3
+    // v2 e4
+    // v2 e5
+    // v2 e6
+    // v2 e7
+    // v3 e8
+    // v3 e9
+  } else {
+    for (auto &src_vertex : req.src_vertices) {
+      // Get Vertex acc
+      auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
+      if (!src_vertex_acc_opt) {
+        action_successful = false;
+        spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
+                      req.transaction_id.logical_id);
+        break;
+      }
 
-    if (!result) {
-      action_successful = false;
-      break;
+      if (!req.filters.empty()) {
+        // NOTE - DbAccessor might get removed in the future.
+        auto dba = DbAccessor{&acc};
+        const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
+        if (!eval) {
+          continue;
+        }
+      }
+      auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
+
+      if (!result) {
+        action_successful = false;
+        break;
+      }
+
+      results.emplace_back(result.value());
+      if (batch_limit) {  // #NoCommit can ebd one differently
+        --*batch_limit;
+        if (batch_limit < 0) {
+          break;
+        }
+      }
     }
-
-    results.emplace_back(result.value());
   }
 
   msgs::ExpandOneResponse resp{};
