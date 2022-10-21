@@ -400,13 +400,14 @@ struct ExpandOneRequest {
   std::optional<std::vector<PropertyId>> src_vertex_properties;
   //  The empty optional means return all of the properties, while an empty list means do not return any properties
   std::optional<std::vector<PropertyId>> edge_properties;
-  //  QUESTION(antaljanosbenjamin): Maybe also add possibility to expressions evaluated on the source vertex?
-  //  List of expressions evaluated on edges
-  std::vector<Expression> expressions;
+
+  std::vector<std::string> vertex_expressions;
+  std::vector<std::string> edge_expressions;
+
   std::optional<std::vector<OrderBy>> order_by;
   // Limit the edges or the vertices?
   std::optional<size_t> limit;
-  std::optional<Filter> filter;
+  std::vector<std::string> filters;
 };
 
 struct ExpandOneResultRow {
