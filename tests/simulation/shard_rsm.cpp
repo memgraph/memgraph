@@ -949,7 +949,6 @@ void TestScanAllOneGo(ShardClient &client) {
   auto [result_size_2, next_id_2] = AttemptToScanAllWithExpression(client, v_id, 5, unique_prop_val_2);
   MG_ASSERT(result_size_2 == 1);
 
-  // AttemptToScanAllWithOrderByOnPrimaryProperty(client, v_id, 5);
   AttemptToScanAllWithOrderByOnSecondaryProperty(client, v_id, 5);
 
   auto [result_size_with_batch, next_id_with_batch] = AttemptToScanAllWithBatchLimit(client, v_id, 5);
