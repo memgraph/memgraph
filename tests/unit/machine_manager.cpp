@@ -33,6 +33,10 @@
 
 namespace memgraph::io::tests {
 
+static const std::string kLabelName{"test_label"};
+static const std::string kProperty1{"property_1"};
+static const std::string kProperty2{"property_2"};
+
 using memgraph::coordinator::Coordinator;
 using memgraph::coordinator::CoordinatorClient;
 using memgraph::coordinator::CoordinatorReadRequests;
@@ -63,13 +67,11 @@ using ShardClient = RsmClient<LocalTransport, WriteRequests, WriteResponses, Rea
 ShardMap TestShardMap() {
   ShardMap sm{};
 
-  const std::string label_name = std::string("test_label");
-
   // register new properties
-  const std::vector<std::string> property_names = {"property_1", "property_2"};
+  const std::vector<std::string> property_names = {kProperty1, kProperty2};
   const auto properties = sm.AllocatePropertyIds(property_names);
-  const auto property_id_1 = properties.at("property_1");
-  const auto property_id_2 = properties.at("property_2");
+  const auto property_id_1 = properties.at(kProperty1);
+  const auto property_id_2 = properties.at(kProperty2);
   const auto type_1 = memgraph::common::SchemaType::INT;
   const auto type_2 = memgraph::common::SchemaType::INT;
 
@@ -81,9 +83,10 @@ ShardMap TestShardMap() {
 
   const size_t replication_factor = 1;
 
-  std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
-  MG_ASSERT(label_id);
+  const auto label_id = sm.InitializeNewLabel(kLabelName, schema, replication_factor, sm.shard_map_version);
+  EXPECT_TRUE(label_id.has_value());
 
+  sm.AllocateEdgeTypeIds(std::vector<std::string>{"edge_type"});
   // split the shard at N split points
   // NB: this is the logic that should be provided by the "split file"
   // TODO(tyler) split points should account for signedness
@@ -98,9 +101,9 @@ ShardMap TestShardMap() {
 
     const CompoundKey split_point = {key1, key2};
 
-    const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
+    const auto split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
 
-    MG_ASSERT(split_success);
+    EXPECT_TRUE(split_success);
   }
 
   return sm;
@@ -108,18 +111,17 @@ ShardMap TestShardMap() {
 
 template <typename ShardRequestManager>
 void TestScanAll(ShardRequestManager &shard_request_manager) {
-  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = "test_label"};
+  msgs::ExecutionState<msgs::ScanVerticesRequest> state{.label = kLabelName};
 
   auto result = shard_request_manager.Request(state);
-  MG_ASSERT(result.size() == 2, "{}", result.size());
+  EXPECT_EQ(result.size(), 2);
 }
 
-template <typename ShardRequestManager>
-void TestCreateVertices(ShardRequestManager &shard_request_manager) {
+void TestCreateVertices(msgs::ShardRequestManagerInterface &shard_request_manager) {
   using PropVal = msgs::Value;
   msgs::ExecutionState<msgs::CreateVerticesRequest> state;
   std::vector<msgs::NewVertex> new_vertices;
-  auto label_id = shard_request_manager.LabelNameToLabelId("test_label");
+  auto label_id = shard_request_manager.NameToLabel(kLabelName);
   msgs::NewVertex a1{.primary_key = {PropVal(int64_t(0)), PropVal(int64_t(0))}};
   a1.label_ids.push_back({label_id});
   msgs::NewVertex a2{.primary_key = {PropVal(int64_t(13)), PropVal(int64_t(13))}};
@@ -128,11 +130,43 @@ void TestCreateVertices(ShardRequestManager &shard_request_manager) {
   new_vertices.push_back(std::move(a2));
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
-  MG_ASSERT(result.size() == 1);
+  EXPECT_EQ(result.size(), 1);
 }
 
-template <typename ShardRequestManager>
-void TestExpand(ShardRequestManager &shard_request_manager) {}
+void TestCreateExpand(msgs::ShardRequestManagerInterface &shard_request_manager) {
+  using PropVal = msgs::Value;
+  msgs::ExecutionState<msgs::CreateExpandRequest> state;
+  std::vector<msgs::NewExpand> new_expands;
+
+  const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
+  const auto label = msgs::Label{shard_request_manager.NameToLabel("test_label")};
+  const msgs::VertexId vertex_id_1{label, {PropVal(int64_t(0)), PropVal(int64_t(0))}};
+  const msgs::VertexId vertex_id_2{label, {PropVal(int64_t(13)), PropVal(int64_t(13))}};
+  msgs::NewExpand expand_1{
+      .id = {.gid = 0}, .type = {edge_type_id}, .src_vertex = vertex_id_1, .dest_vertex = vertex_id_2};
+  msgs::NewExpand expand_2{
+      .id = {.gid = 1}, .type = {edge_type_id}, .src_vertex = vertex_id_2, .dest_vertex = vertex_id_1};
+  new_expands.push_back(std::move(expand_1));
+  new_expands.push_back(std::move(expand_2));
+
+  auto responses = shard_request_manager.Request(state, std::move(new_expands));
+  MG_ASSERT(responses.size() == 1);
+  MG_ASSERT(responses[0].success);
+}
+
+void TestExpandOne(msgs::ShardRequestManagerInterface &shard_request_manager) {
+  msgs::ExecutionState<msgs::ExpandOneRequest> state{};
+  msgs::ExpandOneRequest request;
+  const auto edge_type_id = shard_request_manager.NameToEdgeType("edge_type");
+  const auto label = msgs::Label{shard_request_manager.NameToLabel("test_label")};
+  request.src_vertices.push_back(msgs::VertexId{label, {msgs::Value(int64_t(0)), msgs::Value(int64_t(0))}});
+  request.edge_types.push_back(msgs::EdgeType{edge_type_id});
+  request.direction = msgs::EdgeDirection::BOTH;
+  auto result_rows = shard_request_manager.Request(state, std::move(request));
+  MG_ASSERT(result_rows.size() == 1);
+  MG_ASSERT(result_rows[0].in_edges_with_all_properties.size() == 1);
+  MG_ASSERT(result_rows[0].out_edges_with_all_properties.size() == 1);
+}
 
 template <typename ShardRequestManager>
 void TestAggregate(ShardRequestManager &shard_request_manager) {}
@@ -196,6 +230,8 @@ TEST(MachineManager, BasicFunctionality) {
   shard_request_manager.StartTransaction();
   TestCreateVertices(shard_request_manager);
   TestScanAll(shard_request_manager);
+  TestCreateExpand(shard_request_manager);
+  TestExpandOne(shard_request_manager);
   local_system.ShutDown();
 };
 

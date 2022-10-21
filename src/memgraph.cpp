@@ -646,11 +646,15 @@ int main(int argc, char **argv) {
 
   memgraph::coordinator::ShardMap sm;
   if (FLAGS_split_file.empty()) {
-    auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{"property"});
-    auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"edge_type"});
+    const std::string property{"property"};
+    const std::string label{"label"};
+    auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{property});
+    auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"TO"});
     std::vector<memgraph::storage::v3::SchemaProperty> schema{
-        {prop_map.at("property"), memgraph::common::SchemaType::INT}};
-    sm.InitializeNewLabel("label", schema, 1, sm.shard_map_version);
+        {prop_map.at(property), memgraph::common::SchemaType::INT}};
+    sm.InitializeNewLabel(label, schema, 1, sm.shard_map_version);
+    sm.SplitShard(sm.GetHlc(), *sm.GetLabelId(label),
+                  std::vector<memgraph::storage::v3::PropertyValue>{memgraph::storage::v3::PropertyValue{2}});
   } else {
     std::ifstream input{FLAGS_split_file, std::ios::in};
     MG_ASSERT(input.is_open(), "Cannot open split file to read: {}", FLAGS_split_file);
@@ -701,7 +705,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
 
   // Handler for regular termination signals
-  auto shutdown = [&server, &interpreter_context] {
+  auto shutdown = [&server, &interpreter_context, &ls] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -709,6 +713,7 @@ int main(int argc, char **argv) {
     // connections we tell the execution engine to stop processing all pending
     // queries.
     memgraph::query::v2::Shutdown(&interpreter_context);
+    ls.ShutDown();
   };
 
   InitSignalHandlers(shutdown);

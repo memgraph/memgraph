@@ -31,12 +31,9 @@ class VertexCountCache {
  public:
   explicit VertexCountCache(TDbAccessor *shard_request_manager) : shard_request_manager_{shard_request_manager} {}
 
-  auto NameToLabel(const std::string &name) { return shard_request_manager_->LabelNameToLabelId(name); }
+  auto NameToLabel(const std::string &name) { return shard_request_manager_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return shard_request_manager_->NameToProperty(name); }
-  auto NameToEdgeType(const std::string & /*name*/) {
-    MG_ASSERT(false, "NameToEdgeType");
-    return storage::v3::EdgeTypeId::FromInt(0);
-  }
+  auto NameToEdgeType(const std::string &name) { return shard_request_manager_->NameToEdgeType(name); }
 
   int64_t VerticesCount() { return 1; }
 

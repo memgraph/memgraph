@@ -54,6 +54,9 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
+    return lhs.address == rhs.address;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
@@ -113,7 +116,7 @@ struct ShardMap {
 
   void AddServer(Address server_address);
 
-  LabelId GetLabelId(const std::string &label) const;
+  std::optional<LabelId> GetLabelId(const std::string &label) const;
   // TODO(antaljanosbenjamin): Remove this and instead use NameIdMapper
   std::string GetLabelName(LabelId label) const;
   std::optional<PropertyId> GetPropertyId(const std::string &property_name) const;

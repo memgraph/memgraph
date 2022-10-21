@@ -183,15 +183,22 @@ class DistributedCreateNodeCursor : public Cursor {
     std::vector<msgs::NewVertex> requests;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
+      MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
+      const auto primary_label = node_info->labels[0];
+      // TODO(jbajic) Fix properties not send,
+      // suggestion: ignore distinction between properties and primary keys
+      // since schema validation is done on storage side
       std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-          properties[key] = TypedValueToValue(val);
-          if (context.shard_request_manager->IsPrimaryKey(key)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(val));
+
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
+            rqst.primary_key.push_back(TypedValueToValue(val));
+          } else {
+            properties[key] = TypedValueToValue(val);
           }
         }
       } else {
@@ -199,9 +206,10 @@ class DistributedCreateNodeCursor : public Cursor {
         for (const auto &[key, value] : property_map) {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
-          properties[property_id] = TypedValueToValue(value);
-          if (context.shard_request_manager->IsPrimaryKey(property_id)) {
+          if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
             rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
+          } else {
+            properties[property_id] = TypedValueToValue(value);
           }
         }
       }
@@ -210,7 +218,7 @@ class DistributedCreateNodeCursor : public Cursor {
         throw QueryRuntimeException("Primary label must be defined!");
       }
       // TODO(kostasrim) Copy non primary labels as well
-      rqst.label_ids.push_back(msgs::Label{node_info->labels[0]});
+      rqst.label_ids.push_back(msgs::Label{.id = primary_label});
       requests.push_back(std::move(rqst));
     }
     return requests;
@@ -280,10 +288,12 @@ CreateExpand::CreateExpand(const NodeCreationInfo &node_info, const EdgeCreation
 
 ACCEPT_WITH_INPUT(CreateExpand)
 
+class DistributedCreateExpandCursor;
+
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::CreateNodeOperator);
 
-  return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedCreateExpandCursor>(mem, input_, mem, *this);
 }
 
 std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) const {
@@ -389,25 +399,7 @@ class DistributedScanAllAndFilterCursor : public Cursor {
     current_batch.clear();
     current_vertex_it = current_batch.end();
     request_state_ = msgs::ExecutionState<msgs::ScanVerticesRequest>{};
-
-    auto request = msgs::ScanVerticesRequest{};
-    if (label_.has_value()) {
-      request.label = msgs::Label{.id = label_.value()};
-    }
-    if (property_expression_pair_.has_value()) {
-      request.property_expression_pair = std::make_pair(
-          property_expression_pair_.value().first,
-          expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(property_expression_pair_.value().second));
-    }
-    if (filter_expressions_.has_value()) {
-      auto res = std::vector<std::string>{};
-      res.reserve(filter_expressions_->size());
-      std::transform(filter_expressions_->begin(), filter_expressions_->end(), std::back_inserter(res),
-                     [](auto &filter) { return expr::ExpressiontoStringWhileReplacingNodeAndEdgeSymbols(filter); });
-
-      request.filter_expressions = res;
-    }
-    request_state_.requests.emplace_back(request);
+    request_state_.label = "label";
   }
 
   void Reset() override {
@@ -431,6 +423,8 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_sy
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(output_symbol), view_(view) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
+
+class DistributedScanAllCursor;
 
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ScanAllOperator);
@@ -570,10 +564,12 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbo
 
 ACCEPT_WITH_INPUT(Expand)
 
+class DistributedExpandCursor;
+
 UniqueCursorPtr Expand::MakeCursor(utils::MemoryResource *mem) const {
   EventCounter::IncrementCounter(EventCounter::ExpandOperator);
 
-  return MakeUniqueCursorPtr<ExpandCursor>(mem, *this, mem);
+  return MakeUniqueCursorPtr<DistributedExpandCursor>(mem, *this, mem);
 }
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
@@ -2355,5 +2351,256 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   }
   return visitor.PostVisit(*this);
 }
+
+class DistributedCreateExpandCursor : public Cursor {
+ public:
+  using InputOperator = std::shared_ptr<memgraph::query::v2::plan::LogicalOperator>;
+  DistributedCreateExpandCursor(const InputOperator &op, utils::MemoryResource *mem, const CreateExpand &self)
+      : input_cursor_{op->MakeCursor(mem)}, self_{self} {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("CreateExpand");
+    if (!input_cursor_->Pull(frame, context)) {
+      return false;
+    }
+    auto &shard_manager = context.shard_request_manager;
+    ResetExecutionState();
+    shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetExecutionState();
+  }
+
+  // Get the existing node other vertex
+  accessors::VertexAccessor &OtherVertex(Frame &frame) const {
+    // This assumes that vertex exists
+    MG_ASSERT(self_.existing_node_, "Vertex creating with edge not supported!");
+    TypedValue &dest_node_value = frame[self_.node_info_.symbol];
+    ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
+    return dest_node_value.ValueVertex();
+  }
+
+  std::vector<msgs::NewExpand> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+    std::vector<msgs::NewExpand> edge_requests;
+    for (const auto &edge_info : std::vector{self_.edge_info_}) {
+      msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
+                                    storage::v3::View::NEW);
+      request.type = {edge_info.edge_type};
+      if (const auto *edge_info_properties = std::get_if<PropertiesMapList>(&edge_info.properties)) {
+        for (const auto &[property, value_expression] : *edge_info_properties) {
+          TypedValue val = value_expression->Accept(evaluator);
+          request.properties.emplace_back(property, storage::v3::TypedValueToValue(val));
+        }
+      } else {
+        // handle parameter
+        auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(edge_info.properties)).ValueMap();
+        for (const auto &[property, value] : property_map) {
+          const auto property_id = context.shard_request_manager->NameToProperty(std::string(property));
+          request.properties.emplace_back(property_id, storage::v3::TypedValueToValue(value));
+        }
+      }
+      // src, dest
+      TypedValue &v1_value = frame[self_.input_symbol_];
+      const auto &v1 = v1_value.ValueVertex();
+      const auto &v2 = OtherVertex(frame);
+
+      // Set src and dest vertices
+      // TODO(jbajic) Currently we are only handling scenario where vertices
+      // are matched
+      const auto set_vertex = [&context](const auto &vertex, auto &vertex_id) {
+        vertex_id.first = vertex.PrimaryLabel();
+        for (const auto &[key, val] : vertex.Properties()) {
+          if (context.shard_request_manager->IsPrimaryKey(vertex_id.first.id, key)) {
+            vertex_id.second.push_back(val);
+          }
+        }
+      };
+      std::invoke([&]() {
+        switch (edge_info.direction) {
+          case EdgeAtom::Direction::IN: {
+            set_vertex(v1, request.src_vertex);
+            set_vertex(v2, request.dest_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::OUT: {
+            set_vertex(v1, request.dest_vertex);
+            set_vertex(v2, request.src_vertex);
+            break;
+          }
+          case EdgeAtom::Direction::BOTH:
+            LOG_FATAL("Must indicate exact expansion direction here");
+        }
+      });
+
+      edge_requests.push_back(std::move(request));
+    }
+    return edge_requests;
+  }
+
+ private:
+  void ResetExecutionState() { state_ = {}; }
+
+  const UniqueCursorPtr input_cursor_;
+  const CreateExpand &self_;
+  msgs::ExecutionState<msgs::CreateExpandRequest> state_;
+};
+
+class DistributedExpandCursor : public Cursor {
+ public:
+  explicit DistributedExpandCursor(const Expand &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        current_in_edge_it_(current_in_edges_.begin()),
+        current_out_edge_it_(current_out_edges_.begin()) {
+    if (self_.common_.existing_node) {
+      throw QueryRuntimeException("Cannot use existing node with DistributedExpandOne cursor!");
+    }
+  }
+
+  using VertexAccessor = accessors::VertexAccessor;
+  using EdgeAccessor = accessors::EdgeAccessor;
+
+  bool InitEdges(Frame &frame, ExecutionContext &context) {
+    // Input Vertex could be null if it is created by a failed optional match. In
+    // those cases we skip that input pull and continue with the next.
+
+    while (true) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      TypedValue &vertex_value = frame[self_.input_symbol_];
+
+      // Null check due to possible failed optional match.
+      if (vertex_value.IsNull()) continue;
+
+      ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.ValueVertex();
+      static constexpr auto direction_to_msgs_direction = [](const EdgeAtom::Direction direction) {
+        switch (direction) {
+          case EdgeAtom::Direction::IN:
+            return msgs::EdgeDirection::IN;
+          case EdgeAtom::Direction::OUT:
+            return msgs::EdgeDirection::OUT;
+          case EdgeAtom::Direction::BOTH:
+            return msgs::EdgeDirection::BOTH;
+        }
+      };
+
+      msgs::ExpandOneRequest request;
+      request.direction = direction_to_msgs_direction(self_.common_.direction);
+      // to not fetch any properties of the edges
+      request.edge_properties.emplace();
+      request.src_vertices.push_back(vertex.Id());
+      msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+      auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+      MG_ASSERT(result_rows.size() == 1);
+      auto &result_row = result_rows.front();
+
+      const auto convert_edges = [&vertex](
+                                     std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
+                                     const EdgeAtom::Direction direction) {
+        std::vector<EdgeAccessor> edge_accessors;
+        edge_accessors.reserve(edge_messages.size());
+        switch (direction) {
+          case EdgeAtom::Direction::IN: {
+            for (auto &edge : edge_messages) {
+              edge_accessors.emplace_back(
+                  msgs::Edge{std::move(edge.other_end), vertex.Id(), {}, {edge.gid}, edge.type});
+            }
+            break;
+          }
+          case EdgeAtom::Direction::OUT: {
+            for (auto &edge : edge_messages) {
+              edge_accessors.emplace_back(
+                  msgs::Edge{vertex.Id(), std::move(edge.other_end), {}, {edge.gid}, edge.type});
+            }
+            break;
+          }
+          case EdgeAtom::Direction::BOTH: {
+            LOG_FATAL("Must indicate exact expansion direction here");
+          }
+        }
+        return edge_accessors;
+      };
+      current_in_edges_ =
+          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::IN);
+      current_in_edge_it_ = current_in_edges_.begin();
+      current_in_edges_ =
+          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::OUT);
+      current_in_edge_it_ = current_in_edges_.begin();
+      return true;
+    }
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    SCOPED_PROFILE_OP("DistributedExpand");
+    // A helper function for expanding a node from an edge.
+    auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+      if (self_.common_.existing_node) return;
+      switch (direction) {
+        case EdgeAtom::Direction::IN:
+          frame[self_.common_.node_symbol] = new_edge.From();
+          break;
+        case EdgeAtom::Direction::OUT:
+          frame[self_.common_.node_symbol] = new_edge.To();
+          break;
+        case EdgeAtom::Direction::BOTH:
+          LOG_FATAL("Must indicate exact expansion direction here");
+      }
+    };
+
+    while (true) {
+      if (MustAbort(context)) throw HintedAbortError();
+      // attempt to get a value from the incoming edges
+      if (current_in_edge_it_ != current_in_edges_.end()) {
+        auto &edge = *current_in_edge_it_;
+        ++current_in_edge_it_;
+        frame[self_.common_.edge_symbol] = edge;
+        pull_node(edge, EdgeAtom::Direction::IN);
+        return true;
+      }
+
+      // attempt to get a value from the outgoing edges
+      if (current_out_edge_it_ != current_out_edges_.end()) {
+        auto &edge = *current_out_edge_it_;
+        ++current_out_edge_it_;
+        if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) {
+          continue;
+        };
+        frame[self_.common_.edge_symbol] = edge;
+        pull_node(edge, EdgeAtom::Direction::OUT);
+        return true;
+      }
+
+      // If we are here, either the edges have not been initialized,
+      // or they have been exhausted. Attempt to initialize the edges.
+      if (!InitEdges(frame, context)) return false;
+
+      // we have re-initialized the edges, continue with the loop
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    current_in_edges_.clear();
+    current_out_edges_.clear();
+    current_in_edge_it_ = current_in_edges_.end();
+    current_out_edge_it_ = current_out_edges_.end();
+  }
+
+ private:
+  const Expand &self_;
+  const UniqueCursorPtr input_cursor_;
+  std::vector<EdgeAccessor> current_in_edges_;
+  std::vector<EdgeAccessor> current_out_edges_;
+  std::vector<EdgeAccessor>::iterator current_in_edge_it_;
+  std::vector<EdgeAccessor>::iterator current_out_edge_it_;
+};
 
 }  // namespace memgraph::query::v2::plan

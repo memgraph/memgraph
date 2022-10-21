@@ -29,6 +29,7 @@ struct SchemaViolation {
     VERTEX_UPDATE_PRIMARY_KEY,
     VERTEX_UPDATE_PRIMARY_LABEL,
     VERTEX_SECONDARY_LABEL_IS_PRIMARY,
+    VERTEX_PRIMARY_PROPERTIES_UNDEFINED,
   };
 
   SchemaViolation(ValidationStatus status, LabelId label);
@@ -50,14 +51,20 @@ class SchemaValidator {
  public:
   explicit SchemaValidator(Schemas &schemas);
 
-  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(
+  [[deprecated]] std::optional<SchemaViolation> ValidateVertexCreate(
       LabelId primary_label, const std::vector<LabelId> &labels,
       const std::vector<std::pair<PropertyId, PropertyValue>> &properties) const;
+
+  [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(
+      LabelId primary_label, const std::vector<LabelId> &labels,
+      const std::vector<PropertyValue> &primary_properties) const;
 
   [[nodiscard]] std::optional<SchemaViolation> ValidatePropertyUpdate(LabelId primary_label,
                                                                       PropertyId property_id) const;
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateLabelUpdate(LabelId label) const;
+
+  const Schemas::Schema *GetSchema(LabelId label) const;
 
  private:
   Schemas &schemas_;

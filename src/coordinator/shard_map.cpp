@@ -212,7 +212,12 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
   bool mutated = false;
 
   for (auto &[label_id, label_space] : label_spaces) {
-    for (auto &[low_key, shard] : label_space.shards) {
+    for (auto it = label_space.shards.begin(); it != label_space.shards.end(); it++) {
+      auto &[low_key, shard] = *it;
+      std::optional<PrimaryKey> high_key;
+      if (const auto next_it = std::next(it); next_it != label_space.shards.end()) {
+        high_key = next_it->first;
+      }
       // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
       bool machine_contains_shard = false;
 
@@ -230,7 +235,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
                 .uuid = aas.address.unique_id,
                 .label_id = label_id,
                 .min_key = low_key,
-                .max_key = std::nullopt,
+                .max_key = high_key,
                 .schema = schemas[label_id],
                 .config = Config{},
             });
@@ -247,7 +252,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
         ret.push_back(ShardToInitialize{.uuid = address.unique_id,
                                         .label_id = label_id,
                                         .min_key = low_key,
-                                        .max_key = std::nullopt,
+                                        .max_key = high_key,
                                         .schema = schemas[label_id],
                                         .config = Config{}});
 
@@ -326,11 +331,15 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
 void ShardMap::AddServer(Address server_address) {
   // Find a random place for the server to plug in
 }
+std::optional<LabelId> ShardMap::GetLabelId(const std::string &label) const {
+  if (const auto it = labels.find(label); it != labels.end()) {
+    return it->second;
+  }
 
-LabelId ShardMap::GetLabelId(const std::string &label) const { return labels.at(label); }
+  return std::nullopt;
+}
 
 std::string ShardMap::GetLabelName(const LabelId label) const {
-  // TODO(antaljanosbejnamin): Use
   if (const auto it =
           std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
       it != labels.end()) {
@@ -340,8 +349,8 @@ std::string ShardMap::GetLabelName(const LabelId label) const {
 }
 
 std::optional<PropertyId> ShardMap::GetPropertyId(const std::string &property_name) const {
-  if (properties.contains(property_name)) {
-    return properties.at(property_name);
+  if (const auto it = properties.find(property_name); it != properties.end()) {
+    return it->second;
   }
 
   return std::nullopt;
@@ -357,8 +366,8 @@ std::string ShardMap::GetPropertyName(const PropertyId property) const {
 }
 
 std::optional<EdgeTypeId> ShardMap::GetEdgeTypeId(const std::string &edge_type) const {
-  if (edge_types.contains(edge_type)) {
-    return edge_types.at(edge_type);
+  if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
+    return it->second;
   }
 
   return std::nullopt;
@@ -372,7 +381,6 @@ std::string ShardMap::GetEdgeTypeName(const EdgeTypeId property) const {
   }
   throw utils::BasicException("EdgeTypeId not found!");
 }
-
 Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key,
                                    const PrimaryKey &end_key) const {
   MG_ASSERT(start_key <= end_key);
