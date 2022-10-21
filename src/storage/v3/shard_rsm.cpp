@@ -63,10 +63,10 @@ using SpecificEdgeProperties = std::tuple<msgs::VertexId, msgs::Gid, SpecificEdg
 using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 
-using EdgeAccessors = std::vector<memgraph::storage::v3::EdgeAccessor>;
+using EdgeAccessors = std::vector<storage::v3::EdgeAccessor>;
 
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
-using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, memgraph::msgs::EdgeDirection)>;
+using EdgeUniqunessFunction = std::function<EdgeAccessors(EdgeAccessors &&, msgs::EdgeDirection)>;
 
 struct VertexIdCmpr {
   bool operator()(const storage::v3::VertexId *lhs, const storage::v3::VertexId *rhs) const { return *lhs < *rhs; }
@@ -145,8 +145,8 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
   return ret;
 }
 
-bool FilterOnVertex(DbAccessor &dba, const memgraph::storage::v3::VertexAccessor &v_acc,
-                    const std::vector<std::string> &filters, const std::string_view node_name) {
+bool FilterOnVertex(DbAccessor &dba, const storage::v3::VertexAccessor &v_acc, const std::vector<std::string> &filters,
+                    const std::string_view node_name) {
   return std::ranges::all_of(filters, [&node_name, &dba, &v_acc](const auto &filter_expr) {
     auto res = ComputeExpression(dba, v_acc, std::nullopt, filter_expr, node_name, "");
     return res.IsBool() && res.ValueBool();
@@ -294,9 +294,8 @@ using SpecificEdgePropertiesVector = std::vector<SpecificEdgeProperties>;
 using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 
 template <typename ReturnType, typename EdgeProperties, typename EdgePropertyDataStructure, typename Functor>
-std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::storage::v3::EdgeAccessor> &edges,
-                                                 const memgraph::msgs::ExpandOneRequest &req,
-                                                 Functor get_edge_properties) {
+std::optional<ReturnType> GetEdgesWithProperties(const std::vector<storage::v3::EdgeAccessor> &edges,
+                                                 const msgs::ExpandOneRequest &req, Functor get_edge_properties) {
   ReturnType ret;
   ret.reserve(edges.size());
 
@@ -307,9 +306,9 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
 
     EdgeProperties ret_tuple;
 
-    memgraph::msgs::Label label;
+    msgs::Label label;
     label.id = edge.FromVertex().primary_label;
-    memgraph::msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
+    msgs::VertexId other_vertex = std::make_pair(label, ConvertValueVector(edge.FromVertex().primary_key));
 
     const auto edge_props_var = get_edge_properties(edge);
 
@@ -318,7 +317,7 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
     }
 
     auto edge_props = std::get<EdgePropertyDataStructure>(edge_props_var);
-    memgraph::msgs::Gid gid = edge.Gid().AsUint();
+    msgs::Gid gid = edge.Gid().AsUint();
 
     ret.emplace_back(EdgeProperties{other_vertex, gid, edge_props});
   }
@@ -329,17 +328,17 @@ std::optional<ReturnType> GetEdgesWithProperties(const std::vector<memgraph::sto
 template <typename TPropertyValue, typename TPropertyNullopt>
 void SetFinalEdgeProperties(std::optional<TPropertyValue> &properties_to_value,
                             std::optional<TPropertyNullopt> &properties_to_nullopt, const TPropertyValue &ret_out,
-                            const TPropertyValue &ret_in, const memgraph::msgs::ExpandOneRequest &req) {
+                            const TPropertyValue &ret_in, const msgs::ExpandOneRequest &req) {
   switch (req.direction) {
-    case memgraph::msgs::EdgeDirection::OUT: {
+    case msgs::EdgeDirection::OUT: {
       properties_to_value = std::move(ret_out);
       break;
     }
-    case memgraph::msgs::EdgeDirection::IN: {
+    case msgs::EdgeDirection::IN: {
       properties_to_value = std::move(ret_in);
       break;
     }
-    case memgraph::msgs::EdgeDirection::BOTH: {
+    case msgs::EdgeDirection::BOTH: {
       TPropertyValue ret;
       ret.resize(ret_out.size() + ret_in.size());
       ret.insert(ret.end(), std::make_move_iterator(ret_in.begin()), std::make_move_iterator(ret_in.end()));
@@ -417,30 +416,28 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
 
   if (only_unique_neighbor_rows) {
     maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
-                                              memgraph::msgs::EdgeDirection edge_direction) -> EdgeAccessors {
-      std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &,
-                         const memgraph::storage::v3::EdgeAccessor &)>
+                                              msgs::EdgeDirection edge_direction) -> EdgeAccessors {
+      std::function<bool(std::set<const storage::v3::VertexId *, VertexIdCmpr> &, const storage::v3::EdgeAccessor &)>
           is_edge_unique;
       switch (edge_direction) {
-        case memgraph::msgs::EdgeDirection::OUT: {
+        case msgs::EdgeDirection::OUT: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+                              const storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.ToVertex());
             return insertion_happened;
           };
           break;
         }
-        case memgraph::msgs::EdgeDirection::IN: {
+        case msgs::EdgeDirection::IN: {
           is_edge_unique = [](std::set<const storage::v3::VertexId *, VertexIdCmpr> &other_vertex_set,
-                              const memgraph::storage::v3::EdgeAccessor &edge_acc) {
+                              const storage::v3::EdgeAccessor &edge_acc) {
             auto [it, insertion_happened] = other_vertex_set.insert(&edge_acc.FromVertex());
             return insertion_happened;
           };
           break;
         }
-        case memgraph::msgs::EdgeDirection::BOTH:
-          MG_ASSERT(false,
-                    "This is should never happen, memgraph::msgs::EdgeDirection::BOTH should not be passed here.");
+        case msgs::EdgeDirection::BOTH:
+          MG_ASSERT(false, "This is should never happen, msgs::EdgeDirection::BOTH should not be passed here.");
       }
 
       EdgeAccessors ret;
@@ -455,10 +452,8 @@ EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_
       return ret;
     };
   } else {
-    maybe_filter_based_on_edge_uniquness = [](EdgeAccessors &&edges,
-                                              memgraph::msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors {
-      return std::move(edges);
-    };
+    maybe_filter_based_on_edge_uniquness =
+        [](EdgeAccessors &&edges, msgs::EdgeDirection /*edge_direction*/) -> EdgeAccessors { return std::move(edges); };
   }
 
   return maybe_filter_based_on_edge_uniquness;
@@ -901,7 +896,7 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
     }
   }
 
-  memgraph::msgs::ScanVerticesResponse resp{};
+  msgs::ScanVerticesResponse resp{};
   resp.success = action_successful;
 
   if (action_successful) {
@@ -968,4 +963,4 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::GetPropertiesRequest && /*req*/) 
   return msgs::GetPropertiesResponse{};
 }
 
-}  //    namespace memgraph::storage::v3
+}  // namespace memgraph::storage::v3
