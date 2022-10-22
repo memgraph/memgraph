@@ -102,16 +102,8 @@ fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
 fi
-if [ ! -f llvm-$LLVM_VERSION.src.tar.xz ]; then
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/cmake-$LLVM_VERSION.src.tar.xz
+if [ ! -d llvmorg-$LLVM_VERSION ]; then
+    git clone --depth 1 --branch llvmorg-$LLVM_VERSION https://github.com/llvm/llvm-project.git llvmorg-$LLVM_VERSION
 fi
 if [ ! -f pahole-gdb-master.zip ]; then
     wget https://github.com/PhilArmstrong/pahole-gdb/archive/master.zip -O pahole-gdb-master.zip
@@ -119,7 +111,6 @@ fi
 if [ ! -f swig-$SWIG_VERSION.tar.gz ]; then
     wget https://github.com/swig/swig/archive/rel-$SWIG_VERSION.tar.gz -O swig-$SWIG_VERSION.tar.gz
 fi
-
 
 # verify all archives
 # NOTE: Verification can fail if the archive is signed by another developer. I
@@ -161,30 +152,6 @@ fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xC6C265324BBEBDC350B513D02D2CEF1034921684
 sha256sum -c cmake-$CMAKE_VERSION-SHA-256-filtered.txt
 $GPG --verify cmake-$CMAKE_VERSION-SHA-256.txt.asc cmake-$CMAKE_VERSION-SHA-256.txt
-# verify llvm, cfe, lld, clang-tools-extra
-if [ ! -f llvm-$LLVM_VERSION.src.tar.xz.sig ]; then
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/llvm-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/lld-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/compiler-rt-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libunwind-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxx-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/libcxxabi-$LLVM_VERSION.src.tar.xz.sig
-    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-$LLVM_VERSION/cmake-$LLVM_VERSION.src.tar.xz.sig
-fi
-# list of valid llvm gnupg keys: https://releases.llvm.org/download.html
-# TODO(gitbuda): Fix the LLVM signatures checks.
-# $GPG --keyserver $KEYSERVER --recv-keys 0x474E22316ABF4785A88C6E8EA2C794A986419D8A
-# $GPG --verify llvm-$LLVM_VERSION.src.tar.xz.sig llvm-$LLVM_VERSION.src.tar.xz
-# $GPG --verify clang-$LLVM_VERSION.src.tar.xz.sig clang-$LLVM_VERSION.src.tar.xz
-# $GPG --verify lld-$LLVM_VERSION.src.tar.xz.sig lld-$LLVM_VERSION.src.tar.xz
-# $GPG --verify clang-tools-extra-$LLVM_VERSION.src.tar.xz.sig clang-tools-extra-$LLVM_VERSION.src.tar.xz
-# $GPG --verify compiler-rt-$LLVM_VERSION.src.tar.xz.sig compiler-rt-$LLVM_VERSION.src.tar.xz
-# $GPG --verify libunwind-$LLVM_VERSION.src.tar.xz.sig libunwind-$LLVM_VERSION.src.tar.xz
-# $GPG --verify libcxx-$LLVM_VERSION.src.tar.xz.sig libcxx-$LLVM_VERSION.src.tar.xz
-# $GPG --verify libcxxabi-$LLVM_VERSION.src.tar.xz.sig libcxxabi-$LLVM_VERSION.src.tar.xz
-# $GPG --verify cmake-$LLVM_VERSION.src.tar.xz.sig cmake-$LLVM_VERSION.src.tar.xz
 
 popd
 
@@ -517,49 +484,26 @@ if [ ! -d swig-$SWIG_VERSION/install ]; then
 fi
 
 log_tool_name "LLVM $LLVM_VERSION"
-# TODO(gitbuda): Try to replace all this hustle with the whole git llvm-project because a bunch of stuff is getting built.
 if [ ! -f $PREFIX/bin/clang ]; then
-    if [ -d llvm-$LLVM_VERSION ]; then
-        rm -rf llvm-$LLVM_VERSION
+    if [ -d llvmorg-$LLVM_VERSION ]; then
+        rm -rf llvmorg-$LLVM_VERSION
     fi
-    if [ -d cmake ]; then
-        rm -rf cmake
-    fi
-    tar -xvf ../archives/llvm-$LLVM_VERSION.src.tar.xz
-    mv llvm-$LLVM_VERSION.src llvm-$LLVM_VERSION
-    tar -xvf ../archives/cmake-$LLVM_VERSION.src.tar.xz
-    mkdir -p cmake
-    mv cmake-$LLVM_VERSION.src/Modules cmake/Modules
-    tar -xvf ../archives/clang-$LLVM_VERSION.src.tar.xz
-    mv clang-$LLVM_VERSION.src llvm-$LLVM_VERSION/tools/clang
-    tar -xvf ../archives/lld-$LLVM_VERSION.src.tar.xz
-    mv lld-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/tools/lld
-    tar -xvf ../archives/clang-tools-extra-$LLVM_VERSION.src.tar.xz
-    mv clang-tools-extra-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/tools/clang/tools/extra
-    tar -xvf ../archives/compiler-rt-$LLVM_VERSION.src.tar.xz
-    mv compiler-rt-$LLVM_VERSION.src/ llvm-$LLVM_VERSION/projects/compiler-rt
-    tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
-    mv libunwind-$LLVM_VERSION.src/include/mach-o llvm-$LLVM_VERSION/tools/lld/include
+    cp -r ../archives/llvmorg-$LLVM_VERSION ./llvmorg-$LLVM_VERSION
 
-    # The following is required because of libc++
-    # TODO(gitbuda): This breaks because compiler-rt with libc++ required third-party tsan project.
+    # NOTE: Go under llvmorg-$LLVM_VERSION/llvm/CMakeLists.txt to see all
+    #       options, docs pages are not up to date.
+    TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;libunwind;lldb"
     if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
-        tar -xvf ../archives/libcxx-$LLVM_VERSION.src.tar.xz
-        mv libcxx-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxx
-        tar -xvf ../archives/libcxxabi-$LLVM_VERSION.src.tar.xz
-        mv libcxxabi-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libcxxabi
-        # NOTE: We moved part of the libunwind in one of the previous step.
-        rm -r libunwind-$LLVM_VERSION.src
-        tar -xvf ../archives/libunwind-$LLVM_VERSION.src.tar.xz
-        mv libunwind-$LLVM_VERSION.src llvm-$LLVM_VERSION/projects/libunwind
+        # NOTE: LLVM_ENABLE_PROJECTS and LLVM_ENABLE_RUNTIMES don't work together.
+        TOOLCHAIN_LLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS;libcxx;libcxxabi"
     fi
 
-    pushd llvm-$LLVM_VERSION
-    mkdir -p build && pushd build
+    pushd llvmorg-$LLVM_VERSION
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
-    cmake .. \
+    cmake -S llvm -B build -G "Unix Makefiles" \
+        -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DCMAKE_C_COMPILER=$PREFIX/bin/gcc \
         -DCMAKE_CXX_COMPILER=$PREFIX/bin/g++ \
         -DCMAKE_CXX_LINK_FLAGS="-L$PREFIX/lib64 -Wl,-rpath,$PREFIX/lib64" \
@@ -568,6 +512,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -DNDEBUG" \
         -DCMAKE_CXX_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
         -DCMAKE_C_FLAGS=' -fuse-ld=gold -fPIC -Wno-unused-command-line-argument -Wno-unknown-warning-option' \
+        -DLLVM_ENABLE_PROJECTS="$TOOLCHAIN_LLVM_ENABLE_PROJECTS" \
         -DLLVM_LINK_LLVM_DYLIB=ON \
         -DLLVM_INSTALL_UTILS=ON \
         -DLLVM_VERSION_SUFFIX= \
@@ -579,6 +524,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DLLVM_USE_PERF=yes \
         -DCOMPILER_RT_INCLUDE_TESTS=OFF \
         -DLIBCXX_INCLUDE_BENCHMARKS=OFF
+    pushd build
     make -j$CPUS
     if [[ "$for_arm" = false ]]; then
         make -j$CPUS check-clang # run clang test suite
