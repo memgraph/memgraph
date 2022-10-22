@@ -1,4 +1,4 @@
-#!/bin/bash -ex
+#!/bin/bash -e
 
 # helpers
 pushd () { command pushd "$@" > /dev/null; }
@@ -83,10 +83,8 @@ if [ ! -d $PREFIX ] || [ ! -w $PREFIX ]; then
 fi
 
 # create archives directory
-mkdir -p archives
-
+mkdir -p archives && pushd archives
 # download all archives
-pushd archives
 if [ ! -f gcc-$GCC_VERSION.tar.gz ]; then
     wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
 fi
@@ -669,7 +667,7 @@ PROXYGEN_SHA256=2f89e7d57d266504a191a74dad5f611c72467ab1bab077e0298368d7429901cb
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
-ZLIB_VERSION=1.2.12
+ZLIB_VERSION=1.2.13
 ZSTD_VERSION=1.5.0
 WANGLE_SHA256=c88f9f010ef90d42ae160b65ba114dddb67a2d5a2a64c87ee40acead263577d2
 
@@ -790,12 +788,12 @@ if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
 fi
 $GPG --import ../xz_pgp.txt
 $GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
-# TODO(gitbuda): Verify zlib
-# if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
-#     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
-# fi
-# $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-# $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+# verify zlib
+if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
+    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
+fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
 #verify zstd
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
@@ -879,20 +877,19 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     popd
 fi
 
-# TODO(gitbuda): zlib download doesn't work as expected
-# log_tool_name "zlib $ZLIB_VERSION"
-# if [ ! -f $PREFIX/include/zlib.h ]; then
-#     if [ -d zlib-$ZLIB_VERSION ]; then
-#         rm -rf zlib-$ZLIB_VERSION
-#     fi
-#     tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
-#     pushd zlib-$ZLIB_VERSION
-#     mkdir build && pushd build
-#     cmake .. $COMMON_CMAKE_FLAGS
-#     make -j$CPUS install
-#     rm $PREFIX/lib/libz.so*
-#     popd && popd
-# fi
+log_tool_name "zlib $ZLIB_VERSION"
+if [ ! -f $PREFIX/include/zlib.h ]; then
+    if [ -d zlib-$ZLIB_VERSION ]; then
+        rm -rf zlib-$ZLIB_VERSION
+    fi
+    tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
+    pushd zlib-$ZLIB_VERSION
+    mkdir build && pushd build
+    cmake .. $COMMON_CMAKE_FLAGS
+    make -j$CPUS install
+    rm $PREFIX/lib/libz.so*
+    popd && popd
+fi
 
 log_tool_name "zstd $ZSTD_VERSION"
 if [ ! -f $PREFIX/include/zstd.h ]; then
@@ -1205,8 +1202,9 @@ if [ ! -f $NAME-binaries-$DISTRO.tar.gz ]; then
     fi
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         # Pass because infra scripts assume there is not C++ standard lib in the name.
-        echo "NOTE: Not adding anything to the archive name that GCC C++ standard lib is used."
+        echo "NOTE: Not adding anything to the archive name, GCC C++ standard lib is used to build libraries."
     else
+        echo "NOTE: Adding libc++ to the archive name, all libraries are built with LLVM standard C++ library."
         DISTRO_FULL_NAME="$DISTRO_FULL_NAME-libc++"
     fi
     tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
