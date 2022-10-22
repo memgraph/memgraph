@@ -650,28 +650,28 @@ BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
 FBLIBS_VERSION=2022.10.17.00
-FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
+FIZZ_SHA256=6c7069cb6812e9ed990b65e60c4d87b59d59c4a11f26d0ae1e35498e47489d9d
 FLEX_VERSION=2.6.4
 FMT_SHA256=5dea48d1fcddc3ec571ce2058e13910a0d4a6bab4cc09a809d8b1dd1c88ae6f2
 FMT_VERSION=9.1.0
-FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
+FOLLY_SHA256=651ba3ed2b38b02c604cf99e008c9e51d87e74c9af2da3c7eaee1240f72ac25b
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
-JEMALLOC_COMMIT_HASH=ea6b3e973b477b8061e0076bb257dbd7f3faa756
+JEMALLOC_VERSION=5.3.0
 LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.18
 LIBUNWIND_VERSION=1.6.2
 LZ4_SHA256=33af5936ac06536805f9745e0b6d61da606a1f8b4cc5c04dd3cbaca3b9b4fc43
 LZ4_VERSION=1.8.3
-PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
+PROXYGEN_SHA256=2f89e7d57d266504a191a74dad5f611c72467ab1bab077e0298368d7429901cb
 SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 SNAPPY_VERSION=1.1.9
 XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.2.12
 ZSTD_VERSION=1.5.0
-WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
+WANGLE_SHA256=c88f9f010ef90d42ae160b65ba114dddb67a2d5a2a64c87ee40acead263577d2
 
 pushd archives
 
@@ -742,8 +742,7 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
-# TODO(gitbuda): Verify fizz version
-# echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify flex
 if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
     wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
@@ -753,8 +752,7 @@ $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
-# TODO(gitbuda): Verify folly if it works.
-# echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
@@ -783,8 +781,7 @@ $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSI
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
-# TODO(gitbuda): Verify proxygen
-# echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -806,8 +803,7 @@ fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 # verify wangle
-# TODO(gitbuda): Verify wangle
-# echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 
 popd
 
@@ -913,8 +909,7 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
     popd && popd
 fi
 
-# TODO(gitbuda): Freeze jmalloc version.
-log_tool_name "jmalloc"
+log_tool_name "jmalloc $JEMALLOC_VERSION"
 if [ ! -d $PREFIX/include/jemalloc ]; then
     if [ -d jemalloc ]; then
         rm -rf jemalloc
@@ -922,7 +917,7 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
 
     git clone https://github.com/jemalloc/jemalloc.git jemalloc
     pushd jemalloc
-    git checkout $JEMALLOC_COMMIT_HASH
+    git checkout $JEMALLOC_VERSION
     ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     env \
         EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
@@ -971,8 +966,7 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     popd && popd
 fi
 
-# TODO(gitbuda): Freeze gflags version.
-log_tool_name "gflags"
+log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
 if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags ]; then
         rm -rf gflags
@@ -1086,8 +1080,6 @@ if [ ! -d $PREFIX/include/folly ]; then
     mkdir folly-$FBLIBS_VERSION
     tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
-    # TODO(gitbuda): Folly patch
-    # patch -p1 < ../../folly.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
@@ -1146,7 +1138,6 @@ if [ ! -d $PREFIX/include/proxygen ]; then
     mkdir proxygen-$FBLIBS_VERSION
     tar -xzf ../archives/proxygen-$FBLIBS_VERSION.tar.gz -C proxygen-$FBLIBS_VERSION
     pushd proxygen-$FBLIBS_VERSION
-    patch -p1 < ../../proxygen.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
