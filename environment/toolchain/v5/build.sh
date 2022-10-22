@@ -699,7 +699,7 @@ BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
-FBLIBS_VERSION=2022.01.31.00
+FBLIBS_VERSION=2022.10.17.00
 FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
 FLEX_VERSION=2.6.4
 FMT_SHA256=5dea48d1fcddc3ec571ce2058e13910a0d4a6bab4cc09a809d8b1dd1c88ae6f2
@@ -792,7 +792,8 @@ echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
-echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# TODO(gitbuda): Verify fizz version
+# echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify flex
 if [ ! -f flex-$FLEX_VERSION.tar.gz.sig ]; then
     wget https://github.com/westes/flex/releases/download/v$FLEX_VERSION/flex-$FLEX_VERSION.tar.gz.sig
@@ -802,7 +803,8 @@ $GPG --verify flex-$FLEX_VERSION.tar.gz.sig flex-$FLEX_VERSION.tar.gz
 # verify fmt
 echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
 # verify folly
-echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# TODO(gitbuda): Verify folly if it works.
+# echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
@@ -831,7 +833,8 @@ $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSI
 # verify lz4
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
-echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# TODO(gitbuda): Verify proxygen
+# echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -840,12 +843,12 @@ if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
 fi
 $GPG --import ../xz_pgp.txt
 $GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
-# verify zlib
-if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
-    wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
-fi
-$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+# TODO(gitbuda): Verify zlib
+# if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
+#     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
+# fi
+# $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+# $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
 #verify zstd
 if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
@@ -853,7 +856,8 @@ fi
 $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
 $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
 # verify wangle
-echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# TODO(gitbuda): Verify wangle
+# echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 
 popd
 
@@ -929,19 +933,20 @@ if [ ! -f $PREFIX/include/lzma.h ]; then
     popd
 fi
 
-log_tool_name "zlib $ZLIB_VERSION"
-if [ ! -f $PREFIX/include/zlib.h ]; then
-    if [ -d zlib-$ZLIB_VERSION ]; then
-        rm -rf zlib-$ZLIB_VERSION
-    fi
-    tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
-    pushd zlib-$ZLIB_VERSION
-    mkdir build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS
-    make -j$CPUS install
-    rm $PREFIX/lib/libz.so*
-    popd && popd
-fi
+# TODO(gitbuda): zlib download doesn't work as expected
+# log_tool_name "zlib $ZLIB_VERSION"
+# if [ ! -f $PREFIX/include/zlib.h ]; then
+#     if [ -d zlib-$ZLIB_VERSION ]; then
+#         rm -rf zlib-$ZLIB_VERSION
+#     fi
+#     tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
+#     pushd zlib-$ZLIB_VERSION
+#     mkdir build && pushd build
+#     cmake .. $COMMON_CMAKE_FLAGS
+#     make -j$CPUS install
+#     rm $PREFIX/lib/libz.so*
+#     popd && popd
+# fi
 
 log_tool_name "zstd $ZSTD_VERSION"
 if [ ! -f $PREFIX/include/zstd.h ]; then
@@ -1131,7 +1136,8 @@ if [ ! -d $PREFIX/include/folly ]; then
     mkdir folly-$FBLIBS_VERSION
     tar -xzf ../archives/folly-$FBLIBS_VERSION.tar.gz -C folly-$FBLIBS_VERSION
     pushd folly-$FBLIBS_VERSION
-    patch -p1 < ../../folly.patch
+    # TODO(gitbuda): Folly patch
+    # patch -p1 < ../../folly.patch
     # build is used by facebook builder
     mkdir _build
     pushd _build
