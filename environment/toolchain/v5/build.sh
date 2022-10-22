@@ -549,7 +549,7 @@ if [ ! -f $PREFIX/README.md ]; then
  - GDB $GDB_VERSION
  - CMake $CMAKE_VERSION
  - Cppcheck $CPPCHECK_VERSION
- - LLVM (Clang, LLD, compiler-rt, Clang tools extra) $LLVM_VERSION
+ - LLVM (clang;clang-tools-extra;compiler-rt;libunwind;lldb[;libcxx;libcxxabi]) $LLVM_VERSION
 
 ## Required libraries
 
@@ -558,6 +558,7 @@ packages:
 
 \`\`\`
 $($DIR/../../os/$DISTRO.sh list TOOLCHAIN_RUN_DEPS)
+$($DIR/../../os/$DISTRO.sh install TOOLCHAIN_RUN_DEPS)
 \`\`\`
 
 ## Usage
@@ -567,6 +568,9 @@ In order to use the toolchain you just have to source the activation script:
 \`\`\`
 source $PREFIX/activate
 \`\`\`
+
+On the other hand, \`deactivate\` will get back your original setup by restoring
+the initial environment variables.
 EOF
 fi
 
