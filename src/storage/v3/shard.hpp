@@ -204,9 +204,6 @@ class Shard final {
     Accessor(Shard &shard, Transaction &transaction);
 
    public:
-    // TODO(gvolfing) this is just a workaround for stitching remove this later.
-    LabelId GetPrimaryLabel() const noexcept { return shard_->primary_label_; }
-
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
