@@ -14,6 +14,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <unordered_map>
@@ -252,6 +253,7 @@ std::string Encode(const License &license) {
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
+  slk::Save(static_cast<std::underlying_type_t<LicenseType>>(license.type), &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
@@ -284,7 +286,12 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&valid_until, &reader);
     int64_t memory_limit{0};
     slk::Load(&memory_limit, &reader);
-    return License{.organization_name = organization_name, .valid_until = valid_until, .memory_limit = memory_limit};
+    std::underlying_type_t<LicenseType> license_type{0};
+    slk::Load(&license_type, &reader);
+    return License{.organization_name = organization_name,
+                   .valid_until = valid_until,
+                   .memory_limit = memory_limit,
+                   .type = LicenseType(license_type)};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }

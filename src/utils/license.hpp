@@ -20,10 +20,13 @@
 
 namespace memgraph::utils::license {
 
+enum class LicenseType : uint8_t { ENTERPRISE, OEM };
+
 struct License {
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
+  LicenseType type;
 
   bool operator==(const License &) const = default;
 };
