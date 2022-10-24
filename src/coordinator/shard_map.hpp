@@ -29,6 +29,7 @@
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/print_helpers.hpp"
 
 namespace memgraph::coordinator {
 
@@ -53,7 +54,21 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
+
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+
+  friend std::ostream &operator<<(std::ostream &in, const AddressAndStatus &address_and_status) {
+    in << "AddressAndStatus { address: ";
+    in << address_and_status.address;
+    if (address_and_status.status == Status::CONSENSUS_PARTICIPANT) {
+      in << ", status: CONSENSUS_PARTICIPANT }";
+    } else {
+      in << ", status: INITIALIZING }";
+    }
+
+    return in;
+  }
+
   friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
     return lhs.address == rhs.address;
   }
@@ -84,6 +99,18 @@ struct LabelSpace {
   // Maps between the smallest primary key stored in the shard and the shard
   std::map<PrimaryKey, Shard> shards;
   size_t replication_factor;
+
+  friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
+    using utils::print_helpers::operator<<;
+
+    in << "LabelSpace { schema: ";
+    in << label_space.schema;
+    in << ", shards: ";
+    in << label_space.shards;
+    in << ", replication_factor: " << label_space.replication_factor << "}";
+
+    return in;
+  }
 };
 
 struct ShardMap {
@@ -98,6 +125,7 @@ struct ShardMap {
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
 
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
+  friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);
 
   Shards GetShards(const LabelName &label);
 

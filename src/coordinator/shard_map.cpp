@@ -190,6 +190,22 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
   return shard_map;
 }
 
+std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
+  using utils::print_helpers::operator<<;
+
+  in << "ShardMap { shard_map_version: " << shard_map.shard_map_version;
+  in << ", max_property_id: " << shard_map.max_property_id;
+  in << ", max_edge_type_id: " << shard_map.max_edge_type_id;
+  in << ", properties: " << shard_map.properties;
+  in << ", edge_types: " << shard_map.edge_types;
+  in << ", max_label_id: " << shard_map.max_label_id;
+  in << ", labels: " << shard_map.labels;
+  in << ", label_spaces: " << shard_map.label_spaces;
+  in << ", schemas: " << shard_map.schemas;
+  in << "}";
+  return in;
+}
+
 Shards ShardMap::GetShards(const LabelName &label) {
   const auto id = labels.at(label);
   auto &shards = label_spaces.at(id).shards;

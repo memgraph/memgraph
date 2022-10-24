@@ -19,6 +19,8 @@ set(storage_v3_src_files
     storage.cpp
     shard_rsm.cpp
     bindings/typed_value.cpp
+    expr.cpp
+    request_helper.cpp
     storage.cpp)
 
 # ######################
