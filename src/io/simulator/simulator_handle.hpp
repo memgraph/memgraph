@@ -25,6 +25,7 @@
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/message_conversion.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
@@ -54,6 +55,7 @@ class SimulatorHandle {
   std::uniform_int_distribution<int> time_distrib_{5, 50};
   std::uniform_int_distribution<int> drop_distrib_{0, 99};
   SimulatorConfig config_;
+  MessageHistogramCollector histograms_;
 
   void TimeoutPromisesPastDeadline() {
     const Time now = cluster_wide_time_microseconds_;
@@ -75,6 +77,8 @@ class SimulatorHandle {
  public:
   explicit SimulatorHandle(SimulatorConfig config)
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
+
+  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies();
 
   void IncrementServerCountAndWaitForQuiescentState(Address address);
 
@@ -104,8 +108,10 @@ class SimulatorHandle {
 
     PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
     OpaquePromise opaque_promise(std::move(promise).ToUnique());
-    DeadlineAndOpaquePromise dop{
-        .requested_at = cluster_wide_time_microseconds_, .deadline = deadline, .promise = std::move(opaque_promise)};
+    DeadlineAndOpaquePromise dop{.requested_at = cluster_wide_time_microseconds_,
+                                 .deadline = deadline,
+                                 .promise = std::move(opaque_promise),
+                                 .response_type_id = typeid(Response)};
     promises_.emplace(std::move(promise_key), std::move(dop));
 
     stats_.total_messages++;

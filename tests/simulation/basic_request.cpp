@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "io/simulator/simulator.hpp"
+#include "utils/print_helpers.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Io;
@@ -82,6 +83,9 @@ int main() {
       std::cout << "[CLIENT] Got an error" << std::endl;
     }
   }
+
+  using memgraph::utils::print_helpers::operator<<;
+  std::cout << "response latencies: " << cli_io.ResponseLatencies() << std::endl;
 
   simulator.ShutDown();
   return 0;

@@ -33,6 +33,11 @@ bool SimulatorHandle::ShouldShutDown() const {
   return should_shut_down_;
 }
 
+std::unordered_map<std::string, LatencyHistogramSummary> SimulatorHandle::ResponseLatencies() {
+  std::unique_lock<std::mutex> lock(mu_);
+  return histograms_.ResponseLatencies();
+}
+
 void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address address) {
   std::unique_lock<std::mutex> lock(mu_);
   server_addresses_.insert(address);
@@ -117,6 +122,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
       stats_.total_responses++;
       Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
       dop.promise.Fill(std::move(opaque_message), response_latency);
+      histograms_.Measure(dop.response_type_id, response_latency);
     }
   } else if (should_drop) {
     // don't add it anywhere, let it drop

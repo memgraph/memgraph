@@ -19,6 +19,7 @@
 
 #include "io/errors.hpp"
 #include "io/message_conversion.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
 
@@ -28,6 +29,7 @@ class LocalTransportHandle {
   mutable std::mutex mu_{};
   mutable std::condition_variable cv_;
   bool should_shut_down_ = false;
+  MessageHistogramCollector histograms_;
 
   // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
@@ -52,6 +54,11 @@ class LocalTransportHandle {
   bool ShouldShutDown() const {
     std::unique_lock<std::mutex> lock(mu_);
     return should_shut_down_;
+  }
+
+  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+    std::unique_lock<std::mutex> lock(mu_);
+    return histograms_.ResponseLatencies();
   }
 
   static Time Now() {
@@ -118,6 +125,7 @@ class LocalTransportHandle {
         Duration response_latency = Now() - dop.requested_at;
 
         dop.promise.Fill(std::move(opaque_message), response_latency);
+        histograms_.Measure(dop.response_type_id, response_latency);
       } else {
         spdlog::info("placing message in can_receive_");
         can_receive_.emplace_back(std::move(opaque_message));
@@ -144,7 +152,10 @@ class LocalTransportHandle {
       PromiseKey promise_key{
           .requester_address = from_address, .request_id = request_id, .replier_address = to_address};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
-      DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
+      DeadlineAndOpaquePromise dop{.requested_at = now,
+                                   .deadline = deadline,
+                                   .promise = std::move(opaque_promise),
+                                   .response_type_id = typeid(ResponseT)};
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 

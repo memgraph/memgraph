@@ -199,6 +199,7 @@ struct DeadlineAndOpaquePromise {
   Time requested_at;
   Time deadline;
   OpaquePromise promise;
+  const std::type_info &response_type_id;
 };
 
 template <class From>
