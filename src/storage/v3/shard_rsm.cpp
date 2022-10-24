@@ -167,16 +167,6 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
   return evaluated_expressions;
 }
 
-bool DoesEdgeTypeMatch(const std::vector<msgs::EdgeType> &edge_types, const EdgeAccessor &edge) {
-  // TODO(gvolfing) This should be checked only once and handled accordingly.
-  if (edge_types.empty()) {
-    return true;
-  }
-
-  return std::ranges::any_of(edge_types.begin(), edge_types.end(),
-                             [&edge](const msgs::EdgeType &edge_type) { return edge_type.id == edge.EdgeType(); });
-}
-
 struct LocalError {};
 
 std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccessor> &v_acc,
@@ -235,13 +225,17 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
 std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
     const std::optional<VertexAccessor> &v_acc, const msgs::ExpandOneRequest &req,
     const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness) {
+  std::vector<EdgeTypeId> edge_types{};
+  edge_types.reserve(req.edge_types.size());
+  std::transform(req.edge_types.begin(), req.edge_types.end(), std::back_inserter(edge_types),
+                 [](const msgs::EdgeType &edge_type) { return edge_type.id; });
+
   std::vector<EdgeAccessor> in_edges;
   std::vector<EdgeAccessor> out_edges;
 
-  // TODO(antaljanosbenjamin): Pass edge_types into InEdges/OutEdges
   switch (req.direction) {
     case msgs::EdgeDirection::OUT: {
-      auto out_edges_result = v_acc->OutEdges(View::NEW);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -252,7 +246,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::IN: {
-      auto in_edges_result = v_acc->InEdges(View::NEW);
+      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
       if (in_edges_result.HasError()) {
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
@@ -263,7 +257,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::BOTH: {
-      auto in_edges_result = v_acc->InEdges(View::NEW);
+      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -271,7 +265,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       }
       in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
 
-      auto out_edges_result = v_acc->OutEdges(View::NEW);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -297,13 +291,8 @@ using AllEdgePropertiesVector = std::vector<AllEdgeProperties>;
 using EdgeFiller = std::function<bool(const EdgeAccessor &edge, bool is_in_edge, msgs::ExpandOneResultRow &result_row)>;
 
 template <bool are_in_edges>
-bool FillEdges(const std::vector<EdgeAccessor> &edges, const msgs::ExpandOneRequest &req, msgs::ExpandOneResultRow &row,
-               const EdgeFiller &edge_filler) {
+bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow &row, const EdgeFiller &edge_filler) {
   for (const auto &edge : edges) {
-    if (!DoesEdgeTypeMatch(req.edge_types, edge)) {
-      continue;
-    }
-
     if (!edge_filler(edge, are_in_edges, row)) {
       return false;
     }
@@ -343,10 +332,10 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   result_row.src_vertex_properties = std::move(*src_vertex_properties);
   static constexpr bool kInEdges = true;
   static constexpr bool kOutEdges = false;
-  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, req, result_row, edge_filler)) {
+  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, result_row, edge_filler)) {
     return std::nullopt;
   }
-  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, req, result_row, edge_filler)) {
+  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, result_row, edge_filler)) {
     return std::nullopt;
   }
 
