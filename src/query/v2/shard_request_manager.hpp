@@ -465,6 +465,9 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     if (!state.label) {
       multi_shards = shards_map_.GetShards();
     } else {
+      const auto label_id = shards_map_.GetLabelId(*state.label);
+      MG_ASSERT(label_id);
+      MG_ASSERT(IsPrimaryLabel(*label_id));
       multi_shards = {shards_map_.GetShards(*state.label)};
     }
     for (auto &shards : multi_shards) {
@@ -537,10 +540,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (const auto &request : state.requests) {
       if (!state.label) {
         const auto &current_shard = state.shard_cache[shard_idx];
-        auto prim_label = shards_map_.GetLabelId(current_shard);
-        MG_ASSERT(prim_label);
 
-        auto &storage_client = GetStorageClientForShard(current_shard, *prim_label);
+        auto &storage_client = GetStorageClientForShard(current_shard);
         ReadRequests req = request;
         storage_client.SendAsyncReadRequest(request);
       } else {
@@ -672,10 +673,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         continue;
       }
 
-      auto prim_label = shards_map_.GetLabelId(*shard_it);
-      MG_ASSERT(prim_label);
-
-      auto &storage_client = GetStorageClientForShard(*shard_it, *prim_label);
+      auto &storage_client = GetStorageClientForShard(*shard_it);
 
       auto await_result = storage_client.AwaitAsyncReadRequest();
 
