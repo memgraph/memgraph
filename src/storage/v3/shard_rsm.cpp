@@ -740,12 +740,6 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
   auto dba = DbAccessor{&acc};
   const auto emplace_scan_result = [&](const VertexAccessor &vertex) {
     std::vector<Value> expression_results;
-    // TODO(gvolfing) it should be enough to check these only once.
-    if (vertex.Properties(View(req.storage_view)).HasError()) {
-      action_successful = false;
-      spdlog::debug("Could not retrieve properties from VertexAccessor. Transaction id: {}",
-                    req.transaction_id.logical_id);
-    }
     if (!req.filter_expressions.empty()) {
       // NOTE - DbAccessor might get removed in the future.
       const bool eval = FilterOnVertex(dba, vertex, req.filter_expressions, expr::identifier_node_symbol);
