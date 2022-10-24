@@ -82,16 +82,6 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  storage::v3::ResultSchema<VertexAccessor> InsertVertexAndValidate(
-      const storage::v3::LabelId primary_label, const std::vector<storage::v3::LabelId> &labels,
-      const std::vector<std::pair<storage::v3::PropertyId, storage::v3::PropertyValue>> &properties) {
-    auto maybe_vertex_acc = accessor_->CreateVertexAndValidate(primary_label, labels, properties);
-    if (maybe_vertex_acc.HasError()) {
-      return {std::move(maybe_vertex_acc.GetError())};
-    }
-    return maybe_vertex_acc.GetValue();
-  }
-
   storage::v3::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
                                                const storage::v3::EdgeTypeId &edge_type) {
     static constexpr auto kDummyGid = storage::v3::Gid::FromUint(0);

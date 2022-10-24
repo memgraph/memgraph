@@ -474,7 +474,7 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     // cannot map id -> value
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
-                   [](const auto &val) { return ToPropertyValue(val); });
+                   [](msgs::Value &val) { return ToPropertyValue(std::move(val)); });
     auto result_schema = acc.CreateVertexAndValidate(converted_label_ids, transformed_pk, converted_property_map);
 
     if (result_schema.HasError()) {

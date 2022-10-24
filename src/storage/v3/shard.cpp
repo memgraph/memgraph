@@ -341,53 +341,6 @@ Shard::~Shard() {}
 Shard::Accessor::Accessor(Shard &shard, Transaction &transaction)
     : shard_(&shard), transaction_(&transaction), config_(shard_->config_.items) {}
 
-// TODO(jbajic) Remove with next PR
-ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
-    LabelId primary_label, const std::vector<LabelId> &labels,
-    const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
-  if (primary_label != shard_->primary_label_) {
-    throw utils::BasicException("Cannot add vertex to shard which does not hold the given primary label!");
-  }
-  auto maybe_schema_violation = GetSchemaValidator().ValidateVertexCreate(primary_label, labels, properties);
-  if (maybe_schema_violation) {
-    return {std::move(*maybe_schema_violation)};
-  }
-  OOMExceptionEnabler oom_exception;
-  // Extract key properties
-  std::vector<PropertyValue> primary_properties;
-  for ([[maybe_unused]] const auto &[property_id, property_type] : shard_->GetSchema(primary_label)->second) {
-    // We know there definitely is key in properties since we have validated
-    primary_properties.push_back(
-        std::ranges::find_if(properties, [property_id = property_id](const auto &property_pair) {
-          return property_pair.first == property_id;
-        })->second);
-  }
-  auto acc = shard_->vertices_.access();
-  auto *delta = CreateDeleteObjectDelta(transaction_);
-  auto [it, inserted] = acc.insert({Vertex{delta, primary_properties}});
-  delta->prev.Set(&it->vertex);
-
-  VertexAccessor vertex_acc{&it->vertex, transaction_, &shard_->indices_, config_, shard_->vertex_validator_};
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-
-  // TODO(jbajic) Improve, maybe delay index update
-  for (const auto &[property_id, property_value] : properties) {
-    if (!shard_->schemas_.IsPropertyKey(primary_label, property_id)) {
-      if (const auto err = vertex_acc.SetProperty(property_id, property_value); err.HasError()) {
-        return {err.GetError()};
-      }
-    }
-  }
-  // Set secondary labels
-  for (auto label : labels) {
-    if (const auto err = vertex_acc.AddLabel(label); err.HasError()) {
-      return {err.GetError()};
-    }
-  }
-  return vertex_acc;
-}
-
 ResultSchema<VertexAccessor> Shard::Accessor::CreateVertexAndValidate(
     const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,
     const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
