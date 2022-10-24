@@ -2466,11 +2466,7 @@ class DistributedExpandCursor : public Cursor {
       : self_(self),
         input_cursor_(self.input_->MakeCursor(mem)),
         current_in_edge_it_(current_in_edges_.begin()),
-        current_out_edge_it_(current_out_edges_.begin()) {
-    if (self_.common_.existing_node) {
-      throw QueryRuntimeException("Cannot use existing node with DistributedExpandOne cursor!");
-    }
-  }
+        current_out_edge_it_(current_out_edges_.begin()) {}
 
   using VertexAccessor = accessors::VertexAccessor;
   using EdgeAccessor = accessors::EdgeAccessor;
@@ -2498,12 +2494,15 @@ class DistributedExpandCursor : public Cursor {
             return msgs::EdgeDirection::BOTH;
         }
       };
-
       msgs::ExpandOneRequest request;
       request.direction = direction_to_msgs_direction(self_.common_.direction);
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
+      if (self_.common_.existing_node) {
+        auto &node = frame[self_.common_.node_symbol].ValueVertex();
+        request.edge_with_dst.emplace(node.Id());
+      }
       msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
       auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
       MG_ASSERT(result_rows.size() == 1);

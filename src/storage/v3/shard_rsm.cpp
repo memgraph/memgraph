@@ -232,10 +232,17 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
 
   std::vector<EdgeAccessor> in_edges;
   std::vector<EdgeAccessor> out_edges;
+  std::optional<storage::v3::VertexId> dst_vertex_id;
+  storage::v3::VertexId *maybe_dst_vertex = nullptr;
+  if (req.edge_with_dst) {
+    const auto &[label, p_key] = req.edge_with_dst.value();
+    dst_vertex_id.emplace(label.id, ConvertPropertyVector(p_key));
+    maybe_dst_vertex = &*dst_vertex_id;
+  }
 
   switch (req.direction) {
     case msgs::EdgeDirection::OUT: {
-      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, {}, maybe_dst_vertex);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -246,7 +253,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::IN: {
-      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
+      auto in_edges_result = v_acc->InEdges(View::NEW, {}, maybe_dst_vertex);
       if (in_edges_result.HasError()) {
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
@@ -257,7 +264,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::BOTH: {
-      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
+      auto in_edges_result = v_acc->InEdges(View::NEW, {}, maybe_dst_vertex);
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -265,7 +272,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       }
       in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
 
-      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, {}, maybe_dst_vertex);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
