@@ -16,6 +16,7 @@
 #include "io/simulator/simulator_stats.hpp"
 #include "io/time.hpp"
 #include "io/transport.hpp"
+#include "utils/exceptions.hpp"
 
 namespace memgraph::io::simulator {
 
@@ -50,8 +51,6 @@ void SimulatorHandle::IncrementServerCountAndWaitForQuiescentState(Address addre
   }
 }
 
-struct SimulationExceededConfiguredAbortTime : std::exception {};
-
 bool SimulatorHandle::MaybeTickSimulator() {
   std::unique_lock<std::mutex> lock(mu_);
 
@@ -85,7 +84,7 @@ bool SimulatorHandle::MaybeTickSimulator() {
       spdlog::error(
           "Cluster has executed beyond its configured abort_time, and something may be failing to make progress "
           "in an expected amount of time.");
-      throw SimulationExceededConfiguredAbortTime{};
+      throw utils::BasicException{"Cluster has executed beyond its configured abort_time"};
     }
     return true;
   }
