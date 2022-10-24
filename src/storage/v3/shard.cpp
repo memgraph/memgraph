@@ -1031,7 +1031,6 @@ void Shard::CollectGarbage(const io::Time current_time) {
 }
 
 Transaction &Shard::GetTransaction(const coordinator::Hlc start_timestamp, IsolationLevel isolation_level) {
-  // TODO(antaljanosbenjamin)
   if (const auto it = start_logical_id_to_transaction_.find(start_timestamp.logical_id);
       it != start_logical_id_to_transaction_.end()) {
     MG_ASSERT(it->second->start_timestamp.coordinator_wall_clock == start_timestamp.coordinator_wall_clock,

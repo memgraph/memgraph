@@ -454,10 +454,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
   bool action_successful = true;
 
   for (auto &new_vertex : req.new_vertices) {
-    /// TODO(gvolfing) Remove this. In the new implementation each shard
-    /// should have a predetermined primary label, so there is no point in
-    /// specifying it in the accessor functions. Their signature will
-    /// change.
     /// TODO(gvolfing) Consider other methods than converting. Change either
     /// the way that the property map is stored in the messages, or the
     /// signature of CreateVertexAndValidate.
@@ -470,8 +466,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CreateVerticesRequest &&req) {
     std::transform(new_vertex.label_ids.begin(), new_vertex.label_ids.end(), std::back_inserter(converted_label_ids),
                    [](const auto &label_id) { return label_id.id; });
 
-    // TODO(jbajic) sending primary key as vector breaks validation on storage side
-    // cannot map id -> value
     PrimaryKey transformed_pk;
     std::transform(new_vertex.primary_key.begin(), new_vertex.primary_key.end(), std::back_inserter(transformed_pk),
                    [](msgs::Value &val) { return ToPropertyValue(std::move(val)); });
@@ -520,8 +514,6 @@ msgs::WriteResponses ShardRsm::ApplyWrite(msgs::UpdateVerticesRequest &&req) {
     }
 
     for (auto &update_prop : vertex.property_updates) {
-      // TODO(gvolfing) Maybe check if the setting is valid if SetPropertyAndValidate()
-      // does not do that alreaedy.
       auto result_schema =
           vertex_to_update->SetPropertyAndValidate(update_prop.first, ToPropertyValue(std::move(update_prop.second)));
       if (result_schema.HasError()) {
