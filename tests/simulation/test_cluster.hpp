@@ -12,6 +12,7 @@
 #include <chrono>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <set>
 #include <thread>
 
@@ -62,7 +63,7 @@ using memgraph::msgs::WriteResponses;
 using memgraph::storage::v3::LabelId;
 using memgraph::storage::v3::SchemaProperty;
 
-using CompoundKey = std::vector<memgraph::storage::v3::PropertyValue>;
+using CompoundKey = std::pair<int, int>;
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
 MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Address> coordinator_addresses, Address addr,
@@ -135,7 +136,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
     const auto key1 = memgraph::storage::v3::PropertyValue(i);
     const auto key2 = memgraph::storage::v3::PropertyValue(0);
 
-    const CompoundKey split_point = {key1, key2};
+    const auto split_point = {key1, key2};
 
     const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
 
@@ -149,9 +150,11 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.key);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.value);
-  const CompoundKey primary_key = {key1, key2};
 
-  if (correctness_model.contains(primary_key)) {
+  std::vector<msgs::Value> primary_key = {msgs::Value(int64_t(create_vertex.key)),
+                                          msgs::Value(int64_t(create_vertex.value))};
+
+  if (correctness_model.contains(std::make_pair(create_vertex.key, create_vertex.value))) {
     // TODO(tyler) remove this early-return when we have properly handled setting non-unique vertexes
     return;
   }
@@ -160,10 +163,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
 
   auto label_id = shard_request_manager.NameToLabel("test_label");
 
-  std::vector<msgs::Value> new_vertex_key = {msgs::Value(int64_t(create_vertex.key)),
-                                             msgs::Value(int64_t(create_vertex.value))};
-
-  msgs::NewVertex nv{.primary_key = new_vertex_key};
+  msgs::NewVertex nv{.primary_key = primary_key};
   nv.label_ids.push_back({label_id});
 
   std::vector<msgs::NewVertex> new_vertices;
@@ -175,18 +175,21 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
     RC_ASSERT(result.size() == 1);
   }
 
-  correctness_model.emplace(primary_key);
+  correctness_model.emplace(std::make_pair(create_vertex.key, create_vertex.value));
 }
 
 void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
-  auto result = shard_request_manager.Request(request);
+  auto results = shard_request_manager.Request(request);
 
-  if (result.size() != correctness_model.size()) {
-    spdlog::error("got {} results but we expected {}", result.size(), correctness_model.size());
-    RC_ASSERT(result.size() == correctness_model.size());
+  RC_ASSERT(results.size() == correctness_model.size());
+
+  for (const auto &vertex_accessor : results) {
+    const auto properties = vertex_accessor.Properties();
+    const CompoundKey key = std::make_pair(properties[0].second.int_v, properties[1].second.int_v);
+    RC_ASSERT(correctness_model.contains(key));
   }
 }
 
@@ -225,7 +228,7 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
 
   shard_request_manager.StartTransaction();
 
-  std::set<CompoundKey> correctness_model{};
+  auto correctness_model = std::set<CompoundKey>{};
 
   for (const Op &op : ops) {
     std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
