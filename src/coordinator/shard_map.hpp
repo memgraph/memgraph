@@ -54,6 +54,9 @@ struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+  friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
+    return lhs.address == rhs.address;
+  }
 };
 
 using PrimaryKey = std::vector<PropertyValue>;
@@ -92,6 +95,17 @@ struct ShardMap {
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  std::optional<LabelId> GetLabelId(const Shard &shard) {
+    for (const auto &label_space : label_spaces) {
+      for (const auto &stored_shard : label_space.second.shards) {
+        if (shard == stored_shard.second) {
+          return label_space.first;
+        }
+      }
+    }
+    return {};
+  }
 
   Shards GetShards(const LabelName &label) {
     const auto id = labels.at(label);

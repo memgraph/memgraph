@@ -455,11 +455,24 @@ class ShardRequestManager : public ShardRequestManagerInterface {
   }
 
   void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
+    int64_t shard_idx = 0;
     for (const auto &request : state.requests) {
-      auto &storage_client =
-          GetStorageClientForShard(*state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
-      ReadRequests req = request;
-      storage_client.SendAsyncReadRequest(request);
+      if (!state.label) {
+        const auto &current_shard = state.shard_cache[shard_idx];
+        auto prim_label = shards_map_.GetLabelId(current_shard);
+        MG_ASSERT(prim_label);
+
+        auto &storage_client = GetStorageClientForShard(current_shard, *prim_label);
+        ReadRequests req = request;
+        storage_client.SendAsyncReadRequest(request);
+      } else {
+        auto &storage_client = GetStorageClientForShard(
+            *state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
+        ReadRequests req = request;
+        storage_client.SendAsyncReadRequest(request);
+      }
+
+      ++shard_idx;
     }
   }
 
@@ -582,8 +595,13 @@ class ShardRequestManager : public ShardRequestManagerInterface {
         continue;
       }
 
-      auto &storage_client = GetStorageClientForShard(
-          *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
+      auto prim_label = shards_map_.GetLabelId(*shard_it);
+      MG_ASSERT(prim_label);
+
+      auto &storage_client = GetStorageClientForShard(*shard_it, *prim_label);
+
+      // auto &storage_client = GetStorageClientForShard(
+      //     *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
       auto await_result = storage_client.AwaitAsyncReadRequest();
 
       if (!await_result) {
