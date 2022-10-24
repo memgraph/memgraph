@@ -238,6 +238,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
   std::vector<EdgeAccessor> in_edges;
   std::vector<EdgeAccessor> out_edges;
 
+  // TODO(antaljanosbenjamin): Pass edge_types into InEdges/OutEdges
   switch (req.direction) {
     case msgs::EdgeDirection::OUT: {
       auto out_edges_result = v_acc->OutEdges(View::NEW);
