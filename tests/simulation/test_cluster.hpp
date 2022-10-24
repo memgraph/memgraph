@@ -170,10 +170,9 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
   new_vertices.push_back(std::move(nv));
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
-  if (result.size() != 1) {
-    spdlog::error("did not get a result back when creating the vertex");
-    RC_ASSERT(result.size() == 1);
-  }
+
+  RC_ASSERT(result.size() == 1);
+  RC_ASSERT(result[0].success);
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
@@ -188,8 +187,9 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
 
   for (const auto &vertex_accessor : results) {
     const auto properties = vertex_accessor.Properties();
-    const CompoundKey key = std::make_pair(properties[0].second.int_v, properties[1].second.int_v);
-    RC_ASSERT(correctness_model.contains(key));
+    const auto primary_key = vertex_accessor.Id().second;
+    const CompoundKey model_key = std::make_pair(primary_key[0].int_v, primary_key[1].int_v);
+    RC_ASSERT(correctness_model.contains(model_key));
   }
 }
 
