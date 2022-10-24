@@ -950,12 +950,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       }
 
       results.emplace_back(maybe_result.value());
-
-      if (batch_limit) {  // #NoCommit can be done differently
-        --*batch_limit;
-        if (batch_limit < 0) {
-          break;
-        }
+      if (batch_limit.has_value() && results.size() >= batch_limit.value()) {
+        break;
       }
     }
   } else {
@@ -985,11 +981,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
       }
 
       results.emplace_back(result.value());
-      if (batch_limit) {  // #NoCommit can ebd one differently
-        --*batch_limit;
-        if (batch_limit < 0) {
-          break;
-        }
+      if (batch_limit.has_value() && results.size() >= batch_limit.value()) {
+        break;
       }
     }
   }
