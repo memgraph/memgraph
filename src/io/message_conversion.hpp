@@ -15,10 +15,6 @@
 
 namespace memgraph::io {
 
-using memgraph::io::Duration;
-using memgraph::io::Message;
-using memgraph::io::Time;
-
 struct PromiseKey {
   Address requester_address;
   uint64_t request_id;
@@ -100,7 +96,7 @@ class OpaquePromiseTraitBase {
  public:
   virtual const std::type_info *TypeInfo() const = 0;
   virtual bool IsAwaited(void *ptr) const = 0;
-  virtual void Fill(void *ptr, OpaqueMessage &&) const = 0;
+  virtual void Fill(void *ptr, OpaqueMessage &&, Duration) const = 0;
   virtual void TimeOut(void *ptr) const = 0;
 
   virtual ~OpaquePromiseTraitBase() = default;
@@ -118,12 +114,13 @@ class OpaquePromiseTrait : public OpaquePromiseTraitBase {
 
   bool IsAwaited(void *ptr) const override { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); };
 
-  void Fill(void *ptr, OpaqueMessage &&opaque_message) const override {
+  void Fill(void *ptr, OpaqueMessage &&opaque_message, Duration response_latency) const override {
     T message = std::any_cast<T>(std::move(opaque_message.message));
     auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                  .request_id = opaque_message.request_id,
                                                  .to_address = opaque_message.to_address,
-                                                 .from_address = opaque_message.from_address};
+                                                 .from_address = opaque_message.from_address,
+                                                 .response_latency = response_latency};
     auto promise = static_cast<ResponsePromise<T> *>(ptr);
     auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
     unique_promise->Fill(std::move(response_envelope));
@@ -187,9 +184,9 @@ class OpaquePromise {
     ptr_ = nullptr;
   }
 
-  void Fill(OpaqueMessage &&opaque_message) {
+  void Fill(OpaqueMessage &&opaque_message, Duration response_latency) {
     MG_ASSERT(ptr_ != nullptr);
-    trait_->Fill(ptr_, std::move(opaque_message));
+    trait_->Fill(ptr_, std::move(opaque_message), response_latency);
     ptr_ = nullptr;
   }
 
@@ -199,6 +196,7 @@ class OpaquePromise {
 };
 
 struct DeadlineAndOpaquePromise {
+  Time requested_at;
   Time deadline;
   OpaquePromise promise;
 };

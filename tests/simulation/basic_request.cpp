@@ -77,6 +77,7 @@ int main() {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();
       MG_ASSERT(env.message.highest_seen == i);
+      std::cout << "response latency: " << env.response_latency.count() << " microseconds" << std::endl;
     } else {
       std::cout << "[CLIENT] Got an error" << std::endl;
     }

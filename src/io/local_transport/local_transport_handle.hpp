@@ -115,7 +115,9 @@ class LocalTransportHandle {
         DeadlineAndOpaquePromise dop = std::move(promises_.at(promise_key));
         promises_.erase(promise_key);
 
-        dop.promise.Fill(std::move(opaque_message));
+        Duration response_latency = Now() - dop.requested_at;
+
+        dop.promise.Fill(std::move(opaque_message), response_latency);
       } else {
         spdlog::info("placing message in can_receive_");
         can_receive_.emplace_back(std::move(opaque_message));
@@ -132,7 +134,9 @@ class LocalTransportHandle {
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
 
     MG_ASSERT(port_matches && ip_matches);
-    const Time deadline = Now() + timeout;
+
+    const auto now = Now();
+    const Time deadline = now + timeout;
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -140,7 +144,7 @@ class LocalTransportHandle {
       PromiseKey promise_key{
           .requester_address = from_address, .request_id = request_id, .replier_address = to_address};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
-      DeadlineAndOpaquePromise dop{.deadline = deadline, .promise = std::move(opaque_promise)};
+      DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 

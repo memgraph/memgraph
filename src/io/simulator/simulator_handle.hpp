@@ -104,7 +104,8 @@ class SimulatorHandle {
 
     PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
     OpaquePromise opaque_promise(std::move(promise).ToUnique());
-    DeadlineAndOpaquePromise dop{.deadline = deadline, .promise = std::move(opaque_promise)};
+    DeadlineAndOpaquePromise dop{
+        .requested_at = cluster_wide_time_microseconds_, .deadline = deadline, .promise = std::move(opaque_promise)};
     promises_.emplace(std::move(promise_key), std::move(dop));
 
     stats_.total_messages++;

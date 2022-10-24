@@ -40,6 +40,7 @@ struct ResponseEnvelope {
   RequestId request_id;
   Address to_address;
   Address from_address;
+  Duration response_latency;
 };
 
 template <Message M>

@@ -115,7 +115,8 @@ bool SimulatorHandle::MaybeTickSimulator() {
       dop.promise.TimeOut();
     } else {
       stats_.total_responses++;
-      dop.promise.Fill(std::move(opaque_message));
+      Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
+      dop.promise.Fill(std::move(opaque_message), response_latency);
     }
   } else if (should_drop) {
     // don't add it anywhere, let it drop
