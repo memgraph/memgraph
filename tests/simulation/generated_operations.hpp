@@ -25,11 +25,11 @@
 namespace memgraph::tests::simulation {
 
 struct CreateVertex {
-  int key;
-  int value;
+  int first;
+  int second;
 
   friend std::ostream &operator<<(std::ostream &in, const CreateVertex &add) {
-    in << "CreateVertex { key: " << add.key << ", value: " << add.value << " }";
+    in << "CreateVertex { first: " << add.first << ", second: " << add.second << " }";
     return in;
   }
 };
@@ -81,8 +81,8 @@ using namespace memgraph::tests::simulation;
 template <>
 struct Arbitrary<CreateVertex> {
   static Gen<CreateVertex> arbitrary() {
-    return gen::build<CreateVertex>(gen::set(&CreateVertex::key, gen::inRange(0, kMaximumShards + 1)),
-                                    gen::set(&CreateVertex::value, gen::inRange(0, kMaximumShards + 1)));
+    return gen::build<CreateVertex>(gen::set(&CreateVertex::first, gen::inRange(0, kMaximumShards + 1)),
+                                    gen::set(&CreateVertex::second, gen::inRange(0, kMaximumShards + 1)));
   }
 };
 

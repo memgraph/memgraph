@@ -148,13 +148,13 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
 
 void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
-  const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.key);
-  const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.value);
+  const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
+  const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
 
-  std::vector<msgs::Value> primary_key = {msgs::Value(int64_t(create_vertex.key)),
-                                          msgs::Value(int64_t(create_vertex.value))};
+  std::vector<msgs::Value> primary_key = {msgs::Value(int64_t(create_vertex.first)),
+                                          msgs::Value(int64_t(create_vertex.second))};
 
-  if (correctness_model.contains(std::make_pair(create_vertex.key, create_vertex.value))) {
+  if (correctness_model.contains(std::make_pair(create_vertex.first, create_vertex.second))) {
     // TODO(tyler) remove this early-return when we have properly handled setting non-unique vertexes
     return;
   }
@@ -175,7 +175,7 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
     RC_ASSERT(result.size() == 1);
   }
 
-  correctness_model.emplace(std::make_pair(create_vertex.key, create_vertex.value));
+  correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
 void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
