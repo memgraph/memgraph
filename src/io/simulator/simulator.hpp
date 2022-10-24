@@ -29,6 +29,8 @@ class Simulator {
   explicit Simulator(SimulatorConfig config)
       : rng_(std::mt19937{config.rng_seed}), simulator_handle_{std::make_shared<SimulatorHandle>(config)} {}
 
+  ~Simulator() { ShutDown(); }
+
   void ShutDown() { simulator_handle_->ShutDown(); }
 
   Io<SimulatorTransport> RegisterNew() {

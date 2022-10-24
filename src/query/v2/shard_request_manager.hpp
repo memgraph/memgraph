@@ -246,6 +246,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
+    spdlog::info("shards_map_.size(): {}", shards_map_.GetShards(*state.label).size());
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
@@ -260,6 +261,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     for (const auto &shard : state.shard_cache) {
       paginated_response_tracker.insert(std::make_pair(shard, PaginatedResponseState::Pending));
     }
+
     do {
       AwaitOnPaginatedRequests(state, responses, paginated_response_tracker);
     } while (!all_requests_gathered(paginated_response_tracker));

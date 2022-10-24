@@ -130,7 +130,7 @@ void RunSimulation() {
       .scramble_messages = true,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{8 * 1024 * 128},
+      .abort_time = Time::max(),
   };
 
   auto simulator = Simulator(config);
