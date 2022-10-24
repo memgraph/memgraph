@@ -42,36 +42,38 @@ std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIter
   return ordered_elements.end();
 }
 
-std::vector<EdgeAccessor> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
-                                             const msgs::EdgeDirection direction) {
+std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
+                                                            const msgs::EdgeDirection direction) {
+  std::vector<EdgeAccessor> in_edges;
+  std::vector<EdgeAccessor> out_edges;
+
   switch (direction) {
     case memgraph::msgs::EdgeDirection::IN: {
       auto edges = vertex_accessor.InEdges(View::OLD);
       if (edges.HasValue()) {
-        return edges.GetValue();
+        in_edges = edges.GetValue();
       }
-      return {};
     }
     case memgraph::msgs::EdgeDirection::OUT: {
       auto edges = vertex_accessor.OutEdges(View::OLD);
       if (edges.HasValue()) {
-        return edges.GetValue();
+        out_edges = edges.GetValue();
       }
-      return {};
     }
     case memgraph::msgs::EdgeDirection::BOTH: {
       auto maybe_in_edges = vertex_accessor.InEdges(View::OLD);
       auto maybe_out_edges = vertex_accessor.OutEdges(View::OLD);
       std::vector<EdgeAccessor> edges;
       if (maybe_in_edges.HasValue()) {
-        edges = maybe_in_edges.GetValue();
+        in_edges = maybe_in_edges.GetValue();
       }
       if (maybe_out_edges.HasValue()) {
-        edges.insert(edges.end(), maybe_out_edges.GetValue().begin(), maybe_out_edges.GetValue().end());
+        out_edges = maybe_out_edges.GetValue();
       }
-      return edges;
     }
   }
+
+  return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
 }
 
 }  // namespace memgraph::storage::v3

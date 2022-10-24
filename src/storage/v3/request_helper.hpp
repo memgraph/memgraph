@@ -163,5 +163,6 @@ std::vector<Element<VertexAccessor>>::const_iterator GetStartOrderedElementsIter
     const std::vector<Element<VertexAccessor>> &ordered_elements, const std::vector<PropertyValue> &start_ids,
     View view);
 
-std::vector<EdgeAccessor> GetEdgesFromVertex(const VertexAccessor &vertex_accessor, msgs::EdgeDirection direction);
+std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor &vertex_accessor,
+                                                            msgs::EdgeDirection direction);
 }  // namespace memgraph::storage::v3

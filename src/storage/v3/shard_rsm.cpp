@@ -354,6 +354,41 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   return result_row;
 }
 
+std::optional<msgs::ExpandOneResultRow> GetExpandOneResult2(
+    VertexAccessor v_acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
+    std::vector<EdgeAccessor> in_edge_accessors, std::vector<EdgeAccessor> out_edge_accessors,
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler) {
+  /// Fill up source vertex
+  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
+  if (!source_vertex) {
+    return std::nullopt;
+  }
+
+  /// Fill up source vertex properties
+  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  if (!src_vertex_properties) {
+    return std::nullopt;
+  }
+
+  /// Fill up connecting edges
+  auto in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edge_accessors), msgs::EdgeDirection::IN);
+  auto out_edges = maybe_filter_based_on_edge_uniquness(std::move(out_edge_accessors), msgs::EdgeDirection::OUT);
+
+  msgs::ExpandOneResultRow result_row;
+  result_row.src_vertex = std::move(*source_vertex);
+  result_row.src_vertex_properties = std::move(*src_vertex_properties);
+  static constexpr bool kInEdges = true;
+  static constexpr bool kOutEdges = false;
+  if (!in_edges.empty() && !FillEdges<kInEdges>(in_edges, req, result_row, edge_filler)) {
+    return std::nullopt;
+  }
+  if (!out_edges.empty() && !FillEdges<kOutEdges>(out_edges, req, result_row, edge_filler)) {
+    return std::nullopt;
+  }
+
+  return result_row;
+}
+
 EdgeUniqunessFunction InitializeEdgeUniqunessFunction(bool only_unique_neighbor_rows) {
   // Functions to select connecting edges based on uniquness
   EdgeUniqunessFunction maybe_filter_based_on_edge_uniquness;
@@ -862,57 +897,67 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
   auto edge_filler = InitializeEdgeFillerFunction(req);
 
-  //#NoCommit code below is duplicated, one needs to factor it once it's clear
-  if (req.order_by) {
+  //#NoCommit code below is duplicated, one needs to factor it once it's clear!
+  if (!req.order_by.empty()) {
     auto vertex_iterable = acc.Vertices(View::OLD);
-    const auto ordered_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, *req.order_by);
-    std::vector<std::pair<VertexAccessor, std::vector<Element<EdgeAccessor>>>> vertex_ordered_edges;
-    vertex_ordered_edges.reserve(req.src_vertices.size());
+    const auto ordered_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_by);
 
-    for (auto &src_vertex : req.src_vertices) {
+    for (auto &ordered_vertice : ordered_vertices) {
       // Get Vertex acc
-      auto src_vertex_acc_opt = acc.FindVertex(ConvertPropertyVector((src_vertex.second)), View::NEW);
-      if (!src_vertex_acc_opt) {
-        action_successful = false;
-        spdlog::debug("Encountered an error while trying to obtain VertexAccessor. Transaction id: {}",
-                      req.transaction_id.logical_id);
-        break;
-      }
+      auto src_vertex_acc = ordered_vertice.object_acc;
 
       if (!req.filters.empty()) {
         // NOTE - DbAccessor might get removed in the future.
-        auto dba = DbAccessor{&acc};
-        const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
+        const bool eval = FilterOnVertex(dba, src_vertex_acc, req.filters, expr::identifier_node_symbol);
         if (!eval) {
           continue;
         }
       }
-      auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
 
-      if (!result) {
+      auto [in_edge_accessors, out_edge_accessors] = GetEdgesFromVertex(src_vertex_acc, req.direction);
+      const auto in_ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, in_edge_accessors, req.order_by);
+      const auto out_ordered_edges = OrderByElements<EdgeAccessor>(acc, dba, out_edge_accessors, req.order_by);
+
+      std::vector<EdgeAccessor> in_edge_ordered_accessors;
+      std::transform(in_ordered_edges.begin(), in_ordered_edges.end(), std::back_inserter(in_edge_ordered_accessors),
+                     [](auto &edge_element) { return edge_element.object_acc; });
+
+      std::vector<EdgeAccessor> out_edge_ordered_accessors;
+      std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
+                     [](auto &edge_element) { return edge_element.object_acc; });
+
+      auto label_id = src_vertex_acc.PrimaryLabel(View::NEW);
+      if (label_id.HasError()) {
+        action_successful = false;
+        break;
+      }
+      auto primary_key = src_vertex_acc.PrimaryKey(View::NEW);
+      if (primary_key.HasError()) {
         action_successful = false;
         break;
       }
 
-      results.emplace_back(result.value());
-      if (batch_limit) {  // #NoCommit can ebd one differently
+      msgs::VertexId src_vertice;
+      src_vertice.first = msgs::Label{.id = *label_id};
+      src_vertice.second = conversions::ConvertValueVector(*primary_key);
+      auto maybe_result =
+          GetExpandOneResult2(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
+                              maybe_filter_based_on_edge_uniquness, edge_filler);
+
+      if (!maybe_result) {
+        action_successful = false;
+        break;
+      }
+
+      results.emplace_back(maybe_result.value());
+
+      if (batch_limit) {  // #NoCommit can be done differently
         --*batch_limit;
         if (batch_limit < 0) {
           break;
         }
       }
     }
-    // Now we have to construct response like this, and here we will care about
-    // limit:
-    // v1 e1
-    // v1 e2
-    // v1 e3
-    // v2 e4
-    // v2 e5
-    // v2 e6
-    // v2 e7
-    // v3 e8
-    // v3 e9
   } else {
     for (auto &src_vertex : req.src_vertices) {
       // Get Vertex acc
