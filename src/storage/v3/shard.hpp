@@ -71,7 +71,6 @@ class AllVerticesIterable final {
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
-  const Schemas *schemas_;
   std::optional<VertexAccessor> vertex_;
 
  public:
