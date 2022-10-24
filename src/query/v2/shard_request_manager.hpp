@@ -600,8 +600,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
       auto &storage_client = GetStorageClientForShard(*shard_it, *prim_label);
 
-      // auto &storage_client = GetStorageClientForShard(
-      //     *state.label, storage::conversions::ConvertPropertyVector(state.requests[request_idx].start_id.second));
       auto await_result = storage_client.AwaitAsyncReadRequest();
 
       if (!await_result) {
