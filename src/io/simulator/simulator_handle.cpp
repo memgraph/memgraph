@@ -20,9 +20,6 @@
 
 namespace memgraph::io::simulator {
 
-using memgraph::io::Duration;
-using memgraph::io::Time;
-
 void SimulatorHandle::ShutDown() {
   std::unique_lock<std::mutex> lock(mu_);
   should_shut_down_ = true;

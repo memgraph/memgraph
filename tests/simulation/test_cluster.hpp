@@ -36,32 +36,32 @@
 
 namespace memgraph::tests::simulation {
 
-using memgraph::coordinator::Coordinator;
-using memgraph::coordinator::CoordinatorClient;
-using memgraph::coordinator::CoordinatorReadRequests;
-using memgraph::coordinator::CoordinatorWriteRequests;
-using memgraph::coordinator::CoordinatorWriteResponses;
-using memgraph::coordinator::GetShardMapRequest;
-using memgraph::coordinator::GetShardMapResponse;
-using memgraph::coordinator::Hlc;
-using memgraph::coordinator::HlcResponse;
-using memgraph::coordinator::Shard;
-using memgraph::coordinator::ShardMap;
-using memgraph::io::Address;
-using memgraph::io::Io;
-using memgraph::io::rsm::RsmClient;
-using memgraph::io::simulator::Simulator;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::io::simulator::SimulatorStats;
-using memgraph::io::simulator::SimulatorTransport;
-using memgraph::machine_manager::MachineConfig;
-using memgraph::machine_manager::MachineManager;
-using memgraph::msgs::ReadRequests;
-using memgraph::msgs::ReadResponses;
-using memgraph::msgs::WriteRequests;
-using memgraph::msgs::WriteResponses;
-using memgraph::storage::v3::LabelId;
-using memgraph::storage::v3::SchemaProperty;
+using coordinator::Coordinator;
+using coordinator::CoordinatorClient;
+using coordinator::CoordinatorReadRequests;
+using coordinator::CoordinatorWriteRequests;
+using coordinator::CoordinatorWriteResponses;
+using coordinator::GetShardMapRequest;
+using coordinator::GetShardMapResponse;
+using coordinator::Hlc;
+using coordinator::HlcResponse;
+using coordinator::Shard;
+using coordinator::ShardMap;
+using io::Address;
+using io::Io;
+using io::rsm::RsmClient;
+using io::simulator::Simulator;
+using io::simulator::SimulatorConfig;
+using io::simulator::SimulatorStats;
+using io::simulator::SimulatorTransport;
+using machine_manager::MachineConfig;
+using machine_manager::MachineManager;
+using msgs::ReadRequests;
+using msgs::ReadResponses;
+using msgs::WriteRequests;
+using msgs::WriteResponses;
+using storage::v3::LabelId;
+using storage::v3::SchemaProperty;
 
 using CompoundKey = std::pair<int, int>;
 using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;

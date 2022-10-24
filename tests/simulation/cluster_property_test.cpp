@@ -27,10 +27,10 @@
 
 namespace memgraph::tests::simulation {
 
-using memgraph::io::Duration;
-using memgraph::io::Time;
-using memgraph::io::simulator::SimulatorConfig;
-using memgraph::storage::v3::kMaximumCronInterval;
+using io::Duration;
+using io::Time;
+using io::simulator::SimulatorConfig;
+using storage::v3::kMaximumCronInterval;
 
 RC_GTEST_PROP(RandomClusterConfig, HappyPath, (ClusterConfig cluster_config, NonEmptyOpVec ops)) {
   // TODO(tyler) set abort_time to something more restrictive than Time::max()
