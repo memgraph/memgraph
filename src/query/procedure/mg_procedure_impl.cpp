@@ -2124,10 +2124,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           return &*it->current_e;
         };
         if (it->in_it) {
-          auto *result = next(true);
-          if (result != nullptr) {
-            return result;
-          }
+          return next(true);
         }
         return next(false);
       },
