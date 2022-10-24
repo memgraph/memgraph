@@ -29,6 +29,7 @@
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/print_helpers.hpp"
 
 namespace memgraph::coordinator {
 
@@ -53,7 +54,21 @@ enum class Status : uint8_t {
 struct AddressAndStatus {
   memgraph::io::Address address;
   Status status;
+
   friend bool operator<(const AddressAndStatus &lhs, const AddressAndStatus &rhs) { return lhs.address < rhs.address; }
+
+  friend std::ostream &operator<<(std::ostream &in, const AddressAndStatus &address_and_status) {
+    in << "AddressAndStatus { address: ";
+    in << address_and_status.address;
+    if (address_and_status.status == Status::CONSENSUS_PARTICIPANT) {
+      in << ", status: CONSENSUS_PARTICIPANT }";
+    } else {
+      in << ", status: INITIALIZING }";
+    }
+
+    return in;
+  }
+
   friend bool operator==(const AddressAndStatus &lhs, const AddressAndStatus &rhs) {
     return lhs.address == rhs.address;
   }
@@ -83,6 +98,18 @@ struct LabelSpace {
   std::vector<SchemaProperty> schema;
   std::map<PrimaryKey, Shard> shards;
   size_t replication_factor;
+
+  friend std::ostream &operator<<(std::ostream &in, const LabelSpace &label_space) {
+    using utils::print_helpers::operator<<;
+
+    in << "LabelSpace { schema: ";
+    in << label_space.schema;
+    in << ", shards: ";
+    in << label_space.shards;
+    in << ", replication_factor: " << label_space.replication_factor << "}";
+
+    return in;
+  }
 };
 
 struct ShardMap {
@@ -95,6 +122,22 @@ struct ShardMap {
   std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+
+  friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
+    using utils::print_helpers::operator<<;
+
+    in << "ShardMap { shard_map_version: " << shard_map.shard_map_version;
+    in << ", max_property_id: " << shard_map.max_property_id;
+    in << ", max_edge_type_id: " << shard_map.max_edge_type_id;
+    in << ", properties: " << shard_map.properties;
+    in << ", edge_types: " << shard_map.edge_types;
+    in << ", max_label_id: " << shard_map.max_label_id;
+    in << ", labels: " << shard_map.labels;
+    in << ", label_spaces: " << shard_map.label_spaces;
+    in << ", schemas: " << shard_map.schemas;
+    in << "}";
+    return in;
+  }
 
   std::optional<LabelId> GetLabelId(const Shard &shard) {
     for (const auto &label_space : label_spaces) {
@@ -136,7 +179,12 @@ struct ShardMap {
     bool mutated = false;
 
     for (auto &[label_id, label_space] : label_spaces) {
-      for (auto &[low_key, shard] : label_space.shards) {
+      for (auto it = label_space.shards.begin(); it != label_space.shards.end(); it++) {
+        auto &[low_key, shard] = *it;
+        std::optional<PrimaryKey> high_key;
+        if (const auto next_it = std::next(it); next_it != label_space.shards.end()) {
+          high_key = next_it->first;
+        }
         // TODO(tyler) avoid these triple-nested loops by having the heartbeat include better info
         bool machine_contains_shard = false;
 
@@ -154,7 +202,7 @@ struct ShardMap {
                   .uuid = aas.address.unique_id,
                   .label_id = label_id,
                   .min_key = low_key,
-                  .max_key = std::nullopt,
+                  .max_key = high_key,
                   .schema = schemas[label_id],
                   .config = Config{},
               });
@@ -171,7 +219,7 @@ struct ShardMap {
           ret.push_back(ShardToInitialize{.uuid = address.unique_id,
                                           .label_id = label_id,
                                           .min_key = low_key,
-                                          .max_key = std::nullopt,
+                                          .max_key = high_key,
                                           .schema = schemas[label_id],
                                           .config = Config{}});
 
@@ -221,7 +269,13 @@ struct ShardMap {
     // Find a random place for the server to plug in
   }
 
-  LabelId GetLabelId(const std::string &label) const { return labels.at(label); }
+  std::optional<LabelId> GetLabelId(const std::string &label) const {
+    if (const auto it = labels.find(label); it != labels.end()) {
+      return it->second;
+    }
+
+    return std::nullopt;
+  }
 
   std::string GetLabelName(const LabelId label) const {
     if (const auto it =
@@ -233,8 +287,8 @@ struct ShardMap {
   }
 
   std::optional<PropertyId> GetPropertyId(const std::string &property_name) const {
-    if (properties.contains(property_name)) {
-      return properties.at(property_name);
+    if (const auto it = properties.find(property_name); it != properties.end()) {
+      return it->second;
     }
 
     return std::nullopt;
@@ -250,8 +304,8 @@ struct ShardMap {
   }
 
   std::optional<EdgeTypeId> GetEdgeTypeId(const std::string &edge_type) const {
-    if (edge_types.contains(edge_type)) {
-      return edge_types.at(edge_type);
+    if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
+      return it->second;
     }
 
     return std::nullopt;

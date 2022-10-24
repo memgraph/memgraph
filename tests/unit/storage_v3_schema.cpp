@@ -192,10 +192,17 @@ TEST_F(SchemaValidatorTest, TestSchemaValidateVertexCreate) {
                                                  label1, schema_prop_string));
   }
   {
-    const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, {});
+    const auto schema_violation =
+        schema_validator.ValidateVertexCreate(label2, {}, std::vector<std::pair<PropertyId, PropertyValue>>{});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY,
                                                  label2, schema_prop_string));
+  }
+  {
+    const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, std::vector<PropertyValue>{});
+    ASSERT_NE(schema_violation, std::nullopt);
+    EXPECT_EQ(*schema_violation,
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, label2));
   }
   // Validate wrong secondary label
   {

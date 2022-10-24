@@ -20,6 +20,30 @@
 #include <boost/uuid/uuid_io.hpp>
 
 namespace memgraph::io {
+
+struct PartialAddress {
+  boost::asio::ip::address ip;
+  uint16_t port;
+
+  friend bool operator==(const PartialAddress &lhs, const PartialAddress &rhs) = default;
+
+  /// unique_id is most dominant for ordering, then ip, then port
+  friend bool operator<(const PartialAddress &lhs, const PartialAddress &rhs) {
+    if (lhs.ip != rhs.ip) {
+      return lhs.ip < rhs.ip;
+    }
+
+    return lhs.port < rhs.port;
+  }
+
+  std::string ToString() const { return fmt::format("PartialAddress {{ ip: {}, port: {} }}", ip.to_string(), port); }
+
+  friend std::ostream &operator<<(std::ostream &in, const PartialAddress &partial_address) {
+    in << partial_address.ToString();
+    return in;
+  }
+};
+
 struct Address {
   // It's important for all participants to have a
   // unique identifier - IP and port alone are not
@@ -72,6 +96,11 @@ struct Address {
   std::string ToString() const {
     return fmt::format("Address {{ unique_id: {}, last_known_ip: {}, last_known_port: {} }}",
                        boost::uuids::to_string(unique_id), last_known_ip.to_string(), last_known_port);
+  }
+
+  friend std::ostream &operator<<(std::ostream &in, const Address &address) {
+    in << address.ToString();
+    return in;
   }
 };
 };  // namespace memgraph::io

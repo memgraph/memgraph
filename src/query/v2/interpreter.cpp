@@ -680,7 +680,6 @@ struct PullPlan {
 PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    msgs::ShardRequestManagerInterface *shard_request_manager, const std::optional<size_t> memory_limit)
-    //                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -696,8 +695,8 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   }
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
-  //  ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.shard_request_manager = shard_request_manager;
+  ctx_.edge_ids_alloc = interpreter_context->edge_ids_alloc;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -805,6 +804,20 @@ Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_
       coordinator::CoordinatorClient<io::local_transport::LocalTransport>(
           query_io, interpreter_context_->coordinator_address, std::vector{interpreter_context_->coordinator_address}),
       std::move(query_io));
+  // Get edge ids
+  coordinator::CoordinatorWriteRequests requests{coordinator::AllocateEdgeIdBatchRequest{.batch_size = 1000000}};
+  io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests> ww;
+  ww.operation = requests;
+  auto resp = interpreter_context_->io
+                  .Request<io::rsm::WriteRequest<coordinator::CoordinatorWriteRequests>,
+                           io::rsm::WriteResponse<coordinator::CoordinatorWriteResponses>>(
+                      interpreter_context_->coordinator_address, ww)
+                  .Wait();
+  if (resp.HasValue()) {
+    const auto alloc_edge_id_reps =
+        std::get<coordinator::AllocateEdgeIdBatchResponse>(resp.GetValue().message.write_return);
+    interpreter_context_->edge_ids_alloc = {alloc_edge_id_reps.low, alloc_edge_id_reps.high};
+  }
 }
 
 PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper) {

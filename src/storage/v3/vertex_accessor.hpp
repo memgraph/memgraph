@@ -133,6 +133,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
 
+  PropertyValue GetPropertyValue(PropertyId property, View view) const;
+
   Result<void> CheckVertexExistence(View view) const;
 
   Vertex *vertex_;
