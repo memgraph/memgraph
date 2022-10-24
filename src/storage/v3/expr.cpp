@@ -186,7 +186,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
   expr::SymbolGenerator symbol_generator(&symbol_table, identifiers);
   (std::any_cast<Expression *>(expr))->Accept(symbol_generator);
 
-  if (node_identifier.symbol_pos_ != -1) {
+  if (node_identifier.symbol_pos_ != -1 && v_acc.has_value()) {
     MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
                            [&node_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
                              return position_symbol_pair.second.name() == node_name;
@@ -195,7 +195,7 @@ TypedValue ComputeExpression(DbAccessor &dba, const std::optional<memgraph::stor
     frame[symbol_table.at(node_identifier)] = *v_acc;
   }
 
-  if (edge_identifier.symbol_pos_ != -1) {
+  if (edge_identifier.symbol_pos_ != -1 && e_acc.has_value()) {
     MG_ASSERT(std::find_if(symbol_table.table().begin(), symbol_table.table().end(),
                            [&edge_name](const std::pair<int32_t, Symbol> &position_symbol_pair) {
                              return position_symbol_pair.second.name() == edge_name;
