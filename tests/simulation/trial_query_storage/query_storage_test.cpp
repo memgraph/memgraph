@@ -20,8 +20,8 @@
 #include "messages.hpp"
 
 namespace memgraph::tests::simulation {
-using memgraph::io::Io;
-using memgraph::io::simulator::SimulatorTransport;
+using io::Io;
+using io::simulator::SimulatorTransport;
 
 void run_server(Io<SimulatorTransport> io) {
   while (!io.ShouldShutDown()) {
