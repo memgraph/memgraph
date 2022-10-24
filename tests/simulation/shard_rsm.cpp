@@ -1073,7 +1073,7 @@ int TestMessages() {
       .scramble_messages = false,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{4 * 8 * 1024 * 1024},
+      .abort_time = Time::max(),
   };
 
   auto simulator = Simulator(config);

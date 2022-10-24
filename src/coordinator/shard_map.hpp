@@ -161,6 +161,11 @@ struct ShardMap {
   PropertyMap AllocatePropertyIds(const std::vector<PropertyName> &new_properties);
 
   EdgeTypeIdMap AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new_edge_types);
+
+  /// Returns true if all shards have the desired number of replicas and they are in
+  /// the CONSENSUS_PARTICIPANT state. Note that this does not necessarily mean that
+  /// there is also an active leader for each shard.
+  bool ClusterInitialized() const;
 };
 
 }  // namespace memgraph::coordinator
