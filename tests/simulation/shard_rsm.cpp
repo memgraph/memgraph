@@ -701,10 +701,7 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
   std::vector<msgs::OrderBy> order_by = {
       {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
   std::optional<size_t> limit = 3;
-  std::vector<std::string> filters = {};
-
-  // #NoCommit some filter?
-  // #NoCommit more orderBy?
+  std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != " + std::to_string(src_vertex_val)};
 
   msgs::ExpandOneRequest expand_one_req{};
 
@@ -726,10 +723,23 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
 
     auto write_response_result = read_res.GetValue();
     auto write_response = std::get<msgs::ExpandOneResponse>(write_response_result);
-    MG_ASSERT(write_response.result.size() == 1);
-    MG_ASSERT(write_response.result[0].out_edges_with_all_properties.size() == 10);
-    auto number_of_properties_on_edge = write_response.result[0].out_edges_with_all_properties.size();
-    MG_ASSERT(number_of_properties_on_edge == 1);
+
+    // We check that we do not have more results than the limit. Based on the data in the graph, we know that we should
+    // receive exactly limit responses.
+    MG_ASSERT(write_response.result.size() == limit);
+
+    // We also check that the vertices are ordered by prop1 DESC
+
+    std::is_sorted(write_response.result.cbegin(), write_response.result.cend(),
+                   [](const auto &vertex, const auto &other_vertex) {
+                     const auto primary_key = vertex.src_vertex.id.second;
+                     const auto other_primary_key = other_vertex.src_vertex.id.second;
+
+                     MG_ASSERT(primary_key.size() == 1);
+                     MG_ASSERT(other_primary_key.size() == 1);
+                     return primary_key[0].int_v > other_primary_key[0].int_v;
+                   });
+
     break;
   }
 }
@@ -1090,9 +1100,9 @@ void TestExpandOneGraphOne(ShardClient &client) {
       MG_ASSERT(AttemptToAddEdgeWithProperties(client, unique_prop_val_2, unique_prop_val_3, edge_id, edge_prop_id,
                                                edge_prop_val, {edge_type_id}));
     });
-    AttemptToExpandOneLimitAndOrderBy(client, unique_prop_val_2, edge_type_id);  // #NoCommit
 
     AttemptToExpandOneSimple(client, unique_prop_val_1, edge_type_id);
+    AttemptToExpandOneLimitAndOrderBy(client, unique_prop_val_2, edge_type_id);
     AttemptToExpandOneWithWrongEdgeType(client, unique_prop_val_1, wrong_edge_type_id);
     AttemptToExpandOneWithSpecifiedSrcVertexProperties(client, unique_prop_val_1, edge_type_id);
     AttemptToExpandOneWithSpecifiedEdgeProperties(client, unique_prop_val_1, edge_type_id, edge_prop_id);
