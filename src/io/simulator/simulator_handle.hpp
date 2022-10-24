@@ -44,7 +44,7 @@ class SimulatorHandle {
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
 
   // messages that are sent to servers that may later receive them
-  std::map<Address, std::vector<OpaqueMessage>> can_receive_;
+  std::map<PartialAddress, std::vector<OpaqueMessage>> can_receive_;
 
   Time cluster_wide_time_microseconds_;
   bool should_shut_down_ = false;
@@ -61,7 +61,7 @@ class SimulatorHandle {
     const Time now = cluster_wide_time_microseconds_;
     for (auto it = promises_.begin(); it != promises_.end();) {
       auto &[promise_key, dop] = *it;
-      if (dop.deadline < now) {
+      if (dop.deadline < now && config_.perform_timeouts) {
         spdlog::info("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
                      promise_key.replier_address.ToString());
         std::move(dop).promise.TimeOut();
@@ -79,6 +79,14 @@ class SimulatorHandle {
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
   std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies();
+
+  ~SimulatorHandle() {
+    for (auto it = promises_.begin(); it != promises_.end();) {
+      auto &[promise_key, dop] = *it;
+      std::move(dop).promise.TimeOut();
+      it = promises_.erase(it);
+    }
+  }
 
   void IncrementServerCountAndWaitForQuiescentState(Address address);
 
@@ -128,9 +136,11 @@ class SimulatorHandle {
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
+    auto partial_address = receiver.ToPartialAddress();
+
     while (!should_shut_down_ && (cluster_wide_time_microseconds_ < deadline)) {
-      if (can_receive_.contains(receiver)) {
-        std::vector<OpaqueMessage> &can_rx = can_receive_.at(receiver);
+      if (can_receive_.contains(partial_address)) {
+        std::vector<OpaqueMessage> &can_rx = can_receive_.at(partial_address);
         if (!can_rx.empty()) {
           OpaqueMessage message = std::move(can_rx.back());
           can_rx.pop_back();
