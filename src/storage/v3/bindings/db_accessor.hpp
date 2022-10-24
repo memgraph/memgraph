@@ -51,10 +51,6 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::v3::Shard::Accessor *accessor) : accessor_(accessor) {}
 
-  // TODO(jbajic) Fix Remove Gid
-  // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  std::optional<VertexAccessor> FindVertex(uint64_t /*unused*/) { return std::nullopt; }
-
   std::optional<VertexAccessor> FindVertex(storage::v3::PrimaryKey &primary_key, storage::v3::View view) {
     auto maybe_vertex = accessor_->FindVertex(primary_key, view);
     if (maybe_vertex) return VertexAccessor(*maybe_vertex);
