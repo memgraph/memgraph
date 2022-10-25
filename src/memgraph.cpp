@@ -676,6 +676,19 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
             "Unable to register SIGINT handler!");
 }
 
+std::string GetMachineId() {
+#ifdef MG_TELEMETRY_ID_OVERRIDE
+  return MG_TELEMETRY_ID_OVERRIDE;
+#else
+  // We assume we're on linux and we need to read the machine id from /etc/machine-id
+  const auto machine_id_lines = memgraph::utils::ReadLines("/etc/machine-id");
+  if (machine_id_lines.size() != 1) {
+    return "UNKNOWN";
+  }
+  return machine_id_lines[0];
+#endif
+}
+
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
@@ -906,12 +919,15 @@ int main(int argc, char **argv) {
   ServerT server(server_endpoint, &session_data, &context, FLAGS_bolt_session_inactivity_timeout, service_name,
                  FLAGS_bolt_num_workers);
 
+  const auto run_id = memgraph::utils::GenerateUUID();
+  const auto machine_id = GetMachineId();
+  session_data.run_id = run_id;
+
   // Setup telemetry
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace("https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-                      data_directory / "telemetry", std::chrono::minutes(10));
-    session_data.run_id = telemetry->GetRunId();
+                      data_directory / "telemetry", run_id, machine_id, std::chrono::minutes(10));
     telemetry->AddCollector("storage", [&db]() -> nlohmann::json {
       auto info = db.GetInfo();
       return {{"vertices", info.vertex_count}, {"edges", info.edge_count}};

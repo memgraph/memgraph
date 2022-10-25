@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   memgraph::requests::Init();
-  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory,
+  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, "uuid1", "machine1",
                                            std::chrono::seconds(FLAGS_interval), 1);
 
   uint64_t counter = 0;

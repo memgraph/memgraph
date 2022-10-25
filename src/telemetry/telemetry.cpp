@@ -24,28 +24,15 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::telemetry {
-namespace {
-std::string GetMachineId() {
-#ifdef MG_TELEMETRY_ID_OVERRIDE
-  return MG_TELEMETRY_ID_OVERRIDE;
-#else
-  // We assume we're on linux and we need to read the machine id from /etc/machine-id
-  const auto machine_id_lines = utils::ReadLines("/etc/machine-id");
-  if (machine_id_lines.size() != 1) {
-    return "UNKNOWN";
-  }
-  return machine_id_lines[0];
-#endif
-}
-}  // namespace
+namespace {}  // namespace
 
 const int kMaxBatchSize = 100;
 
-Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory,
+Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
-      uuid_(utils::GenerateUUID()),
-      machine_id_(GetMachineId()),
+      uuid_(uuid),
+      machine_id_(machine_id),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
   StoreData("startup", GetSystemInfo());
