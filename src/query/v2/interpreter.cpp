@@ -901,7 +901,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   }
-  shard_request_manager->StartTransaction();
   auto plan = CypherQueryToPlan(
       parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query, parsed_query.parameters,
       parsed_query.is_cacheable ? &interpreter_context->plan_cache : nullptr, shard_request_manager);
@@ -1034,7 +1033,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   const auto memory_limit =
       expr::EvaluateMemoryLimit(&evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
-  shard_request_manager->StartTransaction();
   auto cypher_query_plan = CypherQueryToPlan(
       parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage), cypher_query,
       parsed_inner_query.parameters, parsed_inner_query.is_cacheable ? &interpreter_context->plan_cache : nullptr,
@@ -1512,6 +1510,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     ParsedQuery parsed_query =
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     query_execution->summary["parsing_time"] = parsing_timer.Elapsed().count();
+    if (!in_explicit_transaction_ &&
+        (utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
+         utils::Downcast<ProfileQuery>(parsed_query.query))) {
+      shard_request_manager_->StartTransaction();
+    }
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
