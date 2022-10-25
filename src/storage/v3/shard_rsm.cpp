@@ -26,7 +26,6 @@
 #include "storage/v3/bindings/symbol_generator.hpp"
 #include "storage/v3/bindings/symbol_table.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
-#include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/expr.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/key_store.hpp"
