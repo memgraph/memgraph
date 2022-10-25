@@ -1046,7 +1046,6 @@ void TestExpandOneGraphTwo(ShardClient &client) {
     MG_ASSERT(AttemptToCreateVertex(client, unique_prop_val_2));
 
     auto edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
-    auto wrong_edge_type_id = EdgeTypeId::FromUint(GetUniqueInteger());
 
     auto edge_gid_1 = GetUniqueInteger();
     auto edge_gid_2 = GetUniqueInteger();
@@ -1074,7 +1073,7 @@ int TestMessages() {
       .scramble_messages = false,
       .rng_seed = 0,
       .start_time = Time::min() + std::chrono::microseconds{256 * 1024},
-      .abort_time = Time::min() + std::chrono::microseconds{4 * 8 * 1024 * 1024},
+      .abort_time = Time::max(),
   };
 
   auto simulator = Simulator(config);
