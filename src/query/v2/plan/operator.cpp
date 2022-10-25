@@ -397,11 +397,10 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
       request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
 
-      if (current_vertex_it == current_batch.end()) {
-        if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context)) {
-          ResetExecutionState();
-          continue;
-        }
+      if (current_vertex_it == current_batch.end() &&
+          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
+        ResetExecutionState();
+        continue;
       }
 
       frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
