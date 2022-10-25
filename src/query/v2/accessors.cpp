@@ -36,13 +36,26 @@ const Edge &EdgeAccessor::GetEdge() const { return edge; }
 
 bool EdgeAccessor::IsCycle() const { return edge.src == edge.dst; };
 
-VertexAccessor EdgeAccessor::To() const { return VertexAccessor(Vertex{edge.dst}, {}, manager_); }
+VertexAccessor EdgeAccessor::To() const {
+  return VertexAccessor(Vertex{edge.dst}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
+}
 
-VertexAccessor EdgeAccessor::From() const { return VertexAccessor(Vertex{edge.src}, {}, manager_); }
+VertexAccessor EdgeAccessor::From() const {
+  return VertexAccessor(Vertex{edge.src}, std::vector<std::pair<PropertyId, msgs::Value>>{}, manager_);
+}
 
 VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
                                const msgs::ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), properties(std::move(props)), manager_(manager) {}
+
+VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> props,
+                               const msgs::ShardRequestManagerInterface *manager)
+    : vertex(std::move(v)), manager_(manager) {
+  properties.reserve(props.size());
+  for (auto &[id, value] : props) {
+    properties.emplace_back(std::make_pair(id, std::move(value)));
+  }
+}
 
 Label VertexAccessor::PrimaryLabel() const { return vertex.id.first; }
 

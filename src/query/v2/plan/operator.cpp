@@ -2471,6 +2471,33 @@ class DistributedExpandCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
   using EdgeAccessor = accessors::EdgeAccessor;
 
+  void PullDstVertex(Frame &frame, ExecutionContext &context) {
+    if (self_.common_.existing_node) {
+      return;
+    }
+    const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
+    static auto get_dst_vertex = [&edge](const EdgeAtom::Direction direction) {
+      switch (direction) {
+        case EdgeAtom::Direction::IN:
+          return edge.From().Id();
+        case EdgeAtom::Direction::OUT:
+          return edge.To().Id();
+        case EdgeAtom::Direction::BOTH:
+          throw std::runtime_error("EdgeDirection Both not implemented");
+      }
+    };
+    msgs::ExpandOneRequest request;
+    // to not fetch any properties of the edges
+    request.edge_properties.emplace();
+    request.src_vertices.push_back(get_dst_vertex(self_.common_.direction));
+    msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
+    auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+    MG_ASSERT(result_rows.size() == 1);
+    auto &result_row = result_rows.front();
+    frame[self_.common_.node_symbol] = accessors::VertexAccessor(
+        msgs::Vertex{result_row.src_vertex}, result_row.src_vertex_properties, context.shard_request_manager);
+  }
+
   bool InitEdges(Frame &frame, ExecutionContext &context) {
     // Input Vertex could be null if it is created by a failed optional match. In
     // those cases we skip that input pull and continue with the next.
@@ -2505,7 +2532,6 @@ class DistributedExpandCursor : public Cursor {
       }
       msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
       auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
-      MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();
 
       const auto convert_edges = [&vertex, &context](
@@ -2547,19 +2573,6 @@ class DistributedExpandCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("DistributedExpand");
     // A helper function for expanding a node from an edge.
-    auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
-      if (self_.common_.existing_node) return;
-      switch (direction) {
-        case EdgeAtom::Direction::IN:
-          frame[self_.common_.node_symbol] = new_edge.From();
-          break;
-        case EdgeAtom::Direction::OUT:
-          frame[self_.common_.node_symbol] = new_edge.To();
-          break;
-        case EdgeAtom::Direction::BOTH:
-          LOG_FATAL("Must indicate exact expansion direction here");
-      }
-    };
 
     while (true) {
       if (MustAbort(context)) throw HintedAbortError();
@@ -2568,7 +2581,7 @@ class DistributedExpandCursor : public Cursor {
         auto &edge = *current_in_edge_it_;
         ++current_in_edge_it_;
         frame[self_.common_.edge_symbol] = edge;
-        pull_node(edge, EdgeAtom::Direction::IN);
+        PullDstVertex(frame, context);
         return true;
       }
 
@@ -2580,7 +2593,7 @@ class DistributedExpandCursor : public Cursor {
           continue;
         };
         frame[self_.common_.edge_symbol] = edge;
-        pull_node(edge, EdgeAtom::Direction::OUT);
+        PullDstVertex(frame, context);
         return true;
       }
 

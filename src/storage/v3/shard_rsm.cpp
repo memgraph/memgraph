@@ -17,6 +17,7 @@
 
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v2/view.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
 #include "storage/v3/bindings/cypher_main_visitor.hpp"
 #include "storage/v3/bindings/db_accessor.hpp"
@@ -310,7 +311,8 @@ bool FillEdges(const std::vector<EdgeAccessor> &edges, msgs::ExpandOneResultRow 
 
 std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     Shard::Accessor &acc, msgs::VertexId src_vertex, const msgs::ExpandOneRequest &req,
-    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler) {
+    const EdgeUniqunessFunction &maybe_filter_based_on_edge_uniquness, const EdgeFiller &edge_filler,
+    const Schemas::Schema *schema) {
   /// Fill up source vertex
   const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
@@ -319,9 +321,14 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   if (!source_vertex) {
     return std::nullopt;
   }
-
+  std::optional<std::map<PropertyId, Value>> src_vertex_properties;
   /// Fill up source vertex properties
-  auto src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  if (req.src_vertex_properties) {
+    src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
+  } else {
+    src_vertex_properties = CollectAllPropertiesFromAccessor(*v_acc, storage::v3::View::NEW, schema);
+  }
+
   if (!src_vertex_properties) {
     return std::nullopt;
   }
@@ -859,7 +866,8 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
         continue;
       }
     }
-    auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler);
+    auto result = GetExpandOneResult(acc, src_vertex, req, maybe_filter_based_on_edge_uniquness, edge_filler,
+                                     shard_->GetSchema(shard_->PrimaryLabel()));
 
     if (!result) {
       action_successful = false;

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -25,7 +26,7 @@
 
 namespace memgraph::msgs {
 class ShardRequestManagerInterface;
-} // namespace memgraph::msgs
+}  // namespace memgraph::msgs
 
 namespace memgraph::query::v2::accessors {
 
@@ -78,6 +79,8 @@ class VertexAccessor final {
   using VertexId = msgs::VertexId;
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
                  const msgs::ShardRequestManagerInterface *manager);
+
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> props, const msgs::ShardRequestManagerInterface *manager);
 
   [[nodiscard]] Label PrimaryLabel() const;
 

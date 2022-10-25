@@ -35,7 +35,7 @@ def test_vertex_creation_and_scanall(connection):
     assert len(results) == 9
     for (n, r, m) in results:
         n_props = n.properties
-        assert len(n_props) == 0, "n is not expected to have properties, update the test!"
+        assert len(n_props) == 1, "n is not expected to have properties, update the test!"
         assert len(n.labels) == 0, "n is not expected to have labels, update the test!"
 
         assert r.type == "TO"

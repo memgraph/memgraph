@@ -48,7 +48,8 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequest
       return TypedValue(std::move(dst));
     }
     case Value::Type::Vertex:
-      return TypedValue(accessors::VertexAccessor(value.vertex_v, {}, manager));
+      return TypedValue(accessors::VertexAccessor(
+          value.vertex_v, std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>{}, manager));
     case Value::Type::Edge:
       return TypedValue(accessors::EdgeAccessor(value.edge_v, manager));
   }
