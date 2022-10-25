@@ -40,6 +40,7 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
 #include "py/py.hpp"
 #include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
@@ -57,7 +58,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -506,7 +506,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
+    if (memgraph::license::global_license_checker.IsEnterpriseEnabledFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                          memgraph::storage::PropertyValue(params_pv));
     }
@@ -779,15 +779,15 @@ int main(int argc, char **argv) {
   memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
 
   // register all runtime settings
-  memgraph::utils::license::RegisterLicenseSettings(memgraph::utils::license::global_license_checker,
-                                                    memgraph::utils::global_settings);
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
+                                             memgraph::utils::global_settings);
 
-  memgraph::utils::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::utils::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
-  memgraph::utils::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database

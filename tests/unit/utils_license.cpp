@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "utils/license.hpp"
+#include "license/license.hpp"
 #include "utils/settings.hpp"
 
 class LicenseTest : public ::testing::Test {
@@ -21,7 +21,7 @@ class LicenseTest : public ::testing::Test {
     settings->Initialize(settings_directory);
 
     license_checker.emplace();
-    memgraph::utils::license::RegisterLicenseSettings(*license_checker, *settings);
+    memgraph::license::RegisterLicenseSettings(*license_checker, *settings);
 
     license_checker->StartBackgroundLicenseChecker(*settings);
   }
@@ -38,20 +38,20 @@ class LicenseTest : public ::testing::Test {
   }
 
   std::optional<memgraph::utils::Settings> settings;
-  std::optional<memgraph::utils::license::LicenseChecker> license_checker;
+  std::optional<memgraph::license::LicenseChecker> license_checker;
 };
 
 TEST_F(LicenseTest, EncodeDecode) {
   const std::array licenses = {
-      memgraph::utils::license::License{"Organization", 1, 2, memgraph::utils::license::LicenseType::OEM},
-      memgraph::utils::license::License{"", -1, 0, memgraph::utils::license::LicenseType::ENTERPRISE},
-      memgraph::utils::license::License{"Some very long name for the organization Ltd", -999, -9999,
-                                        memgraph::utils::license::LicenseType::ENTERPRISE},
+      memgraph::license::License{"Organization", 1, 2, memgraph::license::LicenseType::OEM},
+      memgraph::license::License{"", -1, 0, memgraph::license::LicenseType::ENTERPRISE},
+      memgraph::license::License{"Some very long name for the organization Ltd", -999, -9999,
+                                 memgraph::license::LicenseType::ENTERPRISE},
   };
 
   for (const auto &license : licenses) {
-    const auto result = memgraph::utils::license::Encode(license);
-    auto maybe_license = memgraph::utils::license::Decode(result);
+    const auto result = memgraph::license::Encode(license);
+    auto maybe_license = memgraph::license::Decode(result);
     ASSERT_TRUE(maybe_license);
     ASSERT_EQ(*maybe_license, license);
   }
@@ -70,9 +70,9 @@ TEST_F(LicenseTest, TestingFlag) {
 
 TEST_F(LicenseTest, LicenseOrganizationName) {
   const std::string organization_name{"Memgraph"};
-  memgraph::utils::license::License license{organization_name, 0, 0, memgraph::utils::license::LicenseType::ENTERPRISE};
+  memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
 
-  settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
+  settings->SetValue("enterprise.license", memgraph::license::Encode(license));
   settings->SetValue("organization.name", organization_name);
   CheckLicenseValidity(true);
 
@@ -91,10 +91,10 @@ TEST_F(LicenseTest, Expiration) {
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
     const auto delta = std::chrono::seconds(1);
     const auto valid_until = now + delta;
-    memgraph::utils::license::License license{organization_name, valid_until.count(), 0,
-                                              memgraph::utils::license::LicenseType::ENTERPRISE};
+    memgraph::license::License license{organization_name, valid_until.count(), 0,
+                                       memgraph::license::LicenseType::ENTERPRISE};
 
-    settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
+    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
 
@@ -104,9 +104,8 @@ TEST_F(LicenseTest, Expiration) {
   }
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
-    memgraph::utils::license::License license{organization_name, 0, 0,
-                                              memgraph::utils::license::LicenseType::ENTERPRISE};
-    settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
+    memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+    settings->SetValue("enterprise.license", memgraph::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
   }
@@ -116,8 +115,8 @@ TEST_F(LicenseTest, LicenseInfoOverride) {
   CheckLicenseValidity(false);
 
   const std::string organization_name{"Memgraph"};
-  memgraph::utils::license::License license{organization_name, 0, 0, memgraph::utils::license::LicenseType::ENTERPRISE};
-  const std::string license_key = memgraph::utils::license::Encode(license);
+  memgraph::license::License license{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+  const std::string license_key = memgraph::license::Encode(license);
 
   {
     SCOPED_TRACE("Checker should use overrides instead of info from the settings");
@@ -143,15 +142,14 @@ TEST_F(LicenseTest, LicenseType) {
   CheckLicenseValidity(false);
   const std::string organization_name{"Memgraph"};
   {
-    memgraph::utils::license::License license_entr{organization_name, 0, 0,
-                                                   memgraph::utils::license::LicenseType::ENTERPRISE};
-    const std::string license_key = memgraph::utils::license::Encode(license_entr);
+    memgraph::license::License license_entr{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const std::string license_key = memgraph::license::Encode(license_entr);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(true);
   }
   {
-    memgraph::utils::license::License license_oem{organization_name, 0, 0, memgraph::utils::license::LicenseType::OEM};
-    const std::string license_key = memgraph::utils::license::Encode(license_oem);
+    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
   }

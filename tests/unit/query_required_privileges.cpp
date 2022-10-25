@@ -13,11 +13,11 @@
 #include <gtest/gtest.h>
 #include <unordered_map>
 
+#include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "storage/v2/id_types.hpp"
-#include "utils/license.hpp"
 
 #include "query_common.hpp"
 
@@ -100,7 +100,7 @@ TEST_F(TestPrivilegeExtractor, CreateIndex) {
 }
 #ifdef MG_ENTERPRISE
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
-  memgraph::utils::license::global_license_checker.EnableTesting();
+  memgraph::license::global_license_checker.EnableTesting();
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};

@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/license.hpp"
+#include "license/license.hpp"
 
 #include <atomic>
 #include <charconv>
@@ -28,7 +28,7 @@
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
-namespace memgraph::utils::license {
+namespace memgraph::license {
 
 namespace {
 inline constexpr std::string_view license_key_prefix = "mglk-";
@@ -270,7 +270,7 @@ std::string Encode(const License &license) {
   slk::Save(static_cast<std::underlying_type_t<LicenseType>>(license.type), &builder);
   builder.Finalize();
 
-  return std::string{license_key_prefix} + base64_encode(buffer.data(), buffer.size());
+  return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
 }
 
 std::optional<License> Decode(std::string_view license_key) {
@@ -282,7 +282,7 @@ std::optional<License> Decode(std::string_view license_key) {
 
   const auto decoded = std::invoke([license_key]() -> std::optional<std::string> {
     try {
-      return base64_decode(license_key);
+      return utils::base64_decode(license_key);
     } catch (const std::runtime_error & /*exception*/) {
       return std::nullopt;
     }
@@ -308,4 +308,4 @@ std::optional<License> Decode(std::string_view license_key) {
   }
 }
 
-}  // namespace memgraph::utils::license
+}  // namespace memgraph::license

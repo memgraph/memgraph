@@ -18,7 +18,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 
-namespace memgraph::utils::license {
+namespace memgraph::license {
 
 enum class LicenseType : uint8_t { ENTERPRISE, OEM };
 
@@ -93,4 +93,4 @@ std::string Encode(const License &license);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern LicenseChecker global_license_checker;
-}  // namespace memgraph::utils::license
+}  // namespace memgraph::license

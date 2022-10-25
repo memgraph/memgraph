@@ -25,6 +25,7 @@
 
 #include "auth/models.hpp"
 #include "glue/communication.hpp"
+#include "license/license.hpp"
 #include "memory/memory_control.hpp"
 #include "query/constants.hpp"
 #include "query/context.hpp"
@@ -54,7 +55,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/license.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -299,7 +299,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
-  const auto license_check_result = utils::license::global_license_checker.IsEnterpriseEnabled(utils::global_settings);
+  const auto license_check_result = license::global_license_checker.IsEnterpriseEnabled(utils::global_settings);
 
   static const std::unordered_set enterprise_only_methods{
       AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
@@ -309,7 +309,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   if (license_check_result.HasError() && enterprise_only_methods.contains(auth_query->action_)) {
     throw utils::BasicException(
-        utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
+        license::LicenseCheckErrorToString(license_check_result.GetError(), "advanced authentication features"));
   }
 
   switch (auth_query->action_) {
@@ -1017,7 +1017,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsEnterpriseEnabledFast() && username.has_value() && dba) {
+  if (license::global_license_checker.IsEnterpriseEnabledFast() && username.has_value() && dba) {
     ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
   }
 #endif
