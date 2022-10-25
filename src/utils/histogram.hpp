@@ -61,6 +61,7 @@ class Histogram {
 
   double Percentile(double percentile) const {
     MG_ASSERT(percentile <= 100.0, "percentiles must not exceed 100.0");
+    MG_ASSERT(percentile >= 0.0, "percentiles must be greater than or equal to 0.0");
 
     if (count == 0) {
       return NAN;
