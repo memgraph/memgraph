@@ -19,14 +19,20 @@ namespace memgraph::utils {
 
 // This is a logarithmically bucketing histogram optimized
 // for collecting network response latency distributions.
+// It "compresses" values by mapping them to a point on a
+// logarithmic curve, which serves as the bucket index. This
+// compression technique allows for very accurate histograms
+// (unlike what is the case for sampling or lossy probabilistic
+// approaches) with the trade-off that we sacrifice around 1%
+// precision.
 //
 // properties:
 // * roughly 1% precision loss - can be higher for values
 //   less than 100, so if measuring latency, generally do
 //   so in microseconds.
-// * ~32kb constant space, single allocation
+// * ~32kb constant space, single allocation per Histogram.
 // * Histogram::Percentile() will return 0 if there were no
-//   collected samples yet.
+//   samples measured yet.
 class Histogram {
   std::vector<uint64_t> samples = {};
 
