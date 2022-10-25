@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <limits>
 #include <map>
@@ -264,6 +265,10 @@ DEFINE_uint64(
     memory_limit, 0,
     "Total memory limit in MiB. Set to 0 to use the default values which are 100\% of the phyisical memory if the swap "
     "is enabled and 90\% of the physical memory otherwise.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(split_file, "",
+              "Path to the split file which contains the predefined labels, properties, edge types and shard-ranges.");
 
 namespace {
 using namespace std::literals;
@@ -639,15 +644,22 @@ int main(int argc, char **argv) {
       .listen_port = unique_local_addr_query.last_known_port,
   };
 
-  const std::string property{"property"};
-  const std::string label{"label"};
   memgraph::coordinator::ShardMap sm;
-  auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{property});
-  auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"TO"});
-  std::vector<memgraph::storage::v3::SchemaProperty> schema{{prop_map.at(property), memgraph::common::SchemaType::INT}};
-  sm.InitializeNewLabel(label, schema, 1, sm.shard_map_version);
-  sm.SplitShard(sm.GetHlc(), *sm.GetLabelId(label),
-                std::vector<memgraph::storage::v3::PropertyValue>{memgraph::storage::v3::PropertyValue{2}});
+  if (FLAGS_split_file.empty()) {
+    const std::string property{"property"};
+    const std::string label{"label"};
+    auto prop_map = sm.AllocatePropertyIds(std::vector<std::string>{property});
+    auto edge_type_map = sm.AllocateEdgeTypeIds(std::vector<std::string>{"TO"});
+    std::vector<memgraph::storage::v3::SchemaProperty> schema{
+        {prop_map.at(property), memgraph::common::SchemaType::INT}};
+    sm.InitializeNewLabel(label, schema, 1, sm.shard_map_version);
+    sm.SplitShard(sm.GetHlc(), *sm.GetLabelId(label),
+                  std::vector<memgraph::storage::v3::PropertyValue>{memgraph::storage::v3::PropertyValue{2}});
+  } else {
+    std::ifstream input{FLAGS_split_file, std::ios::in};
+    MG_ASSERT(input.is_open(), "Cannot open split file to read: {}", FLAGS_split_file);
+    sm = memgraph::coordinator::ShardMap::Parse(input);
+  }
 
   memgraph::coordinator::Coordinator coordinator{sm};
 
