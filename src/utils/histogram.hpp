@@ -66,7 +66,7 @@ class Histogram {
 
     count++;
     samples[sample_index]++;
-    sum += count;
+    sum += value;
   }
 
   uint64_t Percentile(double percentile) const {
