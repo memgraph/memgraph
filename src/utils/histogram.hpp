@@ -13,6 +13,8 @@
 
 #include <cmath>
 
+#include "utils/logging.hpp"
+
 namespace memgraph::utils {
 
 // This is a logarithmically bucketing histogram optimized
