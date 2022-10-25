@@ -11,8 +11,6 @@
 
 #pragma once
 
-// a histogram suitable for
-
 #include <cmath>
 
 namespace memgraph::utils {
