@@ -20,6 +20,7 @@
 #include <boost/core/demangle.hpp>
 
 #include "io/time.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::io {
 
@@ -27,6 +28,7 @@ constexpr auto sample_limit = (16 * 1024) - 1;
 constexpr auto precision = 100.0;
 
 struct LatencyHistogramSummary {
+  uint64_t count;
   Duration p0;
   Duration p50;
   Duration p75;
@@ -37,18 +39,21 @@ struct LatencyHistogramSummary {
   Duration p999;
   Duration p9999;
   Duration p100;
+  Duration sum;
 
   friend std::ostream &operator<<(std::ostream &in, const LatencyHistogramSummary &histo) {
-    in << "LatencyHistogramSummary { p0: " << histo.p0.count();
-    in << ", p50: " << histo.p50.count();
-    in << ", p75: " << histo.p75.count();
-    in << ", p90: " << histo.p90.count();
-    in << ", p95: " << histo.p95.count();
-    in << ", p975: " << histo.p975.count();
-    in << ", p99: " << histo.p99.count();
-    in << ", p999: " << histo.p999.count();
-    in << ", p9999: " << histo.p9999.count();
-    in << ", p100: " << histo.p100.count();
+    in << "LatencyHistogramSummary { \"count\": " << histo.count;
+    in << ", \"p0\": " << histo.p0.count();
+    in << ", \"p50\": " << histo.p50.count();
+    in << ", \"p75\": " << histo.p75.count();
+    in << ", \"p90\": " << histo.p90.count();
+    in << ", \"p95\": " << histo.p95.count();
+    in << ", \"p975\": " << histo.p975.count();
+    in << ", \"p99\": " << histo.p99.count();
+    in << ", \"p999\": " << histo.p999.count();
+    in << ", \"p9999\": " << histo.p9999.count();
+    in << ", \"p100\": " << histo.p100.count();
+    in << ", \"sum\": " << histo.sum.count();
     in << " }";
 
     return in;
@@ -109,7 +114,7 @@ class MessageHistogramCollector {
   void Measure(const std::type_info &type_info, const Duration &duration) {
     // TODO(tyler)
     auto count = duration.count();
-    double floated = static_cast<double>(count);
+    auto floated = static_cast<double>(count);
     auto boosted = 1.0 + floated;
     auto ln = std::log(boosted);
     auto compressed = precision * ln + 0.5;
@@ -130,6 +135,7 @@ class MessageHistogramCollector {
       std::string demangled_name = boost::core::demangle(type_id.get().name());
 
       LatencyHistogramSummary latency_histogram_summary{
+          .count = histo.count,
           .p0 = histo.Percentile(0.0),
           .p50 = histo.Percentile(50.0),
           .p75 = histo.Percentile(75.0),
@@ -140,6 +146,7 @@ class MessageHistogramCollector {
           .p999 = histo.Percentile(99.9),
           .p9999 = histo.Percentile(99.99),
           .p100 = histo.Percentile(100.0),
+          .sum = Duration(histo.sum),
       };
 
       ret.emplace(demangled_name, latency_histogram_summary);
