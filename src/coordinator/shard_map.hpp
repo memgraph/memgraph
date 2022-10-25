@@ -294,7 +294,7 @@ struct ShardMap {
     return std::nullopt;
   }
 
-  std::string GetPropertyName(const PropertyId property) const {
+  const std::string &GetPropertyName(const PropertyId property) const {
     if (const auto it = std::ranges::find_if(
             properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
         it != properties.end()) {
@@ -311,7 +311,7 @@ struct ShardMap {
     return std::nullopt;
   }
 
-  std::string GetEdgeTypeName(const EdgeTypeId property) const {
+  const std::string &GetEdgeTypeName(const EdgeTypeId property) const {
     if (const auto it = std::ranges::find_if(
             edge_types, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
         it != edge_types.end()) {

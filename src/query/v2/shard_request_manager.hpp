@@ -223,16 +223,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return shards_map_.GetLabelId(name).value();
   }
 
-  const std::string &PropertyToName(memgraph::storage::v3::PropertyId /*prop*/) const override {
-    static std::string str{"dummy__prop"};
-    return str;
+  const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const override {
+    return shards_map_.GetPropertyName(prop);
   }
   const std::string &LabelToName(memgraph::storage::v3::LabelId label) const override {
     return shards_map_.GetLabelName(label);
   }
-  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId /*type*/) const override {
-    static std::string str{"dummy__edgetype"};
-    return str;
+  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const override {
+    return shards_map_.GetEdgeTypeName(type);
   }
 
   bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
