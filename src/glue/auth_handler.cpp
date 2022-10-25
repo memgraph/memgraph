@@ -231,7 +231,7 @@ AuthQueryHandler::AuthQueryHandler(
 bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password) {
   if (name_regex_string_ != kDefaultUserRoleRegex) {
     if (const auto license_check_result =
-            memgraph::utils::license::global_license_checker.IsValidLicense(memgraph::utils::global_settings);
+            memgraph::utils::license::global_license_checker.IsEnterpriseEnabled(memgraph::utils::global_settings);
         license_check_result.HasError()) {
       throw memgraph::auth::AuthException(
           "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "

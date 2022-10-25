@@ -58,12 +58,8 @@ struct LicenseChecker {
   void CheckEnvLicense();
   void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting();
-  // Checks if license is valid
-  LicenseCheckResult IsValidLicense(const utils::Settings &settings) const;
   // Checks if license is valid and if enterprise is enabled
   LicenseCheckResult IsEnterpriseEnabled(const utils::Settings &settings) const;
-
-  bool IsValidLicenseFast() const;
   bool IsEnterpriseEnabledFast() const;
 
   void StartBackgroundLicenseChecker(const utils::Settings &settings);

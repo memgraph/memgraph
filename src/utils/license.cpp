@@ -223,21 +223,6 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
   }
 }
 
-LicenseCheckResult LicenseChecker::IsValidLicense(const utils::Settings &settings) const {
-  if (enterprise_enabled_) [[unlikely]] {
-    return {};
-  }
-
-  const auto license_info = GetLicenseInfo(settings);
-
-  const auto maybe_license = GetLicense(license_info.first);
-  if (!maybe_license) {
-    return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
-  }
-
-  return IsValidLicenseInternal(*maybe_license, license_info.second);
-}
-
 LicenseCheckResult LicenseChecker::IsEnterpriseEnabled(const utils::Settings &settings) const {
   if (enterprise_enabled_) [[unlikely]] {
     return {};
@@ -260,8 +245,6 @@ void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settin
   RevalidateLicense(settings);
   scheduler_.Run("licensechecker", std::chrono::minutes{5}, [&, this] { RevalidateLicense(settings); });
 }
-
-bool LicenseChecker::IsValidLicenseFast() const { return is_valid_.load(std::memory_order_relaxed); }
 
 bool LicenseChecker::IsEnterpriseEnabledFast() const {
   return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);

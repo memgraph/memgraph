@@ -33,8 +33,8 @@ class LicenseTest : public ::testing::Test {
   const std::filesystem::path settings_directory{test_directory / "settings"};
 
   void CheckLicenseValidity(const bool expected_valid) {
-    ASSERT_EQ(!license_checker->IsValidLicense(*settings).HasError(), expected_valid);
-    ASSERT_EQ(license_checker->IsValidLicenseFast(), expected_valid);
+    ASSERT_EQ(!license_checker->IsEnterpriseEnabled(*settings).HasError(), expected_valid);
+    ASSERT_EQ(license_checker->IsEnterpriseEnabledFast(), expected_valid);
   }
 
   std::optional<memgraph::utils::Settings> settings;
@@ -43,9 +43,10 @@ class LicenseTest : public ::testing::Test {
 
 TEST_F(LicenseTest, EncodeDecode) {
   const std::array licenses = {
-      memgraph::utils::license::License{"Organization", 1, 2},
-      memgraph::utils::license::License{"", -1, 0},
-      memgraph::utils::license::License{"Some very long name for the organization Ltd", -999, -9999},
+      memgraph::utils::license::License{"Organization", 1, 2, memgraph::utils::license::LicenseType::OEM},
+      memgraph::utils::license::License{"", -1, 0, memgraph::utils::license::LicenseType::ENTERPRISE},
+      memgraph::utils::license::License{"Some very long name for the organization Ltd", -999, -9999,
+                                        memgraph::utils::license::LicenseType::ENTERPRISE},
   };
 
   for (const auto &license : licenses) {
@@ -99,7 +100,7 @@ TEST_F(LicenseTest, Expiration) {
     CheckLicenseValidity(true);
 
     std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_TRUE(license_checker->IsValidLicense(*settings).HasError());
+    ASSERT_TRUE(license_checker->IsEnterpriseEnabled(*settings).HasError());
     // We can't check fast checker because it has unknown refresh rate
   }
   {
