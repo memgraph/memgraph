@@ -22,23 +22,24 @@ namespace memgraph::utils {
 // * roughly 1% precision loss - can be higher for values
 //   less than 100, so if measuring latency, generally do
 //   so in microseconds.
-// * ~40kb constant space, single allocation
-// * Histogram::Percentile() can return NaN if there were no
+// * ~32kb constant space, single allocation
+// * Histogram::Percentile() will return 0 if there were no
 //   collected samples yet.
 class Histogram {
   std::vector<uint64_t> samples = {};
 
-  // 5442 is what numeric_limits<double>::max() compresses to,
-  // so by making 5443 sample slots, we have enough room for the
-  // entire range of double measurements.
-  constexpr static auto sample_limit = 5443;
+  // This is the number of buckets that observed values
+  // will be logarithmically compressed into.
+  constexpr static auto sample_limit = 4096;
 
   // This is roughly 1/error rate, where 100.0 is roughly
   // a 1% error bound for measurements. This is less true
   // for tiny measurements, but because we tend to measure
   // microseconds, it is usually over 100, which is where
-  // the error bound starts to stabilize a bit.
-  constexpr static auto precision = 100.0;
+  // the error bound starts to stabilize a bit. This has
+  // been tuned to allow the maximum uint64_t to compress
+  // within 4096 samples while still achieving a high accuracy.
+  constexpr static auto precision = 92.0;
 
  public:
   uint64_t count = 0;
@@ -46,25 +47,26 @@ class Histogram {
 
   Histogram() { samples.resize(sample_limit, 0); }
 
-  void Measure(double value) {
+  void Measure(uint64_t value) {
     // "compression" logic
-    auto boosted = 1.0 + value;
-    auto ln = std::log(boosted);
-    auto compressed = precision * ln + 0.5;
+    double boosted = 1.0 + static_cast<double>(value);
+    double ln = std::log(boosted);
+    double compressed = (precision * ln) + 0.5;
+
+    MG_ASSERT(compressed < sample_limit, "compressing value {} to {} is invalid", value, compressed);
     auto sample_index = static_cast<uint16_t>(compressed);
-    MG_ASSERT(sample_index < sample_limit);
 
     count++;
     samples[sample_index]++;
     sum += count;
   }
 
-  double Percentile(double percentile) const {
+  uint64_t Percentile(double percentile) const {
     MG_ASSERT(percentile <= 100.0, "percentiles must not exceed 100.0");
     MG_ASSERT(percentile >= 0.0, "percentiles must be greater than or equal to 0.0");
 
     if (count == 0) {
-      return NAN;
+      return 0;
     }
 
     const auto floated_count = static_cast<double>(count);
@@ -80,12 +82,12 @@ class Histogram {
         auto floated = static_cast<double>(i);
         auto unboosted = floated / precision;
         auto decompressed = std::exp(unboosted) - 1.0;
-        return decompressed;
+        return static_cast<uint64_t>(decompressed);
       }
     }
 
     MG_ASSERT(false, "bug in Histogram::Percentile where it failed to return the {} percentile", percentile);
-    return NAN;
+    return 0;
   }
 };
 

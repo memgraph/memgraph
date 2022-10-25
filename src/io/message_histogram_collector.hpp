@@ -73,7 +73,6 @@ class MessageHistogramCollector {
  public:
   void Measure(const std::type_info &type_info, const Duration &duration) {
     auto &histo = histograms_[type_info];
-    histo.Measure(std::numeric_limits<double>::max());
     histo.Measure(duration.count());
   }
 
