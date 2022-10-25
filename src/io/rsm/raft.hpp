@@ -95,7 +95,7 @@ utils::TypeInfoRef TypeInfoFor(const ReadResponse<std::variant<ReadReturn...>> &
 }
 
 template <class ReadReturn>
-utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> &read_response) {
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> & /* read_response */) {
   return typeid(ReadReturn);
 }
 
@@ -105,7 +105,7 @@ utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>>
 }
 
 template <class WriteReturn>
-utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> &write_response) {
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> & /* write_response */) {
   return typeid(WriteReturn);
 }
 
