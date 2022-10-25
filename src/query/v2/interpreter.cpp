@@ -1040,7 +1040,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME", "CUSTOM DATA"},
                        std::move(parsed_query.required_privileges),
                        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
                         summary, dba, interpreter_context, execution_memory, memory_limit, shard_request_manager,

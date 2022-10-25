@@ -27,6 +27,8 @@ namespace plan {
  */
 struct ProfilingStats {
   static constexpr std::string_view kNumCycles{"num_cycles"};
+  static constexpr std::string_view kRelativeTime{"relative_time"};
+  static constexpr std::string_view kAbsoluteTime{"absolute_time"};
 
   int64_t actual_hits{0};
   uint64_t num_cycles{0};
