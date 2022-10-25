@@ -89,19 +89,24 @@ struct ReadResponse {
   std::optional<Address> retry_leader;
 };
 
-template <class... T>
-utils::TypeInfoRef TypeInfoFor(const std::variant<T...> &t) {
-  return TypeInfoForVariant(t);
+template <class... ReadReturn>
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<std::variant<ReadReturn...>> &read_response) {
+  return TypeInfoForVariant(read_response.read_return);
 }
 
 template <class ReadReturn>
 utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> &read_response) {
-  return TypeInfoFor(read_response.read_return);
+  return typeid(ReadReturn);
+}
+
+template <class... WriteReturn>
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>> &write_response) {
+  return TypeInfoForVariant(write_response.write_return);
 }
 
 template <class WriteReturn>
 utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> &write_response) {
-  return TypeInfoFor(write_response.write_return);
+  return typeid(WriteReturn);
 }
 
 /// AppendRequest is a raft-level message that the Leader
