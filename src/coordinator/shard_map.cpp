@@ -214,6 +214,7 @@ Shards ShardMap::GetShardsForLabel(const LabelName &label) const {
 
 std::vector<Shards> ShardMap::GetAllShards() const {
   std::vector<Shards> all_shards;
+  all_shards.reserve(label_spaces.size());
   std::transform(label_spaces.begin(), label_spaces.end(), std::back_inserter(all_shards),
                  [](const auto &label_space) { return label_space.second.shards; });
   return all_shards;
