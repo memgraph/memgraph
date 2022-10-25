@@ -1010,9 +1010,9 @@ msgs::ReadResponses ShardRsm::HandleRead(msgs::ScanVerticesRequest &&req) {
 msgs::ReadResponses ShardRsm::HandleRead(msgs::ExpandOneRequest &&req) {
   if (!req.order_by.empty()) {
     return HandleReadWithOrderBy(std::move(req), shard_->Access(req.transaction_id));
-  } else {
+  } else
+
     return HandleReadWithoutOrderBy(std::move(req), shard_->Access(req.transaction_id));
-  }
 }
 
 msgs::WriteResponses ShardRsm::ApplyWrite(msgs::CommitRequest &&req) {
