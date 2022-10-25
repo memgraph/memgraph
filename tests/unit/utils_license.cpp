@@ -70,8 +70,7 @@ TEST_F(LicenseTest, TestingFlag) {
 
 TEST_F(LicenseTest, LicenseOrganizationName) {
   const std::string organization_name{"Memgraph"};
-  memgraph::utils::license::License license{
-      .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+  memgraph::utils::license::License license{organization_name, 0, 0, memgraph::utils::license::LicenseType::ENTERPRISE};
 
   settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
   settings->SetValue("organization.name", organization_name);
@@ -92,8 +91,8 @@ TEST_F(LicenseTest, Expiration) {
         std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch());
     const auto delta = std::chrono::seconds(1);
     const auto valid_until = now + delta;
-    memgraph::utils::license::License license{
-        .organization_name = organization_name, .valid_until = valid_until.count(), .memory_limit = 0};
+    memgraph::utils::license::License license{organization_name, valid_until.count(), 0,
+                                              memgraph::utils::license::LicenseType::ENTERPRISE};
 
     settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
@@ -105,8 +104,8 @@ TEST_F(LicenseTest, Expiration) {
   }
   {
     SCOPED_TRACE("License with valid_until = 0 is always valid");
-    memgraph::utils::license::License license{
-        .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+    memgraph::utils::license::License license{organization_name, 0, 0,
+                                              memgraph::utils::license::LicenseType::ENTERPRISE};
     settings->SetValue("enterprise.license", memgraph::utils::license::Encode(license));
     settings->SetValue("organization.name", organization_name);
     CheckLicenseValidity(true);
@@ -117,8 +116,7 @@ TEST_F(LicenseTest, LicenseInfoOverride) {
   CheckLicenseValidity(false);
 
   const std::string organization_name{"Memgraph"};
-  memgraph::utils::license::License license{
-      .organization_name = organization_name, .valid_until = 0, .memory_limit = 0};
+  memgraph::utils::license::License license{organization_name, 0, 0, memgraph::utils::license::LicenseType::ENTERPRISE};
   const std::string license_key = memgraph::utils::license::Encode(license);
 
   {
@@ -137,6 +135,24 @@ TEST_F(LicenseTest, LicenseInfoOverride) {
     CheckLicenseValidity(false);
     settings->SetValue("enterprise.license", license_key);
     settings->SetValue("organization.name", organization_name);
+    CheckLicenseValidity(false);
+  }
+}
+
+TEST_F(LicenseTest, LicenseType) {
+  CheckLicenseValidity(false);
+  const std::string organization_name{"Memgraph"};
+  {
+    memgraph::utils::license::License license_entr{organization_name, 0, 0,
+                                                   memgraph::utils::license::LicenseType::ENTERPRISE};
+    const std::string license_key = memgraph::utils::license::Encode(license_entr);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    CheckLicenseValidity(true);
+  }
+  {
+    memgraph::utils::license::License license_oem{organization_name, 0, 0, memgraph::utils::license::LicenseType::OEM};
+    const std::string license_key = memgraph::utils::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
   }
 }

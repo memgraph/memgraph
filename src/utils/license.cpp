@@ -157,12 +157,18 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     spdlog::warn(LicenseCheckErrorToString(license_check_result.GetError(), "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = false;
+    license_type_ = maybe_license->type;
     set_memory_limit(0);
     return;
   }
 
   if (!same_license_info) {
-    spdlog::info("All Enterprise features are active.");
+    license_type_ = maybe_license->type;
+    if (license_type_ == LicenseType::ENTERPRISE) {
+      spdlog::info("All Enterprise features are active.");
+    } else {
+      spdlog::info("OEM License is active.");
+    }
     is_valid_.store(true, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
@@ -296,10 +302,7 @@ std::optional<License> Decode(std::string_view license_key) {
     slk::Load(&memory_limit, &reader);
     std::underlying_type_t<LicenseType> license_type{0};
     slk::Load(&license_type, &reader);
-    return License{.organization_name = organization_name,
-                   .valid_until = valid_until,
-                   .memory_limit = memory_limit,
-                   .type = LicenseType(license_type)};
+    return {License{organization_name, valid_until, memory_limit, LicenseType(license_type)}};
   } catch (const slk::SlkReaderException &e) {
     return std::nullopt;
   }

@@ -23,6 +23,14 @@ namespace memgraph::utils::license {
 enum class LicenseType : uint8_t { ENTERPRISE, OEM };
 
 struct License {
+  License() = default;
+
+  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
+      : organization_name{std::move(organization_name)},
+        valid_until{valid_until},
+        memory_limit{memory_limit},
+        type{license_type} {}
+
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
