@@ -12,11 +12,14 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::license {
 
@@ -37,6 +40,16 @@ struct License {
   LicenseType type;
 
   bool operator==(const License &) const = default;
+};
+
+struct LicenseInfo {
+  LicenseInfo(std::string license_key, std::string organization_name)
+      : license_key(std::move(license_key)), organization_name{std::move(organization_name)} {}
+
+  std::string license_key;
+  std::string organization_name;
+  bool is_valid{false};
+  License license;
 };
 
 inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
@@ -72,12 +85,15 @@ struct LicenseChecker {
 
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
+  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
+
  private:
-  std::pair<std::string, std::string> GetLicenseInfo(const utils::Settings &settings) const;
+  std::pair<std::string, std::string> ExtractLicenseInfo(const utils::Settings &settings) const;
   void RevalidateLicense(const utils::Settings &settings);
   void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
 
   std::optional<std::pair<std::string, std::string>> license_info_override_;
+  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_;
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
   LicenseType license_type_;

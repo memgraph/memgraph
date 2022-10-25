@@ -12,34 +12,38 @@
 #pragma once
 
 #include <chrono>
-#include <json/json.hpp>
 #include <string>
+
+#include <json/json.hpp>
+
+#include "license/license.hpp"
+#include "utils/scheduler.hpp"
+#include "utils/timer.hpp"
 
 namespace memgraph::license {
 
 class LicenseInfoSender final {
  public:
-  LicenseInfoSender(std::string url, std::filesystem::path storage_directory,
-                    std::chrono::duration<int64_t> request_frequency = std::chrono::hours(10));
+  explicit LicenseInfoSender(std::string url,
+                             utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
+                             std::chrono::duration<int64_t> request_frequency = std::chrono::hours(10));
+
+  LicenseInfoSender(const LicenseInfoSender &) = delete;
+  LicenseInfoSender(LicenseInfoSender &&) noexcept = delete;
+  LicenseInfoSender &operator=(const LicenseInfoSender &) = delete;
+  LicenseInfoSender &operator=(LicenseInfoSender &&) noexcept = delete;
+  ~LicenseInfoSender();
 
  private:
-  void StoreData(const nlohmann::json &event, const nlohmann::json &data);
   void SendData();
-  void CollectData(const std::string &event = "");
 
   const std::string url_;
   const std::string uuid_;
   const std::string machine_id_;
-  uint64_t num_{0};
+
+  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
   utils::Scheduler scheduler_;
   utils::Timer timer_;
-
-  const uint64_t send_every_n_;
-
-  std::mutex lock_;
-  std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>> collectors_;
-
-  kvstore::KVStore storage_;
 };
 
 }  // namespace memgraph::license

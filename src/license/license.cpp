@@ -82,7 +82,7 @@ LicenseChecker global_license_checker;
 
 LicenseChecker::~LicenseChecker() { scheduler_.Stop(); }
 
-std::pair<std::string, std::string> LicenseChecker::GetLicenseInfo(const utils::Settings &settings) const {
+std::pair<std::string, std::string> LicenseChecker::ExtractLicenseInfo(const utils::Settings &settings) const {
   if (license_info_override_) {
     spdlog::warn("Ignoring license info stored in the settings because a different source was specified.");
     return *license_info_override_;
@@ -97,7 +97,7 @@ std::pair<std::string, std::string> LicenseChecker::GetLicenseInfo(const utils::
 }
 
 void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
-  const auto license_info = GetLicenseInfo(settings);
+  const auto license_info = ExtractLicenseInfo(settings);
   RevalidateLicense(license_info.first, license_info.second);
 }
 
@@ -118,18 +118,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     return;
   }
 
-  struct PreviousLicenseInfo {
-    PreviousLicenseInfo(std::string license_key, std::string organization_name)
-        : license_key(std::move(license_key)), organization_name(std::move(organization_name)) {}
-
-    std::string license_key;
-    std::string organization_name;
-    bool is_valid{false};
-  };
-
-  static utils::Synchronized<std::optional<PreviousLicenseInfo>, utils::SpinLock> previous_license_info;
-
-  auto locked_previous_license_info_ptr = previous_license_info.Lock();
+  auto locked_previous_license_info_ptr = previous_license_info_.Lock();
   auto &locked_previous_license_info = *locked_previous_license_info_ptr;
   const bool same_license_info = locked_previous_license_info &&
                                  locked_previous_license_info->license_key == license_key &&
@@ -141,7 +130,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
 
   locked_previous_license_info.emplace(license_key, organization_name);
 
-  const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
+  auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
     spdlog::warn(LicenseCheckErrorToString(LicenseCheckError::INVALID_LICENSE_KEY_STRING, "Enterprise features"));
     is_valid_.store(false, std::memory_order_relaxed);
@@ -172,6 +161,7 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     is_valid_.store(true, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = true;
     set_memory_limit(maybe_license->memory_limit);
+    locked_previous_license_info->license = std::move(*maybe_license);
   }
 }
 
@@ -234,7 +224,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseEnabled(const utils::Settings &se
     return {};
   }
 
-  const auto license_info = GetLicenseInfo(settings);
+  const auto license_info = ExtractLicenseInfo(settings);
 
   const auto maybe_license = GetLicense(license_info.first);
   if (!maybe_license) {
@@ -250,6 +240,10 @@ LicenseCheckResult LicenseChecker::IsEnterpriseEnabled(const utils::Settings &se
 void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settings) {
   RevalidateLicense(settings);
   scheduler_.Run("licensechecker", std::chrono::minutes{5}, [&, this] { RevalidateLicense(settings); });
+}
+
+utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker::GetLicenseInfo() {
+  return previous_license_info_;
 }
 
 bool LicenseChecker::IsEnterpriseEnabledFast() const {
