@@ -342,6 +342,8 @@ class Shard final {
 
   LabelId PrimaryLabel() const;
 
+  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
+
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, std::optional<uint64_t> desired_commit_timestamp = {});
 
@@ -375,8 +377,6 @@ class Shard final {
   Transaction &GetTransaction(coordinator::Hlc start_timestamp, IsolationLevel isolation_level);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
-
-  [[nodiscard]] bool IsVertexBelongToShard(const VertexId &vertex_id) const;
 
   // Main object storage
   NameIdMapper name_id_mapper_;

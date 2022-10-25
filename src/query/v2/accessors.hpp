@@ -36,57 +36,61 @@ class VertexAccessor;
 
 class EdgeAccessor final {
  public:
-  EdgeAccessor(Edge edge, std::vector<std::pair<PropertyId, Value>> props);
+  explicit EdgeAccessor(Edge edge);
 
-  EdgeTypeId EdgeType() const;
+  [[nodiscard]] EdgeTypeId EdgeType() const;
 
-  std::vector<std::pair<PropertyId, Value>> Properties() const;
+  [[nodiscard]] const std::vector<std::pair<PropertyId, Value>> &Properties() const;
 
-  Value GetProperty(const std::string &prop_name) const;
+  [[nodiscard]] Value GetProperty(const std::string &prop_name) const;
 
-  Edge GetEdge() const;
+  [[nodiscard]] const Edge &GetEdge() const;
+
+  [[nodiscard]] bool IsCycle() const;
 
   // Dummy function
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  inline size_t CypherId() const { return 10; }
+  [[nodiscard]] size_t CypherId() const { return 10; }
 
   //  bool HasSrcAccessor const { return src == nullptr; }
   //  bool HasDstAccessor const { return dst == nullptr; }
 
-  VertexAccessor To() const;
-  VertexAccessor From() const;
+  [[nodiscard]] VertexAccessor To() const;
+  [[nodiscard]] VertexAccessor From() const;
 
-  friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) {
-    return lhs.edge == rhs.edge && lhs.properties == rhs.properties;
-  }
+  friend bool operator==(const EdgeAccessor &lhs, const EdgeAccessor &rhs) { return lhs.edge == rhs.edge; }
 
   friend bool operator!=(const EdgeAccessor &lhs, const EdgeAccessor &rhs) { return !(lhs == rhs); }
 
  private:
   Edge edge;
-  std::vector<std::pair<PropertyId, Value>> properties;
 };
 
 class VertexAccessor final {
  public:
   using PropertyId = msgs::PropertyId;
   using Label = msgs::Label;
+  using VertexId = msgs::VertexId;
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props);
 
-  std::vector<Label> Labels() const;
+  [[nodiscard]] Label PrimaryLabel() const;
 
-  bool HasLabel(Label &label) const;
+  [[nodiscard]] const msgs::VertexId &Id() const;
 
-  std::vector<std::pair<PropertyId, Value>> Properties() const;
+  [[nodiscard]] std::vector<Label> Labels() const;
 
-  Value GetProperty(PropertyId prop_id) const;
-  Value GetProperty(const std::string &prop_name) const;
+  [[nodiscard]] bool HasLabel(Label &label) const;
 
-  msgs::Vertex GetVertex() const;
+  [[nodiscard]] const std::vector<std::pair<PropertyId, Value>> &Properties() const;
+
+  [[nodiscard]] Value GetProperty(PropertyId prop_id) const;
+  [[nodiscard]] Value GetProperty(const std::string &prop_name) const;
+
+  [[nodiscard]] msgs::Vertex GetVertex() const;
 
   // Dummy function
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  inline size_t CypherId() const { return 10; }
+  [[nodiscard]] size_t CypherId() const { return 10; }
 
   //  auto InEdges(storage::View view, const std::vector<storage::EdgeTypeId> &edge_types) const
   //      -> storage::Result<decltype(iter::imap(MakeEdgeAccessor, *impl_.InEdges(view)))> {
