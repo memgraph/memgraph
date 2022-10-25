@@ -13,8 +13,6 @@
 
 #include <chrono>
 #include <cmath>
-#include <functional>
-#include <typeinfo>
 #include <unordered_map>
 
 #include <boost/core/demangle.hpp>
@@ -22,6 +20,7 @@
 #include "io/time.hpp"
 #include "utils/histogram.hpp"
 #include "utils/logging.hpp"
+#include "utils/type_info_ref.hpp"
 
 namespace memgraph::io {
 
@@ -58,17 +57,8 @@ struct LatencyHistogramSummary {
   }
 };
 
-using TypeInfoRef = std::reference_wrapper<const std::type_info>;
-struct Hasher {
-  std::size_t operator()(TypeInfoRef code) const { return code.get().hash_code(); }
-};
-
-struct EqualTo {
-  bool operator()(TypeInfoRef lhs, TypeInfoRef rhs) const { return lhs.get() == rhs.get(); }
-};
-
 class MessageHistogramCollector {
-  std::unordered_map<TypeInfoRef, utils::Histogram, Hasher, EqualTo> histograms_;
+  std::unordered_map<utils::TypeInfoRef, utils::Histogram, utils::TypeInfoHasher, utils::TypeInfoEqualTo> histograms_;
 
  public:
   void Measure(const std::type_info &type_info, const Duration &duration) {

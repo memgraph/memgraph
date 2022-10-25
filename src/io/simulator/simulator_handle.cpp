@@ -125,8 +125,9 @@ bool SimulatorHandle::MaybeTickSimulator() {
     } else {
       stats_.total_responses++;
       Duration response_latency = cluster_wide_time_microseconds_ - dop.requested_at;
+      auto type_info = opaque_message.type_info;
       dop.promise.Fill(std::move(opaque_message), response_latency);
-      histograms_.Measure(dop.response_type_id, response_latency);
+      histograms_.Measure(type_info, response_latency);
     }
   } else if (should_drop) {
     // don't add it anywhere, let it drop

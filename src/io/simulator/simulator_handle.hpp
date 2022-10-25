@@ -103,6 +103,8 @@ class SimulatorHandle {
   template <Message Request, Message Response>
   void SubmitRequest(Address to_address, Address from_address, RequestId request_id, Request &&request,
                      Duration timeout, ResponsePromise<Response> &&promise) {
+    auto type_info = TypeInfoFor(request);
+
     std::unique_lock<std::mutex> lock(mu_);
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
@@ -111,15 +113,17 @@ class SimulatorHandle {
     OpaqueMessage om{.to_address = to_address,
                      .from_address = from_address,
                      .request_id = request_id,
-                     .message = std::move(message)};
+                     .message = std::move(message),
+                     .type_info = type_info};
     in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
     PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
     OpaquePromise opaque_promise(std::move(promise).ToUnique());
-    DeadlineAndOpaquePromise dop{.requested_at = cluster_wide_time_microseconds_,
-                                 .deadline = deadline,
-                                 .promise = std::move(opaque_promise),
-                                 .response_type_id = typeid(Response)};
+    DeadlineAndOpaquePromise dop{
+        .requested_at = cluster_wide_time_microseconds_,
+        .deadline = deadline,
+        .promise = std::move(opaque_promise),
+    };
     promises_.emplace(std::move(promise_key), std::move(dop));
 
     stats_.total_messages++;
@@ -171,12 +175,14 @@ class SimulatorHandle {
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M message) {
+    auto type_info = TypeInfoFor(message);
     std::unique_lock<std::mutex> lock(mu_);
     std::any message_any(std::move(message));
     OpaqueMessage om{.to_address = to_address,
                      .from_address = from_address,
                      .request_id = request_id,
-                     .message = std::move(message_any)};
+                     .message = std::move(message_any),
+                     .type_info = type_info};
     in_flight_.emplace_back(std::make_pair(std::move(to_address), std::move(om)));
 
     stats_.total_messages++;

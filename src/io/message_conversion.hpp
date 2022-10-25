@@ -12,6 +12,7 @@
 #pragma once
 
 #include "io/transport.hpp"
+#include "utils/type_info_ref.hpp"
 
 namespace memgraph::io {
 
@@ -41,6 +42,7 @@ struct OpaqueMessage {
   Address from_address;
   uint64_t request_id;
   std::any message;
+  utils::TypeInfoRef type_info;
 
   /// Recursively tries to match a specific type from the outer
   /// variant's parameter pack against the type of the std::any,
@@ -199,17 +201,21 @@ struct DeadlineAndOpaquePromise {
   Time requested_at;
   Time deadline;
   OpaquePromise promise;
-  const std::type_info &response_type_id;
 };
 
 template <class From>
-std::type_info const &type_info_for_variant(From const &from) {
+std::type_info const &TypeInfoForVariant(From const &from) {
   return std::visit([](auto &&x) -> decltype(auto) { return typeid(x); }, from);
+}
+
+template <class T>
+utils::TypeInfoRef TypeInfoFor(const T & /* t */) {
+  return typeid(T);
 }
 
 template <typename From, typename Return, typename Head, typename... Rest>
 std::optional<Return> ConvertVariantInner(From &&a) {
-  if (typeid(Head) == type_info_for_variant(a)) {
+  if (typeid(Head) == TypeInfoForVariant(a)) {
     Head concrete = std::get<Head>(std::forward<From>(a));
     return concrete;
   }

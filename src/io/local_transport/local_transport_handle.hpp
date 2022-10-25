@@ -104,11 +104,14 @@ class LocalTransportHandle {
 
   template <Message M>
   void Send(Address to_address, Address from_address, RequestId request_id, M &&message) {
+    auto type_info = TypeInfoFor(message);
+
     std::any message_any(std::forward<M>(message));
     OpaqueMessage opaque_message{.to_address = to_address,
                                  .from_address = from_address,
                                  .request_id = request_id,
-                                 .message = std::move(message_any)};
+                                 .message = std::move(message_any),
+                                 .type_info = type_info};
 
     PromiseKey promise_key{
         .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};
@@ -125,7 +128,7 @@ class LocalTransportHandle {
         Duration response_latency = Now() - dop.requested_at;
 
         dop.promise.Fill(std::move(opaque_message), response_latency);
-        histograms_.Measure(dop.response_type_id, response_latency);
+        histograms_.Measure(type_info, response_latency);
       } else {
         spdlog::info("placing message in can_receive_");
         can_receive_.emplace_back(std::move(opaque_message));
@@ -152,10 +155,7 @@ class LocalTransportHandle {
       PromiseKey promise_key{
           .requester_address = from_address, .request_id = request_id, .replier_address = to_address};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
-      DeadlineAndOpaquePromise dop{.requested_at = now,
-                                   .deadline = deadline,
-                                   .promise = std::move(opaque_promise),
-                                   .response_type_id = typeid(ResponseT)};
+      DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
