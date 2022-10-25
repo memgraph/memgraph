@@ -50,7 +50,12 @@ class Histogram {
   constexpr static auto precision = 92.0;
 
  public:
+  // count is the number of measurements that have been
+  // included in this Histogram.
   uint64_t count = 0;
+
+  // sum is the summed value of all measurements that
+  // have been included in this Histogram.
   uint64_t sum = 0;
 
   Histogram() { samples.resize(sample_limit, 0); }
