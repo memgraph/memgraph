@@ -333,36 +333,35 @@ target_link_libraries(${test_prefix}storage_v3_schema mg-storage-v3)
 
 # Test mg-query-v2
 # These are commented out because of the new TypedValue in the query engine
-#add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
-#target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)
+# add_unit_test(query_v2_interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
+# target_link_libraries(${test_prefix}query_v2_interpreter mg-storage-v3 mg-query-v2 mg-communication)
 #
-#add_unit_test(query_v2_query_plan_accumulate_aggregate.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_accumulate_aggregate mg-query-v2)
+# add_unit_test(query_v2_query_plan_accumulate_aggregate.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_accumulate_aggregate mg-query-v2)
 #
-#add_unit_test(query_v2_query_plan_create_set_remove_delete.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_create_set_remove_delete mg-query-v2 mg-expr)
+# add_unit_test(query_v2_query_plan_create_set_remove_delete.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_create_set_remove_delete mg-query-v2 mg-expr)
 #
-#add_unit_test(query_v2_query_plan_bag_semantics.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query-v2)
+# add_unit_test(query_v2_query_plan_bag_semantics.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_bag_semantics mg-query-v2)
 #
-#add_unit_test(query_v2_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_edge_cases mg-communication mg-query-v2)
+# add_unit_test(query_v2_query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/v2/communication.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_edge_cases mg-communication mg-query-v2)
 #
-#add_unit_test(query_v2_query_plan_v2_create_set_remove_delete.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_v2_create_set_remove_delete mg-query-v2)
+# add_unit_test(query_v2_query_plan_v2_create_set_remove_delete.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_v2_create_set_remove_delete mg-query-v2)
 #
-#add_unit_test(query_v2_query_plan_match_filter_return.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_plan_match_filter_return mg-query-v2)
+# add_unit_test(query_v2_query_plan_match_filter_return.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_plan_match_filter_return mg-query-v2)
 #
-#add_unit_test(query_v2_cypher_main_visitor.cpp)
-#target_link_libraries(${test_prefix}query_v2_cypher_main_visitor mg-query-v2)
+# add_unit_test(query_v2_cypher_main_visitor.cpp)
+# target_link_libraries(${test_prefix}query_v2_cypher_main_visitor mg-query-v2)
 #
-#add_unit_test(query_v2_query_required_privileges.cpp)
-#target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-v2)
+# add_unit_test(query_v2_query_required_privileges.cpp)
+# target_link_libraries(${test_prefix}query_v2_query_required_privileges mg-query-v2)
 #
-#add_unit_test(replication_persistence_helper.cpp)
-#target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
-
+# add_unit_test(replication_persistence_helper.cpp)
+# target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
 add_unit_test(query_v2_dummy_test.cpp)
 target_link_libraries(${test_prefix}query_v2_dummy_test mg-query-v2)
 
@@ -436,3 +435,7 @@ target_link_libraries(${test_prefix}machine_manager mg-io mg-coordinator mg-stor
 
 add_unit_test(pretty_print_ast_to_original_expression_test.cpp)
 target_link_libraries(${test_prefix}pretty_print_ast_to_original_expression_test mg-io mg-expr mg-query-v2)
+
+# Tests for mg-coordinator
+add_unit_test(coordinator_shard_map.cpp)
+target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
