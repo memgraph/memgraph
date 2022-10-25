@@ -129,7 +129,7 @@ class ShardRequestManagerInterface {
   virtual const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const = 0;
   virtual const std::string &LabelToName(memgraph::storage::v3::LabelId label) const = 0;
   virtual const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const = 0;
-virtual bool IsPrimaryLabel(LabelId label) const = 0;
+  virtual bool IsPrimaryLabel(LabelId label) const = 0;
   virtual bool IsPrimaryKey(LabelId primary_label, PropertyId property) const = 0;
 };
 
@@ -227,9 +227,8 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     static std::string str{"dummy__prop"};
     return str;
   }
-  const std::string &LabelToName(memgraph::storage::v3::LabelId /*label*/) const override {
-    static std::string str{"label"};
-    return str;
+  const std::string &LabelToName(memgraph::storage::v3::LabelId label) const override {
+    return shards_map_.GetLabelName(label);
   }
   const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId /*type*/) const override {
     static std::string str{"dummy__edgetype"};
@@ -245,10 +244,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
            }) != schema_it->second.end();
   }
 
-bool IsPrimaryLabel(const LabelId label)
-    return std::find_if(shards_map_.label_spaces.begin(), shards_map_.label_spaces.end(),
-                        [name](auto &lb) { return lb.first == name; }) != shards_map_.label_spaces.end();
-  }
+  bool IsPrimaryLabel(LabelId label) const override { return shards_map_.label_spaces.contains(label); }
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
@@ -538,18 +534,11 @@ bool IsPrimaryLabel(const LabelId label)
   void SendAllRequests(ExecutionState<ScanVerticesRequest> &state) {
     int64_t shard_idx = 0;
     for (const auto &request : state.requests) {
-      if (!state.label) {
-        const auto &current_shard = state.shard_cache[shard_idx];
+      const auto &current_shard = state.shard_cache[shard_idx];
 
-        auto &storage_client = GetStorageClientForShard(current_shard);
-        ReadRequests req = request;
-        storage_client.SendAsyncReadRequest(request);
-      } else {
-        auto &storage_client = GetStorageClientForShard(
-            *state.label, storage::conversions::ConvertPropertyVector(request.start_id.second));
-        ReadRequests req = request;
-        storage_client.SendAsyncReadRequest(request);
-      }
+      auto &storage_client = GetStorageClientForShard(current_shard);
+      ReadRequests req = request;
+      storage_client.SendAsyncReadRequest(request);
 
       ++shard_idx;
     }

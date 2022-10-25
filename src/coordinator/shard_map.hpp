@@ -277,7 +277,7 @@ struct ShardMap {
     return std::nullopt;
   }
 
-  std::string GetLabelName(const LabelId label) const {
+  const std::string &GetLabelName(const LabelId label) const {
     if (const auto it =
             std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
         it != labels.end()) {
