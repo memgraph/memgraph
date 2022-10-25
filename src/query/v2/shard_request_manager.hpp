@@ -246,7 +246,6 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
   // TODO(kostasrim) Simplify return result
   std::vector<VertexAccessor> Request(ExecutionState<ScanVerticesRequest> &state) override {
-    spdlog::info("shards_map_.size(): {}", shards_map_.GetShards(*state.label).size());
     MaybeInitializeExecutionState(state);
     std::vector<ScanVerticesResponse> responses;
 
@@ -459,12 +458,12 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<coordinator::Shards> multi_shards;
     state.transaction_id = transaction_id_;
     if (!state.label) {
-      multi_shards = shards_map_.GetShards();
+      multi_shards = shards_map_.GetAllShards();
     } else {
       const auto label_id = shards_map_.GetLabelId(*state.label);
       MG_ASSERT(label_id);
       MG_ASSERT(IsPrimaryLabel(*label_id));
-      multi_shards = {shards_map_.GetShards(*state.label)};
+      multi_shards = {shards_map_.GetShardsForLabel(*state.label)};
     }
     for (auto &shards : multi_shards) {
       for (auto &[key, shard] : shards) {

@@ -206,13 +206,13 @@ std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
   return in;
 }
 
-Shards ShardMap::GetShards(const LabelName &label) const {
+Shards ShardMap::GetShardsForLabel(const LabelName &label) const {
   const auto id = labels.at(label);
   const auto &shards = label_spaces.at(id).shards;
   return shards;
 }
 
-std::vector<Shards> ShardMap::GetShards() const {
+std::vector<Shards> ShardMap::GetAllShards() const {
   std::vector<Shards> all_shards;
   std::transform(label_spaces.begin(), label_spaces.end(), std::back_inserter(all_shards),
                  [](const auto &label_space) { return label_space.second.shards; });

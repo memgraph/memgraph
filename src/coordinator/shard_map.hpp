@@ -127,9 +127,9 @@ struct ShardMap {
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);
 
-  Shards GetShards(const LabelName &label) const;
+  Shards GetShardsForLabel(const LabelName &label) const;
 
-  std::vector<Shards> GetShards() const;
+  std::vector<Shards> GetAllShards() const;
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
