@@ -206,10 +206,17 @@ std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
   return in;
 }
 
-Shards ShardMap::GetShards(const LabelName &label) {
+Shards ShardMap::GetShards(const LabelName &label) const {
   const auto id = labels.at(label);
-  auto &shards = label_spaces.at(id).shards;
+  const auto &shards = label_spaces.at(id).shards;
   return shards;
+}
+
+std::vector<Shards> ShardMap::GetShards() const {
+  std::vector<Shards> all_shards;
+  std::transform(label_spaces.begin(), label_spaces.end(), std::back_inserter(all_shards),
+                 [](const auto &label_space) { return label_space.second.shards; });
+  return all_shards;
 }
 
 // TODO(gabor) later we will want to update the wallclock time with
