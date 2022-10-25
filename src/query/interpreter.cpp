@@ -299,7 +299,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, AuthQueryHandler *auth, const Pa
 
   Callback callback;
 
-  const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+  const auto license_check_result = utils::license::global_license_checker.IsEnterpriseEnabled(utils::global_settings);
 
   static const std::unordered_set enterprise_only_methods{
       AuthQuery::Action::CREATE_ROLE,       AuthQuery::Action::DROP_ROLE,       AuthQuery::Action::SET_ROLE,
@@ -1017,7 +1017,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
 #ifdef MG_ENTERPRISE
-  if (utils::license::global_license_checker.IsValidLicenseFast() && username.has_value() && dba) {
+  if (utils::license::global_license_checker.IsEnterpriseEnabledFast() && username.has_value() && dba) {
     ctx_.auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(*username, dba);
   }
 #endif

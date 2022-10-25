@@ -34,7 +34,12 @@ struct License {
 inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
 inline constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
-enum class LicenseCheckError : uint8_t { INVALID_LICENSE_KEY_STRING, INVALID_ORGANIZATION_NAME, EXPIRED_LICENSE };
+enum class LicenseCheckError : uint8_t {
+  INVALID_LICENSE_KEY_STRING,
+  INVALID_ORGANIZATION_NAME,
+  EXPIRED_LICENSE,
+  LICENSE_INVALID_TYPE
+};
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
 
@@ -53,8 +58,14 @@ struct LicenseChecker {
   void CheckEnvLicense();
   void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting();
+  // Checks if license is valid
   LicenseCheckResult IsValidLicense(const utils::Settings &settings) const;
+  // Checks if license is valid and if enterprise is enabled
+  LicenseCheckResult IsEnterpriseEnabled(const utils::Settings &settings) const;
+
   bool IsValidLicenseFast() const;
+  bool IsEnterpriseEnabledFast() const;
+
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
  private:
@@ -65,6 +76,7 @@ struct LicenseChecker {
   std::optional<std::pair<std::string, std::string>> license_info_override_;
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
+  LicenseType license_type_;
   utils::Scheduler scheduler_;
 
   friend void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);

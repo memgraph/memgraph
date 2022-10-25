@@ -23,7 +23,7 @@ namespace {
 bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::query::DbAccessor *dba,
                             const std::vector<memgraph::storage::LabelId> &labels,
                             const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return std::all_of(labels.begin(), labels.end(), [dba, &user, fine_grained_privilege](const auto &label) {
@@ -35,7 +35,7 @@ bool IsUserAuthorizedLabels(const memgraph::auth::User &user, const memgraph::qu
 
 bool IsUserAuthorizedGloballyLabels(const memgraph::auth::User &user,
                                     const memgraph::auth::FineGrainedPermission fine_grained_permission) {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return user.GetFineGrainedAccessLabelPermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
@@ -44,7 +44,7 @@ bool IsUserAuthorizedGloballyLabels(const memgraph::auth::User &user,
 
 bool IsUserAuthorizedGloballyEdges(const memgraph::auth::User &user,
                                    const memgraph::auth::FineGrainedPermission fine_grained_permission) {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return user.GetFineGrainedAccessEdgeTypePermissions().Has(memgraph::auth::kAsterisk, fine_grained_permission) ==
@@ -54,7 +54,7 @@ bool IsUserAuthorizedGloballyEdges(const memgraph::auth::User &user,
 bool IsUserAuthorizedEdgeType(const memgraph::auth::User &user, const memgraph::query::DbAccessor *dba,
                               const memgraph::storage::EdgeTypeId &edgeType,
                               const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return user.GetFineGrainedAccessEdgeTypePermissions().Has(
@@ -87,7 +87,7 @@ bool AuthChecker::IsUserAuthorized(const std::optional<std::string> &username,
 #ifdef MG_ENTERPRISE
 std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGrainedAuthChecker(
     const std::string &username, const memgraph::query::DbAccessor *dba) const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return {};
   }
   try {
@@ -154,7 +154,7 @@ bool FineGrainedAuthChecker::Has(const memgraph::storage::EdgeTypeId &edge_type,
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
     const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return IsUserAuthorizedGloballyLabels(user_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
@@ -162,7 +162,7 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnVertices(
 
 bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
     const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const {
-  if (!memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (!memgraph::utils::license::global_license_checker.IsEnterpriseEnabledFast()) {
     return true;
   }
   return IsUserAuthorizedGloballyEdges(user_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));

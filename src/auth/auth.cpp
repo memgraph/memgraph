@@ -68,7 +68,8 @@ Auth::Auth(const std::string &storage_directory) : storage_(storage_directory), 
 
 std::optional<User> Auth::Authenticate(const std::string &username, const std::string &password) {
   if (module_.IsUsed()) {
-    const auto license_check_result = utils::license::global_license_checker.IsValidLicense(utils::global_settings);
+    const auto license_check_result =
+        utils::license::global_license_checker.IsEnterpriseEnabled(utils::global_settings);
     if (license_check_result.HasError()) {
       spdlog::warn(
           utils::license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
