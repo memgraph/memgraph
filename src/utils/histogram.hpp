@@ -44,10 +44,7 @@ class Histogram {
   uint64_t count = 0;
   uint64_t sum = 0;
 
-  Histogram() {
-    // set samples_ to 16k 0's
-    samples.resize(sample_limit, 0);
-  }
+  Histogram() { samples.resize(sample_limit, 0); }
 
   void Measure(double value) {
     // "compression" logic
