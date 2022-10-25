@@ -15,7 +15,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include <unordered_map>
 #include "parser/opencypher/parser.hpp"
 #include "query/v2/requests.hpp"
 #include "storage/v3/bindings/ast/ast.hpp"
