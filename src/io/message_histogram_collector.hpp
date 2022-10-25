@@ -20,12 +20,10 @@
 #include <boost/core/demangle.hpp>
 
 #include "io/time.hpp"
+#include "utils/histogram.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::io {
-
-constexpr auto sample_limit = (16 * 1024) - 1;
-constexpr auto precision = 100.0;
 
 struct LatencyHistogramSummary {
   uint64_t count;
@@ -60,44 +58,6 @@ struct LatencyHistogramSummary {
   }
 };
 
-struct Histogram {
-  uint64_t count = 0;
-  uint64_t sum = 0;
-  std::vector<uint64_t> samples = {};
-
-  Histogram() {
-    // set samples_ to 16k 0's
-    samples.resize(sample_limit, 0);
-  }
-
-  Duration Percentile(double percentile) const {
-    MG_ASSERT(percentile <= 100.0, "percentiles must not exceed 100.0");
-
-    if (count == 0) {
-      return Duration::min();
-    }
-
-    const auto floated_count = static_cast<double>(count);
-    const auto target = std::max(floated_count * percentile / 100.0, 1.0);
-
-    auto scanned = 0.0;
-
-    for (int i = 0; i <= sample_limit; i++) {
-      const auto samples_at_index = samples[i];
-      scanned += static_cast<double>(samples_at_index);
-      if (scanned >= target) {
-        auto floated = static_cast<double>(i);
-        auto unboosted = floated / precision;
-        auto microseconds = static_cast<int64_t>(std::exp(unboosted) - 1.0);
-
-        return Duration(microseconds);
-      }
-    }
-
-    return Duration::min();
-  }
-};
-
 using TypeInfoRef = std::reference_wrapper<const std::type_info>;
 struct Hasher {
   std::size_t operator()(TypeInfoRef code) const { return code.get().hash_code(); }
@@ -108,24 +68,13 @@ struct EqualTo {
 };
 
 class MessageHistogramCollector {
-  std::unordered_map<TypeInfoRef, Histogram, Hasher, EqualTo> histograms_;
+  std::unordered_map<TypeInfoRef, utils::Histogram, Hasher, EqualTo> histograms_;
 
  public:
   void Measure(const std::type_info &type_info, const Duration &duration) {
-    // TODO(tyler)
-    auto count = duration.count();
-    auto floated = static_cast<double>(count);
-    auto boosted = 1.0 + floated;
-    auto ln = std::log(boosted);
-    auto compressed = precision * ln + 0.5;
-    auto sample_index = static_cast<uint16_t>(compressed);
-    MG_ASSERT(sample_index < sample_limit);
-
     auto &histo = histograms_[type_info];
-
-    histo.count++;
-    histo.samples[sample_index]++;
-    histo.sum += count;
+    histo.Measure(std::numeric_limits<double>::max());
+    histo.Measure(duration.count());
   }
 
   std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
@@ -136,16 +85,16 @@ class MessageHistogramCollector {
 
       LatencyHistogramSummary latency_histogram_summary{
           .count = histo.count,
-          .p0 = histo.Percentile(0.0),
-          .p50 = histo.Percentile(50.0),
-          .p75 = histo.Percentile(75.0),
-          .p90 = histo.Percentile(90.0),
-          .p95 = histo.Percentile(95.0),
-          .p975 = histo.Percentile(97.5),
-          .p99 = histo.Percentile(99.0),
-          .p999 = histo.Percentile(99.9),
-          .p9999 = histo.Percentile(99.99),
-          .p100 = histo.Percentile(100.0),
+          .p0 = Duration(static_cast<int64_t>(histo.Percentile(0.0))),
+          .p50 = Duration(static_cast<int64_t>(histo.Percentile(50.0))),
+          .p75 = Duration(static_cast<int64_t>(histo.Percentile(75.0))),
+          .p90 = Duration(static_cast<int64_t>(histo.Percentile(90.0))),
+          .p95 = Duration(static_cast<int64_t>(histo.Percentile(95.0))),
+          .p975 = Duration(static_cast<int64_t>(histo.Percentile(97.5))),
+          .p99 = Duration(static_cast<int64_t>(histo.Percentile(99.0))),
+          .p999 = Duration(static_cast<int64_t>(histo.Percentile(99.9))),
+          .p9999 = Duration(static_cast<int64_t>(histo.Percentile(99.99))),
+          .p100 = Duration(static_cast<int64_t>(histo.Percentile(100.0))),
           .sum = Duration(histo.sum),
       };
 
