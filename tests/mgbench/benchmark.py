@@ -194,6 +194,13 @@ parser.add_argument(
     help="Run warmup before benchmarks",
     )
 
+parser.add_argument(
+    "--mixed-workload",
+    action="store_true", 
+    default=False,
+    help="Run mixed write/read/analytical workload"
+)
+
 args = parser.parse_args()
 
 # Detect available datasets.
@@ -326,6 +333,99 @@ for dataset, tests in benchmarks:
         )
 
         for group in sorted(tests.keys()):
+            
+            if args.mixed_workload: 
+                print("Running mixed workload")
+                all_tests = tests[group]
+                write = list()
+                read = list()
+                update = list()
+                complete_workload = list()
+                for test, funcname in tests[group]:
+                    if "write" in funcname:
+                        write.append(funcname)
+                    elif "read" in funcname:
+                        read.append(funcname)
+                    elif "update" in  funcname: 
+                        update.append(funcname)
+                    complete_workload.append(funcname)
+                
+                # vendor.start_benchmark()
+                # if args.warmup_run: 
+                #     warmup(client)
+                # #Query plans caching
+                # for funcname in complete_workload:
+                #     func = getattr(dataset, funcname)
+                #     client.execute(queries=get_queries(func, 1), num_workers=1)
+                #     # Get a sense of the runtime.
+                # count = 1
+                # while True:
+                #     complete_duration = 0
+                #     for funcname in complete_workload: 
+                #         func = getattr(dataset, funcname)
+                #         ret = client.execute(queries=get_queries(func, count), num_workers=1)
+                #         complete_duration += ret[0]["duration"]
+                #     should_execute = int(args.single_threaded_runtime_sec / (complete_duration / count))
+                #     print("Executed each query: ", count)
+                #     print(
+                #         "executed_queries={}, total_duration={}, "
+                #         "query_duration={}, estimated_count={}".format(
+                #             count, complete_duration, complete_duration / count, should_execute
+                #         )
+                #     )
+                #     # We don't have to execute the next iteration when
+                #     # `should_execute` becomes the same order of magnitude as
+                #     # `count * 10`.
+                #     if should_execute / (count * 10) < 10:
+                #         count = should_execute
+                #         break
+                #     else:
+                #         count = count * 10
+                # vendor.stop()
+
+                count = 1000
+                options = ['w', 'r', 'u']
+                function_type = random.choices(population=options, weights=[20, 70, 10], k=count)
+                
+                workload = []
+                for f in function_type:
+                    if f == "w":
+                        workload.append(random.choice(write))
+                    elif f == "r":
+                        workload.append(random.choice(read))
+                    else:
+                        workload.append(random.choice(update))
+                
+                for f in workload:
+                    print(f)
+
+                artifical_workload = list()
+                for f in workload:
+                    func = getattr(dataset, f)
+                    artifical_workload.append(func())
+                vendor.start_benchmark()
+                ret = client.execute(
+                    queries=artifical_workload,
+                    num_workers=args.num_workers_for_benchmark,
+                )[0]
+                usage_workload = vendor.stop()
+                
+                mixed_workload = {
+                    "count" : ret["count"],
+                    "duration" : ret["duration"],
+                    "retires" : ret["retries"],
+                    "throughput": ret["throughput"],
+                    "memory": usage_workload["memory"],
+                    "cpu" :  usage_workload["cpu"],
+                }
+
+                print(mixed_workload)
+                
+                
+
+                
+                 
+
             for test, funcname in tests[group]:
                 log.info("Running test:", "{}/{}/{}".format(group, test, test_type))
                 func = getattr(dataset, funcname)
@@ -409,6 +509,7 @@ for dataset, tests in benchmarks:
                 usage = vendor.stop()
                 ret["database"] = usage
                 ret["query_statistics"] = query_statistics
+                ret["mixed_workload"] = mixed_workload
 
                 # Output summary.
                 print()
