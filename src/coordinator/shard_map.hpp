@@ -127,7 +127,9 @@ struct ShardMap {
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);
 
-  Shards GetShards(const LabelName &label);
+  Shards GetShardsForLabel(const LabelName &label) const;
+
+  std::vector<Shards> GetAllShards() const;
 
   // TODO(gabor) later we will want to update the wallclock time with
   // the given Io<impl>'s time as well
@@ -146,11 +148,11 @@ struct ShardMap {
 
   std::optional<LabelId> GetLabelId(const std::string &label) const;
   // TODO(antaljanosbenjamin): Remove this and instead use NameIdMapper
-  std::string GetLabelName(LabelId label) const;
+  const std::string &GetLabelName(LabelId label) const;
   std::optional<PropertyId> GetPropertyId(const std::string &property_name) const;
-  std::string GetPropertyName(PropertyId property) const;
+  const std::string &GetPropertyName(PropertyId property) const;
   std::optional<EdgeTypeId> GetEdgeTypeId(const std::string &edge_type) const;
-  std::string GetEdgeTypeName(EdgeTypeId property) const;
+  const std::string &GetEdgeTypeName(EdgeTypeId property) const;
 
   Shards GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key, const PrimaryKey &end_key) const;
 

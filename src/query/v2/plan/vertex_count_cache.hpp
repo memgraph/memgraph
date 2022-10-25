@@ -52,7 +52,8 @@ class VertexCountCache {
     return 1;
   }
 
-  bool LabelIndexExists(storage::v3::LabelId /*label*/) { return false; }
+  // For now return true if label is primary label
+  bool LabelIndexExists(storage::v3::LabelId label) { return shard_request_manager_->IsPrimaryLabel(label); }
 
   bool LabelPropertyIndexExists(storage::v3::LabelId /*label*/, storage::v3::PropertyId /*property*/) { return false; }
 
