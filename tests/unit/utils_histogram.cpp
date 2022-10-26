@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
-#include "gmock/gmock.h"
+#include <gmock/gmock.h>
 
 #include "utils/histogram.hpp"
 #include "utils/logging.hpp"
