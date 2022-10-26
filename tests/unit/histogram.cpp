@@ -31,11 +31,11 @@ TEST(Histogram, BasicFunctionality) {
   }
   histo.Measure(500);
 
-  MG_ASSERT(histo.Percentile(0.0) == 10);
-  MG_ASSERT(histo.Percentile(99.0) == 25);
-  MG_ASSERT(histo.Percentile(99.89) == 32);
-  MG_ASSERT(histo.Percentile(99.99) == 46);
-  MG_ASSERT(histo.Percentile(100.0) == 500, "actual: {}", histo.Percentile(100.0));
+  ASSERT_EQ(histo.Percentile(0.0), 10);
+  ASSERT_EQ(histo.Percentile(99.0), 25);
+  ASSERT_EQ(histo.Percentile(99.89), 32);
+  ASSERT_EQ(histo.Percentile(99.99), 46);
+  ASSERT_EQ(histo.Percentile(100.0), 500);
 
   uint64_t max = std::numeric_limits<uint64_t>::max();
   histo.Measure(max);
