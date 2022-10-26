@@ -34,11 +34,9 @@ namespace memgraph::utils {
 // * Histogram::Percentile() will return 0 if there were no
 //   samples measured yet.
 class Histogram {
-  std::vector<uint64_t> samples = {};
-
   // This is the number of buckets that observed values
   // will be logarithmically compressed into.
-  constexpr static auto sample_limit = 4096;
+  constexpr static auto kSampleLimit = 4096;
 
   // This is roughly 1/error rate, where 100.0 is roughly
   // a 1% error bound for measurements. This is less true
@@ -47,53 +45,62 @@ class Histogram {
   // the error bound starts to stabilize a bit. This has
   // been tuned to allow the maximum uint64_t to compress
   // within 4096 samples while still achieving a high accuracy.
-  constexpr static auto precision = 92.0;
+  constexpr static auto kPrecision = 92.0;
+
+  // samples_ stores per-bucket counts for measurements
+  // that have been mapped to a specific uint64_t in
+  // the "compression" logic below.
+  std::vector<uint64_t> samples_ = {};
+
+  // count_ is the number of measurements that have been
+  // included in this Histogram.
+  uint64_t count_ = 0;
+
+  // sum_ is the summed value of all measurements that
+  // have been included in this Histogram.
+  uint64_t sum_ = 0;
 
  public:
-  // count is the number of measurements that have been
-  // included in this Histogram.
-  uint64_t count = 0;
+  Histogram() { samples_.resize(kSampleLimit, 0); }
 
-  // sum is the summed value of all measurements that
-  // have been included in this Histogram.
-  uint64_t sum = 0;
+  uint64_t Count() const { return count_; }
 
-  Histogram() { samples.resize(sample_limit, 0); }
+  uint64_t Sum() const { return sum_; }
 
   void Measure(uint64_t value) {
     // "compression" logic
     double boosted = 1.0 + static_cast<double>(value);
     double ln = std::log(boosted);
-    double compressed = (precision * ln) + 0.5;
+    double compressed = (kPrecision * ln) + 0.5;
 
-    MG_ASSERT(compressed < sample_limit, "compressing value {} to {} is invalid", value, compressed);
+    MG_ASSERT(compressed < kSampleLimit, "compressing value {} to {} is invalid", value, compressed);
     auto sample_index = static_cast<uint16_t>(compressed);
 
-    count++;
-    samples[sample_index]++;
-    sum += value;
+    count_++;
+    samples_[sample_index]++;
+    sum_ += value;
   }
 
   uint64_t Percentile(double percentile) const {
     MG_ASSERT(percentile <= 100.0, "percentiles must not exceed 100.0");
     MG_ASSERT(percentile >= 0.0, "percentiles must be greater than or equal to 0.0");
 
-    if (count == 0) {
+    if (count_ == 0) {
       return 0;
     }
 
-    const auto floated_count = static_cast<double>(count);
+    const auto floated_count = static_cast<double>(count_);
     const auto target = std::max(floated_count * percentile / 100.0, 1.0);
 
     auto scanned = 0.0;
 
-    for (int i = 0; i < sample_limit; i++) {
-      const auto samples_at_index = samples[i];
+    for (int i = 0; i < kSampleLimit; i++) {
+      const auto samples_at_index = samples_[i];
       scanned += static_cast<double>(samples_at_index);
       if (scanned >= target) {
         // "decompression" logic
         auto floated = static_cast<double>(i);
-        auto unboosted = floated / precision;
+        auto unboosted = floated / kPrecision;
         auto decompressed = std::exp(unboosted) - 1.0;
         return static_cast<uint64_t>(decompressed);
       }

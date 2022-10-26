@@ -73,7 +73,7 @@ class MessageHistogramCollector {
       std::string demangled_name = boost::core::demangle(type_id.get().name());
 
       LatencyHistogramSummary latency_histogram_summary{
-          .count = histo.count,
+          .count = histo.Count(),
           .p0 = Duration(static_cast<int64_t>(histo.Percentile(0.0))),
           .p50 = Duration(static_cast<int64_t>(histo.Percentile(50.0))),
           .p75 = Duration(static_cast<int64_t>(histo.Percentile(75.0))),
@@ -84,7 +84,7 @@ class MessageHistogramCollector {
           .p999 = Duration(static_cast<int64_t>(histo.Percentile(99.9))),
           .p9999 = Duration(static_cast<int64_t>(histo.Percentile(99.99))),
           .p100 = Duration(static_cast<int64_t>(histo.Percentile(100.0))),
-          .sum = Duration(histo.sum),
+          .sum = Duration(histo.Sum()),
       };
 
       ret.emplace(demangled_name, latency_histogram_summary);
