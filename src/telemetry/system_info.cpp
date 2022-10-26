@@ -44,7 +44,7 @@ MemoryInfo GetMemoryInfo() {
   return {memory, swap};
 }
 
-CPUInfo GetCpuInfo() {
+CPUInfo GetCPUInfo() {
   // Parse `/proc/cpuinfo`.
   std::string cpu_model;
   uint64_t cpu_count = 0;

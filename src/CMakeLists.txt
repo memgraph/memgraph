@@ -37,7 +37,7 @@ set(mg_single_node_v2_sources
 )
 
 set(mg_single_node_v2_libs stdc++fs Threads::Threads
-        telemetry_lib mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue)
+        mg-telemetry mg-query mg-communication mg-memory mg-utils mg-auth mg-license mg-settings mg-glue)
 
 if(MG_ENTERPRISE)
         # These are enterprise subsystems
