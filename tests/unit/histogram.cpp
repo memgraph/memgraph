@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include "gmock/gmock.h"
 
 #include "utils/histogram.hpp"
 #include "utils/logging.hpp"
@@ -41,5 +42,5 @@ TEST(Histogram, BasicFunctionality) {
   histo.Measure(max);
   auto observed_max = static_cast<double>(histo.Percentile(100.0));
   auto diff = (max - observed_max) / max;
-  MG_ASSERT(diff < 0.01, "expected error rate to be under 0.01, but it was {}", diff);
+  ASSERT_THAT(diff, testing::Lt(0.01));
 }
