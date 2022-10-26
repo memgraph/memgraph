@@ -45,7 +45,9 @@ class Dataset:
             variant = self.DEFAULT_VARIANT
         if variant not in self.VARIANTS:
             raise ValueError("Invalid test variant!")
-        if (self.FILES and variant not in self.FILES) and (self.URLS and variant not in self.URLS):
+        if (self.FILES and variant not in self.FILES) and (
+            self.URLS and variant not in self.URLS
+        ):
             raise ValueError("The variant doesn't have a defined URL or " "file path!")
         if variant not in self.SIZES:
             raise ValueError("The variant doesn't have a defined dataset " "size!")
@@ -60,7 +62,10 @@ class Dataset:
             self._url = None
         self._size = self.SIZES[variant]
         if "vertices" not in self._size or "edges" not in self._size:
-            raise ValueError("The size defined for this variant doesn't " "have the number of vertices and/or edges!")
+            raise ValueError(
+                "The size defined for this variant doesn't "
+                "have the number of vertices and/or edges!"
+            )
         self._num_vertices = self._size["vertices"]
         self._num_edges = self._size["edges"]
 
@@ -129,91 +134,113 @@ class Pokec(Dataset):
             vertex_to = self._get_random_vertex()
         return (vertex_from, vertex_to)
 
-    # Arango benchmarks
-
-    def benchmark__arango__single_vertex_read(self):
+    def benchmark__memgraph__read__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__arango__single_vertex_write(self):
-        return ("CREATE (n:UserTemp {id : $id}) RETURN n", {"id": random.randint(1, self._num_vertices * 10)})
+    def benchmark__memgraph__write__single_vertex_write(self):
+        return (
+            "CREATE (n:User {id : $id}) RETURN n",
+            {"id": random.randint(self._num_vertices, self._num_vertices * 10)},
+        )
 
-    def benchmark__arango__single_edge_write(self):
+    def benchmark__memgraph__write__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "CREATE (n)-[e:Temp]->(m) RETURN e",
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__arango__aggregate(self):
+    def benchmark__memgraph__aggregate__aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
 
-    def benchmark__arango__aggregate_with_filter(self):
+    def benchmark__memgraph__aggregate__aggregate_with_filter(self):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
-    def benchmark__arango__expansion_1(self):
-        return ("MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id", {"id": self._get_random_vertex()})
+    def benchmark__memgraph__analytical__expansion_1(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
-    def benchmark__arango__expansion_1_with_filter(self):
+    def benchmark__memgraph__analytical__expansion_1_with_filter(self):
         return (
             "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__expansion_2(self):
-        return ("MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
-
-    def benchmark__arango__expansion_2_with_filter(self):
+    def benchmark__memgraph__analytical__expansion_2(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__expansion_3(self):
+    def benchmark__memgraph__analytical__expansion_2_with_filter(self):
+        return (
+            "MATCH (s:User {id: $id})-->()-->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__memgraph__analytical__expansion_3(self):
         return (
             "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__expansion_3_with_filter(self):
+    def benchmark__memgraph__analytical__expansion_3_with_filter(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->()-->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__expansion_4(self):
+    def benchmark__memgraph__analytical__expansion_4(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
+            "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__expansion_4_with_filter(self):
+    def benchmark__memgraph__analytical__expansion_4_with_filter(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__neighbours_2(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
-
-    def benchmark__arango__neighbours_2_with_filter(self):
+    def benchmark__memgraph__analytical__neighbours_2(self):
         return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__neighbours_2_with_data(self):
+    def benchmark__memgraph__analytical__neighbours_2_with_filter(self):
+        return (
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__memgraph__analytical__neighbours_2_with_data(self):
         return (
             "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__neighbours_2_with_data_and_filter(self):
+    def benchmark__memgraph__analytical__neighbours_2_with_data_and_filter(self):
         return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id, n",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__arango__shortest_path(self):
+    def benchmark__memgraph__analytical__shortest_path(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -222,7 +249,7 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__arango__shortest_path_with_filter(self):
+    def benchmark__memgraph__analytical__shortest_path_with_filter(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -231,7 +258,7 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__arango__allshortest_paths(self):
+    def benchmark__memgraph__analytical__allshortest_paths(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -242,20 +269,21 @@ class Pokec(Dataset):
 
     # Our benchmark queries
 
-    def benchmark__create__edge(self):
+    def benchmark__memgraph__create__edge(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
-            "MATCH (a:User {id: $from}), (b:User {id: $to}) " "CREATE (a)-[:TempEdge]->(b)",
+            "MATCH (a:User {id: $from}), (b:User {id: $to}) "
+            "CREATE (a)-[:TempEdge]->(b)",
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__create__pattern(self):
+    def benchmark__memgraph__create__pattern(self):
         return ("CREATE ()-[:TempEdge]->()", {})
 
-    def benchmark__create__vertex(self):
+    def benchmark__memgraph__create__vertex(self):
         return ("CREATE ()", {})
 
-    def benchmark__create__vertex_big(self):
+    def benchmark__memgraph__create__vertex_big(self):
         return (
             "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
             'p3: "Here is some text that is not extremely short", '
@@ -263,148 +291,182 @@ class Pokec(Dataset):
             {},
         )
 
-    def benchmark__aggregation__count(self):
+    def benchmark__memgraph__aggregation__count(self):
         return ("MATCH (n) RETURN count(n), count(n.age)", {})
 
-    def benchmark__aggregation__min_max_avg(self):
+    def benchmark__memgraph__aggregation__min_max_avg(self):
         return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
 
-    def benchmark__match__pattern_cycle(self):
-        return ("MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2", {"id": self._get_random_vertex()})
-
-    def benchmark__match__pattern_long(self):
+    def benchmark__memgraph__analytical__match_pattern_cycle(self):
         return (
-            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
+            "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__match__pattern_short(self):
-        return ("MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1", {"id": self._get_random_vertex()})
+    def benchmark__memgraph__analytical__match_pattern_long(self):
+        return (
+            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->"
+            "(n3)-[e3]->(n4)<-[e4]-(n5) "
+            "RETURN n5 LIMIT 1",
+            {"id": self._get_random_vertex()},
+        )
 
-    def benchmark__match__vertex_on_label_property(self):
-        return ("MATCH (n:User) WITH n WHERE n.id = $id RETURN n", {"id": self._get_random_vertex()})
+    def benchmark__memgraph__read__match_pattern_short(self):
+        return (
+            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
+            {"id": self._get_random_vertex()},
+        )
 
-    def benchmark__match__vertex_on_label_property_index(self):
+    def benchmark__memgraph__read__match_vertex_on_label_property(self):
+        return (
+            "MATCH (n:User) WITH n WHERE n.id = $id RETURN n",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__memgraph__read__match_vertex_on_label_property_index(self):
         return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__match__vertex_on_property(self):
+    def benchmark__memgraph__read__match_vertex_on_property(self):
         return ("MATCH (n {id: $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__update__vertex_on_property(self):
-        return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})
+    def benchmark__memgraph__update__vertex_on_property(self):
+        return (
+            "MATCH (n {id: $id}) SET n.property = -1",
+            {"id": self._get_random_vertex()},
+        )
 
-        
+    ## Below are queries that are part of basic workload, method naming template: __workload__description_group.
 
- ## Below are queries that are part of basic workload, method naming template: __workload__description_group.
-
-    def benchmark__basic__single_vertex_read(self):
+    def benchmark__basic__read__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__basic__single_vertex_write(self):
-        return ("CREATE (n:UserTemp {id : $id}) RETURN n", {"id": random.randint(1, self._num_vertices * 10)})
+    def benchmark__basic__write__single_vertex_write(self):
+        return (
+            "CREATE (n:UserTemp {id : $id}) RETURN n",
+            {"id": random.randint(1, self._num_vertices * 10)},
+        )
 
-    def benchmark__basic__single_vertex_property_update(self):
-        return ("MATCH (n {id: $id}) SET n.property = -1", {"id": self._get_random_vertex()})
-    #TODO: This is wrong. We have IDs for nodes in DB, we should acess directly, is this update?
-    
-    def benchmark__basic__single_edge_write(self):
+    def benchmark__basic__update__single_vertex_property_update(self):
+        return (
+            "MATCH (n {id: $id}) SET n.property = -1",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__basic__write__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "CREATE (n)-[e:Temp]->(m) RETURN e",
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__basic__aggregate_aggregate(self):
+    def benchmark__basic__aggregate__aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
-    #TODO: Check diferences. 
-    def benchmark__basic__count_aggregate(self):
+
+    # TODO: Check diferences.
+    def benchmark__basic__aggregate__count(self):
         return ("MATCH (n) RETURN count(n), count(n.age)", {})
 
-    def benchmark__basic__aggregate_with_filter_aggregate(self):
+    def benchmark__basic__aggregate__aggregate_with_filter(self):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
-    def benchmark__basic__min_max_avg_aggregate(self):
+    def benchmark__basic__aggregate__min_max_avg(self):
         return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
 
-    def benchmark__basic__expansion_1_analytical(self):
-        return ("MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id", {"id": self._get_random_vertex()})
+    def benchmark__basic__analytical__expansion_1(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
-    def benchmark__basic__expansion_1_with_filter_analytical(self):
+    def benchmark__basic__analytical__expansion_1_with_filter(self):
         return (
             "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__expansion_2_analytical(self):
-        return ("MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
-
-    def benchmark__basic__expansion_2_with_filter_analytical(self):
+    def benchmark__basic__analytical__expansion_2(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__expansion_3_analytical(self):
+    def benchmark__basic__analytical__expansion_2_with_filter(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+            "MATCH (s:User {id: $id})-->()-->(n:User) "
+            "WHERE n.age >= 18 "
+            "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__expansion_3_with_filter_analytical(self):
+    # def benchmark__basic__expansion_3_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__expansion_3_with_filter_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__expansion_4_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__expansion_4_with_filter_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__neighbours_2_analytical(self):
+    #     return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
+
+    # def benchmark__basic__neighbours_2_with_filter_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__neighbours_2_with_data_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    # def benchmark__basic__neighbours_2_with_data_and_filter_analytical(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
+    #         {"id": self._get_random_vertex()},
+    #     )
+
+    def benchmark__basic__analytical__pattern_cycle(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__expansion_4_analytical(self):
+    def benchmark__basic__analytical__pattern_long(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->"
+            "(n3)-[e3]->(n4)<-[e4]-(n5) "
+            "RETURN n5 LIMIT 1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__expansion_4_with_filter_analytical(self):
+    def benchmark__basic__analytical__pattern_short(self):
         return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__neighbours_2_analytical(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
+    # Shortest path not working at the moment.
 
-    def benchmark__basic__neighbours_2_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__basic__neighbours_2_with_data_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__basic__neighbours_2_with_data_and_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__basic__pattern_cycle_analytical(self):
-        return ("MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2", {"id": self._get_random_vertex()})
-
-    def benchmark__basic__pattern_long_analytical(self):
-        return (
-            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__basic__pattern_short_analytical(self):
-        return ("MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1", {"id": self._get_random_vertex()})
-
-   
-    # Shortest path not working at the moment. 
-
-    # def benchmark__arango__shortest_path(self):
+    # def benchmark__memgraph__shortest_path(self):
     #     vertex_from, vertex_to = self._get_random_from_to()
     #     return (
     #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -413,7 +475,7 @@ class Pokec(Dataset):
     #         {"from": vertex_from, "to": vertex_to},
     #     )
 
-    # def benchmark__arango__shortest_path_with_filter(self):
+    # def benchmark__memgraph__shortest_path_with_filter(self):
     #     vertex_from, vertex_to = self._get_random_from_to()
     #     return (
     #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -422,7 +484,7 @@ class Pokec(Dataset):
     #         {"from": vertex_from, "to": vertex_to},
     #     )
 
-    # def benchmark__arango__allshortest_paths(self):
+    # def benchmark__memgraph__allshortest_paths(self):
     #     vertex_from, vertex_to = self._get_random_from_to()
     #     return (
     #         "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -431,3 +493,31 @@ class Pokec(Dataset):
     #         {"from": vertex_from, "to": vertex_to},
     #     )
 
+    def benchmark__mixed__read__single_vertex_read(self):
+        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+
+    def benchmark__mixed__write__single_vertex_write(self):
+        return (
+            "CREATE (n:UserTemp {id : $id}) RETURN n",
+            {"id": random.randint(1, self._num_vertices * 10)},
+        )
+
+    def benchmark__mixed__update__single_vertex_property_update(self):
+        return (
+            "MATCH (n {id: $id}) SET n.property = -1",
+            {"id": self._get_random_vertex()},
+        )
+
+    def benchmark__mixed__write__single_edge_write(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+        return (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "CREATE (n)-[e:Temp]->(m) RETURN e",
+            {"from": vertex_from, "to": vertex_to},
+        )
+
+    # def benchmark__mixed__analytical__expansion_1(self):
+    #     return (
+    #         "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+    #         {"id": self._get_random_vertex()},
+    #     )
