@@ -71,7 +71,6 @@ class AllVerticesIterable final {
   Indices *indices_;
   Config::Items config_;
   const VertexValidator *vertex_validator_;
-  const Schemas *schemas_;
   std::optional<VertexAccessor> vertex_;
 
  public:
@@ -205,13 +204,6 @@ class Shard final {
     Accessor(Shard &shard, Transaction &transaction);
 
    public:
-    // TODO(gvolfing) this is just a workaround for stitching remove this later.
-    LabelId GetPrimaryLabel() const noexcept { return shard_->primary_label_; }
-
-    ResultSchema<VertexAccessor> CreateVertexAndValidate(
-        LabelId primary_label, const std::vector<LabelId> &labels,
-        const std::vector<std::pair<PropertyId, PropertyValue>> &properties);
-
     /// @throw std::bad_alloc
     ResultSchema<VertexAccessor> CreateVertexAndValidate(
         const std::vector<LabelId> &labels, const std::vector<PropertyValue> &primary_properties,

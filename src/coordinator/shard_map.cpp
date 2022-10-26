@@ -206,10 +206,18 @@ std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
   return in;
 }
 
-Shards ShardMap::GetShards(const LabelName &label) {
+Shards ShardMap::GetShardsForLabel(const LabelName &label) const {
   const auto id = labels.at(label);
-  auto &shards = label_spaces.at(id).shards;
+  const auto &shards = label_spaces.at(id).shards;
   return shards;
+}
+
+std::vector<Shards> ShardMap::GetAllShards() const {
+  std::vector<Shards> all_shards;
+  all_shards.reserve(label_spaces.size());
+  std::transform(label_spaces.begin(), label_spaces.end(), std::back_inserter(all_shards),
+                 [](const auto &label_space) { return label_space.second.shards; });
+  return all_shards;
 }
 
 // TODO(gabor) later we will want to update the wallclock time with
@@ -361,7 +369,7 @@ std::optional<LabelId> ShardMap::GetLabelId(const std::string &label) const {
   return std::nullopt;
 }
 
-std::string ShardMap::GetLabelName(const LabelId label) const {
+const std::string &ShardMap::GetLabelName(const LabelId label) const {
   if (const auto it =
           std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
       it != labels.end()) {
@@ -378,7 +386,7 @@ std::optional<PropertyId> ShardMap::GetPropertyId(const std::string &property_na
   return std::nullopt;
 }
 
-std::string ShardMap::GetPropertyName(const PropertyId property) const {
+const std::string &ShardMap::GetPropertyName(const PropertyId property) const {
   if (const auto it = std::ranges::find_if(
           properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
       it != properties.end()) {
@@ -395,7 +403,7 @@ std::optional<EdgeTypeId> ShardMap::GetEdgeTypeId(const std::string &edge_type) 
   return std::nullopt;
 }
 
-std::string ShardMap::GetEdgeTypeName(const EdgeTypeId property) const {
+const std::string &ShardMap::GetEdgeTypeName(const EdgeTypeId property) const {
   if (const auto it = std::ranges::find_if(
           edge_types, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
       it != edge_types.end()) {

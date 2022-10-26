@@ -42,7 +42,6 @@ class KeyStore {
   PrimaryKey Keys() const;
 
   friend bool operator<(const KeyStore &lhs, const KeyStore &rhs) {
-    // TODO(antaljanosbenjamin): also compare the schema
     return std::ranges::lexicographical_compare(lhs.Keys(), rhs.Keys(), std::less<PropertyValue>{});
   }
 
@@ -51,7 +50,6 @@ class KeyStore {
   }
 
   friend bool operator<(const KeyStore &lhs, const PrimaryKey &rhs) {
-    // TODO(antaljanosbenjamin): also compare the schema
     return std::ranges::lexicographical_compare(lhs.Keys(), rhs, std::less<PropertyValue>{});
   }
 

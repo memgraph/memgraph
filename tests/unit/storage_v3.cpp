@@ -41,10 +41,10 @@ class StorageV3 : public ::testing::TestWithParam<bool> {
 
   void TearDown() override { CleanupHlc(last_hlc); }
 
-  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
-                                         const std::vector<LabelId> &labels,
+  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, const std::vector<LabelId> &labels,
+                                         const PropertyValue &primary_key,
                                          const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
-    auto vtx = acc.CreateVertexAndValidate(primary_label, labels, properties);
+    auto vtx = acc.CreateVertexAndValidate(labels, {primary_key}, properties);
     EXPECT_TRUE(vtx.HasValue());
     return *vtx;
   }
@@ -104,7 +104,7 @@ TEST_P(StorageV3, Commit) {
   const auto create_start_hlc = GetNextHlc();
   {
     auto acc = store.Access(create_start_hlc);
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
@@ -153,7 +153,7 @@ TEST_P(StorageV3, Commit) {
 TEST_P(StorageV3, Abort) {
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
@@ -178,7 +178,7 @@ TEST_P(StorageV3, AbortByGc) {
   {
     const auto hlc = GetNextHlc();
     auto acc = store.Access(hlc);
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
@@ -203,7 +203,7 @@ TEST_P(StorageV3, AdvanceCommandCommit) {
   {
     auto acc = store.Access(GetNextHlc());
 
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk1, View::NEW).has_value());
@@ -211,7 +211,7 @@ TEST_P(StorageV3, AdvanceCommandCommit) {
 
     acc.AdvanceCommand();
 
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{2}, {});
     ASSERT_FALSE(acc.FindVertex(pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(pk2, View::NEW).has_value());
@@ -242,7 +242,7 @@ TEST_P(StorageV3, AdvanceCommandAbort) {
   {
     auto acc = store.Access(GetNextHlc());
 
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk1, View::NEW).has_value());
@@ -250,7 +250,7 @@ TEST_P(StorageV3, AdvanceCommandAbort) {
 
     acc.AdvanceCommand();
 
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{2}, {});
     ASSERT_FALSE(acc.FindVertex(pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 1U);
     ASSERT_TRUE(acc.FindVertex(pk2, View::NEW).has_value());
@@ -282,7 +282,7 @@ TEST_P(StorageV3, SnapshotIsolation) {
   auto acc1 = store.Access(start_hlc1);
   auto acc2 = store.Access(GetNextHlc());
 
-  CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
+  CreateVertexAndValidate(acc1, {}, PropertyValue{0}, {});
 
   ASSERT_FALSE(acc2.FindVertex(pk, View::OLD).has_value());
   EXPECT_EQ(CountVertices(acc1, View::OLD), 0U);
@@ -313,7 +313,7 @@ TEST_P(StorageV3, SnapshotIsolation) {
 TEST_P(StorageV3, AccessorMove) {
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
@@ -346,7 +346,7 @@ TEST_P(StorageV3, VertexDeleteCommit) {
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc2, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc2.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(pk, View::NEW).has_value());
@@ -416,7 +416,7 @@ TEST_P(StorageV3, VertexDeleteAbort) {
 
   // Create the vertex in transaction 2
   {
-    CreateVertexAndValidate(acc2, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc2, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc2.FindVertex(pk, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc2, View::OLD), 0U);
     ASSERT_TRUE(acc2.FindVertex(pk, View::NEW).has_value());
@@ -536,7 +536,7 @@ TEST_P(StorageV3, VertexDeleteSerializationError) {
   // Create vertex
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     acc.Commit(GetNextHlc());
   }
 
@@ -612,7 +612,7 @@ TEST_P(StorageV3, VertexDeleteSpecialCases) {
   // transaction
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk1, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk1, View::NEW).has_value());
@@ -631,7 +631,7 @@ TEST_P(StorageV3, VertexDeleteSpecialCases) {
   // Create vertex and delete it in the same transaction
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{2}, {});
     ASSERT_FALSE(acc.FindVertex(pk2, View::OLD).has_value());
     EXPECT_EQ(CountVertices(acc, View::OLD), 0U);
     ASSERT_TRUE(acc.FindVertex(pk2, View::NEW).has_value());
@@ -673,7 +673,7 @@ TEST_P(StorageV3, VertexDeleteLabel) {
   // Create the vertex
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
     acc.Commit(GetNextHlc());
@@ -817,7 +817,7 @@ TEST_P(StorageV3, VertexDeleteProperty) {
   // Create the vertex
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(acc.FindVertex(pk, View::OLD).has_value());
     ASSERT_TRUE(acc.FindVertex(pk, View::NEW).has_value());
     acc.Commit(GetNextHlc());
@@ -950,7 +950,7 @@ TEST_P(StorageV3, VertexLabelCommit) {
   store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "other"}});
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
     auto label = NameToLabelId("label5");
 
@@ -1064,7 +1064,7 @@ TEST_P(StorageV3, VertexLabelAbort) {
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     acc.Commit(GetNextHlc());
   }
 
@@ -1308,7 +1308,7 @@ TEST_P(StorageV3, VertexLabelSerializationError) {
   store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label1"}, {4, "label2"}});
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     acc.Commit(GetNextHlc());
   }
 
@@ -1413,7 +1413,7 @@ TEST_P(StorageV3, VertexPropertyCommit) {
   store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property5"}, {4, "other"}});
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
     auto property = NameToPropertyId("property5");
 
@@ -1534,7 +1534,7 @@ TEST_P(StorageV3, VertexPropertyAbort) {
   // Create the vertex.
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     acc.Commit(GetNextHlc());
   }
 
@@ -1808,7 +1808,7 @@ TEST_P(StorageV3, VertexPropertySerializationError) {
   store.StoreMapping({{1, "label"}, {2, "property"}, {3, "property1"}, {4, "property2"}});
   {
     auto acc = store.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     acc.Commit(GetNextHlc());
   }
 
@@ -1906,7 +1906,7 @@ TEST_P(StorageV3, VertexPropertySerializationError) {
 TEST_P(StorageV3, VertexLabelPropertyMixed) {
   store.StoreMapping({{1, "label"}, {2, "property"}, {3, "label5"}, {4, "property5"}});
   auto acc = store.Access(GetNextHlc());
-  auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+  auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
   auto label = NameToLabelId("label5");
   auto property = NameToPropertyId("property5");
@@ -2148,7 +2148,7 @@ TEST_P(StorageV3, VertexPropertyClear) {
   auto property2 = NameToPropertyId("property2");
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
     auto old_value = vertex.SetPropertyAndValidate(property1, PropertyValue("value"));
     ASSERT_TRUE(old_value.HasValue());
@@ -2252,7 +2252,7 @@ TEST_P(StorageV3, VertexNonexistentLabelPropertyEdgeAPI) {
   auto property1 = NameToPropertyId("property1");
 
   auto acc = store.Access(GetNextHlc());
-  auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+  auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
 
   // Check state before (OLD view).
   ASSERT_EQ(vertex.Labels(View::OLD).GetError(), Error::NONEXISTENT_OBJECT);
@@ -2308,7 +2308,7 @@ TEST_P(StorageV3, VertexVisibilitySingleTransaction) {
   auto acc1 = store.Access(GetNextHlc());
   auto acc2 = store.Access(GetNextHlc());
 
-  auto vertex = CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
+  auto vertex = CreateVertexAndValidate(acc1, {}, PropertyValue{0}, {});
 
   EXPECT_FALSE(acc1.FindVertex(pk, View::OLD));
   EXPECT_TRUE(acc1.FindVertex(pk, View::NEW));
@@ -2362,7 +2362,7 @@ TEST_P(StorageV3, VertexVisibilityMultipleTransactions) {
     auto acc1 = store.Access(GetNextHlc());
     auto acc2 = store.Access(GetNextHlc());
 
-    CreateVertexAndValidate(acc1, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    CreateVertexAndValidate(acc1, {}, PropertyValue{0}, {});
 
     EXPECT_FALSE(acc1.FindVertex(pk, View::OLD));
     EXPECT_TRUE(acc1.FindVertex(pk, View::NEW));
@@ -2602,7 +2602,7 @@ TEST_P(StorageV3, DeletedVertexAccessor) {
   // Create the vertex
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue{0}}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0}, {});
     ASSERT_FALSE(vertex.SetPropertyAndValidate(property1, property_value).HasError());
     acc.Commit(GetNextHlc());
   }
@@ -2639,8 +2639,7 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
     auto acc = store.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label1");
     const auto prop1 = NameToPropertyId("prop1");
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {label1},
-                                              {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
+    auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue(0)}, {{prop1, PropertyValue(111)}});
     ASSERT_TRUE(vertex.HasValue());
     ASSERT_TRUE(vertex->PrimaryLabel(View::NEW).HasValue());
     EXPECT_EQ(vertex->PrimaryLabel(View::NEW).GetValue(), primary_label);
@@ -2651,29 +2650,18 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
               (std::map<PropertyId, PropertyValue>{{prop1, PropertyValue(111)}}));
   }
   {
-    auto acc = store.Access(GetNextHlc());
-    const auto label1 = NameToLabelId("label1");
-    const auto prop1 = NameToPropertyId("prop1");
-    EXPECT_THROW(
-        {
-          auto vertex = acc.CreateVertexAndValidate(
-              label1, {}, {{primary_property, PropertyValue(0)}, {prop1, PropertyValue(111)}});
-        },
-        utils::BasicException);
-  }
-  {
     ASSERT_DEATH(
         {
           Shard store(primary_label, min_pk, std::nullopt /*max_primary_key*/, schema_property_vector);
           auto acc = store.Access(GetNextHlc());
-          auto vertex1 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
-          auto vertex2 = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
+          auto vertex1 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
+          auto vertex2 = acc.CreateVertexAndValidate({}, {PropertyValue{0}}, {});
         },
         "");
   }
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {primary_label}, {{primary_property, PropertyValue(0)}});
+    auto vertex = acc.CreateVertexAndValidate({primary_label}, {PropertyValue{0}}, {});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
@@ -2681,7 +2669,7 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
   }
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {primary_label}, {{primary_property, PropertyValue(0)}});
+    auto vertex = acc.CreateVertexAndValidate({primary_label}, {PropertyValue{0}}, {});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
@@ -2689,16 +2677,15 @@ TEST_P(StorageV3, TestCreateVertexAndValidate) {
   }
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {});
+    auto vertex = acc.CreateVertexAndValidate({}, {}, {});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
-              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY, primary_label,
-                              {primary_property, common::SchemaType::INT}));
+              SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, primary_label));
   }
   {
     auto acc = store.Access(GetNextHlc());
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue("test")}});
+    auto vertex = acc.CreateVertexAndValidate({}, {PropertyValue{"test"}}, {});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
