@@ -62,7 +62,7 @@ CPUInfo GetCPUInfo() {
   return {cpu_model, cpu_count};
 }
 
-const nlohmann::json GetSystemInfo() {
+nlohmann::json GetSystemInfo() {
   // Get `uname`.
   struct utsname info;
   if (uname(&info) != 0) return {};

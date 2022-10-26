@@ -36,6 +36,6 @@ CPUInfo GetCPUInfo();
  * This function return a dictionary containing some basic system information
  * (eg. operating system name, cpu information, memory information, etc.).
  */
-const nlohmann::json GetSystemInfo();
+nlohmann::json GetSystemInfo();
 
 }  // namespace memgraph::utils

@@ -22,7 +22,7 @@ namespace memgraph::license {
 
 LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id,
                                      utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
-                                     std::chrono::duration<int64_t> request_frequency)
+                                     std::chrono::seconds request_frequency)
     : url_{std::move(url)}, uuid_{std::move(uuid)}, machine_id_{std::move(machine_id)}, license_info_{license_info} {
   scheduler_.Run("LicenseCheck", request_frequency, [&] { SendData(); });
 }

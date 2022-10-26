@@ -153,4 +153,10 @@ TEST_F(LicenseTest, LicenseType) {
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
   }
+  {
+    memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    CheckLicenseValidity(false);
+  }
 }

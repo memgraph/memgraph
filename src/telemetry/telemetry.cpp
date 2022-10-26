@@ -24,7 +24,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::telemetry {
-namespace {}  // namespace
 
 const int kMaxBatchSize = 100;
 
@@ -45,8 +44,6 @@ void Telemetry::AddCollector(const std::string &name, const std::function<const 
   std::lock_guard<std::mutex> guard(lock_);
   collectors_.emplace_back(name, func);
 }
-
-std::string Telemetry::GetRunId() const { return uuid_; }
 
 Telemetry::~Telemetry() {
   scheduler_.Stop();
