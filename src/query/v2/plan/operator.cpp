@@ -155,12 +155,15 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 }  // namespace
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP(name) \
   ScopedProfile profile { ComputeProfilingKey(this), name, &context }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_CUSTOM_PROFILE(name) \
   ScopedCustomProfile custom_profile { name, context }
 
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_REQUEST_WAIT_PROFILE SCOPED_CUSTOM_PROFILE("request_wait")
 
 class DistributedCreateNodeCursor : public Cursor {
