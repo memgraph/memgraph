@@ -32,6 +32,9 @@ class ScopedCustomProfile {
   ScopedCustomProfile &operator=(const ScopedCustomProfile &) = delete;
   ScopedCustomProfile &operator=(ScopedCustomProfile &&) = delete;
 
+  // If an exception is thrown in any of these functions that signals a problem that is much bigger than we could handle
+  // it here, thus we don't attempt to handle it.
+  // NOLINTNEXTLINE(bugprone-exception-escape)
   ~ScopedCustomProfile() {
     if (nullptr != context_->stats_root) {
       auto &custom_data = context_->stats_root->custom_data[custom_data_name_];
