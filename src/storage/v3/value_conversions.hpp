@@ -20,8 +20,6 @@
 
 #pragma once
 
-// TODO(kostasrim) Think about long term sustainability
-
 // This should not be put under v3 because ADL will mess that up.
 namespace memgraph::storage::conversions {
 

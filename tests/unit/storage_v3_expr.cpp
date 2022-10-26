@@ -502,7 +502,7 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "edge_type"}, {4, "prop"}});
   auto edge_type = dba.NameToEdgeType("edge_type");
   auto prop = dba.NameToProperty("prop");
-  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(0)}});
+  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(0)}, {}).GetValue();
   auto e11 = dba.InsertEdge(&v1, &v1, edge_type);
   ASSERT_TRUE(e11.HasValue());
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop, memgraph::storage::v3::PropertyValue(42)).HasValue());
@@ -690,7 +690,7 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
 
 TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "ANIMAL"}, {4, "DOG"}, {5, "NICE_DOG"}, {6, "BAD_DOG"}});
-  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
+  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).GetValue();
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("ANIMAL")).HasValue());
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("DOG")).HasValue());
   ASSERT_TRUE(v1.AddLabelAndValidate(dba.NameToLabel("NICE_DOG")).HasValue());
@@ -1116,7 +1116,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
 };
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Vertex) {
-  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
+  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(3)}, {}).GetValue();
   ASSERT_TRUE(v1.SetPropertyAndValidate(prop_age.second, PropertyValue(10)).HasValue());
   dba.AdvanceCommand();
   frame[symbol] = TypedValue(v1);
@@ -1277,8 +1277,8 @@ TEST_F(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
 
 TEST_F(ExpressionEvaluatorPropertyLookup, Edge) {
   db.StoreMapping({{1, "label"}, {2, "property"}, {3, "age"}, {4, "height"}, {5, "edge_type"}});
-  auto v1 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(1)}});
-  auto v2 = *dba.InsertVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(2)}});
+  auto v1 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(1)}, {}).GetValue();
+  auto v2 = storage_dba.CreateVertexAndValidate({}, {PropertyValue(2)}, {}).GetValue();
   auto e12 = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge_type"));
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(prop_age.second, PropertyValue(10)).HasValue());

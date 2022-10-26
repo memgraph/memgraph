@@ -38,8 +38,8 @@ class StorageEdgeTest : public ::testing::TestWithParam<bool> {
     return store.NameToEdgeType(edge_type_name);
   }
 
-  ResultSchema<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
-    return acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, key}});
+  static ResultSchema<VertexAccessor> CreateVertex(Shard::Accessor &acc, const PropertyValue &key) {
+    return acc.CreateVertexAndValidate({}, {key}, {});
   }
 
   coordinator::Hlc GetNextHlc() {
@@ -72,12 +72,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(0U);
   auto acc = store.Access(GetNextHlc());
-  const auto [from_id, to_id] =
-      std::invoke([this, &from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
-        auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
-        auto to_id = CreateVertex(acc, to_key)->Id(View::NEW).GetValue();
-        return std::make_pair(std::move(from_id), std::move(to_id));
-      });
+  const auto [from_id, to_id] = std::invoke([&from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
+    auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
+    auto to_id = CreateVertex(acc, to_key)->Id(View::NEW).GetValue();
+    return std::make_pair(std::move(from_id), std::move(to_id));
+  });
   const auto other_et = NameToEdgeTypeId("other");
   const VertexId from_id_with_different_label{NameToLabelId("different_label"), from_id.primary_key};
   const VertexId to_id_with_different_label{NameToLabelId("different_label"), to_id.primary_key};
@@ -872,12 +871,11 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
   const PropertyValue to_key{1};
   const PropertyValue non_existing_key{2};
   auto acc = store.Access(GetNextHlc());
-  const auto [from_id, to_id] =
-      std::invoke([this, &from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
-        auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
-        auto to_id = CreateVertex(acc, to_key)->Id(View::NEW).GetValue();
-        return std::make_pair(std::move(from_id), std::move(to_id));
-      });
+  const auto [from_id, to_id] = std::invoke([&from_key, &to_key, &acc]() mutable -> std::pair<VertexId, VertexId> {
+    auto from_id = CreateVertex(acc, from_key)->Id(View::NEW).GetValue();
+    auto to_id = CreateVertex(acc, to_key)->Id(View::NEW).GetValue();
+    return std::make_pair(std::move(from_id), std::move(to_id));
+  });
 
   const auto et = NameToEdgeTypeId("et5");
   const auto other_et = NameToEdgeTypeId("other");
@@ -1409,7 +1407,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
   const PropertyValue non_existing_key{2};
   auto acc = store.Access(GetNextHlc());
   const auto from_id = std::invoke(
-      [this, &from_key, &acc]() mutable -> VertexId { return CreateVertex(acc, from_key)->Id(View::NEW).GetValue(); });
+      [&from_key, &acc]() mutable -> VertexId { return CreateVertex(acc, from_key)->Id(View::NEW).GetValue(); });
   const VertexId to_id{primary_label, {to_key}};
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(1U);
@@ -2514,7 +2512,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
   const PropertyValue non_existing_key{2};
   auto acc = store.Access(GetNextHlc());
   const auto to_id = std::invoke(
-      [this, &to_key, &acc]() mutable -> VertexId { return CreateVertex(acc, to_key)->Id(View::NEW).GetValue(); });
+      [&to_key, &acc]() mutable -> VertexId { return CreateVertex(acc, to_key)->Id(View::NEW).GetValue(); });
   const VertexId from_id{primary_label, {from_key}};
   const auto et = NameToEdgeTypeId("et5");
   const auto edge_id = Gid::FromUint(1U);
