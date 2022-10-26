@@ -275,6 +275,9 @@ target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 add_unit_test(utils_temporal utils_temporal.cpp)
 target_link_libraries(${test_prefix}utils_temporal mg-utils)
 
+add_unit_test(utils_histogram.cpp)
+target_link_libraries(${test_prefix}utils_histogram mg-utils)
+
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
@@ -439,7 +442,3 @@ target_link_libraries(${test_prefix}pretty_print_ast_to_original_expression_test
 # Tests for mg-coordinator
 add_unit_test(coordinator_shard_map.cpp)
 target_link_libraries(${test_prefix}coordinator_shard_map mg-coordinator)
-
-# Tests for Histogram
-add_unit_test(histogram.cpp)
-target_link_libraries(${test_prefix}histogram mg-utils)
