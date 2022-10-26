@@ -15,6 +15,21 @@ import argparse
 import json
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
+EXPECTED_LICENSE_INFO_FIELDS = {
+    "run_id": str,
+    "machine_id": str,
+    "type": str,
+    "license_type": str,
+    "license_key": str,
+    "organization": str,
+    "valid": bool,
+    "memory": int,
+    "swap": int,
+    "memory_limit": int,
+    "memory_usage": int,
+    "timestamp": float,
+}
+
 
 class ServerHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
@@ -27,17 +42,12 @@ class ServerHandler(SimpleHTTPRequestHandler):
 
         assert isinstance(data, dict)
 
-        assert "run_id" in data
-        assert "machine_id" in data
-        assert "type" in data
-        assert "license_type" in data
-        assert "license_key" in data
-        assert "organization" in data
-        assert "memory" in data
-        assert "memory_limit" in data
-        assert "valid" in data
-        assert "memory_limit" in data
-        assert "timestamp" in data
+        for expected_field, expected_type in EXPECTED_LICENSE_INFO_FIELDS.items():
+            assert expected_field in data, f"Field {expected_field} not found in received data"
+            assert isinstance(
+                data[expected_field], expected_type
+            ), f"Field {expected_field} is not correct type: expected {expected_type} got {type(data[expected_field])}"
+        assert len(EXPECTED_LICENSE_INFO_FIELDS) == len(data), "Expected data size does not match received"
 
         self.send_response(200)
         self.end_headers()

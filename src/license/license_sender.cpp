@@ -14,6 +14,7 @@
 #include <spdlog/spdlog.h>
 
 #include "requests/requests.hpp"
+#include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
@@ -35,16 +36,18 @@ void LicenseInfoSender::SendData() {
   license_info_.WithLock([&data, this](const auto &license_info) mutable {
     if (license_info && !license_info->organization_name.empty()) {
       const auto memory_info = utils::GetMemoryInfo();
+      const auto memory_usage = utils::GetMemoryUsage();
       data = {{"run_id", uuid_},
               {"machine_id", machine_id_},
               {"type", "license-check"},
               {"license_type", LicenseTypeToString(license_info->license.type)},
-              {"organization", license_info->organization_name},
               {"license_key", license_info->license_key},
-              {"valid", fmt::format("{}", license_info->is_valid)},
+              {"organization", license_info->organization_name},
+              {"valid", license_info->is_valid},
               {"memory", memory_info.memory},
               {"swap", memory_info.swap},
               {"memory_limit", license_info->license.memory_limit},
+              {"memory_usage", memory_usage},
               {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
     }
   });
