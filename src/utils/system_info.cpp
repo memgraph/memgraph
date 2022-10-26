@@ -68,7 +68,9 @@ nlohmann::json GetSystemInfo() {
   if (uname(&info) != 0) return {};
 
   // Parse `/etc/os-release`.
-  std::string os_name, os_version, os_full;
+  std::string os_name;
+  std::string os_version;
+  std::string os_full;
   auto os_data = utils::ReadLines("/etc/os-release");
   for (auto &row : os_data) {
     auto split = utils::Split(row, "=");
