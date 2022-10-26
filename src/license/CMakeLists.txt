@@ -1,4 +1,5 @@
 set(license_src_files
+    license_sender.cpp
     license.cpp)
 add_library(mg-license STATIC ${license_src_files})
 

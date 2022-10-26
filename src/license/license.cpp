@@ -70,6 +70,17 @@ LicenseCheckResult IsValidLicenseInternal(const License &license, const std::str
 }
 }  // namespace
 
+std::string LicenseTypeToString(const LicenseType license_type) {
+  switch (license_type) {
+    case LicenseType::ENTERPRISE: {
+      return "enterprise";
+    }
+    case LicenseType::OEM: {
+      return "oem";
+    }
+  }
+}
+
 void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings) {
   settings.RegisterSetting(std::string{kEnterpriseLicenseSettingKey}, "",
                            [&] { license_checker.RevalidateLicense(settings); });
@@ -154,9 +165,9 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   if (!same_license_info) {
     license_type_ = maybe_license->type;
     if (license_type_ == LicenseType::ENTERPRISE) {
-      spdlog::info("All Enterprise features are active.");
+      spdlog::info("Enterprise license is active.");
     } else {
-      spdlog::info("OEM License is active.");
+      spdlog::info("OEM license is active.");
     }
     is_valid_.store(true, std::memory_order_relaxed);
     locked_previous_license_info->is_valid = true;

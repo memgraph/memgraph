@@ -24,9 +24,9 @@ namespace memgraph::license {
 
 class LicenseInfoSender final {
  public:
-  explicit LicenseInfoSender(std::string url,
+  explicit LicenseInfoSender(std::string url, std::string uuid, std::string machine_id,
                              utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
-                             std::chrono::duration<int64_t> request_frequency = std::chrono::hours(10));
+                             std::chrono::duration<int64_t> request_frequency = std::chrono::hours(12));
 
   LicenseInfoSender(const LicenseInfoSender &) = delete;
   LicenseInfoSender(LicenseInfoSender &&) noexcept = delete;
@@ -43,7 +43,6 @@ class LicenseInfoSender final {
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
   utils::Scheduler scheduler_;
-  utils::Timer timer_;
 };
 
 }  // namespace memgraph::license

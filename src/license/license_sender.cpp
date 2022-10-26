@@ -17,10 +17,10 @@
 
 namespace memgraph::license {
 
-LicenseInfoSender::LicenseInfoSender(std::string url,
+LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id,
                                      utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
                                      std::chrono::duration<int64_t> request_frequency)
-    : url_{std::move(url)}, license_info_{license_info} {
+    : url_{std::move(url)}, uuid_{std::move(uuid)}, machine_id_{std::move(machine_id)}, license_info_{license_info} {
   scheduler_.Run("LicenseCheck", request_frequency, [&] { SendData(); });
 }
 
@@ -30,13 +30,14 @@ void LicenseInfoSender::SendData() {
   nlohmann::json data = nlohmann::json::object();
 
   license_info_.WithLock([&data, this](const auto &license_info) mutable {
-    if (license_info) {
+    if (license_info && !license_info->organization_name.empty()) {
       data = {{"run_id", uuid_},
               {"machine_id", machine_id_},
               {"type", "license-check"},
-              {"license_type", license_info->license.type},
+              {"license_type", LicenseTypeToString(license_info->license.type)},
               {"organization", license_info->organization_name},
               {"license_key", license_info->license_key},
+              {"valid", fmt::format("{}", license_info->is_valid)},
               {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
     }
   });

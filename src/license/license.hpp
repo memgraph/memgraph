@@ -25,6 +25,8 @@ namespace memgraph::license {
 
 enum class LicenseType : uint8_t { ENTERPRISE, OEM };
 
+std::string LicenseTypeToString(LicenseType license_type);
+
 struct License {
   License() = default;
 
@@ -93,7 +95,7 @@ struct LicenseChecker {
   void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
 
   std::optional<std::pair<std::string, std::string>> license_info_override_;
-  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_;
+  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   bool enterprise_enabled_{false};
   std::atomic<bool> is_valid_{false};
   LicenseType license_type_;

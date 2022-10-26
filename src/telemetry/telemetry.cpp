@@ -54,11 +54,9 @@ Telemetry::~Telemetry() {
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
-  nlohmann::json payload = {{"run_id", uuid_},
-                            {"machine_id", machine_id_},
-                            {"event", event},
-                            {"data", data},
-                            {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
+  nlohmann::json payload = {
+      {"run_id", uuid_}, {"type", "telemetry"}, {"machine_id", machine_id_},
+      {"event", event},  {"data", data},        {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
