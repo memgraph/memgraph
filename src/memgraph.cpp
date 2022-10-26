@@ -945,8 +945,7 @@ int main(int argc, char **argv) {
     });
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id,
-                                                           memgraph::license::global_license_checker.GetLicenseInfo(),
-                                                           std::chrono::seconds(5));
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth};
   memgraph::communication::websocket::Server websocket_server{
