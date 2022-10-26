@@ -39,7 +39,7 @@ struct LatencyHistogramSummary {
   Duration sum;
 
   friend std::ostream &operator<<(std::ostream &in, const LatencyHistogramSummary &histo) {
-    in << "LatencyHistogramSummary { \"count\": " << histo.count;
+    in << "{ \"count\": " << histo.count;
     in << ", \"p0\": " << histo.p0.count();
     in << ", \"p50\": " << histo.p50.count();
     in << ", \"p75\": " << histo.p75.count();
@@ -70,7 +70,7 @@ class MessageHistogramCollector {
     std::unordered_map<std::string, LatencyHistogramSummary> ret{};
 
     for (const auto &[type_id, histo] : histograms_) {
-      std::string demangled_name = boost::core::demangle(type_id.get().name());
+      std::string demangled_name = "\"" + boost::core::demangle(type_id.get().name()) + "\"";
 
       LatencyHistogramSummary latency_histogram_summary{
           .count = histo.Count(),
