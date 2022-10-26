@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <cstdint>
 
 #include "license/license.hpp"
 #include "utils/settings.hpp"
@@ -155,6 +156,20 @@ TEST_F(LicenseTest, LicenseType) {
   }
   {
     memgraph::license::License license_oem{organization_name, 0, 0, memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    CheckLicenseValidity(false);
+  }
+  {
+    memgraph::license::License license_oem{organization_name, std::numeric_limits<int64_t>::min(),
+                                           std::numeric_limits<int64_t>::max(), memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    CheckLicenseValidity(false);
+  }
+  {
+    memgraph::license::License license_oem{organization_name, std::numeric_limits<int64_t>::max(),
+                                           std::numeric_limits<int64_t>::min(), memgraph::license::LicenseType::OEM};
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
