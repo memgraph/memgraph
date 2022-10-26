@@ -99,7 +99,7 @@ class Histogram {
       }
     }
 
-    MG_ASSERT(false, "bug in Histogram::Percentile where it failed to return the {} percentile", percentile);
+    LOG_FATAL("bug in Histogram::Percentile where it failed to return the {} percentile", percentile);
     return 0;
   }
 };
