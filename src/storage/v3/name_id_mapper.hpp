@@ -40,6 +40,15 @@ class NameIdMapper final {
     }
   }
 
+  void ExtendMapping(std::unordered_map<uint64_t, std::string> id_to_name) {
+    for (auto &[id, name] : id_to_name) {
+      MG_ASSERT(!name_to_id_.contains(name));
+      MG_ASSERT(!id_to_name_.contains(id));
+      name_to_id_.emplace(name, id);
+      id_to_name_.emplace(id, std::move(name));
+    }
+  }
+
   uint64_t NameToId(std::string_view name) const {
     if (auto it = name_to_id_.find(name); it != name_to_id_.end()) {
       return it->second;
@@ -52,6 +61,14 @@ class NameIdMapper final {
     MG_ASSERT(it != id_to_name_.end(), "Id not know in mapper!");
     return it->second;
   }
+
+  bool contains(const uint64_t id) const { return id_to_name_.contains(id); }
+
+  bool contains(const std::string &name) const { return name_to_id_.contains(name); }
+
+  const auto &GetIdToNameMap() const { return id_to_name_; }
+
+  const auto &GetNameToIdMap() const { return name_to_id_; }
 
  private:
   // Necessary for comparison with string_view nad string

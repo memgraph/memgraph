@@ -33,8 +33,9 @@ std::ostream &operator<<(std::ostream &in, const std::vector<T> &vector) {
   return in;
 }
 
-template <typename K, typename V>
-std::ostream &operator<<(std::ostream &in, const std::map<K, V> &map) {
+namespace detail {
+template <typename T>
+std::ostream &MapImpl(std::ostream &in, const T &map) {
   in << "{";
   bool first = true;
   for (const auto &[a, b] : map) {
@@ -48,6 +49,17 @@ std::ostream &operator<<(std::ostream &in, const std::map<K, V> &map) {
   }
   in << "}";
   return in;
+}
+}  // namespace detail
+
+template <typename K, typename V>
+std::ostream &operator<<(std::ostream &in, const std::map<K, V> &map) {
+  return detail::MapImpl(in, map);
+}
+
+template <typename K, typename V, typename THash, typename Cmp>
+std::ostream &operator<<(std::ostream &in, const std::unordered_map<K, V, THash, Cmp> &map) {
+  return detail::MapImpl(in, map);
 }
 
 template <typename K, typename V>

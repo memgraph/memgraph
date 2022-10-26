@@ -183,7 +183,7 @@ ShardMap ShardMap::Parse(std::istream &input_stream) {
       for (auto property_index = 0; property_index < number_of_primary_properties; ++property_index) {
         pk.push_back(parse_property_value(std::move(pk_values_as_text[property_index]), schema[property_index].type));
       }
-      shard_map.SplitShard(shard_map.GetHlc(), shard_map.labels.at(primary_label), pk);
+      shard_map.SplitShard(shard_map.GetHlc(), LabelId::FromUint(shard_map.labels.NameToId(primary_label)), pk);
     }
   }
 
@@ -196,10 +196,10 @@ std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
   in << "ShardMap { shard_map_version: " << shard_map.shard_map_version;
   in << ", max_property_id: " << shard_map.max_property_id;
   in << ", max_edge_type_id: " << shard_map.max_edge_type_id;
-  in << ", properties: " << shard_map.properties;
-  in << ", edge_types: " << shard_map.edge_types;
+  in << ", properties: " << shard_map.properties.GetNameToIdMap();
+  in << ", edge_types: " << shard_map.edge_types.GetNameToIdMap();
   in << ", max_label_id: " << shard_map.max_label_id;
-  in << ", labels: " << shard_map.labels;
+  in << ", labels: " << shard_map.labels.GetNameToIdMap();
   in << ", label_spaces: " << shard_map.label_spaces;
   in << ", schemas: " << shard_map.schemas;
   in << "}";
@@ -207,7 +207,7 @@ std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map) {
 }
 
 Shards ShardMap::GetShardsForLabel(const LabelName &label) const {
-  const auto id = labels.at(label);
+  const auto id = LabelId::FromUint(labels.NameToId(label));
   const auto &shards = label_spaces.at(id).shards;
   return shards;
 }
@@ -335,7 +335,9 @@ std::optional<LabelId> ShardMap::InitializeNewLabel(std::string label_name, std:
 
   const LabelId label_id = LabelId::FromUint(++max_label_id);
 
-  labels.emplace(std::move(label_name), label_id);
+  std::unordered_map<uint64_t, std::string> id_map;
+  id_map.emplace(label_id.AsUint(), label_name);
+  labels.ExtendMapping(std::move(id_map));
 
   PrimaryKey initial_key = SchemaToMinKey(schema);
   Shard empty_shard = {};
@@ -362,61 +364,56 @@ void ShardMap::AddServer(Address server_address) {
   // Find a random place for the server to plug in
 }
 std::optional<LabelId> ShardMap::GetLabelId(const std::string &label) const {
-  if (const auto it = labels.find(label); it != labels.end()) {
-    return it->second;
+  if (!labels.contains(label)) {
+    return std::nullopt;
   }
-
-  return std::nullopt;
+  return LabelId::FromUint(labels.NameToId(label));
 }
 
-const std::string &ShardMap::GetLabelName(const LabelId label) const {
-  if (const auto it =
-          std::ranges::find_if(labels, [label](const auto &name_id_pair) { return name_id_pair.second == label; });
-      it != labels.end()) {
-    return it->first;
+const std::string& ShardMap::GetLabelName(const LabelId label) const {
+  const auto id = label.AsUint();
+  if (labels.contains(id)) {
+    return labels.IdToName(id);
   }
-  throw utils::BasicException("GetLabelName fails on the given label id!");
+  throw utils::BasicException("PropertyId not found!");
 }
 
 std::optional<PropertyId> ShardMap::GetPropertyId(const std::string &property_name) const {
-  if (const auto it = properties.find(property_name); it != properties.end()) {
-    return it->second;
+  if (!properties.contains(property_name)) {
+    return std::nullopt;
   }
-
-  return std::nullopt;
+  return PropertyId::FromUint(properties.NameToId(property_name));
 }
 
 const std::string &ShardMap::GetPropertyName(const PropertyId property) const {
-  if (const auto it = std::ranges::find_if(
-          properties, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
-      it != properties.end()) {
-    return it->first;
+  const auto id = property.AsUint();
+  if (properties.contains(id)) {
+    return properties.IdToName(id);
   }
   throw utils::BasicException("PropertyId not found!");
 }
 
 std::optional<EdgeTypeId> ShardMap::GetEdgeTypeId(const std::string &edge_type) const {
-  if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
-    return it->second;
+  if (!edge_types.contains(edge_type)) {
+    return std::nullopt;
   }
-
-  return std::nullopt;
+  return EdgeTypeId::FromUint(edge_types.NameToId(edge_type));
 }
 
 const std::string &ShardMap::GetEdgeTypeName(const EdgeTypeId property) const {
-  if (const auto it = std::ranges::find_if(
-          edge_types, [property](const auto &name_id_pair) { return name_id_pair.second == property; });
-      it != edge_types.end()) {
-    return it->first;
+  const auto id = property.AsUint();
+  if (edge_types.contains(id)) {
+    return edge_types.IdToName(id);
   }
   throw utils::BasicException("EdgeTypeId not found!");
 }
+
 Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key,
                                    const PrimaryKey &end_key) const {
   MG_ASSERT(start_key <= end_key);
   MG_ASSERT(labels.contains(label_name));
 
-  LabelId label_id = labels.at(label_name);
+  auto label_id = LabelId::FromUint(labels.NameToId(label_name));
 
   const auto &label_space = label_spaces.at(label_id);
 
@@ -438,7 +435,7 @@ Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey
 Shard ShardMap::GetShardForKey(const LabelName &label_name, const PrimaryKey &key) const {
   MG_ASSERT(labels.contains(label_name));
 
-  LabelId label_id = labels.at(label_name);
+  auto label_id = LabelId::FromUint(labels.NameToId(label_name));
 
   const auto &label_space = label_spaces.at(label_id);
 
@@ -466,14 +463,16 @@ PropertyMap ShardMap::AllocatePropertyIds(const std::vector<PropertyName> &new_p
 
   for (const auto &property_name : new_properties) {
     if (properties.contains(property_name)) {
-      auto property_id = properties.at(property_name);
+      auto property_id = PropertyId::FromUint(properties.NameToId(property_name));
       ret.emplace(property_name, property_id);
     } else {
       mutated = true;
 
       const PropertyId property_id = PropertyId::FromUint(++max_property_id);
       ret.emplace(property_name, property_id);
-      properties.emplace(property_name, property_id);
+      std::unordered_map<uint64_t, std::string> id_map;
+      id_map.emplace(property_id.AsUint(), property_name);
+      properties.ExtendMapping(std::move(id_map));
     }
   }
 
@@ -491,14 +490,16 @@ EdgeTypeIdMap ShardMap::AllocateEdgeTypeIds(const std::vector<EdgeTypeName> &new
 
   for (const auto &edge_type_name : new_edge_types) {
     if (edge_types.contains(edge_type_name)) {
-      auto edge_type_id = edge_types.at(edge_type_name);
+      auto edge_type_id = EdgeTypeId::FromUint(edge_types.NameToId(edge_type_name));
       ret.emplace(edge_type_name, edge_type_id);
     } else {
       mutated = true;
 
       const EdgeTypeId edge_type_id = EdgeTypeId::FromUint(++max_edge_type_id);
       ret.emplace(edge_type_name, edge_type_id);
-      edge_types.emplace(edge_type_name, edge_type_id);
+      std::unordered_map<uint64_t, std::string> id_map;
+      id_map.emplace(edge_type_id.AsUint(), edge_type_name);
+      edge_types.ExtendMapping(std::move(id_map));
     }
   }
 

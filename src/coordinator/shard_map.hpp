@@ -25,6 +25,7 @@
 #include "io/address.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
@@ -117,10 +118,10 @@ struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id{kNotExistingId};
   uint64_t max_edge_type_id{kNotExistingId};
-  std::map<PropertyName, PropertyId> properties;
-  std::map<EdgeTypeName, EdgeTypeId> edge_types;
+  storage::v3::NameIdMapper properties;
+  storage::v3::NameIdMapper edge_types;
+  storage::v3::NameIdMapper labels;
   uint64_t max_label_id{kNotExistingId};
-  std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
 

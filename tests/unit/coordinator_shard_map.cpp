@@ -55,15 +55,15 @@ InT
 
   std::stringstream stream(input);
   auto shard_map = ShardMap::Parse(stream);
-  EXPECT_EQ(shard_map.properties.size(), 6);
-  EXPECT_EQ(shard_map.edge_types.size(), 3);
+  EXPECT_EQ(shard_map.properties.GetNameToIdMap().size(), 6);
+  EXPECT_EQ(shard_map.edge_types.GetNameToIdMap().size(), 3);
   EXPECT_EQ(shard_map.label_spaces.size(), 2);
   EXPECT_EQ(shard_map.schemas.size(), 2);
 
   auto check_label = [&shard_map](const std::string &label_name, const std::vector<SchemaProperty> &expected_schema,
                                   const std::vector<PrimaryKey> &expected_split_points) {
     ASSERT_TRUE(shard_map.labels.contains(label_name));
-    const auto label_id = shard_map.labels.at(label_name);
+    const auto label_id = LabelId::FromUint(shard_map.labels.NameToId(label_name));
     const auto &schema = shard_map.schemas.at(label_id);
     ASSERT_EQ(schema.size(), expected_schema.size());
     for (auto pp_index = 0; pp_index < schema.size(); ++pp_index) {
@@ -80,7 +80,8 @@ InT
   };
 
   check_label("label_1",
-              {SchemaProperty{shard_map.properties.at("primary_property_name_1"), common::SchemaType::STRING}},
+              {SchemaProperty{PropertyId::FromUint(shard_map.properties.NameToId("primary_property_name_1")),
+                              common::SchemaType::STRING}},
               std::vector<PrimaryKey>{
                   PrimaryKey{PropertyValue{""}},
                   PrimaryKey{PropertyValue{"asdasd"}},
@@ -90,15 +91,17 @@ InT
               });
 
   static constexpr int64_t kMinInt = std::numeric_limits<int64_t>::min();
-  check_label("label_2",
-              {SchemaProperty{shard_map.properties.at("property_1"), common::SchemaType::STRING},
-               SchemaProperty{shard_map.properties.at("property_2"), common::SchemaType::INT},
-               SchemaProperty{shard_map.properties.at("primary_property_name_2"), common::SchemaType::INT}},
-              std::vector<PrimaryKey>{
-                  PrimaryKey{PropertyValue{""}, PropertyValue{kMinInt}, PropertyValue{kMinInt}},
-                  PrimaryKey{PropertyValue{"first"}, PropertyValue{1}, PropertyValue{2}},
-                  PrimaryKey{PropertyValue{"     second   "}, PropertyValue{-1},
-                             PropertyValue{int64_t{-9223372036854775807LL - 1LL}}},
-              });
+  check_label(
+      "label_2",
+      {SchemaProperty{PropertyId::FromUint(shard_map.properties.NameToId("property_1")), common::SchemaType::STRING},
+       SchemaProperty{PropertyId::FromUint(shard_map.properties.NameToId("property_2")), common::SchemaType::INT},
+       SchemaProperty{PropertyId::FromUint(shard_map.properties.NameToId("primary_property_name_2")),
+                      common::SchemaType::INT}},
+      std::vector<PrimaryKey>{
+          PrimaryKey{PropertyValue{""}, PropertyValue{kMinInt}, PropertyValue{kMinInt}},
+          PrimaryKey{PropertyValue{"first"}, PropertyValue{1}, PropertyValue{2}},
+          PrimaryKey{PropertyValue{"     second   "}, PropertyValue{-1},
+                     PropertyValue{int64_t{-9223372036854775807LL - 1LL}}},
+      });
 }
 }  // namespace memgraph::coordinator::tests
