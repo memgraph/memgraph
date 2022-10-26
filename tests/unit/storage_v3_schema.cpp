@@ -178,86 +178,65 @@ class SchemaValidatorTest : public testing::Test {
 TEST_F(SchemaValidatorTest, TestSchemaValidateVertexCreate) {
   // Validate against secondary label
   {
-    const auto schema_violation =
-        schema_validator.ValidateVertexCreate(NameToLabel("test"), {}, {{prop_string, PropertyValue(1)}});
+    const auto schema_violation = schema_validator.ValidateVertexCreate(NameToLabel("test"), {}, {PropertyValue(1)});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
               SchemaViolation(SchemaViolation::ValidationStatus::NO_SCHEMA_DEFINED_FOR_LABEL, NameToLabel("test")));
   }
-  // Validate missing property
+
   {
-    const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {}, {{prop_int, PropertyValue(1)}});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY,
-                                                 label1, schema_prop_string));
-  }
-  {
-    const auto schema_violation =
-        schema_validator.ValidateVertexCreate(label2, {}, std::vector<std::pair<PropertyId, PropertyValue>>{});
-    ASSERT_NE(schema_violation, std::nullopt);
-    EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_HAS_NO_PRIMARY_PROPERTY,
-                                                 label2, schema_prop_string));
-  }
-  {
-    const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, std::vector<PropertyValue>{});
+    const auto schema_violation = schema_validator.ValidateVertexCreate(label2, {}, {});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
               SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PRIMARY_PROPERTIES_UNDEFINED, label2));
   }
   // Validate wrong secondary label
   {
-    const auto schema_violation =
-        schema_validator.ValidateVertexCreate(label1, {label1}, {{prop_string, PropertyValue("test")}});
+    const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label1}, {PropertyValue("test")});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
               SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label1));
   }
   {
-    const auto schema_violation =
-        schema_validator.ValidateVertexCreate(label1, {label2}, {{prop_string, PropertyValue("test")}});
+    const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {label2}, {PropertyValue("test")});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation,
               SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_SECONDARY_LABEL_IS_PRIMARY, label2));
   }
   // Validate wrong property type
   {
-    const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {}, {{prop_string, PropertyValue(1)}});
+    const auto schema_violation = schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue(1)});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, label1,
                                                  schema_prop_string, PropertyValue(1)));
   }
   {
-    const auto schema_violation = schema_validator.ValidateVertexCreate(
-        label2, {},
-        {{prop_string, PropertyValue("test")}, {prop_int, PropertyValue(12)}, {prop_duration, PropertyValue(1)}});
+    const auto schema_violation =
+        schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), PropertyValue(1)});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, label2,
                                                  schema_prop_duration, PropertyValue(1)));
   }
   {
     const auto wrong_prop = PropertyValue(TemporalData(TemporalType::Date, 1234));
-    const auto schema_violation = schema_validator.ValidateVertexCreate(
-        label2, {}, {{prop_string, PropertyValue("test")}, {prop_int, PropertyValue(12)}, {prop_duration, wrong_prop}});
+    const auto schema_violation =
+        schema_validator.ValidateVertexCreate(label2, {}, {PropertyValue("test"), PropertyValue(12), wrong_prop});
     ASSERT_NE(schema_violation, std::nullopt);
     EXPECT_EQ(*schema_violation, SchemaViolation(SchemaViolation::ValidationStatus::VERTEX_PROPERTY_WRONG_TYPE, label2,
                                                  schema_prop_duration, wrong_prop));
   }
   // Passing validations
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(label1, {}, {{prop_string, PropertyValue("test")}}), std::nullopt);
+  EXPECT_EQ(schema_validator.ValidateVertexCreate(label1, {}, {PropertyValue("test")}), std::nullopt);
   EXPECT_EQ(schema_validator.ValidateVertexCreate(label1, {NameToLabel("label3"), NameToLabel("label4")},
-                                                  {{prop_string, PropertyValue("test")}}),
+                                                  {PropertyValue("test")}),
             std::nullopt);
   EXPECT_EQ(schema_validator.ValidateVertexCreate(
                 label2, {},
-                {{prop_string, PropertyValue("test")},
-                 {prop_int, PropertyValue(122)},
-                 {prop_duration, PropertyValue(TemporalData(TemporalType::Duration, 1234))}}),
+                {PropertyValue("test"), PropertyValue(122), PropertyValue(TemporalData(TemporalType::Duration, 1234))}),
             std::nullopt);
-  EXPECT_EQ(schema_validator.ValidateVertexCreate(
-                label2, {NameToLabel("label5"), NameToLabel("label6")},
-                {{prop_string, PropertyValue("test123")},
-                 {prop_int, PropertyValue(122221)},
-                 {prop_duration, PropertyValue(TemporalData(TemporalType::Duration, 12344321))}}),
+  EXPECT_EQ(schema_validator.ValidateVertexCreate(label2, {NameToLabel("label5"), NameToLabel("label6")},
+                                                  {PropertyValue("test123"), PropertyValue(122221),
+                                                   PropertyValue(TemporalData(TemporalType::Duration, 12344321))}),
             std::nullopt);
 }
 

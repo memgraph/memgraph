@@ -23,7 +23,6 @@ namespace memgraph::storage::v3 {
 
 struct SchemaViolation {
   enum class ValidationStatus : uint8_t {
-    VERTEX_HAS_NO_PRIMARY_PROPERTY,
     NO_SCHEMA_DEFINED_FOR_LABEL,
     VERTEX_PROPERTY_WRONG_TYPE,
     VERTEX_UPDATE_PRIMARY_KEY,
@@ -50,10 +49,6 @@ struct SchemaViolation {
 class SchemaValidator {
  public:
   explicit SchemaValidator(Schemas &schemas);
-
-  [[deprecated]] std::optional<SchemaViolation> ValidateVertexCreate(
-      LabelId primary_label, const std::vector<LabelId> &labels,
-      const std::vector<std::pair<PropertyId, PropertyValue>> &properties) const;
 
   [[nodiscard]] std::optional<SchemaViolation> ValidateVertexCreate(
       LabelId primary_label, const std::vector<LabelId> &labels,
