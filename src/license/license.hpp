@@ -61,7 +61,7 @@ enum class LicenseCheckError : uint8_t {
   INVALID_LICENSE_KEY_STRING,
   INVALID_ORGANIZATION_NAME,
   EXPIRED_LICENSE,
-  LICENSE_INVALID_TYPE
+  NOT_ENTERPRISE_LICENSE
 };
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
@@ -82,8 +82,8 @@ struct LicenseChecker {
   void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting();
   // Checks if license is valid and if enterprise is enabled
-  LicenseCheckResult IsEnterpriseEnabled(const utils::Settings &settings) const;
-  bool IsEnterpriseEnabledFast() const;
+  LicenseCheckResult IsEnterpriseValid(const utils::Settings &settings) const;
+  bool IsEnterpriseValidFast() const;
 
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 

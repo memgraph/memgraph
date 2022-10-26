@@ -33,8 +33,8 @@ class LicenseTest : public ::testing::Test {
   const std::filesystem::path settings_directory{test_directory / "settings"};
 
   void CheckLicenseValidity(const bool expected_valid) {
-    ASSERT_EQ(!license_checker->IsEnterpriseEnabled(*settings).HasError(), expected_valid);
-    ASSERT_EQ(license_checker->IsEnterpriseEnabledFast(), expected_valid);
+    ASSERT_EQ(!license_checker->IsEnterpriseValid(*settings).HasError(), expected_valid);
+    ASSERT_EQ(license_checker->IsEnterpriseValidFast(), expected_valid);
   }
 
   std::optional<memgraph::utils::Settings> settings;
@@ -99,7 +99,7 @@ TEST_F(LicenseTest, Expiration) {
     CheckLicenseValidity(true);
 
     std::this_thread::sleep_for(delta + std::chrono::seconds(1));
-    ASSERT_TRUE(license_checker->IsEnterpriseEnabled(*settings).HasError());
+    ASSERT_TRUE(license_checker->IsEnterpriseValid(*settings).HasError());
     // We can't check fast checker because it has unknown refresh rate
   }
   {

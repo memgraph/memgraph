@@ -507,7 +507,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       username = &user_->username();
     }
 #ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseEnabledFast()) {
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
                          memgraph::storage::PropertyValue(params_pv));
     }

@@ -21,6 +21,7 @@
 
 #include "slk/serialization.hpp"
 #include "utils/base64.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -224,13 +225,13 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
           "following query:\n"
           "SET DATABASE SETTING \"enterprise.license\" TO \"your-license-key\"",
           feature);
-    case LicenseCheckError::LICENSE_INVALID_TYPE:
+    case LicenseCheckError::NOT_ENTERPRISE_LICENSE:
       return fmt::format("Your license has an invalid type. To use {} you need to have an enterprise license. \n",
                          feature);
   }
 }
 
-LicenseCheckResult LicenseChecker::IsEnterpriseEnabled(const utils::Settings &settings) const {
+LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &settings) const {
   if (enterprise_enabled_) [[unlikely]] {
     return {};
   }
@@ -242,7 +243,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseEnabled(const utils::Settings &se
     return LicenseCheckError::INVALID_LICENSE_KEY_STRING;
   }
   if (maybe_license->type != LicenseType::ENTERPRISE) {
-    return LicenseCheckError::LICENSE_INVALID_TYPE;
+    return LicenseCheckError::NOT_ENTERPRISE_LICENSE;
   }
 
   return IsValidLicenseInternal(*maybe_license, license_info.second);
@@ -257,7 +258,7 @@ utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker
   return previous_license_info_;
 }
 
-bool LicenseChecker::IsEnterpriseEnabledFast() const {
+bool LicenseChecker::IsEnterpriseValidFast() const {
   return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
 }
 
@@ -272,7 +273,7 @@ std::string Encode(const License &license) {
   slk::Save(license.organization_name, &builder);
   slk::Save(license.valid_until, &builder);
   slk::Save(license.memory_limit, &builder);
-  slk::Save(static_cast<std::underlying_type_t<LicenseType>>(license.type), &builder);
+  slk::Save(utils::UnderlyingCast(license.type), &builder);
   builder.Finalize();
 
   return std::string{license_key_prefix} + utils::base64_encode(buffer.data(), buffer.size());
