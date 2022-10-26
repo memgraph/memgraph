@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "io/message_conversion.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/transport.hpp"
 #include "utils/concepts.hpp"
@@ -87,6 +88,26 @@ struct ReadResponse {
   ReadReturn read_return;
   std::optional<Address> retry_leader;
 };
+
+template <class... ReadReturn>
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<std::variant<ReadReturn...>> &read_response) {
+  return TypeInfoForVariant(read_response.read_return);
+}
+
+template <class ReadReturn>
+utils::TypeInfoRef TypeInfoFor(const ReadResponse<ReadReturn> & /* read_response */) {
+  return typeid(ReadReturn);
+}
+
+template <class... WriteReturn>
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<std::variant<WriteReturn...>> &write_response) {
+  return TypeInfoForVariant(write_response.write_return);
+}
+
+template <class WriteReturn>
+utils::TypeInfoRef TypeInfoFor(const WriteResponse<WriteReturn> & /* write_response */) {
+  return typeid(WriteReturn);
+}
 
 /// AppendRequest is a raft-level message that the Leader
 /// periodically broadcasts to all Follower peers. This

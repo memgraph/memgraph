@@ -32,6 +32,7 @@
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
 #include "testing_constants.hpp"
+#include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::tests::simulation {
@@ -203,6 +204,7 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   auto machine_1_addr = cli_addr.ForkUniqueAddress();
 
   Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
+  Io<SimulatorTransport> cli_io_2 = simulator.Register(Address::TestAddress(2));
 
   auto coordinator_addresses = std::vector{
       machine_1_addr,
@@ -244,6 +246,11 @@ void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig
   spdlog::info("total requests:     {}", stats.total_requests);
   spdlog::info("total responses:    {}", stats.total_responses);
   spdlog::info("simulator ticks:    {}", stats.simulator_ticks);
+
+  auto histo = cli_io_2.ResponseLatencies();
+
+  using memgraph::utils::print_helpers::operator<<;
+  std::cout << "response latencies: " << histo << std::endl;
 
   spdlog::info("========================== SUCCESS :) ==========================");
 }

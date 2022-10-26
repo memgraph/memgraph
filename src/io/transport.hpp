@@ -19,6 +19,7 @@
 #include "io/address.hpp"
 #include "io/errors.hpp"
 #include "io/future.hpp"
+#include "io/message_histogram_collector.hpp"
 #include "io/time.hpp"
 #include "utils/result.hpp"
 
@@ -40,6 +41,7 @@ struct ResponseEnvelope {
   RequestId request_id;
   Address to_address;
   Address from_address;
+  Duration response_latency;
 };
 
 template <Message M>
@@ -140,5 +142,9 @@ class Io {
   void SetAddress(Address address) { address_ = address; }
 
   Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
+
+  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+    return implementation_.ResponseLatencies();
+  }
 };
 };  // namespace memgraph::io

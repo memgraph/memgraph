@@ -63,5 +63,9 @@ class SimulatorTransport {
   Return Rand(D distrib) {
     return distrib(rng_);
   }
+
+  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+    return simulator_handle_->ResponseLatencies();
+  }
 };
 };  // namespace memgraph::io::simulator

@@ -13,6 +13,7 @@
 
 #include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace memgraph::utils::print_helpers {
@@ -34,6 +35,23 @@ std::ostream &operator<<(std::ostream &in, const std::vector<T> &vector) {
 
 template <typename K, typename V>
 std::ostream &operator<<(std::ostream &in, const std::map<K, V> &map) {
+  in << "{";
+  bool first = true;
+  for (const auto &[a, b] : map) {
+    if (!first) {
+      in << ", ";
+    }
+    first = false;
+    in << a;
+    in << ": ";
+    in << b;
+  }
+  in << "}";
+  return in;
+}
+
+template <typename K, typename V>
+std::ostream &operator<<(std::ostream &in, const std::unordered_map<K, V> &map) {
   in << "{";
   bool first = true;
   for (const auto &[a, b] : map) {
