@@ -80,7 +80,8 @@ class VertexAccessor final {
   VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value>> props,
                  const msgs::ShardRequestManagerInterface *manager);
 
-  VertexAccessor(Vertex v, std::map<PropertyId, Value> props, const msgs::ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props, const msgs::ShardRequestManagerInterface *manager);
+  VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props, const msgs::ShardRequestManagerInterface *manager);
 
   [[nodiscard]] Label PrimaryLabel() const;
 

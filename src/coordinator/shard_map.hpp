@@ -118,12 +118,12 @@ struct ShardMap {
   Hlc shard_map_version;
   uint64_t max_property_id{kNotExistingId};
   uint64_t max_edge_type_id{kNotExistingId};
-  storage::v3::NameIdMapper properties;
-  storage::v3::NameIdMapper edge_types;
-  storage::v3::NameIdMapper labels;
+  std::map<PropertyName, PropertyId> properties;
+  std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+  std::map<LabelName, LabelId> labels;
 
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);

@@ -302,7 +302,7 @@ int main() {
 
     auto storage_client = storage_client_opt.value();
 
-    auto label_id = LabelId::FromUint(client_shard_map.labels.NameToId(label_name));
+    LabelId label_id = client_shard_map.labels.at(label_name);
 
     // Have client use shard map to decide which shard to communicate
     // with in order to write a new value

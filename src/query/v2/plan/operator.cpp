@@ -169,6 +169,7 @@ class DistributedCreateNodeCursor : public Cursor {
     if (input_cursor_->Pull(frame, context)) {
       auto &shard_manager = context.shard_request_manager;
       shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      PlaceNodeOnTheFrame(frame, context);
       return true;
     }
 
@@ -179,11 +180,19 @@ class DistributedCreateNodeCursor : public Cursor {
 
   void Reset() override { state_ = {}; }
 
-  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
+  void PlaceNodeOnTheFrame(Frame &frame, ExecutionContext &context) {
+    // TODO(kostasrim) Make this work with batching
+    const auto primary_label = msgs::Label{.id = nodes_info_[0]->labels[0]};
+    msgs::Vertex v{.id = std::make_pair(primary_label, primary_keys_[0])};
+    frame[nodes_info_.front()->symbol] = TypedValue(
+        query::v2::accessors::VertexAccessor(std::move(v), src_vertex_props_[0], context.shard_request_manager));
+  }
+
+  std::vector<msgs::NewVertex> NodeCreationInfoToRequest(ExecutionContext &context, Frame &frame) {
     std::vector<msgs::NewVertex> requests;
     // TODO(kostasrim) this assertion should be removed once we support multiple vertex creation
     MG_ASSERT(nodes_info_.size() == 1);
-    msgs::VertexId result_vertex;
+    msgs::PrimaryKey pk;
     for (const auto &node_info : nodes_info_) {
       msgs::NewVertex rqst;
       MG_ASSERT(!node_info->labels.empty(), "Cannot determine primary label");
@@ -191,17 +200,14 @@ class DistributedCreateNodeCursor : public Cursor {
       // TODO(jbajic) Fix properties not send,
       // suggestion: ignore distinction between properties and primary keys
       // since schema validation is done on storage side
-      std::map<msgs::PropertyId, msgs::Value> properties;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info->properties)) {
         for (const auto &[key, value_expression] : *node_info_properties) {
           TypedValue val = value_expression->Accept(evaluator);
-
           if (context.shard_request_manager->IsPrimaryKey(primary_label, key)) {
             rqst.primary_key.push_back(TypedValueToValue(val));
-          } else {
-            properties[key] = TypedValueToValue(val);
+            pk.push_back(TypedValueToValue(val));
           }
         }
       } else {
@@ -210,9 +216,8 @@ class DistributedCreateNodeCursor : public Cursor {
           auto key_str = std::string(key);
           auto property_id = context.shard_request_manager->NameToProperty(key_str);
           if (context.shard_request_manager->IsPrimaryKey(primary_label, property_id)) {
-            rqst.primary_key.push_back(storage::v3::TypedValueToValue(value));
-          } else {
-            properties[property_id] = TypedValueToValue(value);
+            rqst.primary_key.push_back(TypedValueToValue(value));
+            pk.push_back(TypedValueToValue(value));
           }
         }
       }
@@ -222,18 +227,18 @@ class DistributedCreateNodeCursor : public Cursor {
       }
       // TODO(kostasrim) Copy non primary labels as well
       rqst.label_ids.push_back(msgs::Label{.id = primary_label});
+      src_vertex_props_.push_back(rqst.properties);
       requests.push_back(std::move(rqst));
     }
-    const auto &rqst = requests.front();
-    msgs::Vertex v{.id = std::make_pair(rqst.label_ids.front(), rqst.primary_key)};
-    frame[nodes_info_.front()->symbol] =
-        TypedValue(query::v2::accessors::VertexAccessor(std::move(v), rqst.properties, context.shard_request_manager));
+    primary_keys_.push_back(std::move(pk));
     return requests;
   }
 
  private:
   const UniqueCursorPtr input_cursor_;
   std::vector<const NodeCreationInfo *> nodes_info_;
+  std::vector<std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>> src_vertex_props_;
+  std::vector<msgs::PrimaryKey> primary_keys_;
   msgs::ExecutionState<msgs::CreateVerticesRequest> state_;
 };
 
@@ -2471,6 +2476,17 @@ class DistributedExpandCursor : public Cursor {
   using VertexAccessor = accessors::VertexAccessor;
   using EdgeAccessor = accessors::EdgeAccessor;
 
+  static constexpr auto DirectionToMsgsDirection(const auto direction) {
+    switch (direction) {
+      case EdgeAtom::Direction::IN:
+        return msgs::EdgeDirection::IN;
+      case EdgeAtom::Direction::OUT:
+        return msgs::EdgeDirection::OUT;
+      case EdgeAtom::Direction::BOTH:
+        return msgs::EdgeDirection::BOTH;
+    }
+  };
+
   void PullDstVertex(Frame &frame, ExecutionContext &context) {
     if (self_.common_.existing_node) {
       return;
@@ -2490,6 +2506,7 @@ class DistributedExpandCursor : public Cursor {
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
     request.src_vertices.push_back(get_dst_vertex(self_.common_.direction));
+    request.direction = DirectionToMsgsDirection(self_.common_.direction);
     msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
     auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
     MG_ASSERT(result_rows.size() == 1);
@@ -2511,18 +2528,8 @@ class DistributedExpandCursor : public Cursor {
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.ValueVertex();
-      static constexpr auto direction_to_msgs_direction = [](const EdgeAtom::Direction direction) {
-        switch (direction) {
-          case EdgeAtom::Direction::IN:
-            return msgs::EdgeDirection::IN;
-          case EdgeAtom::Direction::OUT:
-            return msgs::EdgeDirection::OUT;
-          case EdgeAtom::Direction::BOTH:
-            return msgs::EdgeDirection::BOTH;
-        }
-      };
       msgs::ExpandOneRequest request;
-      request.direction = direction_to_msgs_direction(self_.common_.direction);
+      request.direction = DirectionToMsgsDirection(self_.common_.direction);
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());

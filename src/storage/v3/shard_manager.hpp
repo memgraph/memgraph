@@ -219,12 +219,12 @@ class ShardManager {
     std::unordered_map<uint64_t, std::string> id_to_name;
     const auto map_type_ids = [&id_to_name](const auto &name_to_id_type) {
       for (const auto &[name, id] : name_to_id_type) {
-        id_to_name.insert({id, name});
+        id_to_name.insert({id.AsUint(), name});
       }
     };
-    map_type_ids(shard_map_.edge_types.GetNameToIdMap());
-    map_type_ids(shard_map_.labels.GetNameToIdMap());
-    map_type_ids(shard_map_.properties.GetNameToIdMap());
+    map_type_ids(shard_map_.edge_types);
+    map_type_ids(shard_map_.labels);
+    map_type_ids(shard_map_.properties);
     shard->StoreMapping(std::move(id_to_name));
 
     ShardRsm rsm_state{std::move(shard)};

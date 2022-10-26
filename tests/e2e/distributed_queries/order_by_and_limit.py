@@ -26,8 +26,6 @@ def test_order_by_and_limit(connection):
     assert has_n_result_row(cursor, "CREATE (n :label {property:3})", 0)
     assert has_n_result_row(cursor, "CREATE (n :label {property:4})", 0)
 
-    assert has_n_result_row(cursor, "MATCH (n) WITH collect(n) AS nd UNWIND nd AS result RETURN result", 4)
-
     results = execute_and_fetch_all(cursor, "MATCH (n) RETURN n ORDER BY n.property DESC")
     assert len(results) == 4
     i = 4

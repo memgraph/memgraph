@@ -22,12 +22,11 @@ EdgeTypeId EdgeAccessor::EdgeType() const { return edge.type.id; }
 
 const std::vector<std::pair<PropertyId, Value>> &EdgeAccessor::Properties() const { return edge.properties; }
 
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 Value EdgeAccessor::GetProperty(const std::string &prop_name) const {
   auto prop_id = manager_->NameToProperty(prop_name);
   auto it = std::find_if(edge.properties.begin(), edge.properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   if (it == edge.properties.end()) {
-    throw std::runtime_error("Missing property from VertexAccessor");
+    return {};
   }
   return it->second;
 }
@@ -48,12 +47,21 @@ VertexAccessor::VertexAccessor(Vertex v, std::vector<std::pair<PropertyId, Value
                                const msgs::ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), properties(std::move(props)), manager_(manager) {}
 
-VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> props,
+VertexAccessor::VertexAccessor(Vertex v, std::map<PropertyId, Value> &&props,
                                const msgs::ShardRequestManagerInterface *manager)
     : vertex(std::move(v)), manager_(manager) {
   properties.reserve(props.size());
   for (auto &[id, value] : props) {
     properties.emplace_back(std::make_pair(id, std::move(value)));
+  }
+}
+
+VertexAccessor::VertexAccessor(Vertex v, const std::map<PropertyId, Value> &props,
+                               const msgs::ShardRequestManagerInterface *manager)
+    : vertex(std::move(v)), manager_(manager) {
+  properties.reserve(props.size());
+  for (const auto &[id, value] : props) {
+    properties.emplace_back(std::make_pair(id, value));
   }
 }
 
@@ -73,7 +81,7 @@ const std::vector<std::pair<PropertyId, Value>> &VertexAccessor::Properties() co
 Value VertexAccessor::GetProperty(PropertyId prop_id) const {
   auto it = std::find_if(properties.begin(), properties.end(), [&](auto &pr) { return prop_id == pr.first; });
   if (it == properties.end()) {
-    throw std::runtime_error("Missing property from VertexAccessor");
+    return {};
   }
   return it->second;
 }

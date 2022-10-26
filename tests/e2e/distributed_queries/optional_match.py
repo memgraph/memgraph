@@ -28,6 +28,10 @@ def test_optional_match(connection):
     )
     assert len(results) == 1
 
+    assert has_n_result_row(cursor, "CREATE (n :label {property:2})", 0)
+    assert has_n_result_row(cursor, "MATCH (n), (m) CREATE (n)-[:TO]->(m)", 0)
+    assert has_n_result_row(cursor, "MATCH (n:label) OPTIONAL MATCH (n)-[r:TO]->(m:label) RETURN r", 4)
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

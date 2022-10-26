@@ -24,6 +24,7 @@ def test_distinct(connection):
     assert has_n_result_row(cursor, "CREATE (n :label {property:0})", 0)
     assert has_n_result_row(cursor, "CREATE (n :label {property:1})", 0)
     assert has_n_result_row(cursor, "MATCH (n), (m) CREATE (n)-[:TO]->(m)", 0)
+    assert has_n_result_row(cursor, "MATCH (n)-[r]->(m) RETURN r", 4)
 
     results = execute_and_fetch_all(cursor, "MATCH (n)-[r]->(m) RETURN DISTINCT m")
     assert len(results) == 2
