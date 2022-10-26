@@ -11,9 +11,11 @@
 
 #include "license/license_sender.hpp"
 
+#include <spdlog/spdlog.h>
+
 #include "requests/requests.hpp"
-#include "telemetry/system_info.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
 
 namespace memgraph::license {
@@ -32,7 +34,7 @@ void LicenseInfoSender::SendData() {
 
   license_info_.WithLock([&data, this](const auto &license_info) mutable {
     if (license_info && !license_info->organization_name.empty()) {
-      const auto memory_info = telemetry::GetMemoryInfo();
+      const auto memory_info = utils::GetMemoryInfo();
       data = {{"run_id", uuid_},
               {"machine_id", machine_id_},
               {"type", "license-check"},
@@ -50,8 +52,10 @@ void LicenseInfoSender::SendData() {
   if (data.empty()) {
     return;
   }
-  requests::RequestPostJson(url_, data,
-                            /* timeout_in_seconds = */ 2 * 60);
+  if (!requests::RequestPostJson(url_, data,
+                                 /* timeout_in_seconds = */ 2 * 60)) {
+    spdlog::warn("Cannot send license information, enable {} availability!", url_);
+  }
 }
 
 }  // namespace memgraph::license

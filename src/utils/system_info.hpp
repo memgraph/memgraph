@@ -12,10 +12,11 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include <json/json.hpp>
 
-namespace memgraph::telemetry {
+namespace memgraph::utils {
 
 struct MemoryInfo {
   uint64_t memory;
@@ -37,4 +38,4 @@ CPUInfo GetCPUInfo();
  */
 const nlohmann::json GetSystemInfo();
 
-}  // namespace memgraph::telemetry
+}  // namespace memgraph::utils

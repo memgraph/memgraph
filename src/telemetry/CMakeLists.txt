@@ -1,7 +1,6 @@
 set(telemetry_src_files
   collectors.cpp
-  telemetry.cpp
-  system_info.cpp)
+  telemetry.cpp)
 
 add_library(mg-telemetry STATIC ${telemetry_src_files})
 target_link_libraries(mg-telemetry mg-requests mg-kvstore mg-utils)

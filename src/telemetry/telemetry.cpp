@@ -17,9 +17,9 @@
 
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
-#include "telemetry/system_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
@@ -35,7 +35,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
       machine_id_(machine_id),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  StoreData("startup", GetSystemInfo());
+  StoreData("startup", utils::GetSystemInfo());
   AddCollector("resources", GetResourceUsage);
   AddCollector("uptime", [&]() -> nlohmann::json { return GetUptime(); });
   scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });

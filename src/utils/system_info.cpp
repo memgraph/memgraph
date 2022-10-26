@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "telemetry/system_info.hpp"
+#include "utils/system_info.hpp"
 
 #include <string>
 
@@ -19,7 +19,7 @@
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
-namespace memgraph::telemetry {
+namespace memgraph::utils {
 
 MemoryInfo GetMemoryInfo() {
   // Parse `/proc/meminfo`.
@@ -90,4 +90,4 @@ const nlohmann::json GetSystemInfo() {
           {"swap", mem_info.swap},           {"version", gflags::VersionString()}};
 }
 
-}  // namespace memgraph::telemetry
+}  // namespace memgraph::utils
