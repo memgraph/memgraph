@@ -11,14 +11,28 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include <json/json.hpp>
 
 namespace memgraph::telemetry {
 
-// TODO (mferencevic): merge with `utils/sysinfo`
+struct MemoryInfo {
+  uint64_t memory;
+  uint64_t swap;
+};
+
+struct CPUInfo {
+  std::string cpu_model;
+  uint64_t cpu_count;
+};
+
+MemoryInfo GetMemoryInfo();
+
+CPUInfo GetCPUInfo();
 
 /**
- * This function returs a dictionary containing some basic system information
+ * This function return a dictionary containing some basic system information
  * (eg. operating system name, cpu information, memory information, etc.).
  */
 const nlohmann::json GetSystemInfo();
