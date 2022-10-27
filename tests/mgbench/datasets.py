@@ -516,8 +516,8 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    # def benchmark__mixed__analytical__expansion_1(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__mixed__analytical__expansion_1(self):
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )

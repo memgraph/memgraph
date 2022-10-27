@@ -136,66 +136,89 @@ def mixed_workload(vendor, client, dataset, workload, tests):
             "Please make sure that passed arguments % sum to 100% percent!, passed: ",
             percentage_distribution,
         )
-    print("Running mixed workload")
-    write = list()
-    read = list()
-    update = list()
-    analytical = list()
+    s = [str(i) for i in args.mixed_workload]
 
-    for test, funcname, group in tests[workload]:
-        if group == "write":
-            write.append(funcname)
-        elif group == "read":
-            read.append(funcname)
-        elif group == "update":
-            update.append(funcname)
-        elif group == "analytical":
-            analytical.append(funcname)
+    config_distribution = "_".join(s)
 
-    if (
-        len(write) == 0
-        and percentage_distribution[0] != 0
-        or len(read) == 0
-        and percentage_distribution[1] != 0
-        or len(update) == 0
-        and percentage_distribution[2] != 0
-        or len(analytical) == 0
-        and percentage_distribution[3] != 0
-    ):
-        raise Exception(
-            "There is a missing query in group (write, read, update or analytical) for given workload distribution."
+    config_key = [
+        dataset.NAME,
+        dataset.get_variant(),
+        workload,
+        "mixed_workload",
+        config_distribution,
+    ]
+    cached_mixed_workload = config.get_value(*config_key)
+    full_workload = []
+    if cached_mixed_workload is None:
+
+        print("Generating mixed workload")
+        write = list()
+        read = list()
+        update = list()
+        analytical = list()
+
+        for test, funcname, group in tests[workload]:
+            if group == "write":
+                write.append(funcname)
+            elif group == "read":
+                read.append(funcname)
+            elif group == "update":
+                update.append(funcname)
+            elif group == "analytical":
+                analytical.append(funcname)
+
+        if (
+            len(write) == 0
+            and percentage_distribution[0] != 0
+            or len(read) == 0
+            and percentage_distribution[1] != 0
+            or len(update) == 0
+            and percentage_distribution[2] != 0
+            or len(analytical) == 0
+            and percentage_distribution[3] != 0
+        ):
+            raise Exception(
+                "There is a missing query in group (write, read, update or analytical) for given workload distribution."
+            )
+
+        options = ["w", "r", "u", "a"]
+        function_type = random.choices(
+            population=options, weights=percentage_distribution, k=num_of_queries
         )
 
-    options = ["w", "r", "u", "a"]
-    function_type = random.choices(
-        population=options, weights=percentage_distribution, k=num_of_queries
-    )
+        for t in function_type:
+            # Get the apropropriate functions with same probabilty
+            if t == "w":
+                funcname = random.choices(write, k=1)[0]
+                query = getattr(dataset, funcname)
+                full_workload.append(query())
+            elif t == "r":
+                funcname = random.choices(read, k=1)[0]
+                query = getattr(dataset, funcname)
+                full_workload.append(query())
+            elif t == "u":
+                funcname = random.choices(update, k=1)[0]
+                query = getattr(dataset, funcname)
+                full_workload.append(query())
+            elif t == "a":
+                funcname = random.choices(analytical, k=1)[0]
+                query = getattr(dataset, funcname)
+                full_workload.append(query())
+        query_mix = {}
+        query_mix["queries"] = full_workload
+        config.set_value(*config_key, value=query_mix)
 
-    query_mix = []
-    for t in function_type:
-        # Get the apropropriate functions with same probabilty
-        if t == "w":
-            funcname = random.choices(write, k=1)[0]
-            query = getattr(dataset, funcname)
-            query_mix.append(query())
-        elif t == "r":
-            funcname = random.choices(read, k=1)[0]
-            query = getattr(dataset, funcname)
-            query_mix.append(query())
-        elif t == "u":
-            funcname = random.choices(update, k=1)[0]
-            query = getattr(dataset, funcname)
-            query_mix.append(query())
-        elif t == "a":
-            funcname = random.choices(analytical, k=1)[0]
-            query = getattr(dataset, funcname)
-            query_mix.append(query())
+        cache.save_config(config)
+
+    else:
+        print("Using cached queries for mixed workload")
+        full_workload = cached_mixed_workload["queries"]
 
     vendor.start_benchmark()
     if args.warmup_run:
-        warmup()
+        warmup(client)
     ret = client.execute(
-        queries=query_mix,
+        queries=full_workload,
         num_workers=args.num_workers_for_benchmark,
     )[0]
     usage_workload = vendor.stop()
@@ -564,7 +587,6 @@ for dataset, tests in benchmarks:
                 usage = vendor.stop()
                 ret["database"] = usage
                 ret["query_statistics"] = query_statistics
-                ret["mixed_workload"] = mixed_workload
 
                 # Output summary.
                 print()
