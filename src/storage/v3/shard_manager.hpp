@@ -28,6 +28,7 @@
 #include <storage/v3/shard_rsm.hpp>
 #include "coordinator/shard_map.hpp"
 #include "storage/v3/config.hpp"
+#include "storage/v3/shard_scheduler.hpp"
 
 namespace memgraph::storage::v3 {
 
@@ -78,7 +79,7 @@ template <typename IoImpl>
 class ShardManager {
  public:
   ShardManager(io::Io<IoImpl> io, Address coordinator_leader, coordinator::ShardMap shard_map)
-      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)} {}
+      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)}, shard_scheduler_(io) {}
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -133,6 +134,7 @@ class ShardManager {
 
  private:
   io::Io<IoImpl> io_;
+  ShardScheduler<IoImpl> shard_scheduler_;
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
   Time next_cron_ = Time::min();
