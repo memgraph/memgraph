@@ -25,7 +25,7 @@ namespace memgraph::license {
 
 class LicenseInfoSender final {
  public:
-  LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t int64_t,
+  LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t memory_limit,
                     utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
                     std::chrono::seconds request_frequency = std::chrono::seconds(8 * 60 * 60));
 
