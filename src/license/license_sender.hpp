@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <string>
 
 #include <json/json.hpp>
@@ -24,7 +25,7 @@ namespace memgraph::license {
 
 class LicenseInfoSender final {
  public:
-  LicenseInfoSender(std::string url, std::string uuid, std::string machine_id,
+  LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t int64_t,
                     utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
                     std::chrono::seconds request_frequency = std::chrono::seconds(8 * 60 * 60));
 
@@ -40,6 +41,7 @@ class LicenseInfoSender final {
   const std::string url_;
   const std::string uuid_;
   const std::string machine_id_;
+  const int64_t memory_limit_;
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
   utils::Scheduler scheduler_;

@@ -932,7 +932,7 @@ int main(int argc, char **argv) {
       return memgraph::query::plan::CallProcedure::GetAndResetCounters();
     });
   }
-  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id,
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, run_id, machine_id, memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth};

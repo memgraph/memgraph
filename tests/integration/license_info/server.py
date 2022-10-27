@@ -23,10 +23,11 @@ EXPECTED_LICENSE_INFO_FIELDS = {
     "license_key": str,
     "organization": str,
     "valid": bool,
-    "memory": int,
-    "swap": int,
-    "memory_limit": int,
-    "memory_usage": int,
+    "physical_memory_size": int,
+    "swap_memory_size": int,
+    "memory_used": int,
+    "runtime_memory_limit": int,
+    "license_memory_limit": int,
     "timestamp": float,
 }
 

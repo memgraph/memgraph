@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
   });
 
   memgraph::license::LicenseInfoSender license_sender(FLAGS_endpoint, memgraph::utils::GenerateUUID(),
-                                                      memgraph::utils::GetMachineId(), license_info,
+                                                      memgraph::utils::GetMachineId(), 10000000, license_info,
                                                       std::chrono::seconds(FLAGS_interval));
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
 

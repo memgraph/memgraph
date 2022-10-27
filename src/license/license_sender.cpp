@@ -12,8 +12,10 @@
 #include "license/license_sender.hpp"
 
 #include <spdlog/spdlog.h>
+#include <cstdint>
 
 #include "requests/requests.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/system_info.hpp"
@@ -21,10 +23,14 @@
 
 namespace memgraph::license {
 
-LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id,
+LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t memory_limit,
                                      utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
                                      std::chrono::seconds request_frequency)
-    : url_{std::move(url)}, uuid_{std::move(uuid)}, machine_id_{std::move(machine_id)}, license_info_{license_info} {
+    : url_{std::move(url)},
+      uuid_{std::move(uuid)},
+      machine_id_{std::move(machine_id)},
+      memory_limit_{memory_limit},
+      license_info_{license_info} {
   scheduler_.Run("LicenseCheck", request_frequency, [&] { SendData(); });
 }
 
@@ -44,10 +50,11 @@ void LicenseInfoSender::SendData() {
               {"license_key", license_info->license_key},
               {"organization", license_info->organization_name},
               {"valid", license_info->is_valid},
-              {"memory", memory_info.memory},
-              {"swap", memory_info.swap},
-              {"memory_limit", license_info->license.memory_limit},
-              {"memory_usage", memory_usage},
+              {"physical_memory_size", memory_info.memory},
+              {"swap_memory_size", memory_info.swap},
+              {"memory_used", memory_usage},
+              {"runtime_memory_limit", memory_limit_},
+              {"license_memory_limit", license_info->license.memory_limit},
               {"timestamp", utils::Timestamp::Now().SecWithNsecSinceTheEpoch()}};
     }
   });
