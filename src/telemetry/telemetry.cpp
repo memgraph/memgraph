@@ -25,7 +25,7 @@
 
 namespace memgraph::telemetry {
 
-const int kMaxBatchSize = 100;
+constexpr auto kMaxBatchSize{100};
 
 Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
                      std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)

@@ -13,6 +13,8 @@
 
 #include "requests/requests.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/system_info.hpp"
+#include "utils/uuid.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:9000/", "Endpoint that should be used for the test.");
 DEFINE_int64(interval, 1, "Interval used for reporting telemetry in seconds.");
@@ -24,8 +26,8 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   memgraph::requests::Init();
-  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, "uuid1", "machine1",
-                                           std::chrono::seconds(FLAGS_interval), 1);
+  memgraph::telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory, memgraph::utils::GenerateUUID(),
+                                           memgraph::utils::GetMachineId(), std::chrono::seconds(FLAGS_interval), 1);
 
   uint64_t counter = 0;
   telemetry.AddCollector("db", [&counter]() -> nlohmann::json {

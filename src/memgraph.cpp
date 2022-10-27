@@ -69,6 +69,7 @@
 #include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/sysinfo/memory.hpp"
+#include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
 
@@ -677,19 +678,6 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
             "Unable to register SIGINT handler!");
 }
 
-std::string GetMachineId() {
-#ifdef MG_TELEMETRY_ID_OVERRIDE
-  return MG_TELEMETRY_ID_OVERRIDE;
-#else
-  // We assume we're on linux and we need to read the machine id from /etc/machine-id
-  const auto machine_id_lines = memgraph::utils::ReadLines("/etc/machine-id");
-  if (machine_id_lines.size() != 1) {
-    return "UNKNOWN";
-  }
-  return machine_id_lines[0];
-#endif
-}
-
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
@@ -921,7 +909,7 @@ int main(int argc, char **argv) {
                  FLAGS_bolt_num_workers);
 
   const auto run_id = memgraph::utils::GenerateUUID();
-  const auto machine_id = GetMachineId();
+  const auto machine_id = memgraph::utils::GetMachineId();
   session_data.run_id = run_id;
 
   // Setup telemetry

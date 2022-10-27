@@ -20,6 +20,8 @@
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/system_info.hpp"
+#include "utils/uuid.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:5500/", "Endpoint that should be used for the test.");
 DEFINE_string(license_type, "enterprise", "License type; can be oem or enterprise.");
@@ -51,7 +53,8 @@ int main(int argc, char **argv) {
     license_info->is_valid = true;
   });
 
-  memgraph::license::LicenseInfoSender license_sender(FLAGS_endpoint, "uuid1", "machine1", license_info,
+  memgraph::license::LicenseInfoSender license_sender(FLAGS_endpoint, memgraph::utils::GenerateUUID(),
+                                                      memgraph::utils::GetMachineId(), license_info,
                                                       std::chrono::seconds(FLAGS_interval));
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
 

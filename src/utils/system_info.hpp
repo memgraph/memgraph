@@ -28,6 +28,8 @@ struct CPUInfo {
   uint64_t cpu_count;
 };
 
+std::string GetMachineId();
+
 MemoryInfo GetMemoryInfo();
 
 CPUInfo GetCPUInfo();

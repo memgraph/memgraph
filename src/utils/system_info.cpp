@@ -21,9 +21,21 @@
 
 namespace memgraph::utils {
 
+std::string GetMachineId() {
+#ifdef MG_TELEMETRY_ID_OVERRIDE
+  return MG_TELEMETRY_ID_OVERRIDE;
+#else
+  // We assume we're on linux and we need to read the machine id from /etc/machine-id
+  const auto machine_id_lines = memgraph::utils::ReadLines("/etc/machine-id");
+  if (machine_id_lines.size() != 1) {
+    return "UNKNOWN";
+  }
+  return machine_id_lines[0];
+#endif
+}
+
 MemoryInfo GetMemoryInfo() {
   // Parse `/proc/meminfo`.
-  nlohmann::json ret;
   uint64_t memory{0};
   uint64_t swap{0};
   auto mem_data = utils::ReadLines("/proc/meminfo");
@@ -47,7 +59,7 @@ MemoryInfo GetMemoryInfo() {
 CPUInfo GetCPUInfo() {
   // Parse `/proc/cpuinfo`.
   std::string cpu_model;
-  uint64_t cpu_count = 0;
+  uint64_t cpu_count{0};
   auto cpu_data = utils::ReadLines("/proc/cpuinfo");
   for (auto &row : cpu_data) {
     auto tmp = utils::Trim(row);
