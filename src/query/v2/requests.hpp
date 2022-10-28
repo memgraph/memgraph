@@ -346,7 +346,7 @@ struct ScanVerticesRequest {
   std::vector<std::string> vertex_expressions;
   std::optional<size_t> batch_limit;
   std::vector<OrderBy> order_bys;
-  StorageView storage_view{StorageView::OLD};
+  StorageView storage_view{StorageView::NEW};
 
   std::optional<Label> label;
   std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
