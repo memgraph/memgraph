@@ -577,7 +577,6 @@ msgs::ReadResponses HandleReadWithoutOrderBy(msgs::ExpandOneRequest &&req, Shard
 
     if (!req.filters.empty()) {
       // NOTE - DbAccessor might get removed in the future.
-      auto dba = DbAccessor{&acc};
       const bool eval = FilterOnVertex(dba, src_vertex_acc_opt.value(), req.filters, expr::identifier_node_symbol);
       if (!eval) {
         continue;
