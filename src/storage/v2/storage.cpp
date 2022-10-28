@@ -14,6 +14,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <variant>
 
 #include <gflags/gflags.h>
@@ -26,6 +27,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/config.hpp"
@@ -519,9 +521,36 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
+  auto edge_acc = storage_->edges_.access();
+  auto it2 = edge_acc.find(gid);
   auto it = acc.find(gid);
+  if (it2 == edge_acc.end()) {
+    return std::nullopt;
+  } else {
+    auto edge = &*it2;
+    auto vertex_from = acc.find(edge->vertex_gid_from);
+    auto vertex_to = acc.find(edge->vertex_gid_to);
+
+    EdgeAccessor found_edge{EdgeRef{edge}, edge->edge_type_id,  &*vertex_from,           &*vertex_to,
+                            &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  }
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
+}
+
+std::optional<EdgeAccessor> Storage::Accessor::FindEdge(Gid gid) {
+  auto edge_acc = storage_->edges_.access();
+  auto vertex_acc = storage_->vertices_.access();
+
+  auto maybe_edge = edge_acc.find(gid);
+  if (maybe_edge == edge_acc.end()) return std::nullopt;
+
+  auto edge = &*maybe_edge;
+  auto vertex_from = vertex_acc.find(edge->vertex_gid_from);
+  auto vertex_to = vertex_acc.find(edge->vertex_gid_to);
+
+  return EdgeAccessor{EdgeRef{edge}, edge->edge_type_id,  &*vertex_from,           &*vertex_to,
+                      &transaction_, &storage_->indices_, &storage_->constraints_, config_};
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
@@ -657,7 +686,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = acc.insert(Edge(gid, from_vertex->gid, to_vertex->gid, edge_type, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);
@@ -725,7 +754,7 @@ Result<EdgeAccessor> Storage::Accessor::CreateEdge(VertexAccessor *from, VertexA
   if (config_.properties_on_edges) {
     auto acc = storage_->edges_.access();
     auto delta = CreateDeleteObjectDelta(&transaction_);
-    auto [it, inserted] = acc.insert(Edge(gid, delta));
+    auto [it, inserted] = acc.insert(Edge(gid, from_vertex->gid, to_vertex->gid, edge_type, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
     MG_ASSERT(it != acc.end(), "Invalid Edge accessor!");
     edge = EdgeRef(&*it);

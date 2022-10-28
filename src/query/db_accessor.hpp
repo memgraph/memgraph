@@ -314,6 +314,12 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid) {
+    auto maybe_edge = accessor_->FindEdge(gid);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
@@ -482,6 +488,8 @@ class SubgraphDbAccessor final {
   VerticesIterable Vertices(storage::View view);
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
+
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid);
 
   Graph *getGraph();
 };

@@ -216,6 +216,8 @@ class Storage final {
 
     std::optional<VertexAccessor> FindVertex(Gid gid, View view);
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid);
+
     VerticesIterable Vertices(View view) {
       return VerticesIterable(AllVerticesIterable(storage_->vertices_.access(), &transaction_, view,
                                                   &storage_->indices_, &storage_->constraints_,

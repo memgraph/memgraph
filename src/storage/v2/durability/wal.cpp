@@ -713,7 +713,8 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.edge_create_delete.edge_type));
           EdgeRef edge_ref(edge_gid);
           if (items.properties_on_edges) {
-            auto [edge, inserted] = edge_acc.insert(Edge{edge_gid, nullptr});
+            auto [edge, inserted] =
+                edge_acc.insert(Edge{edge_gid, from_vertex->gid, to_vertex->gid, edge_type_id, nullptr});
             if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
             edge_ref = EdgeRef(&*edge);
           }

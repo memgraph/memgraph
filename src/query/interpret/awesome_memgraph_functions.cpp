@@ -650,6 +650,18 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
   return TypedValue(std::move(labels));
 }
 
+TypedValue GetEdgeById(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Integer>>("edge_id", args, nargs);
+  auto *dba = ctx.db_accessor;
+
+  if (args[0].IsNull()) return TypedValue(ctx.memory);
+  auto id = args[0].ValueInt();
+  auto maybe_edge = dba->FindEdge(storage::Gid::FromUint(id));
+  if (!maybe_edge) throw query::QueryRuntimeException("Edge doesn't exist.");
+
+  return TypedValue(*maybe_edge, ctx.memory);
+}
+
 TypedValue Nodes(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Path>>("nodes", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -1271,6 +1283,8 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "RELATIONSHIPS") return Relationships;
   if (function_name == "TAIL") return Tail;
   if (function_name == "UNIFORMSAMPLE") return UniformSample;
+  if (function_name == "GET_EDGE_BY_ID") return GetEdgeById;
+  // if (function_name == "GET_EDGES_BY_ID") return GetEdgesById;
 
   // Mathematical functions - numeric
   if (function_name == "ABS") return Abs;
