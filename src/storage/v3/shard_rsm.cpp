@@ -276,7 +276,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
   }
-  return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
+  return std::array<std::vector<EdgeAccessor>, 2>{std::move(in_edges), std::move(out_edges)};
 }
 
 using AllEdgePropertyDataSructure = std::map<PropertyId, msgs::Value>;
@@ -492,7 +492,7 @@ msgs::ReadResponses HandleReadWithOrderBy(msgs::ExpandOneRequest &&req, Shard::A
   auto maybe_filter_based_on_edge_uniquness = InitializeEdgeUniqunessFunction(req.only_unique_neighbor_rows);
   auto edge_filler = InitializeEdgeFillerFunction(req);
 
-  auto vertex_iterable = acc.Vertices(View::OLD);
+  auto vertex_iterable = acc.Vertices(View::OLD);  // #NoCommit we get all vertices in the DB here, is it wanted?
   const auto sorted_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_by);
 
   for (const auto &ordered_vertice : sorted_vertices) {
@@ -530,7 +530,8 @@ msgs::ReadResponses HandleReadWithOrderBy(msgs::ExpandOneRequest &&req, Shard::A
       break;
     }
 
-    msgs::VertexId src_vertice(msgs::Label{.id = *label_id}, conversions::ConvertValueVector(*primary_key));
+    msgs::VertexId src_vertice(msgs::Label{.id = *label_id},
+                               conversions::ConvertValueVector(*primary_key));  // #NoCommit rename
     auto maybe_result =
         GetExpandOneResult(src_vertex_acc, src_vertice, req, in_edge_ordered_accessors, out_edge_ordered_accessors,
                            maybe_filter_based_on_edge_uniquness, edge_filler);
