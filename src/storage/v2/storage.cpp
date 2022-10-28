@@ -521,19 +521,7 @@ VertexAccessor Storage::Accessor::CreateVertex(storage::Gid gid) {
 
 std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) {
   auto acc = storage_->vertices_.access();
-  auto edge_acc = storage_->edges_.access();
-  auto it2 = edge_acc.find(gid);
   auto it = acc.find(gid);
-  if (it2 == edge_acc.end()) {
-    return std::nullopt;
-  } else {
-    auto edge = &*it2;
-    auto vertex_from = acc.find(edge->vertex_gid_from);
-    auto vertex_to = acc.find(edge->vertex_gid_to);
-
-    EdgeAccessor found_edge{EdgeRef{edge}, edge->edge_type_id,  &*vertex_from,           &*vertex_to,
-                            &transaction_, &storage_->indices_, &storage_->constraints_, config_};
-  }
   if (it == acc.end()) return std::nullopt;
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
