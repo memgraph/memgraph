@@ -517,7 +517,7 @@ msgs::ReadResponses HandleReadWithOrderBy(msgs::ExpandOneRequest &&req, Shard::A
 
     std::vector<EdgeAccessor> out_edge_ordered_accessors;
     std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
-                   [](auto &edge_element) { return edge_element.object_acc; });
+                   [](const auto &edge_element) { return edge_element.object_acc; });
 
     auto label_id = src_vertex_acc.PrimaryLabel(View::NEW);
     if (label_id.HasError()) {
