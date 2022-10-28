@@ -700,7 +700,7 @@ void AttemptToExpandOneLimitAndOrderBy(ShardClient &client, uint64_t src_vertex_
 
   std::vector<msgs::OrderBy> order_by = {
       {msgs::Expression{"MG_SYMBOL_NODE.prop1"}, msgs::OrderingDirection::DESCENDING}};
-  std::optional<size_t> limit = 3;
+  size_t limit = 3;
   std::vector<std::string> filters = {"MG_SYMBOL_NODE.prop1 != " + std::to_string(src_vertex_val)};
 
   msgs::ExpandOneRequest expand_one_req{};
