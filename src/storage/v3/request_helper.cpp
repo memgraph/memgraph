@@ -73,7 +73,7 @@ std::array<std::vector<EdgeAccessor>, 2> GetEdgesFromVertex(const VertexAccessor
     }
   }
 
-  return std::array<std::vector<EdgeAccessor>, 2>{in_edges, out_edges};
+  return std::array<std::vector<EdgeAccessor>, 2>{std::move(in_edges), std::move(out_edges)};
 }
 
 }  // namespace memgraph::storage::v3
