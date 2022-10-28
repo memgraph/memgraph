@@ -493,9 +493,9 @@ msgs::ReadResponses HandleReadWithOrderBy(msgs::ExpandOneRequest &&req, Shard::A
   auto edge_filler = InitializeEdgeFillerFunction(req);
 
   auto vertex_iterable = acc.Vertices(View::OLD);
-  const auto ordered_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_by);
+  const auto sorted_vertices = OrderByElements<VertexAccessor>(acc, dba, vertex_iterable, req.order_by);
 
-  for (const auto &ordered_vertice : ordered_vertices) {
+  for (const auto &ordered_vertice : sorted_vertices) {
     // Get Vertex acc
     auto src_vertex_acc = ordered_vertice.object_acc;
 
