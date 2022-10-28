@@ -64,7 +64,7 @@ void LicenseInfoSender::SendData() {
   }
   if (!requests::RequestPostJson(url_, data,
                                  /* timeout_in_seconds = */ 2 * 60)) {
-    spdlog::warn("Cannot send license information, enable {} availability!", url_);
+    spdlog::trace("Cannot send license information, enable {} availability!", url_);
   }
 }
 
