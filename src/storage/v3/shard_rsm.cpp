@@ -513,7 +513,7 @@ msgs::ReadResponses HandleReadWithOrderBy(msgs::ExpandOneRequest &&req, Shard::A
 
     std::vector<EdgeAccessor> in_edge_ordered_accessors;
     std::transform(in_ordered_edges.begin(), in_ordered_edges.end(), std::back_inserter(in_edge_ordered_accessors),
-                   [](auto &edge_element) { return edge_element.object_acc; });
+                   [](const auto &edge_element) { return edge_element.object_acc; });
 
     std::vector<EdgeAccessor> out_edge_ordered_accessors;
     std::transform(out_ordered_edges.begin(), out_ordered_edges.end(), std::back_inserter(out_edge_ordered_accessors),
