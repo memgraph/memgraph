@@ -14,8 +14,8 @@
 #include <vector>
 
 #include "ast/ast.hpp"
-#include "pretty_print_ast_to_original_expression.hpp"
 #include "query/v2/requests.hpp"
+#include "storage/v3/bindings/pretty_print_ast_to_original_expression.hpp"
 #include "storage/v3/bindings/typed_value.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/expr.hpp"
