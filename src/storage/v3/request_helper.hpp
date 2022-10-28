@@ -138,7 +138,8 @@ std::vector<Element<TObjectAccessor>> OrderByElements(Shard::Accessor &acc, DbAc
     properties_order_by.reserve(order_bys.size());
 
     for (const auto &order_by : order_bys) {
-      if constexpr (std::is_same_v<TIterable, VerticesIterable>) {
+      if constexpr (std::is_same_v<TIterable, VerticesIterable> ||
+                    std::is_same_v<TIterable, std::vector<VertexAccessor>>) {
         properties_order_by.push_back(ComputeExpression(dba, *it, std::nullopt, order_by.expression.expression,
                                                         expr::identifier_node_symbol, expr::identifier_edge_symbol));
       } else {
