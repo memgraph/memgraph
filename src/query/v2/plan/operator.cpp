@@ -2487,6 +2487,17 @@ class DistributedExpandCursor : public Cursor {
     }
   };
 
+  static constexpr auto InvertDirection(const auto direction) {
+    switch (direction) {
+      case EdgeAtom::Direction::IN:
+        return msgs::EdgeDirection::OUT;
+      case EdgeAtom::Direction::OUT:
+        return msgs::EdgeDirection::IN;
+      case EdgeAtom::Direction::BOTH:
+        return msgs::EdgeDirection::BOTH;
+    }
+  };
+
   void PullDstVertex(Frame &frame, ExecutionContext &context) {
     if (self_.common_.existing_node) {
       return;
@@ -2506,7 +2517,7 @@ class DistributedExpandCursor : public Cursor {
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
     request.src_vertices.push_back(get_dst_vertex(self_.common_.direction));
-    request.direction = DirectionToMsgsDirection(self_.common_.direction);
+    request.direction = InvertDirection(self_.common_.direction);
     msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
     auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
     MG_ASSERT(result_rows.size() == 1);
@@ -2533,19 +2544,24 @@ class DistributedExpandCursor : public Cursor {
       // to not fetch any properties of the edges
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
-      if (self_.common_.existing_node) {
-        auto &node = frame[self_.common_.node_symbol].ValueVertex();
-        request.edge_with_dst.emplace(node.Id());
-      }
       msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
       auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
       auto &result_row = result_rows.front();
+
+      if (self_.common_.existing_node) {
+        const auto &node = frame[self_.common_.node_symbol].ValueVertex().Id();
+        auto &in = result_row.in_edges_with_specific_properties;
+        std::erase_if(in, [&node](auto &edge) { return edge.other_end != node; });
+        auto &out = result_row.out_edges_with_specific_properties;
+        std::erase_if(out, [&node](auto &edge) { return edge.other_end != node; });
+      }
 
       const auto convert_edges = [&vertex, &context](
                                      std::vector<msgs::ExpandOneResultRow::EdgeWithSpecificProperties> &&edge_messages,
                                      const EdgeAtom::Direction direction) {
         std::vector<EdgeAccessor> edge_accessors;
         edge_accessors.reserve(edge_messages.size());
+
         switch (direction) {
           case EdgeAtom::Direction::IN: {
             for (auto &edge : edge_messages) {
@@ -2567,12 +2583,15 @@ class DistributedExpandCursor : public Cursor {
         }
         return edge_accessors;
       };
+
       current_in_edges_ =
           convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::IN);
+      auto var = current_in_edges_.size();
       current_in_edge_it_ = current_in_edges_.begin();
-      current_in_edges_ =
-          convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::OUT);
-      current_in_edge_it_ = current_in_edges_.begin();
+      current_out_edges_ =
+          convert_edges(std::move(result_row.out_edges_with_specific_properties), EdgeAtom::Direction::OUT);
+      current_out_edge_it_ = current_out_edges_.begin();
+      auto var2 = current_out_edges_.size();
       return true;
     }
   }

@@ -114,6 +114,23 @@ std::optional<std::map<PropertyId, Value>> CollectSpecificPropertiesFromAccessor
   return ret;
 }
 
+std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexAccessor &acc, View view,
+                                                                   const Schemas::Schema *schema) {
+  std::map<PropertyId, Value> ret;
+  auto props = acc.Properties(view);
+  auto maybe_pk = acc.PrimaryKey(view);
+  if (maybe_pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get vertex primary key.");
+  }
+  auto &pk = maybe_pk.GetValue();
+  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
+  for (size_t i{0}; i < schema->second.size(); ++i) {
+    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  }
+
+  return ret;
+}
+
 std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(const VertexAccessor &acc, View view,
                                                                             const Schemas::Schema *schema) {
   std::map<PropertyId, Value> ret;
@@ -130,17 +147,9 @@ std::optional<std::map<PropertyId, Value>> CollectAllPropertiesFromAccessor(cons
                  });
   properties.clear();
 
-  // TODO(antaljanosbenjamin): Once the VertexAccessor::Properties returns also the primary keys, we can get rid of this
-  // code.
-  auto maybe_pk = acc.PrimaryKey(view);
-  if (maybe_pk.HasError()) {
-    spdlog::debug("Encountered an error while trying to get vertex primary key.");
-  }
-
-  auto &pk = maybe_pk.GetValue();
-  MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
-  for (size_t i{0}; i < schema->second.size(); ++i) {
-    ret.emplace(schema->second[i].property_id, FromPropertyValueToValue(std::move(pk[i])));
+  auto pks = PrimaryKeysFromAccessor(acc, view, schema);
+  if (pks) {
+    ret.merge(*pks);
   }
 
   return ret;
@@ -191,7 +200,9 @@ std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccesso
 }
 
 std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const std::optional<VertexAccessor> &v_acc,
-                                                                        const msgs::ExpandOneRequest &req) {
+                                                                        const msgs::ExpandOneRequest &req,
+                                                                        storage::v3::View view,
+                                                                        const Schemas::Schema *schema) {
   std::map<PropertyId, Value> src_vertex_properties;
 
   if (!req.src_vertex_properties) {
@@ -204,6 +215,10 @@ std::optional<std::map<PropertyId, Value>> FillUpSourceVertexProperties(const st
 
     for (auto &[key, val] : props.GetValue()) {
       src_vertex_properties.insert(std::make_pair(key, FromPropertyValueToValue(std::move(val))));
+    }
+    auto pks = PrimaryKeysFromAccessor(*v_acc, view, schema);
+    if (pks) {
+      src_vertex_properties.merge(*pks);
     }
 
   } else if (req.src_vertex_properties.value().empty()) {
@@ -233,17 +248,10 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
 
   std::vector<EdgeAccessor> in_edges;
   std::vector<EdgeAccessor> out_edges;
-  std::optional<storage::v3::VertexId> dst_vertex_id;
-  storage::v3::VertexId *maybe_dst_vertex = nullptr;
-  if (req.edge_with_dst) {
-    const auto &[label, p_key] = req.edge_with_dst.value();
-    dst_vertex_id.emplace(label.id, ConvertPropertyVector(p_key));
-    maybe_dst_vertex = &*dst_vertex_id;
-  }
 
   switch (req.direction) {
     case msgs::EdgeDirection::OUT: {
-      auto out_edges_result = v_acc->OutEdges(View::NEW, {}, maybe_dst_vertex);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -254,7 +262,7 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::IN: {
-      auto in_edges_result = v_acc->InEdges(View::NEW, {}, maybe_dst_vertex);
+      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
       if (in_edges_result.HasError()) {
         spdlog::debug(
             "Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}"[req.transaction_id
@@ -265,15 +273,14 @@ std::optional<std::array<std::vector<EdgeAccessor>, 2>> FillUpConnectingEdges(
       break;
     }
     case msgs::EdgeDirection::BOTH: {
-      auto in_edges_result = v_acc->InEdges(View::NEW, {}, maybe_dst_vertex);
+      auto in_edges_result = v_acc->InEdges(View::NEW, edge_types);
       if (in_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get in-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
         return std::nullopt;
       }
       in_edges = maybe_filter_based_on_edge_uniquness(std::move(in_edges_result.GetValue()), msgs::EdgeDirection::IN);
-
-      auto out_edges_result = v_acc->OutEdges(View::NEW, {}, maybe_dst_vertex);
+      auto out_edges_result = v_acc->OutEdges(View::NEW, edge_types);
       if (out_edges_result.HasError()) {
         spdlog::debug("Encountered an error while trying to get out-going EdgeAccessors. Transaction id: {}",
                       req.transaction_id.logical_id);
@@ -322,12 +329,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
     return std::nullopt;
   }
   std::optional<std::map<PropertyId, Value>> src_vertex_properties;
-  /// Fill up source vertex properties
-  if (req.src_vertex_properties) {
-    src_vertex_properties = FillUpSourceVertexProperties(v_acc, req);
-  } else {
-    src_vertex_properties = CollectAllPropertiesFromAccessor(*v_acc, storage::v3::View::NEW, schema);
-  }
+  src_vertex_properties = FillUpSourceVertexProperties(v_acc, req, storage::v3::View::NEW, schema);
 
   if (!src_vertex_properties) {
     return std::nullopt;

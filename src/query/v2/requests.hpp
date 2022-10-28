@@ -346,7 +346,7 @@ struct ScanVerticesRequest {
   std::vector<std::string> vertex_expressions;
   std::optional<size_t> batch_limit;
   std::vector<OrderBy> order_bys;
-  StorageView storage_view{StorageView::NEW};
+  StorageView storage_view{StorageView::OLD};
 
   std::optional<Label> label;
   std::optional<std::pair<PropertyId, std::string>> property_expression_pair;
@@ -387,8 +387,6 @@ struct GetPropertiesResponse {
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
 struct ExpandOneRequest {
-  // To get Edges with with destination vertex edge_wist_st
-  std::optional<VertexId> edge_with_dst;
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
   // return types that type is in this list
