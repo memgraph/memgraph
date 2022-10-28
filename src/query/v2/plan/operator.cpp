@@ -2586,12 +2586,10 @@ class DistributedExpandCursor : public Cursor {
 
       current_in_edges_ =
           convert_edges(std::move(result_row.in_edges_with_specific_properties), EdgeAtom::Direction::IN);
-      auto var = current_in_edges_.size();
       current_in_edge_it_ = current_in_edges_.begin();
       current_out_edges_ =
           convert_edges(std::move(result_row.out_edges_with_specific_properties), EdgeAtom::Direction::OUT);
       current_out_edge_it_ = current_out_edges_.begin();
-      auto var2 = current_out_edges_.size();
       return true;
     }
   }
