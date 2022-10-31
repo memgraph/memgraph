@@ -24,28 +24,17 @@ namespace memgraph::storage {
 struct Vertex;
 
 struct Edge {
-  Edge(Gid gid, Gid vertex_gid_from, Gid vertex_gid_to, EdgeTypeId edge_type_id, Delta *delta)
-      : gid(gid),
-        vertex_gid_to(vertex_gid_to),
-        vertex_gid_from(vertex_gid_from),
-        edge_type_id(edge_type_id),
-        deleted(false),
-        delta(delta) {
+  Edge(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT,
               "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 
   Gid gid;
 
-  Gid vertex_gid_to;
-  Gid vertex_gid_from;
-  EdgeTypeId edge_type_id;
-
   PropertyStore properties;
 
   mutable utils::SpinLock lock;
   bool deleted;
-
   // uint8_t PAD;
   // uint16_t PAD;
 

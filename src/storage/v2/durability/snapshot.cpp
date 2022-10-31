@@ -245,13 +245,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           if (!gid) throw RecoveryFailure("Invalid snapshot data!");
           if (i > 0 && *gid <= last_edge_gid) throw RecoveryFailure("Invalid snapshot data!");
           last_edge_gid = *gid;
-          auto vertex_from_gid = snapshot.ReadUint();
-          auto vertex_to_gid = snapshot.ReadUint();
-          auto edge_type_id = snapshot.ReadUint();
           spdlog::debug("Recovering edge {} with properties.", *gid);
-          auto [it, inserted] =
-              edge_acc.insert(Edge{Gid::FromUint(*gid), Gid::FromUint(*vertex_from_gid), Gid::FromUint(*vertex_to_gid),
-                                   get_edge_type_from_id(*edge_type_id), nullptr});
+          auto [it, inserted] = edge_acc.insert(Edge{Gid::FromUint(*gid), nullptr});
           if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
 
           // Recover properties.
@@ -437,8 +432,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
               if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
               edge_ref = EdgeRef(&*edge);
             } else {
-              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), from_vertex->gid, vertex.gid,
-                                                           get_edge_type_from_id(*edge_type), nullptr});
+              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
               edge_ref = EdgeRef(&*edge);
             }
           }
@@ -474,8 +468,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
               if (edge == edge_acc.end()) throw RecoveryFailure("Invalid edge!");
               edge_ref = EdgeRef(&*edge);
             } else {
-              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), vertex.gid, to_vertex->gid,
-                                                           get_edge_type_from_id(*edge_type), nullptr});
+              auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
               edge_ref = EdgeRef(&*edge);
             }
           }
