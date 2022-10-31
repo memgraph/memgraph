@@ -104,9 +104,9 @@ class Pokec(Dataset):
     DEFAULT_VARIANT = "small"
     FILES = None
     URLS = {
-        "small": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_small.setup.cypher",
-        "medium": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_medium.setup.cypher",
-        "large": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_large.setup.cypher.gz",
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_small.setup.cypher",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_medium.setup.cypher",
+        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_large.setup.cypher.gz",
     }
     SIZES = {
         "small": {"vertices": 10000, "edges": 121716},
