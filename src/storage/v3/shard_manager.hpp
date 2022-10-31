@@ -78,9 +78,8 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, size_t n_shard_worker_threads, Address coordinator_leader,
-               coordinator::ShardMap shard_map)
-      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)} {
+  ShardManager(io::Io<IoImpl> io, size_t n_shard_worker_threads, Address coordinator_leader)
+      : io_(io), coordinator_leader_(coordinator_leader) {
     MG_ASSERT(n_shard_worker_threads >= 1);
 
     shard_worker::Queue queue;
@@ -234,7 +233,6 @@ class ShardManager {
     }
   }
 
-  /// Returns true if the RSM was able to be initialized, and false if it was already initialized
   void InitializeRsm(coordinator::ShardToInitialize to_init) {
     if (rsm_map_.contains(to_init.uuid)) {
       // it's not a bug for the coordinator to send us UUIDs that we have
