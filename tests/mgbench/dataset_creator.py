@@ -100,8 +100,8 @@ if __name__ == "__main__":
 
     for outer_index in range(0, number_of_files):
         for inner_index in range(0, number_of_identities):
-            file_uuid = outer_index
-            identity_uuid = number_of_files + inner_index
+            file_uuid = outer_index + 1
+            identity_uuid = number_of_files + inner_index + 1
 
             if random.random() <= percentage_of_permissions:
                 f.write(f'CREATE (:Permission {{uuid: {uuid}, name: "name_permission_{uuid}"}});\n')

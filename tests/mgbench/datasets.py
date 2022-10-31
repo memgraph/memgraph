@@ -314,26 +314,26 @@ class AccessControl(Dataset):
             "edges": -1,  # not used
             "uuid_ranges": {
                 "File": {"first_uuid": 1, "last_uuid": 10},
-                "Permission": {"first_uuid": 11, "last_uuid": 20},
-                "Identity": {"first_uuid": 21, "last_uuid": 30},
+                "Identity": {"first_uuid": 11, "last_uuid": 20},
+                "Permission": {"first_uuid": 21, "last_uuid": 120},  # 120=10*10+20
             },
         },
         "medium": {
+            "vertices": 3000,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "File": {"first_uuid": 1, "last_uuid": 1000},
+                "Identity": {"first_uuid": 1001, "last_uuid": 2000},
+                "Permission": {"first_uuid": 2001, "last_uuid": 1002000},  # 1002000=1000*1000+2000
+            },
+        },
+        "large": {
             "vertices": 30000,
             "edges": -1,  # not used
             "uuid_ranges": {
                 "File": {"first_uuid": 1, "last_uuid": 10000},
-                "Permission": {"first_uuid": 10001, "last_uuid": 20000},
-                "Identity": {"first_uuid": 10001, "last_uuid": 30000},
-            },
-        },
-        "large": {
-            "vertices": 3000000,
-            "edges": -1,  # not used
-            "uuid_ranges": {
-                "File": {"first_uuid": 1, "last_uuid": 1000000},
-                "Permission": {"first_uuid": 100001, "last_uuid": 2000000},
-                "Identity": {"first_uuid": 1000001, "last_uuid": 3000000},
+                "Identity": {"first_uuid": 10001, "last_uuid": 20000},
+                "Permission": {"first_uuid": 20001, "last_uuid": 100020000},  # 100020000=10000*10000+20000
             },
         },
     }
