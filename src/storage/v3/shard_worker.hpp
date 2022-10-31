@@ -18,6 +18,9 @@
 
 #include <boost/uuid/uuid.hpp>
 
+#include "coordinator/coordinator.hpp"
+#include "coordinator/shard_map.hpp"
+#include "io/address.hpp"
 #include "io/future.hpp"
 #include "io/rsm/raft.hpp"
 #include "io/time.hpp"
@@ -121,10 +124,13 @@ class ShardWorker {
   }
 
   bool Process(Cron &&cron) {
-    Time ret = Cron();
+    Time next_cron = Cron();
+    cron.request_next_cron_at.Fill(next_cron);
     return true;
   }
+
   bool Process(InitializeRsm &&initialize_rsm) { return true; }
+
   bool Process(Handle &&handle) { return true; }
 
   Time Cron() {
