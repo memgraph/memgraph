@@ -61,8 +61,8 @@ if __name__ == "__main__":
     percentage_of_permissions = args.percentage_of_permissions
     filename = args.filename
 
-    assert number_of_identities > 0
-    assert number_of_files > 0
+    assert number_of_identities >= 0
+    assert number_of_files >= 0
     assert percentage_of_permissions > 0.0 and percentage_of_permissions <= 1.0
     assert filename != ""
 
