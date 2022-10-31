@@ -181,7 +181,7 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
   enterprise_enabled_ = true;
   is_valid_.store(true, std::memory_order_relaxed);
   license_type_ = license_type;
-  spdlog::info("All Enterprise features are activated for testing.");
+  spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
 }
 
 void LicenseChecker::CheckEnvLicense() {
