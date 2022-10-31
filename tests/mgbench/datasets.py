@@ -378,7 +378,7 @@ class AccessControl(Dataset):
         query = ("MATCH (n:File) RETURN *", {})
         return query
 
-    def benchmark__match__match_all_verteices_with_edges(self):
+    def benchmark__match__match_all_vertices_with_edges(self):
         self.next_value_idx += 1
         query = ("MATCH (permission:Permission)-[e:IS_FOR_FILE]->(file:File) RETURN *", {})
         return query
