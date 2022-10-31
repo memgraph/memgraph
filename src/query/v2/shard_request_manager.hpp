@@ -171,6 +171,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
+      SetUpNameIdMappers();
     }
   }
 
@@ -186,6 +187,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
 
     if (hlc_response.fresher_shard_map) {
       shards_map_ = hlc_response.fresher_shard_map.value();
+      SetUpNameIdMappers();
     }
     auto commit_timestamp = hlc_response.new_hlc;
 
@@ -223,14 +225,14 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     return shards_map_.GetLabelId(name).value();
   }
 
-  const std::string &PropertyToName(memgraph::storage::v3::PropertyId prop) const override {
-    return shards_map_.GetPropertyName(prop);
+  const std::string &PropertyToName(memgraph::storage::v3::PropertyId id) const override {
+    return properties_.IdToName(id.AsUint());
   }
-  const std::string &LabelToName(memgraph::storage::v3::LabelId label) const override {
-    return shards_map_.GetLabelName(label);
+  const std::string &LabelToName(memgraph::storage::v3::LabelId id) const override {
+    return labels_.IdToName(id.AsUint());
   }
-  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId type) const override {
-    return shards_map_.GetEdgeTypeName(type);
+  const std::string &EdgeTypeToName(memgraph::storage::v3::EdgeTypeId id) const override {
+    return edge_types_.IdToName(id.AsUint());
   }
 
   bool IsPrimaryKey(LabelId primary_label, PropertyId property) const override {
@@ -358,7 +360,7 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     std::vector<VertexAccessor> accessors;
     for (auto &response : responses) {
       for (auto &result_row : response.results) {
-        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props)));
+        accessors.emplace_back(VertexAccessor(std::move(result_row.vertex), std::move(result_row.props), this));
       }
     }
     return accessors;
@@ -697,7 +699,28 @@ class ShardRequestManager : public ShardRequestManagerInterface {
     }
   }
 
+  void SetUpNameIdMappers() {
+    std::unordered_map<uint64_t, std::string> id_to_name;
+    for (const auto &[name, id] : shards_map_.labels) {
+      id_to_name.emplace(id.AsUint(), name);
+    }
+    labels_.StoreMapping(std::move(id_to_name));
+    id_to_name.clear();
+    for (const auto &[name, id] : shards_map_.properties) {
+      id_to_name.emplace(id.AsUint(), name);
+    }
+    properties_.StoreMapping(std::move(id_to_name));
+    id_to_name.clear();
+    for (const auto &[name, id] : shards_map_.edge_types) {
+      id_to_name.emplace(id.AsUint(), name);
+    }
+    edge_types_.StoreMapping(std::move(id_to_name));
+  }
+
   ShardMap shards_map_;
+  storage::v3::NameIdMapper properties_;
+  storage::v3::NameIdMapper edge_types_;
+  storage::v3::NameIdMapper labels_;
   CoordinatorClient coord_cli_;
   RsmStorageClientManager<StorageClient> storage_cli_manager_;
   memgraph::io::Io<TTransport> io_;

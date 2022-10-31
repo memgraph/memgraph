@@ -718,7 +718,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TReturnType GetProperty(const TRecordAccessor &record_accessor, PropertyIx prop) {
     auto maybe_prop = record_accessor.GetProperty(prop.name);
     // Handler non existent property
-    return conv_(maybe_prop);
+    return conv_(maybe_prop, dba_);
   }
 
   template <class TRecordAccessor, class TTag = Tag,
@@ -726,7 +726,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TReturnType GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
     auto maybe_prop = record_accessor.GetProperty(std::string(name));
     // Handler non existent property
-    return conv_(maybe_prop);
+    return conv_(maybe_prop, dba_);
   }
 
   template <class TRecordAccessor, class TTag = Tag,

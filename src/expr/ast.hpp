@@ -13,7 +13,7 @@
 #ifndef MG_AST_INCLUDE_PATH
 #ifdef MG_CLANG_TIDY_CHECK
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define MG_AST_INCLUDE_PATH "query/v2/frontend/ast/ast.hpp"
+#include "query/v2/bindings/bindings.hpp"
 #else
 #error Missing AST include path
 #endif
@@ -21,8 +21,6 @@
 
 #ifndef MG_INJECTED_NAMESPACE_NAME
 #ifdef MG_CLANG_TIDY_CHECK
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define MG_INJECTED_NAMESPACE_NAME memgraph::query::v2
 #else
 #error Missing AST namespace
 #endif
