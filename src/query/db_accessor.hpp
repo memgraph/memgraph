@@ -314,8 +314,8 @@ class DbAccessor final {
     return std::nullopt;
   }
 
-  std::optional<EdgeAccessor> FindEdge(storage::Gid gid) {
-    auto maybe_edge = accessor_->FindEdge(gid);
+  std::optional<EdgeAccessor> FindEdge(storage::Gid edge_id, storage::Gid vertex_id) {
+    auto maybe_edge = accessor_->FindEdge(edge_id, vertex_id);
     if (maybe_edge) return EdgeAccessor(*maybe_edge);
     return std::nullopt;
   }

@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <variant>
 
 #include <gflags/gflags.h>
@@ -526,19 +527,28 @@ std::optional<VertexAccessor> Storage::Accessor::FindVertex(Gid gid, View view) 
   return VertexAccessor::Create(&*it, &transaction_, &storage_->indices_, &storage_->constraints_, config_, view);
 }
 
-std::optional<EdgeAccessor> Storage::Accessor::FindEdge(Gid gid) {
-  auto edge_acc = storage_->edges_.access();
+std::optional<EdgeAccessor> Storage::Accessor::FindEdge(Gid edge_id, Gid vertex_id) {
   auto vertex_acc = storage_->vertices_.access();
+  auto vertex = &*vertex_acc.find(vertex_id);
+  auto it_in_edges =
+      std::ranges::find_if(vertex->in_edges.begin(), vertex->in_edges.end(), [edge_id](const auto &item) {
+        return (get<2>(item).ptr && get<2>(item).ptr->gid == edge_id) || get<2>(item).gid == edge_id;
+      });
 
-  auto maybe_edge = edge_acc.find(gid);
-  if (maybe_edge == edge_acc.end()) return std::nullopt;
+  if (it_in_edges != vertex->in_edges.end())
+    return EdgeAccessor{get<2>(*it_in_edges), get<0>(*it_in_edges), get<1>(*it_in_edges),    vertex,
+                        &transaction_,        &storage_->indices_,  &storage_->constraints_, config_};
 
-  auto edge = &*maybe_edge;
-  auto vertex_from = vertex_acc.find(edge->vertex_gid_from);
-  auto vertex_to = vertex_acc.find(edge->vertex_gid_to);
+  auto it_out_edges =
+      std::ranges::find_if(vertex->out_edges.begin(), vertex->out_edges.end(), [edge_id](const auto &item) {
+        return (get<2>(item).ptr && get<2>(item).ptr->gid == edge_id) || get<2>(item).gid == edge_id;
+      });
 
-  return EdgeAccessor{EdgeRef{edge}, edge->edge_type_id,  &*vertex_from,           &*vertex_to,
-                      &transaction_, &storage_->indices_, &storage_->constraints_, config_};
+  if (it_out_edges != vertex->out_edges.end())
+    return EdgeAccessor{get<2>(*it_out_edges), get<0>(*it_out_edges),   vertex, get<1>(*it_out_edges), &transaction_,
+                        &storage_->indices_,   &storage_->constraints_, config_};
+
+  return std::nullopt;
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {

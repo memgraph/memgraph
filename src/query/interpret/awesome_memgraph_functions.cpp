@@ -651,12 +651,13 @@ TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &
 }
 
 TypedValue GetEdgeById(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Integer>>("edge_id", args, nargs);
+  FType<Or<Null, Integer>, Or<Null, Integer>>("edge_id", args, nargs);
   auto *dba = ctx.db_accessor;
 
-  if (args[0].IsNull()) return TypedValue(ctx.memory);
-  auto id = args[0].ValueInt();
-  auto maybe_edge = dba->FindEdge(storage::Gid::FromUint(id));
+  if (args[0].IsNull() || args[1].IsNull()) return TypedValue(ctx.memory);
+  auto edge_id = args[0].ValueInt();
+  auto vertex_id = args[1].ValueInt();
+  auto maybe_edge = dba->FindEdge(storage::Gid::FromUint(edge_id), storage::Gid::FromUint(vertex_id));
   if (!maybe_edge) throw query::QueryRuntimeException("Edge doesn't exist.");
 
   return TypedValue(*maybe_edge, ctx.memory);
