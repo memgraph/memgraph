@@ -86,7 +86,6 @@ if __name__ == "__main__":
 
     uuid = 1
 
-    files = []
     # Create the nodes File
     for index in range(0, number_of_files):
         f.write(f'CREATE (:File {{uuid: {uuid}, platformId: "platform_id", name: "name_file_{uuid}"}});\n')
