@@ -34,10 +34,9 @@ class StorageV3Accessor : public ::testing::Test {
  protected:
   void SetUp() override { storage.StoreMapping({{1, "label"}, {2, "property"}}); }
 
-  VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, LabelId primary_label,
-                                         const std::vector<LabelId> &labels,
-                                         const std::vector<std::pair<PropertyId, PropertyValue>> &properties) {
-    auto vtx = acc.CreateVertexAndValidate(primary_label, labels, properties);
+  static VertexAccessor CreateVertexAndValidate(Shard::Accessor &acc, const std::vector<LabelId> &labels,
+                                                const PropertyValue &primary_key) {
+    auto vtx = acc.CreateVertexAndValidate(labels, {primary_key}, {});
     EXPECT_TRUE(vtx.HasValue());
     return *vtx;
   }
@@ -65,7 +64,7 @@ class StorageV3Accessor : public ::testing::Test {
 TEST_F(StorageV3Accessor, TestPrimaryLabel) {
   {
     auto acc = storage.Access(GetNextHlc());
-    const auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(0)}});
+    const auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0});
     ASSERT_TRUE(vertex.PrimaryLabel(View::NEW).HasValue());
     const auto vertex_primary_label = vertex.PrimaryLabel(View::NEW).GetValue();
     ASSERT_FALSE(vertex.PrimaryLabel(View::OLD).HasValue());
@@ -73,7 +72,7 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
   }
   {
     auto acc = storage.Access(GetNextHlc());
-    const auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
+    const auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{1});
     ASSERT_TRUE(vertex.PrimaryLabel(View::OLD).HasError());
     const auto error_primary_label = vertex.PrimaryLabel(View::OLD).GetError();
     ASSERT_FALSE(vertex.PrimaryLabel(View::NEW).HasError());
@@ -81,7 +80,7 @@ TEST_F(StorageV3Accessor, TestPrimaryLabel) {
   }
   {
     auto acc = storage.Access(GetNextHlc());
-    CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    CreateVertexAndValidate(acc, {}, PropertyValue{2});
     acc.Commit(GetNextHlc());
   }
   {
@@ -103,8 +102,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
     const auto label1 = NameToLabelId("label1");
     const auto label2 = NameToLabelId("label2");
     const auto label3 = NameToLabelId("label3");
-    const auto vertex =
-        CreateVertexAndValidate(acc, primary_label, {label1, label2, label3}, {{primary_property, PropertyValue(0)}});
+    const auto vertex = CreateVertexAndValidate(acc, {label1, label2, label3}, PropertyValue{0});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     ASSERT_FALSE(vertex.Labels(View::OLD).HasValue());
     EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label1, label2, label3));
@@ -114,7 +112,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
     const auto label1 = NameToLabelId("label1");
     const auto label2 = NameToLabelId("label2");
     const auto label3 = NameToLabelId("label3");
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {label1}, {{primary_property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, {label1}, PropertyValue{1});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     ASSERT_FALSE(vertex.Labels(View::OLD).HasValue());
     EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label1));
@@ -127,7 +125,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
   {
     auto acc = storage.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label");
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(2)}});
+    auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{2}}, {});
     ASSERT_TRUE(vertex.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(vertex.GetError()));
     EXPECT_EQ(std::get<SchemaViolation>(vertex.GetError()),
@@ -136,7 +134,7 @@ TEST_F(StorageV3Accessor, TestAddLabels) {
   {
     auto acc = storage.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label");
-    auto vertex = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(3)}});
+    auto vertex = acc.CreateVertexAndValidate({}, {PropertyValue{3}}, {});
     ASSERT_TRUE(vertex.HasValue());
     const auto schema_violation = vertex->AddLabelAndValidate(label1);
     ASSERT_TRUE(schema_violation.HasError());
@@ -154,8 +152,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
     const auto label1 = NameToLabelId("label1");
     const auto label2 = NameToLabelId("label2");
     const auto label3 = NameToLabelId("label3");
-    auto vertex =
-        CreateVertexAndValidate(acc, primary_label, {label1, label2, label3}, {{primary_property, PropertyValue(0)}});
+    auto vertex = CreateVertexAndValidate(acc, {label1, label2, label3}, PropertyValue{0});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     EXPECT_THAT(vertex.Labels(View::NEW).GetValue(), UnorderedElementsAre(label1, label2, label3));
     const auto res1 = vertex.RemoveLabelAndValidate(label2);
@@ -175,7 +172,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
   {
     auto acc = storage.Access(GetNextHlc());
     const auto label1 = NameToLabelId("label1");
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{1});
     ASSERT_TRUE(vertex.Labels(View::NEW).HasValue());
     EXPECT_TRUE(vertex.Labels(View::NEW).GetValue().empty());
     const auto res1 = vertex.RemoveLabelAndValidate(label1);
@@ -184,7 +181,7 @@ TEST_F(StorageV3Accessor, TestRemoveLabels) {
   }
   {
     auto acc = storage.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{2});
     const auto res1 = vertex.RemoveLabelAndValidate(primary_label);
     ASSERT_TRUE(res1.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res1.GetError()));
@@ -199,13 +196,13 @@ TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
   {
     auto acc = storage.Access(GetNextHlc());
     const PropertyId prop1{NameToPropertyId("prop1")};
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(0)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{0});
     const auto res = vertex.SetPropertyAndValidate(prop1, PropertyValue(1));
     ASSERT_TRUE(res.HasValue());
   }
   {
     auto acc = storage.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(1)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{1});
     const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue(1));
     ASSERT_TRUE(res.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));
@@ -215,7 +212,7 @@ TEST_F(StorageV3Accessor, TestSetKeysAndProperties) {
   }
   {
     auto acc = storage.Access(GetNextHlc());
-    auto vertex = CreateVertexAndValidate(acc, primary_label, {}, {{primary_property, PropertyValue(2)}});
+    auto vertex = CreateVertexAndValidate(acc, {}, PropertyValue{2});
     const auto res = vertex.SetPropertyAndValidate(primary_property, PropertyValue());
     ASSERT_TRUE(res.HasError());
     ASSERT_TRUE(std::holds_alternative<SchemaViolation>(res.GetError()));

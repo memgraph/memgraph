@@ -62,9 +62,8 @@ class IndexTest : public testing::Test {
   PropertyId NameToPropertyId(std::string_view property_name) { return storage.NameToProperty(property_name); }
 
   VertexAccessor CreateVertex(Shard::Accessor &accessor) {
-    auto vertex = *accessor.CreateVertexAndValidate(
-        primary_label, {},
-        {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
+    auto vertex = *accessor.CreateVertexAndValidate({}, {PropertyValue{primary_key_id++}},
+                                                    {{prop_id, PropertyValue{vertex_id++}}});
     return vertex;
   }
 
@@ -702,7 +701,7 @@ TEST_F(IndexTest, LabelPropertyIndexMixedIteration) {
   {
     auto acc = storage.Access(GetNextHlc());
     for (const auto &value : values) {
-      auto v = acc.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue(primary_key_id++)}});
+      auto v = acc.CreateVertexAndValidate({}, {PropertyValue{primary_key_id++}}, {});
       ASSERT_TRUE(v->AddLabelAndValidate(label1).HasValue());
       ASSERT_TRUE(v->SetPropertyAndValidate(prop_val, value).HasValue());
     }
@@ -908,8 +907,7 @@ TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
 
     // Create vertices with CreateVertexAndValidate
     for (int i = 0; i < 5; ++i) {
-      auto vertex =
-          acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
+      auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{primary_key_id++}}, {});
       ASSERT_TRUE(vertex.HasValue());
     }
     acc.Commit(GetNextHlc());
@@ -935,8 +933,7 @@ TEST_F(IndexTest, LabelIndexCreateVertexAndValidate) {
     EXPECT_THAT(GetPrimaryKeyIds(acc.Vertices(label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (int i = 0; i < 5; ++i) {
-      auto vertex =
-          acc.CreateVertexAndValidate(primary_label, {label1}, {{primary_property, PropertyValue(primary_key_id++)}});
+      auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{primary_key_id++}}, {});
       ASSERT_TRUE(vertex.HasValue());
     }
 
@@ -956,9 +953,8 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
 
     // Create vertices with CreateVertexAndValidate
     for (int i = 0; i < 5; ++i) {
-      auto vertex = acc.CreateVertexAndValidate(
-          primary_label, {label1},
-          {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
+      auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{primary_key_id++}},
+                                                {{prop_id, PropertyValue(vertex_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
     acc.Commit(GetNextHlc());
@@ -986,9 +982,8 @@ TEST_F(IndexTest, LabelPropertyIndexCreateVertexAndValidate) {
                 UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (int i = 0; i < 5; ++i) {
-      auto vertex = acc.CreateVertexAndValidate(
-          primary_label, {label1},
-          {{primary_property, PropertyValue(primary_key_id++)}, {prop_id, PropertyValue(vertex_id++)}});
+      auto vertex = acc.CreateVertexAndValidate({label1}, {PropertyValue{primary_key_id++}},
+                                                {{prop_id, PropertyValue(vertex_id++)}});
       ASSERT_TRUE(vertex.HasValue());
     }
 

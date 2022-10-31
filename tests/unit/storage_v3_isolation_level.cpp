@@ -99,8 +99,7 @@ TEST_P(StorageIsolationLevelTest, Visibility) {
           "(default isolation level = {}, override isolation level = {})",
           IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
       for (auto i{1}; i <= iteration_count; ++i) {
-        ASSERT_TRUE(
-            creator.CreateVertexAndValidate(primary_label, {}, {{primary_property, PropertyValue{i}}}).HasValue());
+        ASSERT_TRUE(creator.CreateVertexAndValidate({}, {PropertyValue{i}}, {}).HasValue());
 
         const auto check_vertices_count = [i](auto &accessor, const auto isolation_level) {
           const auto expected_count = isolation_level == IsolationLevel::READ_UNCOMMITTED ? i : 0;
