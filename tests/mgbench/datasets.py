@@ -45,13 +45,10 @@ class Dataset:
             variant = self.DEFAULT_VARIANT
         if variant not in self.VARIANTS:
             raise ValueError("Invalid test variant!")
-        if (self.FILES and variant not in self.FILES) and \
-                (self.URLS and variant not in self.URLS):
-            raise ValueError("The variant doesn't have a defined URL or "
-                             "file path!")
+        if (self.FILES and variant not in self.FILES) and (self.URLS and variant not in self.URLS):
+            raise ValueError("The variant doesn't have a defined URL or " "file path!")
         if variant not in self.SIZES:
-            raise ValueError("The variant doesn't have a defined dataset "
-                             "size!")
+            raise ValueError("The variant doesn't have a defined dataset " "size!")
         self._variant = variant
         if self.FILES is not None:
             self._file = self.FILES.get(variant, None)
@@ -63,8 +60,7 @@ class Dataset:
             self._url = None
         self._size = self.SIZES[variant]
         if "vertices" not in self._size or "edges" not in self._size:
-            raise ValueError("The size defined for this variant doesn't "
-                             "have the number of vertices and/or edges!")
+            raise ValueError("The size defined for this variant doesn't " "have the number of vertices and/or edges!")
         self._num_vertices = self._size["vertices"]
         self._num_edges = self._size["edges"]
 
@@ -76,8 +72,7 @@ class Dataset:
         cached_input, exists = directory.get_file("dataset.cypher")
         if not exists:
             print("Downloading dataset file:", self._url)
-            downloaded_file = helpers.download_file(
-                    self._url, directory.get_path())
+            downloaded_file = helpers.download_file(self._url, directory.get_path())
             print("Unpacking and caching file:", downloaded_file)
             helpers.unpack_and_move_file(downloaded_file, cached_input)
         print("Using cached dataset file:", cached_input)
@@ -109,9 +104,9 @@ class Pokec(Dataset):
     DEFAULT_VARIANT = "small"
     FILES = None
     URLS = {
-        "small": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_small.setup.cypher",
-        "medium": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_medium.setup.cypher",
-        "large": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/pokec_large.setup.cypher.gz",
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_small.setup.cypher",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_medium.setup.cypher",
+        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/pokec_large.setup.cypher.gz",
     }
     SIZES = {
         "small": {"vertices": 10000, "edges": 121716},
@@ -137,18 +132,17 @@ class Pokec(Dataset):
     # Arango benchmarks
 
     def benchmark__arango__single_vertex_read(self):
-        return ("MATCH (n:User {id : $id}) RETURN n",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
     def benchmark__arango__single_vertex_write(self):
-        return ("CREATE (n:UserTemp {id : $id}) RETURN n",
-                {"id": random.randint(1, self._num_vertices * 10)})
+        return ("CREATE (n:UserTemp {id : $id}) RETURN n", {"id": random.randint(1, self._num_vertices * 10)})
 
     def benchmark__arango__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return ("MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-                "CREATE (n)-[e:Temp]->(m) RETURN e",
-                {"from": vertex_from, "to": vertex_to})
+        return (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
+            {"from": vertex_from, "to": vertex_to},
+        )
 
     def benchmark__arango__aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
@@ -157,92 +151,94 @@ class Pokec(Dataset):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
     def benchmark__arango__expansion_1(self):
-        return ("MATCH (s:User {id: $id})-->(n:User) "
-                "RETURN n.id",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id", {"id": self._get_random_vertex()})
 
     def benchmark__arango__expansion_1_with_filter(self):
-        return ("MATCH (s:User {id: $id})-->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__expansion_2(self):
-        return ("MATCH (s:User {id: $id})-->()-->(n:User) "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
 
     def benchmark__arango__expansion_2_with_filter(self):
-        return ("MATCH (s:User {id: $id})-->()-->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__expansion_3(self):
-        return ("MATCH (s:User {id: $id})-->()-->()-->(n:User) "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__expansion_3_with_filter(self):
-        return ("MATCH (s:User {id: $id})-->()-->()-->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__expansion_4(self):
-        return ("MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__expansion_4_with_filter(self):
-        return ("MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__neighbours_2(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id", {"id": self._get_random_vertex()})
 
     def benchmark__arango__neighbours_2_with_filter(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN DISTINCT n.id",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__neighbours_2_with_data(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) "
-                "RETURN DISTINCT n.id, n",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__neighbours_2_with_data_and_filter(self):
-        return ("MATCH (s:User {id: $id})-[*1..2]->(n:User) "
-                "WHERE n.age >= 18 "
-                "RETURN DISTINCT n.id, n",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__arango__shortest_path(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return ("MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-                "MATCH p=(n)-[*bfs..15]->(m) "
-                "RETURN extract(n in nodes(p) | n.id) AS path",
-                {"from": vertex_from, "to": vertex_to})
+        return (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=(n)-[*bfs..15]->(m) "
+            "RETURN extract(n in nodes(p) | n.id) AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
 
     def benchmark__arango__shortest_path_with_filter(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return ("MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-                "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
-                "RETURN extract(n in nodes(p) | n.id) AS path",
-                {"from": vertex_from, "to": vertex_to})
+        return (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
+            "RETURN extract(n in nodes(p) | n.id) AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
 
     # Our benchmark queries
 
     def benchmark__create__edge(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return ("MATCH (a:User {id: $from}), (b:User {id: $to}) "
-                "CREATE (a)-[:TempEdge]->(b)",
-                {"from": vertex_from, "to": vertex_to})
+        return (
+            "MATCH (a:User {id: $from}), (b:User {id: $to}) " "CREATE (a)-[:TempEdge]->(b)",
+            {"from": vertex_from, "to": vertex_to},
+        )
 
     def benchmark__create__pattern(self):
         return ("CREATE ()-[:TempEdge]->()", {})
@@ -251,9 +247,12 @@ class Pokec(Dataset):
         return ("CREATE ()", {})
 
     def benchmark__create__vertex_big(self):
-        return ("CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
-                "p3: \"Here is some text that is not extremely short\", "
-                "p4:\"Short text\", p5: 234.434, p6: 11.11, p7: false})", {})
+        return (
+            "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
+            'p3: "Here is some text that is not extremely short", '
+            'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
+            {},
+        )
 
     def benchmark__aggregation__count(self):
         return ("MATCH (n) RETURN count(n), count(n.age)", {})
@@ -262,29 +261,121 @@ class Pokec(Dataset):
         return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
 
     def benchmark__match__pattern_cycle(self):
-        return ("MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) "
-                "RETURN e1, m, e2",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2", {"id": self._get_random_vertex()})
 
     def benchmark__match__pattern_long(self):
-        return ("MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->"
-                "(n3)-[e3]->(n4)<-[e4]-(n5) "
-                "RETURN n5 LIMIT 1",
-                {"id": self._get_random_vertex()})
+        return (
+            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
+            {"id": self._get_random_vertex()},
+        )
 
     def benchmark__match__pattern_short(self):
-        return ("MATCH (n:User {id: $id})-[e]->(m) "
-                "RETURN m LIMIT 1",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1", {"id": self._get_random_vertex()})
 
     def benchmark__match__vertex_on_label_property(self):
-        return ("MATCH (n:User) WITH n WHERE n.id = $id RETURN n",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n:User) WITH n WHERE n.id = $id RETURN n", {"id": self._get_random_vertex()})
 
     def benchmark__match__vertex_on_label_property_index(self):
-        return ("MATCH (n:User {id: $id}) RETURN n",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
 
     def benchmark__match__vertex_on_property(self):
-        return ("MATCH (n {id: $id}) RETURN n",
-                {"id": self._get_random_vertex()})
+        return ("MATCH (n {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+
+
+class AccessControl(Dataset):
+
+    # Explaination of datasets:
+    #   - empty_only_index: contains index; contains no data
+    #   - small/medium/large: contains index; contains data (respectively small/medium/large dataset)
+    #
+    # See dataset_creator.py to understand the datamodel and generate a dataset
+
+    NAME = "accesscontrol"
+    VARIANTS = ["empty_only_index", "small", "medium", "large"]
+    DEFAULT_VARIANT = "empty_only_index"
+    LOCAL_URLS = {
+        "small": "/media/jeremy/Windows/Dev/Dataset/accesscontrol_small.setup.cypher.gz",
+    }
+    SIZES = {
+        "empty_only_index": {
+            "vertices": 0,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "File": {"first_uuid": 0, "last_uuid": 0},
+                "Permission": {"first_uuid": 0, "last_uuid": 0},
+                "Identity": {"first_uuid": 0, "last_uuid": 0},
+            },
+        },
+        "small": {
+            "vertices": 30,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "File": {"first_uuid": 1, "last_uuid": 10},
+                "Identity": {"first_uuid": 11, "last_uuid": 20},
+                "Permission": {"first_uuid": 21, "last_uuid": 120},  # 120=10*10+20
+            },
+        },
+        "medium": {
+            "vertices": 3000,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "File": {"first_uuid": 1, "last_uuid": 1000},
+                "Identity": {"first_uuid": 1001, "last_uuid": 2000},
+                "Permission": {"first_uuid": 2001, "last_uuid": 1002000},  # 1002000=1000*1000+2000
+            },
+        },
+        "large": {
+            "vertices": 30000,
+            "edges": -1,  # not used
+            "uuid_ranges": {
+                "File": {"first_uuid": 1, "last_uuid": 10000},
+                "Identity": {"first_uuid": 10001, "last_uuid": 20000},
+                "Permission": {"first_uuid": 20001, "last_uuid": 100020000},  # 100020000=10000*10000+20000
+            },
+        },
+    }
+
+    def _get_random_uuid(self, type):
+        assert type in ["File", "Permission", "Identity"]
+
+        first_uuid = self.get_size()["uuid_ranges"][type]["first_uuid"]
+        last_uuid = self.get_size()["uuid_ranges"][type]["last_uuid"]
+
+        random_value = random.randint(first_uuid, last_uuid)
+        return random_value
+
+    def __init__(self, variant=None):
+        super().__init__(variant)
+        self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
+
+    def benchmark__create__vertex(self):
+        self.next_value_idx += 1
+        query = (f"CREATE (:File {{uuid: {self.next_value_idx}}});", {})
+        return query
+
+    def benchmark__create__edges(self):
+        permission_uuid = self._get_random_uuid("Permission")
+        file_uuid = self._get_random_uuid("File")
+
+        query = (
+            "MATCH (permission:Permission {uuid: $permission_uuid}), (file:File {uuid: $file_uuid}) "
+            "CREATE (permission)-[:IS_FOR_FILE]->(file)",
+            {"permission_uuid": permission_uuid, "file_uuid": file_uuid},
+        )
+
+        return query
+
+    def benchmark__match__match_all_vertices(self):
+        self.next_value_idx += 1
+        query = ("MATCH (n) RETURN *", {})
+        return query
+
+    def benchmark__match__match_on_labelled_vertices(self):
+        self.next_value_idx += 1
+        query = ("MATCH (n:File) RETURN *", {})
+        return query
+
+    def benchmark__match__match_all_vertices_with_edges(self):
+        self.next_value_idx += 1
+        query = ("MATCH (permission:Permission)-[e:IS_FOR_FILE]->(file:File) RETURN *", {})
+        return query
