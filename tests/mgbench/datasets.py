@@ -348,7 +348,7 @@ class AccessControl(Dataset):
         return random_value
 
     def __init__(self, variant=None):
-        super().__init__(self, variant)
+        super().__init__(variant)
         self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
 
     def benchmark__create__vertex(self):
