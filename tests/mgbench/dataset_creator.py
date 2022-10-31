@@ -47,7 +47,8 @@ import argparse
 #
 # AccessControl specific: uuid is the schema
 
-if __name__ == "__main__":
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--number_of_identities", type=int, default=10)
     parser.add_argument("--number_of_files", type=int, default=10)
@@ -113,3 +114,7 @@ if __name__ == "__main__":
                 uuid += 1
 
     f.close()
+
+
+if __name__ == "__main__":
+    main()
