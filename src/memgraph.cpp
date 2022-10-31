@@ -658,8 +658,7 @@ int main(int argc, char **argv) {
 
   memgraph::coordinator::Coordinator coordinator{sm};
 
-  memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator,
-                                                                                              sm};
+  memgraph::machine_manager::MachineManager<memgraph::io::local_transport::LocalTransport> mm{io, config, coordinator};
   std::jthread mm_thread([&mm] { mm.Run(); });
 
   memgraph::query::v2::InterpreterContext interpreter_context{

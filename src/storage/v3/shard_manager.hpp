@@ -176,7 +176,6 @@ class ShardManager {
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
   Time next_cron_ = Time::min();
   Address coordinator_leader_;
-  coordinator::ShardMap shard_map_;
   std::optional<ResponseFuture<WriteResponse<CoordinatorWriteResponses>>> heartbeat_res_;
 
   // TODO(tyler) over time remove items from initialized_but_not_confirmed_rsm_
@@ -249,22 +248,11 @@ class ShardManager {
     io_addr.unique_id = to_init.uuid;
     rsm_io.SetAddress(io_addr);
 
-    // TODO(tyler) get geers from Coordinator in HeartbeatResponse
+    // TODO(tyler) get peers from Coordinator in HeartbeatResponse
     std::vector<Address> rsm_peers = {};
 
-    std::unique_ptr<Shard> shard =
-        std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key, to_init.schema, to_init.config);
-    // TODO(jbajic) Should be sync with coordinator and not passed
-    std::unordered_map<uint64_t, std::string> id_to_name;
-    const auto map_type_ids = [&id_to_name](const auto &name_to_id_type) {
-      for (const auto &[name, id] : name_to_id_type) {
-        id_to_name.insert({id.AsUint(), name});
-      }
-    };
-    map_type_ids(shard_map_.edge_types);
-    map_type_ids(shard_map_.labels);
-    map_type_ids(shard_map_.properties);
-    shard->StoreMapping(std::move(id_to_name));
+    std::unique_ptr<Shard> shard = std::make_unique<Shard>(to_init.label_id, to_init.min_key, to_init.max_key,
+                                                           to_init.schema, to_init.config, to_init.id_to_names);
 
     ShardRsm rsm_state{std::move(shard)};
 

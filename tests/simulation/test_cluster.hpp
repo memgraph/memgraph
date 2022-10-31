@@ -81,7 +81,7 @@ MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Addres
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator, shard_map};
+  return MachineManager{io, config, coordinator};
 }
 
 void RunMachine(MachineManager<SimulatorTransport> mm) { mm.Run(); }
