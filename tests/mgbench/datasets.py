@@ -294,10 +294,10 @@ class AccessControl(Dataset):
     VARIANTS = ["empty_only_index", "small", "medium", "large"]
     DEFAULT_VARIANT = "empty_only_index"
     URLS = {
-        "empty_only_index": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/accesscontrol_empty_only_index.setup.cypher.gz",
-        "small": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/accesscontrol_small.setup.cypher.gz",
-        "medium": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/accesscontrol_medium.setup.cypher.gz",
-        "large": "https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/accesscontrol_large.setup.cypher.gz",
+        "empty_only_index": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_empty_only_index.setup.cypher.gz",
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_small.setup.cypher.gz",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_medium.setup.cypher.gz",
+        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/accesscontrol/accesscontrol_large.setup.cypher.gz",
     }
     SIZES = {
         "empty_only_index": {
