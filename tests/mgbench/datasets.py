@@ -341,14 +341,14 @@ class AccessControl(Dataset):
     def _get_random_uuid(self, type):
         assert type in ["File", "Permission", "Identity"]
 
-        first_uuid = Dataset.get_size(self)["uuid_ranges"][type]["first_uuid"]
-        last_uuid = Dataset.get_size(self)["uuid_ranges"][type]["last_uuid"]
+        first_uuid = self.get_size()["uuid_ranges"][type]["first_uuid"]
+        last_uuid = self.get_size()["uuid_ranges"][type]["last_uuid"]
 
         random_value = random.randint(first_uuid, last_uuid)
         return random_value
 
     def __init__(self, variant=None):
-        Dataset.__init__(self, variant)
+        super().__init__(self, variant)
         self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
 
     def benchmark__create__vertex(self):
