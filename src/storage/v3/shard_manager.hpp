@@ -16,45 +16,45 @@
 
 #include <boost/uuid/uuid.hpp>
 
-#include <coordinator/coordinator.hpp>
-#include <io/address.hpp>
-#include <io/message_conversion.hpp>
-#include <io/messages.hpp>
-#include <io/rsm/raft.hpp>
-#include <io/time.hpp>
-#include <io/transport.hpp>
-#include <query/v2/requests.hpp>
-#include <storage/v3/shard.hpp>
-#include <storage/v3/shard_rsm.hpp>
+#include "coordinator/coordinator.hpp"
 #include "coordinator/shard_map.hpp"
+#include "io/address.hpp"
+#include "io/message_conversion.hpp"
+#include "io/messages.hpp"
+#include "io/rsm/raft.hpp"
+#include "io/time.hpp"
+#include "io/transport.hpp"
+#include "query/v2/requests.hpp"
 #include "storage/v3/config.hpp"
-#include "storage/v3/shard_scheduler.hpp"
+#include "storage/v3/shard.hpp"
+#include "storage/v3/shard_rsm.hpp"
+#include "storage/v3/shard_worker.hpp"
 
 namespace memgraph::storage::v3 {
 
 using boost::uuids::uuid;
 
-using memgraph::coordinator::CoordinatorWriteRequests;
-using memgraph::coordinator::CoordinatorWriteResponses;
-using memgraph::coordinator::HeartbeatRequest;
-using memgraph::coordinator::HeartbeatResponse;
-using memgraph::io::Address;
-using memgraph::io::Duration;
-using memgraph::io::Message;
-using memgraph::io::RequestId;
-using memgraph::io::ResponseFuture;
-using memgraph::io::Time;
-using memgraph::io::messages::CoordinatorMessages;
-using memgraph::io::messages::ShardManagerMessages;
-using memgraph::io::messages::ShardMessages;
-using memgraph::io::rsm::Raft;
-using memgraph::io::rsm::WriteRequest;
-using memgraph::io::rsm::WriteResponse;
-using memgraph::msgs::ReadRequests;
-using memgraph::msgs::ReadResponses;
-using memgraph::msgs::WriteRequests;
-using memgraph::msgs::WriteResponses;
-using memgraph::storage::v3::ShardRsm;
+using coordinator::CoordinatorWriteRequests;
+using coordinator::CoordinatorWriteResponses;
+using coordinator::HeartbeatRequest;
+using coordinator::HeartbeatResponse;
+using io::Address;
+using io::Duration;
+using io::Message;
+using io::RequestId;
+using io::ResponseFuture;
+using io::Time;
+using io::messages::CoordinatorMessages;
+using io::messages::ShardManagerMessages;
+using io::messages::ShardMessages;
+using io::rsm::Raft;
+using io::rsm::WriteRequest;
+using io::rsm::WriteResponse;
+using msgs::ReadRequests;
+using msgs::ReadResponses;
+using msgs::WriteRequests;
+using msgs::WriteResponses;
+using storage::v3::ShardRsm;
 
 using ShardManagerOrRsmMessage = std::variant<ShardMessages, ShardManagerMessages>;
 using TimeUuidPair = std::pair<Time, uuid>;
@@ -78,8 +78,44 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, Address coordinator_leader, coordinator::ShardMap shard_map)
-      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)}, shard_scheduler_(io) {}
+  ShardManager(io::Io<IoImpl> io, size_t n_shard_worker_threads, Address coordinator_leader,
+               coordinator::ShardMap shard_map)
+      : io_(io), coordinator_leader_(coordinator_leader), shard_map_{std::move(shard_map)} {
+    MG_ASSERT(n_shard_worker_threads >= 1);
+
+    shard_worker::Queue queue;
+
+    for (int i = 0; i < n_shard_worker_threads; i++) {
+      shard_worker::Queue queue;
+      shard_worker::ShardWorker worker{io, queue};
+      auto worker_handle = std::jthread([worker = std::move(worker)]() mutable { worker.Run(); });
+
+      workers_.emplace_back(queue);
+      worker_handles_.emplace_back(std::move(worker_handle));
+    }
+  }
+
+  ShardManager(ShardManager &&) = default;
+  ShardManager &operator=(ShardManager &&) = default;
+  ShardManager(const ShardManager &) = delete;
+  ShardManager &operator=(const ShardManager &) = delete;
+
+  ~ShardManager() {
+    auto shutdown_acks = std::vector<io::Future<bool>>{};
+    for (auto worker : workers_) {
+      auto [future, promise] = io::FuturePromisePair<bool>();
+      worker.Push(shard_worker::ShutDown{.acknowledge_shutdown = std::move(promise)});
+      shutdown_acks.emplace_back(std::move(future));
+    }
+
+    for (auto &&ack : shutdown_acks) {
+      bool acked = std::move(ack).Wait();
+      MG_ASSERT(acked);
+    }
+
+    // The jthread handes for our shard worker threads will be
+    // blocked on implicitly when worker_handles_ is destroyed.
+  }
 
   /// Periodic protocol maintenance. Returns the time that Cron should be called again
   /// in the future.
@@ -134,7 +170,8 @@ class ShardManager {
 
  private:
   io::Io<IoImpl> io_;
-  ShardScheduler<IoImpl> shard_scheduler_;
+  std::vector<shard_worker::Queue> workers_;
+  std::vector<std::jthread> worker_handles_;
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
   std::priority_queue<std::pair<Time, uuid>, std::vector<std::pair<Time, uuid>>, std::greater<>> cron_schedule_;
   Time next_cron_ = Time::min();
