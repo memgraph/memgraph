@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <deque>
 #include <memory>
 #include <queue>
@@ -58,9 +59,7 @@ struct ShutDown {
   io::Promise<bool> acknowledge_shutdown;
 };
 
-struct Cron {
-  io::Promise<io::Time> request_next_cron_at;
-};
+struct Cron {};
 
 struct RouteMessage {
   ShardMessages message;
@@ -132,8 +131,7 @@ class ShardWorker {
   }
 
   bool Process(Cron &&cron) {
-    Time next_cron = Cron();
-    cron.request_next_cron_at.Fill(next_cron);
+    Cron();
     return true;
   }
 
@@ -155,21 +153,23 @@ class ShardWorker {
     spdlog::info("running ShardManager::Cron, address {}", io_.GetAddress().ToString());
     Time now = io_.Now();
 
-    if (!cron_schedule_.empty()) {
+    while (!cron_schedule_.empty()) {
       const auto &[time, uuid] = cron_schedule_.top();
 
-      auto &rsm = rsm_map_.at(uuid);
-      Time next_for_uuid = rsm.Cron();
+      if (time <= now) {
+        auto &rsm = rsm_map_.at(uuid);
+        Time next_for_uuid = rsm.Cron();
 
-      cron_schedule_.pop();
-      cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
+        cron_schedule_.pop();
+        cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
 
-      const auto &[next_time, _uuid] = cron_schedule_.top();
-
-      return std::min(next_cron_, next_time);
+        const auto &[next_time, _uuid] = cron_schedule_.top();
+      } else {
+        return time;
+      }
     }
 
-    return next_cron_;
+    return now + std::chrono::microseconds(1000);
   }
 
   void InitializeRsm(ShardToInitialize to_init) {
@@ -196,6 +196,10 @@ class ShardWorker {
     ShardRaft<IoImpl> rsm{std::move(rsm_io), rsm_peers, std::move(rsm_state)};
 
     spdlog::info("SM created a new shard with UUID {}", to_init.uuid);
+
+    // perform an initial Cron call for the new RSM
+    Time next_cron = rsm.Cron();
+    cron_schedule_.push(std::make_pair(next_cron, to_init.uuid));
 
     rsm_map_.emplace(to_init.uuid, std::move(rsm));
   }
