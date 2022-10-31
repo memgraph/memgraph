@@ -36,7 +36,7 @@ class ScopedCustomProfile {
   // it here, thus we don't attempt to handle it.
   // NOLINTNEXTLINE(bugprone-exception-escape)
   ~ScopedCustomProfile() {
-    if (nullptr != context_->stats_root) {
+    if (nullptr != context_->stats_root) [[unlikely]] {
       auto &custom_data = context_->stats_root->custom_data[custom_data_name_];
       if (!custom_data.is_object()) {
         custom_data = nlohmann::json::object();
@@ -63,7 +63,7 @@ class ScopedCustomProfile {
 class ScopedProfile {
  public:
   ScopedProfile(uint64_t key, const char *name, query::v2::ExecutionContext *context) noexcept : context_(context) {
-    if (UNLIKELY(IsProfiling())) {
+    if (IsProfiling()) [[unlikely]] {
       root_ = context_->stats_root;
 
       // Are we the root logical operator?
@@ -100,7 +100,7 @@ class ScopedProfile {
   ScopedProfile &operator=(ScopedProfile &&) = delete;
 
   ~ScopedProfile() noexcept {
-    if (UNLIKELY(IsProfiling())) {
+    if (IsProfiling()) [[unlikely]] {
       stats_->num_cycles += utils::ReadTSC() - start_time_;
 
       // Restore the old root ("pop")
