@@ -12,12 +12,9 @@
 #pragma once
 
 #include "io/transport.hpp"
+#include "utils/type_info_ref.hpp"
 
 namespace memgraph::io {
-
-using memgraph::io::Duration;
-using memgraph::io::Message;
-using memgraph::io::Time;
 
 struct PromiseKey {
   Address requester_address;
@@ -45,6 +42,7 @@ struct OpaqueMessage {
   Address from_address;
   uint64_t request_id;
   std::any message;
+  utils::TypeInfoRef type_info;
 
   /// Recursively tries to match a specific type from the outer
   /// variant's parameter pack against the type of the std::any,
@@ -100,7 +98,7 @@ class OpaquePromiseTraitBase {
  public:
   virtual const std::type_info *TypeInfo() const = 0;
   virtual bool IsAwaited(void *ptr) const = 0;
-  virtual void Fill(void *ptr, OpaqueMessage &&) const = 0;
+  virtual void Fill(void *ptr, OpaqueMessage &&, Duration) const = 0;
   virtual void TimeOut(void *ptr) const = 0;
 
   virtual ~OpaquePromiseTraitBase() = default;
@@ -118,12 +116,13 @@ class OpaquePromiseTrait : public OpaquePromiseTraitBase {
 
   bool IsAwaited(void *ptr) const override { return static_cast<ResponsePromise<T> *>(ptr)->IsAwaited(); };
 
-  void Fill(void *ptr, OpaqueMessage &&opaque_message) const override {
+  void Fill(void *ptr, OpaqueMessage &&opaque_message, Duration response_latency) const override {
     T message = std::any_cast<T>(std::move(opaque_message.message));
     auto response_envelope = ResponseEnvelope<T>{.message = std::move(message),
                                                  .request_id = opaque_message.request_id,
                                                  .to_address = opaque_message.to_address,
-                                                 .from_address = opaque_message.from_address};
+                                                 .from_address = opaque_message.from_address,
+                                                 .response_latency = response_latency};
     auto promise = static_cast<ResponsePromise<T> *>(ptr);
     auto unique_promise = std::unique_ptr<ResponsePromise<T>>(promise);
     unique_promise->Fill(std::move(response_envelope));
@@ -187,9 +186,9 @@ class OpaquePromise {
     ptr_ = nullptr;
   }
 
-  void Fill(OpaqueMessage &&opaque_message) {
+  void Fill(OpaqueMessage &&opaque_message, Duration response_latency) {
     MG_ASSERT(ptr_ != nullptr);
-    trait_->Fill(ptr_, std::move(opaque_message));
+    trait_->Fill(ptr_, std::move(opaque_message), response_latency);
     ptr_ = nullptr;
   }
 
@@ -199,18 +198,24 @@ class OpaquePromise {
 };
 
 struct DeadlineAndOpaquePromise {
+  Time requested_at;
   Time deadline;
   OpaquePromise promise;
 };
 
 template <class From>
-std::type_info const &type_info_for_variant(From const &from) {
+std::type_info const &TypeInfoForVariant(From const &from) {
   return std::visit([](auto &&x) -> decltype(auto) { return typeid(x); }, from);
+}
+
+template <class T>
+utils::TypeInfoRef TypeInfoFor(const T & /* t */) {
+  return typeid(T);
 }
 
 template <typename From, typename Return, typename Head, typename... Rest>
 std::optional<Return> ConvertVariantInner(From &&a) {
-  if (typeid(Head) == type_info_for_variant(a)) {
+  if (typeid(Head) == TypeInfoForVariant(a)) {
     Head concrete = std::get<Head>(std::forward<From>(a));
     return concrete;
   }

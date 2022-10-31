@@ -12,6 +12,7 @@
 #include <thread>
 
 #include "io/simulator/simulator.hpp"
+#include "utils/print_helpers.hpp"
 
 using memgraph::io::Address;
 using memgraph::io::Io;
@@ -77,10 +78,14 @@ int main() {
       std::cout << "[CLIENT] Got a valid response" << std::endl;
       auto env = res_rez.GetValue();
       MG_ASSERT(env.message.highest_seen == i);
+      std::cout << "response latency: " << env.response_latency.count() << " microseconds" << std::endl;
     } else {
       std::cout << "[CLIENT] Got an error" << std::endl;
     }
   }
+
+  using memgraph::utils::print_helpers::operator<<;
+  std::cout << "response latencies: " << cli_io.ResponseLatencies() << std::endl;
 
   simulator.ShutDown();
   return 0;
