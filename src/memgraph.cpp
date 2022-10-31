@@ -407,9 +407,8 @@ DEFINE_string(organization_name, "", "Organization name.");
 struct SessionData {
   // Explicit constructor here to ensure that pointers to all objects are
   // supplied.
-  SessionData(memgraph::coordinator::ShardMap &shard_map, memgraph::query::v2::InterpreterContext *interpreter_context)
-      : shard_map(&shard_map), interpreter_context(interpreter_context) {}
-  memgraph::coordinator::ShardMap *shard_map;
+  explicit SessionData(memgraph::query::v2::InterpreterContext *interpreter_context)
+      : interpreter_context(interpreter_context) {}
   memgraph::query::v2::InterpreterContext *interpreter_context;
 };
 
@@ -424,7 +423,6 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
               memgraph::communication::v2::OutputStream *output_stream)
       : memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                memgraph::communication::v2::OutputStream>(input_stream, output_stream),
-        shard_map_(data.shard_map),
         interpreter_(data.interpreter_context),
         endpoint_(endpoint) {}
 
@@ -455,7 +453,7 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override {
-    TypedValueResultStream stream(encoder, *shard_map_);
+    TypedValueResultStream stream(encoder, interpreter_.GetShardRequestManager());
     return PullResults(stream, n, qid);
   }
 
@@ -482,7 +480,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
       const auto &summary = interpreter_.Pull(&stream, n, qid);
       std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, *shard_map_, memgraph::storage::v3::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(kv.second, interpreter_.GetShardRequestManager(),
+                                                           memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::v3::Error::DELETED_OBJECT:
@@ -507,14 +506,14 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
   /// before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(TEncoder *encoder, const memgraph::coordinator::ShardMap &shard_map)
-        : encoder_(encoder), shard_map_(&shard_map) {}
+    TypedValueResultStream(TEncoder *encoder, const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager)
+        : encoder_(encoder), shard_request_manager_(shard_request_manager) {}
 
     void Result(const std::vector<memgraph::query::v2::TypedValue> &values) {
       std::vector<memgraph::communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, *shard_map_, memgraph::storage::v3::View::NEW);
+        auto maybe_value = memgraph::glue::v2::ToBoltValue(v, shard_request_manager_, memgraph::storage::v3::View::NEW);
         if (maybe_value.HasError()) {
           switch (maybe_value.GetError()) {
             case memgraph::storage::v3::Error::DELETED_OBJECT:
@@ -534,12 +533,8 @@ class BoltSession final : public memgraph::communication::bolt::Session<memgraph
 
    private:
     TEncoder *encoder_;
-    // NOTE: Needed only for ToBoltValue conversions
-    const memgraph::coordinator::ShardMap *shard_map_;
+    const memgraph::msgs::ShardRequestManagerInterface *shard_request_manager_{nullptr};
   };
-
-  // NOTE: Needed only for ToBoltValue conversions
-  const memgraph::coordinator::ShardMap *shard_map_;
   memgraph::query::v2::Interpreter interpreter_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };
@@ -680,7 +675,7 @@ int main(int argc, char **argv) {
       std::move(io),
       mm.CoordinatorAddress()};
 
-  SessionData session_data{sm, &interpreter_context};
+  SessionData session_data{&interpreter_context};
 
   interpreter_context.auth = nullptr;
   interpreter_context.auth_checker = nullptr;

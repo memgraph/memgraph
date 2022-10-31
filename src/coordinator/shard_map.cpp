@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -365,7 +366,6 @@ std::optional<LabelId> ShardMap::GetLabelId(const std::string &label) const {
   if (const auto it = labels.find(label); it != labels.end()) {
     return it->second;
   }
-
   return std::nullopt;
 }
 
@@ -382,7 +382,6 @@ std::optional<PropertyId> ShardMap::GetPropertyId(const std::string &property_na
   if (const auto it = properties.find(property_name); it != properties.end()) {
     return it->second;
   }
-
   return std::nullopt;
 }
 
@@ -399,7 +398,6 @@ std::optional<EdgeTypeId> ShardMap::GetEdgeTypeId(const std::string &edge_type) 
   if (const auto it = edge_types.find(edge_type); it != edge_types.end()) {
     return it->second;
   }
-
   return std::nullopt;
 }
 
@@ -411,6 +409,7 @@ const std::string &ShardMap::GetEdgeTypeName(const EdgeTypeId property) const {
   }
   throw utils::BasicException("EdgeTypeId not found!");
 }
+
 Shards ShardMap::GetShardsForRange(const LabelName &label_name, const PrimaryKey &start_key,
                                    const PrimaryKey &end_key) const {
   MG_ASSERT(start_key <= end_key);

@@ -18,6 +18,7 @@
 #include "coordinator/shard_map.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/requests.hpp"
+#include "query/v2/shard_request_manager.hpp"
 #include "storage/v3/edge_accessor.hpp"
 #include "storage/v3/id_types.hpp"
 #include "storage/v3/result.hpp"
@@ -70,51 +71,52 @@ query::v2::TypedValue ToTypedValue(const Value &value) {
   }
 }
 
-storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(const query::v2::accessors::VertexAccessor &vertex,
-                                                              const coordinator::ShardMap &shard_map,
-                                                              storage::v3::View /*view*/) {
+storage::v3::Result<communication::bolt::Vertex> ToBoltVertex(
+    const query::v2::accessors::VertexAccessor &vertex, const msgs::ShardRequestManagerInterface *shard_request_manager,
+    storage::v3::View /*view*/) {
   auto id = communication::bolt::Id::FromUint(0);
 
   auto labels = vertex.Labels();
   std::vector<std::string> new_labels;
   new_labels.reserve(labels.size());
   for (const auto &label : labels) {
-    new_labels.push_back(shard_map.GetLabelName(label.id));
+    new_labels.push_back(shard_request_manager->LabelToName(label.id));
   }
 
   auto properties = vertex.Properties();
   std::map<std::string, Value> new_properties;
   for (const auto &[prop, property_value] : properties) {
-    new_properties[shard_map.GetPropertyName(prop)] = ToBoltValue(property_value);
+    new_properties[shard_request_manager->PropertyToName(prop)] = ToBoltValue(property_value);
   }
   return communication::bolt::Vertex{id, new_labels, new_properties};
 }
 
-storage::v3::Result<communication::bolt::Edge> ToBoltEdge(const query::v2::accessors::EdgeAccessor &edge,
-                                                          const coordinator::ShardMap &shard_map,
-                                                          storage::v3::View /*view*/) {
+storage::v3::Result<communication::bolt::Edge> ToBoltEdge(
+    const query::v2::accessors::EdgeAccessor &edge, const msgs::ShardRequestManagerInterface *shard_request_manager,
+    storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   auto id = communication::bolt::Id::FromUint(0);
   auto from = communication::bolt::Id::FromUint(0);
   auto to = communication::bolt::Id::FromUint(0);
-  const auto &type = shard_map.GetEdgeTypeName(edge.EdgeType());
+  const auto &type = shard_request_manager->EdgeTypeToName(edge.EdgeType());
 
   auto properties = edge.Properties();
   std::map<std::string, Value> new_properties;
   for (const auto &[prop, property_value] : properties) {
-    new_properties[shard_map.GetPropertyName(prop)] = ToBoltValue(property_value);
+    new_properties[shard_request_manager->PropertyToName(prop)] = ToBoltValue(property_value);
   }
   return communication::bolt::Edge{id, from, to, type, new_properties};
 }
 
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*edge*/,
-                                                          const coordinator::ShardMap & /*shard_map*/,
-                                                          storage::v3::View /*view*/) {
+storage::v3::Result<communication::bolt::Path> ToBoltPath(
+    const query::v2::accessors::Path & /*edge*/, const msgs::ShardRequestManagerInterface * /*shard_request_manager*/,
+    storage::v3::View /*view*/) {
   // TODO(jbajic) Fix bolt communication
   return {storage::v3::Error::DELETED_OBJECT};
 }
 
-storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value, const coordinator::ShardMap &shard_map,
+storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value,
+                                       const msgs::ShardRequestManagerInterface *shard_request_manager,
                                        storage::v3::View view) {
   switch (value.type()) {
     case query::v2::TypedValue::Type::Null:
@@ -131,7 +133,7 @@ storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value, const
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        auto maybe_value = ToBoltValue(v, shard_map, view);
+        auto maybe_value = ToBoltValue(v, shard_request_manager, view);
         if (maybe_value.HasError()) return maybe_value.GetError();
         values.emplace_back(std::move(*maybe_value));
       }
@@ -140,24 +142,24 @@ storage::v3::Result<Value> ToBoltValue(const query::v2::TypedValue &value, const
     case query::v2::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
-        auto maybe_value = ToBoltValue(kv.second, shard_map, view);
+        auto maybe_value = ToBoltValue(kv.second, shard_request_manager, view);
         if (maybe_value.HasError()) return maybe_value.GetError();
         map.emplace(kv.first, std::move(*maybe_value));
       }
       return Value(std::move(map));
     }
     case query::v2::TypedValue::Type::Vertex: {
-      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), shard_map, view);
+      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), shard_request_manager, view);
       if (maybe_vertex.HasError()) return maybe_vertex.GetError();
       return Value(std::move(*maybe_vertex));
     }
     case query::v2::TypedValue::Type::Edge: {
-      auto maybe_edge = ToBoltEdge(value.ValueEdge(), shard_map, view);
+      auto maybe_edge = ToBoltEdge(value.ValueEdge(), shard_request_manager, view);
       if (maybe_edge.HasError()) return maybe_edge.GetError();
       return Value(std::move(*maybe_edge));
     }
     case query::v2::TypedValue::Type::Path: {
-      auto maybe_path = ToBoltPath(value.ValuePath(), shard_map, view);
+      auto maybe_path = ToBoltPath(value.ValuePath(), shard_request_manager, view);
       if (maybe_path.HasError()) return maybe_path.GetError();
       return Value(std::move(*maybe_path));
     }
@@ -207,12 +209,6 @@ Value ToBoltValue(msgs::Value value) {
     }
       // TODO Value to Date types not supported
   }
-}
-
-storage::v3::Result<communication::bolt::Path> ToBoltPath(const query::v2::accessors::Path & /*path*/,
-                                                          const storage::v3::Shard & /*db*/,
-                                                          storage::v3::View /*view*/) {
-  return communication::bolt::Path();
 }
 
 storage::v3::PropertyValue ToPropertyValue(const Value &value) {

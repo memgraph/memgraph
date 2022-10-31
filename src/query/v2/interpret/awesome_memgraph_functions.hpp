@@ -16,12 +16,15 @@
 #include <unordered_map>
 
 #include "query/v2/bindings/typed_value.hpp"
+#include "query/v2/db_accessor.hpp"
 #include "storage/v3/view.hpp"
 #include "utils/memory.hpp"
 
-namespace memgraph::query::v2 {
+namespace memgraph::msgs {
+class ShardRequestManagerInterface;
+} // namespace memgraph::msgs
 
-class DbAccessor;
+namespace memgraph::query::v2 {
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";
@@ -31,7 +34,9 @@ const char kId[] = "ID";
 }  // namespace
 
 struct FunctionContext {
-  DbAccessor *db_accessor;
+  // TODO(kostasrim) consider optional here. ShardRequestManager does not exist on the storage.
+  // DbAccessor *db_accessor;
+  msgs::ShardRequestManagerInterface *manager;
   utils::MemoryResource *memory;
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
