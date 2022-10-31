@@ -30,11 +30,12 @@ uint64_t IndividualCycles(const ProfilingStats &cumulative_stats) {
                                                        [](auto acc, auto &stats) { return acc + stats.num_cycles; });
 }
 
-double RelativeTime(uint64_t num_cycles, uint64_t total_cycles) {
+double RelativeTime(const uint64_t num_cycles, const uint64_t total_cycles) {
   return static_cast<double>(num_cycles) / static_cast<double>(total_cycles);
 }
 
-double AbsoluteTime(uint64_t num_cycles, uint64_t total_cycles, std::chrono::duration<double> total_time) {
+double AbsoluteTime(const uint64_t num_cycles, const uint64_t total_cycles,
+                    const std::chrono::duration<double> total_time) {
   return (RelativeTime(num_cycles, total_cycles) * static_cast<std::chrono::duration<double, std::milli>>(total_time))
       .count();
 }
