@@ -2487,21 +2487,11 @@ class DistributedExpandCursor : public Cursor {
     }
   };
 
-  static constexpr auto InvertDirection(const auto direction) {
-    switch (direction) {
-      case EdgeAtom::Direction::IN:
-        return msgs::EdgeDirection::OUT;
-      case EdgeAtom::Direction::OUT:
-        return msgs::EdgeDirection::IN;
-      case EdgeAtom::Direction::BOTH:
-        return msgs::EdgeDirection::BOTH;
-    }
-  };
-
-  void PullDstVertex(Frame &frame, ExecutionContext &context) {
+  void PullDstVertex(Frame &frame, ExecutionContext &context, const EdgeAtom::Direction direction) {
     if (self_.common_.existing_node) {
       return;
     }
+    MG_ASSERT(direction != EdgeAtom::Direction::BOTH);
     const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
     static auto get_dst_vertex = [&edge](const EdgeAtom::Direction direction) {
       switch (direction) {
@@ -2516,8 +2506,8 @@ class DistributedExpandCursor : public Cursor {
     msgs::ExpandOneRequest request;
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
-    request.src_vertices.push_back(get_dst_vertex(self_.common_.direction));
-    request.direction = InvertDirection(self_.common_.direction);
+    request.src_vertices.push_back(get_dst_vertex(direction));
+    request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
     msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
     auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
     MG_ASSERT(result_rows.size() == 1);
@@ -2605,7 +2595,7 @@ class DistributedExpandCursor : public Cursor {
         auto &edge = *current_in_edge_it_;
         ++current_in_edge_it_;
         frame[self_.common_.edge_symbol] = edge;
-        PullDstVertex(frame, context);
+        PullDstVertex(frame, context, EdgeAtom::Direction::IN);
         return true;
       }
 
@@ -2617,7 +2607,7 @@ class DistributedExpandCursor : public Cursor {
           continue;
         };
         frame[self_.common_.edge_symbol] = edge;
-        PullDstVertex(frame, context);
+        PullDstVertex(frame, context, EdgeAtom::Direction::OUT);
         return true;
       }
 

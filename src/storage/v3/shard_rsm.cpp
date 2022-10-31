@@ -121,6 +121,7 @@ std::optional<std::map<PropertyId, Value>> PrimaryKeysFromAccessor(const VertexA
   auto maybe_pk = acc.PrimaryKey(view);
   if (maybe_pk.HasError()) {
     spdlog::debug("Encountered an error while trying to get vertex primary key.");
+    return std::nullopt;
   }
   auto &pk = maybe_pk.GetValue();
   MG_ASSERT(schema->second.size() == pk.size(), "PrimaryKey size does not match schema!");
