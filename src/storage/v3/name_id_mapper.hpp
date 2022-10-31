@@ -53,6 +53,10 @@ class NameIdMapper final {
     return it->second;
   }
 
+  const auto &GetIdToNameMap() const { return id_to_name_; }
+
+  const auto &GetNameToIdMap() const { return name_to_id_; }
+
  private:
   // Necessary for comparison with string_view nad string
   // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0919r1.html

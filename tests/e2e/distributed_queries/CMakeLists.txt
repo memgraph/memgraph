@@ -3,3 +3,8 @@ function(distributed_queries_e2e_python_files FILE_NAME)
 endfunction()
 
 distributed_queries_e2e_python_files(distributed_queries.py)
+distributed_queries_e2e_python_files(unwind_collect.py)
+distributed_queries_e2e_python_files(order_by_and_limit.py)
+distributed_queries_e2e_python_files(distinct.py)
+distributed_queries_e2e_python_files(optional_match.py)
+distributed_queries_e2e_python_files(common.py)

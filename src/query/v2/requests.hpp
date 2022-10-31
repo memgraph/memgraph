@@ -387,7 +387,6 @@ struct GetPropertiesResponse {
 enum class EdgeDirection : uint8_t { OUT = 1, IN = 2, BOTH = 3 };
 
 struct ExpandOneRequest {
-  // TODO(antaljanosbenjamin): Filtering based on the id of the other end of the edge?
   Hlc transaction_id;
   std::vector<VertexId> src_vertices;
   // return types that type is in this list

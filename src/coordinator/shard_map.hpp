@@ -25,6 +25,7 @@
 #include "io/address.hpp"
 #include "storage/v3/config.hpp"
 #include "storage/v3/id_types.hpp"
+#include "storage/v3/name_id_mapper.hpp"
 #include "storage/v3/property_value.hpp"
 #include "storage/v3/schemas.hpp"
 #include "storage/v3/temporal.hpp"
@@ -120,9 +121,9 @@ struct ShardMap {
   std::map<PropertyName, PropertyId> properties;
   std::map<EdgeTypeName, EdgeTypeId> edge_types;
   uint64_t max_label_id{kNotExistingId};
-  std::map<LabelName, LabelId> labels;
   std::map<LabelId, LabelSpace> label_spaces;
   std::map<LabelId, std::vector<SchemaProperty>> schemas;
+  std::map<LabelName, LabelId> labels;
 
   [[nodiscard]] static ShardMap Parse(std::istream &input_stream);
   friend std::ostream &operator<<(std::ostream &in, const ShardMap &shard_map);
