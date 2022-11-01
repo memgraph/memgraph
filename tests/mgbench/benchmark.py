@@ -26,6 +26,7 @@ import log
 import helpers
 import runners
 import importlib
+import time
 
 
 def get_queries(gen, count):
@@ -120,6 +121,7 @@ parser.add_argument(
 parser.add_argument("--no-properties-on-edges", action="store_true", help="disable properties on edges")
 parser.add_argument("--datasets", default="datasets", help="datasets to scan")
 parser.add_argument("--datasets-path", default=".", help="path to datasets to scan")
+parser.add_argument("--test-system-args", default="")
 args = parser.parse_args()
 
 sys.path.append(args.datasets_path)
@@ -175,9 +177,12 @@ for dataset, tests in benchmarks:
     dataset.prepare(cache.cache_directory("datasets", dataset.NAME, dataset.get_variant()))
 
     # Prepare runners and import the dataset.
-    memgraph = runners.Memgraph(args.memgraph_binary, args.temporary_directory, not args.no_properties_on_edges)
+    memgraph = runners.Memgraph(
+        args.memgraph_binary, args.temporary_directory, not args.no_properties_on_edges, args.test_system_args
+    )
     client = runners.Client(args.client_binary, args.temporary_directory)
     memgraph.start_preparation()
+    time.sleep(5.0)  # giving enough time to machine manager and all to start up
     ret = client.execute(file_path=dataset.get_file(), num_workers=args.num_workers_for_import)
     usage = memgraph.stop()
 
