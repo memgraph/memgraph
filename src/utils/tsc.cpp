@@ -18,7 +18,7 @@ extern "C" {
 #include "utils/tsc.hpp"
 
 namespace memgraph::utils {
-uint64_t ReadTSC() { return rdtsc(); }
+uint64_t ReadTSC() noexcept { return rdtsc(); }
 
 std::optional<double> GetTSCFrequency() {
   // init is only needed for fetching frequency
