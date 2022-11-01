@@ -13,10 +13,11 @@
 #include "bindings/typed_value.hpp"
 #include "query/v2/accessors.hpp"
 #include "query/v2/requests.hpp"
+#include "query/v2/shard_request_manager.hpp"
 
 namespace memgraph::query::v2 {
 
-inline TypedValue ValueToTypedValue(const msgs::Value &value) {
+inline TypedValue ValueToTypedValue(const msgs::Value &value, msgs::ShardRequestManagerInterface *manager) {
   using Value = msgs::Value;
   switch (value.type) {
     case Value::Type::Null:
@@ -34,7 +35,7 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value) {
       std::vector<TypedValue> dst;
       dst.reserve(lst.size());
       for (const auto &elem : lst) {
-        dst.push_back(ValueToTypedValue(elem));
+        dst.push_back(ValueToTypedValue(elem, manager));
       }
       return TypedValue(std::move(dst));
     }
@@ -42,14 +43,15 @@ inline TypedValue ValueToTypedValue(const msgs::Value &value) {
       const auto &value_map = value.map_v;
       std::map<std::string, TypedValue> dst;
       for (const auto &[key, val] : value_map) {
-        dst[key] = ValueToTypedValue(val);
+        dst[key] = ValueToTypedValue(val, manager);
       }
       return TypedValue(std::move(dst));
     }
     case Value::Type::Vertex:
-      return TypedValue(accessors::VertexAccessor(value.vertex_v, {}));
+      return TypedValue(accessors::VertexAccessor(
+          value.vertex_v, std::vector<std::pair<storage::v3::PropertyId, msgs::Value>>{}, manager));
     case Value::Type::Edge:
-      return TypedValue(accessors::EdgeAccessor(value.edge_v));
+      return TypedValue(accessors::EdgeAccessor(value.edge_v, manager));
   }
   throw std::runtime_error("Incorrect type in conversion");
 }
