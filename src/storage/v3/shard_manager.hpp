@@ -79,13 +79,13 @@ static_assert(kMinimumCronInterval < kMaximumCronInterval,
 template <typename IoImpl>
 class ShardManager {
  public:
-  ShardManager(io::Io<IoImpl> io, size_t n_shard_worker_threads, Address coordinator_leader)
+  ShardManager(io::Io<IoImpl> io, size_t shard_worker_threads, Address coordinator_leader)
       : io_(io), coordinator_leader_(coordinator_leader) {
-    MG_ASSERT(n_shard_worker_threads >= 1);
+    MG_ASSERT(shard_worker_threads >= 1);
 
     shard_worker::Queue queue;
 
-    for (int i = 0; i < n_shard_worker_threads; i++) {
+    for (int i = 0; i < shard_worker_threads; i++) {
       shard_worker::Queue queue;
       shard_worker::ShardWorker worker{io, queue};
       auto worker_handle = std::jthread([worker = std::move(worker)]() mutable { worker.Run(); });

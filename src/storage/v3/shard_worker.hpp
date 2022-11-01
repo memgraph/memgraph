@@ -162,8 +162,6 @@ class ShardWorker {
 
         cron_schedule_.pop();
         cron_schedule_.push(std::make_pair(next_for_uuid, uuid));
-
-        const auto &[next_time, _uuid] = cron_schedule_.top();
       } else {
         return time;
       }

@@ -73,7 +73,7 @@ class MachineManager {
       : io_(io),
         config_(config),
         coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)},
-        shard_manager_{io.ForkLocal(), config.n_shard_worker_threads, coordinator_.GetAddress()} {}
+        shard_manager_{io.ForkLocal(), config.shard_worker_threads, coordinator_.GetAddress()} {}
 
   Address CoordinatorAddress() { return coordinator_.GetAddress(); }
 

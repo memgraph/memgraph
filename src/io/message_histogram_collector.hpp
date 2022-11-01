@@ -69,11 +69,11 @@ struct LatencyHistogramSummaries {
       output +=
           fmt::format("{: >50} | {: >8} | {: >8} | {: >8} | {: >8} | {: >8} | {: >8}\n", c1, c2, c3, c4, c5, c6, c7);
     };
-    row("name", "count", "min (μs)", "med (μs)", "p99 (μs)", "max (μs)", "sum (μs)");
+    row("name", "count", "min (μs)", "med (μs)", "p99 (μs)", "max (μs)", "sum (ms)");
 
     for (const auto &[name, histo] : latencies) {
       row(name, histo.count, histo.p0.count(), histo.p50.count(), histo.p99.count(), histo.p100.count(),
-          histo.sum.count());
+          histo.sum.count() / 1000);
     }
 
     output += "\n";

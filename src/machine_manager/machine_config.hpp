@@ -41,7 +41,7 @@ struct MachineConfig {
   bool is_query_engine;
   boost::asio::ip::address listen_ip;
   uint16_t listen_port;
-  size_t n_shard_worker_threads = std::max(static_cast<unsigned int>(1), std::thread::hardware_concurrency());
+  size_t shard_worker_threads = std::max(static_cast<unsigned int>(1), std::thread::hardware_concurrency());
 };
 
 }  // namespace memgraph::machine_manager
