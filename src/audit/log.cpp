@@ -79,6 +79,7 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
             return ss.str();
           }
         }
+        throw 1;
       };
       ret = to_string(temporal_data);
       break;

@@ -123,6 +123,7 @@ std::string ReadWriteTypeChecker::TypeToString(const RWType type) {
     case RWType::RW:
       return "rw";
   }
+  throw 1;
 }
 
 }  // namespace memgraph::query::plan

@@ -68,7 +68,7 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  Gid Gid() const noexcept {
+  storage::Gid Gid() const noexcept {
     if (config_.properties_on_edges) {
       return edge_.ptr->gid;
     } else {

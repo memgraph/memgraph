@@ -66,6 +66,7 @@ std::string RegisterReplicaErrorToString(Storage::RegisterReplicaError error) {
     case Storage::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
       return "COULD_NOT_BE_PERSISTED";
   }
+  throw 1;
 }
 }  // namespace
 
@@ -173,6 +174,7 @@ VerticesIterable::Iterator VerticesIterable::begin() {
     case Type::BY_LABEL_PROPERTY:
       return Iterator(vertices_by_label_property_.begin());
   }
+  throw 1;
 }
 
 VerticesIterable::Iterator VerticesIterable::end() {
@@ -184,6 +186,7 @@ VerticesIterable::Iterator VerticesIterable::end() {
     case Type::BY_LABEL_PROPERTY:
       return Iterator(vertices_by_label_property_.end());
   }
+  throw 1;
 }
 
 VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
@@ -285,6 +288,7 @@ VertexAccessor VerticesIterable::Iterator::operator*() const {
     case Type::BY_LABEL_PROPERTY:
       return *by_label_property_it_;
   }
+  throw 1;
 }
 
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
@@ -311,6 +315,7 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
     case Type::BY_LABEL_PROPERTY:
       return by_label_property_it_ == other.by_label_property_it_;
   }
+  throw 1;
 }
 
 Storage::Storage(Config config)
@@ -1760,6 +1765,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
         case Delta::Action::REMOVE_OUT_EDGE:
           return false;
       }
+      throw 1;
     });
   }
   // 2. Process all Vertex deltas and store all operations that create edges.
@@ -1782,6 +1788,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
         case Delta::Action::REMOVE_IN_EDGE:
           return false;
       }
+      throw 1;
     });
   }
   // 3. Process all Edge deltas and store all operations that modify edge data.
@@ -1804,6 +1811,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
         case Delta::Action::REMOVE_OUT_EDGE:
           return false;
       }
+      throw 1;
     });
   }
   // 4. Process all Vertex deltas and store all operations that delete edges.
@@ -1826,6 +1834,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
         case Delta::Action::REMOVE_OUT_EDGE:
           return false;
       }
+      throw 1;
     });
   }
   // 5. Process all Vertex deltas and store all operations that delete vertices.
@@ -1848,6 +1857,7 @@ bool Storage::AppendToWalDataManipulation(const Transaction &transaction, uint64
         case Delta::Action::REMOVE_OUT_EDGE:
           return false;
       }
+      throw 1;
     });
   }
 

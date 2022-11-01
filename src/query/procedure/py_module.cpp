@@ -216,16 +216,58 @@ static PyMethodDef PyVerticesIteratorMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyVerticesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.VerticesIterator",
-    .tp_basicsize = sizeof(PyVerticesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_vertices_iterator.",
-    .tp_methods = PyVerticesIteratorMethods,
+struct PyTypeBuilder {
+  PyTypeObject object{PyVarObject_HEAD_INIT(nullptr, 0)};
+  constexpr PyTypeBuilder &&Name(const char *name) && {
+    object.tp_name = name;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&BasicSize(const size_t size) && {
+    object.tp_basicsize = size;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&Dealloc(const destructor dealloc) && {
+    object.tp_dealloc = dealloc;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&Flags(const unsigned long flags) && {
+    object.tp_flags = flags;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&Doc(const char *doc) && {
+    object.tp_doc = doc;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&Methods(struct PyMethodDef *methods) && {
+    object.tp_methods = methods;
+    return std::move(*this);
+  }
+  constexpr PyTypeBuilder &&RichCompare(const richcmpfunc richcmp) && {
+    object.tp_richcompare = richcmp;
+    return std::move(*this);
+  }
+  constexpr PyTypeObject Build() const && { return object; }
 };
+
+static PyTypeObject PyVerticesIteratorType = PyTypeBuilder{}
+                                                 .Name("_mgp.VerticesIterator")
+                                                 .BasicSize(sizeof(PyVerticesIterator))
+                                                 .Dealloc(reinterpret_cast<destructor>(PyVerticesIteratorDealloc))
+                                                 .Flags(Py_TPFLAGS_DEFAULT)
+                                                 .Doc("Wraps struct mgp_vertices_iterator.")
+                                                 .Methods(PyVerticesIteratorMethods)
+                                                 .Build();
+
+// clang-format off
+// static PyTypeObject PyVerticesIteratorType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.VerticesIterator",
+//     .tp_basicsize = sizeof(PyVerticesIterator),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_vertices_iterator.",
+//     .tp_methods = PyVerticesIteratorMethods,
+// };
 // clang-format on
 
 // clang-format off
@@ -288,17 +330,26 @@ static PyMethodDef PyEdgesIteratorMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyEdgesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.EdgesIterator",
-    .tp_basicsize = sizeof(PyEdgesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_edges_iterator.",
-    .tp_methods = PyEdgesIteratorMethods,
-};
-// clang-format on
+static PyTypeObject PyEdgesIteratorType = PyTypeBuilder{}
+                                              .Name("_mgp.EdgesIterator")
+                                              .BasicSize(sizeof(PyEdgesIterator))
+                                              .Dealloc(reinterpret_cast<destructor>(PyEdgesIteratorDealloc))
+                                              .Flags(Py_TPFLAGS_DEFAULT)
+                                              .Doc("Wraps struct mgp_edges_iterator.")
+                                              .Methods(PyEdgesIteratorMethods)
+                                              .Build();
+
+// // clang-format off
+// static PyTypeObject PyEdgesIteratorType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.EdgesIterator",
+//     .tp_basicsize = sizeof(PyEdgesIterator),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_edges_iterator.",
+//     .tp_methods = PyEdgesIteratorMethods,
+// };
+// // clang-format on
 
 PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   self->graph = nullptr;
@@ -404,16 +455,24 @@ static PyMethodDef PyGraphMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyGraphType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Graph",
-    .tp_basicsize = sizeof(PyGraph),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_graph.",
-    .tp_methods = PyGraphMethods,
-};
-// clang-format on
+static PyTypeObject PyGraphType = PyTypeBuilder{}
+                                      .Name("_mgp.Graph")
+                                      .BasicSize(sizeof(PyGraph))
+                                      .Flags(Py_TPFLAGS_DEFAULT)
+                                      .Doc("Wraps struct mgp_graph.")
+                                      .Methods(PyGraphMethods)
+                                      .Build();
+
+// // clang-format off
+// static PyTypeObject PyGraphType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Graph",
+//     .tp_basicsize = sizeof(PyGraph),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_graph.",
+//     .tp_methods = PyGraphMethods,
+// };
+// // clang-format on
 
 PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
   MG_ASSERT(!graph || (graph && memory));
@@ -431,15 +490,22 @@ struct PyCypherType {
 };
 // clang-format on
 
-// clang-format off
-static PyTypeObject PyCypherTypeType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Type",
-    .tp_basicsize = sizeof(PyCypherType),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_type.",
-};
-// clang-format on
+static PyTypeObject PyCypherTypeType = PyTypeBuilder{}
+                                           .Name("_mgp.Type")
+                                           .BasicSize(sizeof(PyCypherType))
+                                           .Flags(Py_TPFLAGS_DEFAULT)
+                                           .Doc("Wraps struct mgp_type.")
+                                           .Build();
+
+// // clang-format off
+// static PyTypeObject PyCypherTypeType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Type",
+//     .tp_basicsize = sizeof(PyCypherType),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_type.",
+// };
+// // clang-format on
 
 PyObject *MakePyCypherType(mgp_type *type) {
   MG_ASSERT(type);
@@ -558,16 +624,24 @@ static PyMethodDef PyQueryProcMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyQueryProcType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Proc",
-    .tp_basicsize = sizeof(PyQueryProc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_proc.",
-    .tp_methods = PyQueryProcMethods,
-};
-// clang-format on
+static PyTypeObject PyQueryProcType = PyTypeBuilder{}
+                                          .Name("_mgp.Proc")
+                                          .BasicSize(sizeof(PyQueryProc))
+                                          .Flags(Py_TPFLAGS_DEFAULT)
+                                          .Doc("Wraps struct mgp_proc.")
+                                          .Methods(PyQueryProcMethods)
+                                          .Build();
+
+// // clang-format off
+// static PyTypeObject PyQueryProcType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Proc",
+//     .tp_basicsize = sizeof(PyQueryProc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_proc.",
+//     .tp_methods = PyQueryProcMethods,
+// };
+// // clang-format on
 
 PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
 
@@ -583,18 +657,26 @@ static PyMethodDef PyMagicFuncMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject PyMagicFuncType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Func",
-    .tp_basicsize = sizeof(PyMagicFunc),
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_func.",
-    .tp_methods = PyMagicFuncMethods,
-};
-// clang-format on
+static PyTypeObject PyMagicFuncType = PyTypeBuilder{}
+                                          .Name("_mgp.Func")
+                                          .BasicSize(sizeof(PyMagicFunc))
+                                          .Flags(Py_TPFLAGS_DEFAULT)
+                                          .Doc("Wraps struct mgp_func.")
+                                          .Methods(PyMagicFuncMethods)
+                                          .Build();
+
+// // clang-format off
+// // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// static PyTypeObject PyMagicFuncType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Func",
+//     .tp_basicsize = sizeof(PyMagicFunc),
+//     // NOLINTNEXTLINE(hicpp-signed-bitwise)
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_func.",
+//     .tp_methods = PyMagicFuncMethods,
+// };
+// // clang-format on
 
 // clang-format off
 struct PyQueryModule {
@@ -745,17 +827,26 @@ void PyMessageDealloc(PyMessage *self) {
   Py_TYPE(self)->tp_free(self);
 }
 
-// NOLINTNEXTLINE
-static PyTypeObject PyMessageType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Message",
-    .tp_basicsize = sizeof(PyMessage),
-    .tp_dealloc = reinterpret_cast<destructor>(PyMessageDealloc),
-    // NOLINTNEXTLINE
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_message.",
-    // NOLINTNEXTLINE
-    .tp_methods = PyMessageMethods,
-};
+static PyTypeObject PyMessageType = PyTypeBuilder{}
+                                        .Name("_mgp.Message")
+                                        .BasicSize(sizeof(PyMessage))
+                                        .Flags(Py_TPFLAGS_DEFAULT)
+                                        .Dealloc(reinterpret_cast<destructor>(PyMessageDealloc))
+                                        .Doc("Wraps struct mgp_message.")
+                                        .Methods(PyMessageMethods)
+                                        .Build();
+
+// // NOLINTNEXTLINE
+// static PyTypeObject PyMessageType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Message",
+//     .tp_basicsize = sizeof(PyMessage),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyMessageDealloc),
+//     // NOLINTNEXTLINE
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_message.",
+//     // NOLINTNEXTLINE
+//     .tp_methods = PyMessageMethods,
+// };
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
@@ -814,16 +905,24 @@ static PyMethodDef PyMessagesMethods[] = {
     {nullptr},
 };
 
-// NOLINTNEXTLINE
-static PyTypeObject PyMessagesType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
-    .tp_basicsize = sizeof(PyMessages),
-    // NOLINTNEXTLINE
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_messages.",
-    // NOLINTNEXTLINE
-    .tp_methods = PyMessagesMethods,
-};
+static PyTypeObject PyMessagesType = PyTypeBuilder{}
+                                         .Name("_mgp.Messages")
+                                         .BasicSize(sizeof(PyMessages))
+                                         .Flags(Py_TPFLAGS_DEFAULT)
+                                         .Doc("Wraps struct mgp_messages.")
+                                         .Methods(PyMessageMethods)
+                                         .Build();
+
+// // NOLINTNEXTLINE
+// static PyTypeObject PyMessagesType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
+//     .tp_basicsize = sizeof(PyMessages),
+//     // NOLINTNEXTLINE
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_messages.",
+//     // NOLINTNEXTLINE
+//     .tp_methods = PyMessagesMethods,
+// };
 
 PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
@@ -1232,16 +1331,24 @@ static PyMethodDef PyQueryModuleMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyQueryModuleType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Module",
-    .tp_basicsize = sizeof(PyQueryModule),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_module.",
-    .tp_methods = PyQueryModuleMethods,
-};
-// clang-format on
+static PyTypeObject PyQueryModuleType = PyTypeBuilder{}
+                                            .Name("_mgp.Module")
+                                            .BasicSize(sizeof(PyQueryModule))
+                                            .Flags(Py_TPFLAGS_DEFAULT)
+                                            .Doc("Wraps struct mgp_module.")
+                                            .Methods(PyQueryModuleMethods)
+                                            .Build();
+
+// // clang-format off
+// static PyTypeObject PyQueryModuleType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Module",
+//     .tp_basicsize = sizeof(PyQueryModule),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_module.",
+//     .tp_methods = PyQueryModuleMethods,
+// };
+// // clang-format on
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   MG_ASSERT(module);
@@ -1326,15 +1433,44 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyModuleDef PyMgpModule = {
-    PyModuleDef_HEAD_INIT,
-    .m_name = "_mgp",
-    .m_doc = "Contains raw bindings to mg_procedure.h C API.",
-    .m_size = -1,
-    .m_methods = PyMgpModuleMethods,
+struct PyModuleBuilder {
+  PyModuleDef object{PyModuleDef_HEAD_INIT};
+  ;
+  constexpr PyModuleBuilder &&Name(const char *name) && {
+    object.m_name = name;
+    return std::move(*this);
+  }
+  constexpr PyModuleBuilder &&Size(const size_t size) && {
+    object.m_size = size;
+    return std::move(*this);
+  }
+  constexpr PyModuleBuilder &&Doc(const char *doc) && {
+    object.m_doc = doc;
+    return std::move(*this);
+  }
+  constexpr PyModuleBuilder &&Methods(struct PyMethodDef *methods) && {
+    object.m_methods = methods;
+    return std::move(*this);
+  }
+  constexpr PyModuleDef Build() const && { return object; }
 };
-// clang-format on
+
+static PyModuleDef PyMgpModule = PyModuleBuilder{}
+                                     .Name("_mgp")
+                                     .Doc("Contains raw bindings to mg_procedure.h C API")
+                                     .Size(-1)
+                                     .Methods(PyMgpModuleMethods)
+                                     .Build();
+
+// // clang-format off
+// static PyModuleDef PyMgpModule = {
+//     PyModuleDef_HEAD_INIT,
+//     .m_name = "_mgp",
+//     .m_doc = "Contains raw bindings to mg_procedure.h C API.",
+//     .m_size = -1,
+//     .m_methods = PyMgpModuleMethods,
+// };
+// // clang-format on
 
 // clang-format off
 struct PyPropertiesIterator {
@@ -1401,17 +1537,26 @@ static PyMethodDef PyPropertiesIteratorMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyPropertiesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.PropertiesIterator",
-    .tp_basicsize = sizeof(PyPropertiesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_properties_iterator.",
-    .tp_methods = PyPropertiesIteratorMethods,
-};
-// clang-format on
+static PyTypeObject PyPropertiesIteratorType = PyTypeBuilder{}
+                                                   .Name("_mgp.PropertiesIterator")
+                                                   .BasicSize(sizeof(PyPropertiesIterator))
+                                                   .Dealloc(reinterpret_cast<destructor>(PyPropertiesIteratorDealloc))
+                                                   .Flags(Py_TPFLAGS_DEFAULT)
+                                                   .Doc("Wraps struct mgp_properties_iterator.")
+                                                   .Methods(PyPropertiesIteratorMethods)
+                                                   .Build();
+
+// // clang-format off
+// static PyTypeObject PyPropertiesIteratorType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.PropertiesIterator",
+//     .tp_basicsize = sizeof(PyPropertiesIterator),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_properties_iterator.",
+//     .tp_methods = PyPropertiesIteratorMethods,
+// };
+// // clang-format on
 
 // clang-format off
 struct PyEdge {
@@ -1561,18 +1706,28 @@ static PyMethodDef PyEdgeMethods[] = {
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
-// clang-format off
-static PyTypeObject PyEdgeType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Edge",
-    .tp_basicsize = sizeof(PyEdge),
-    .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_edge.",
-    .tp_richcompare = PyEdgeRichCompare,
-    .tp_methods = PyEdgeMethods,
-};
-// clang-format on
+static PyTypeObject PyEdgeType = PyTypeBuilder{}
+                                     .Name("_mgp.Edge")
+                                     .BasicSize(sizeof(PyEdge))
+                                     .Dealloc(reinterpret_cast<destructor>(PyEdgeDealloc))
+                                     .Flags(Py_TPFLAGS_DEFAULT)
+                                     .Doc("Wraps struct mgp_edge.")
+                                     .RichCompare(PyEdgeRichCompare)
+                                     .Methods(PyEdgeMethods)
+                                     .Build();
+
+// // clang-format off
+// static PyTypeObject PyEdgeType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Edge",
+//     .tp_basicsize = sizeof(PyEdge),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_edge.",
+//     .tp_richcompare = PyEdgeRichCompare,
+//     .tp_methods = PyEdgeMethods,
+// };
+// // clang-format on
 
 PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -1849,18 +2004,28 @@ static PyMethodDef PyVertexMethods[] = {
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
-// clang-format off
-static PyTypeObject PyVertexType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Vertex",
-    .tp_basicsize = sizeof(PyVertex),
-    .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_vertex.",
-    .tp_richcompare = PyVertexRichCompare,
-    .tp_methods = PyVertexMethods,
-};
-// clang-format on
+static PyTypeObject PyVertexType = PyTypeBuilder{}
+                                       .Name("_mgp.Vertex")
+                                       .BasicSize(sizeof(PyVertex))
+                                       .Dealloc(reinterpret_cast<destructor>(PyVertexDealloc))
+                                       .Flags(Py_TPFLAGS_DEFAULT)
+                                       .Doc("Wraps struct mgp_vertex.")
+                                       .RichCompare(PyVertexRichCompare)
+                                       .Methods(PyVertexMethods)
+                                       .Build();
+
+// // clang-format off
+// static PyTypeObject PyVertexType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Vertex",
+//     .tp_basicsize = sizeof(PyVertex),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_vertex.",
+//     .tp_richcompare = PyVertexRichCompare,
+//     .tp_methods = PyVertexMethods,
+// };
+// // clang-format on
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
@@ -2001,17 +2166,26 @@ static PyMethodDef PyPathMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-static PyTypeObject PyPathType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Path",
-    .tp_basicsize = sizeof(PyPath),
-    .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_path.",
-    .tp_methods = PyPathMethods,
-};
-// clang-format on
+static PyTypeObject PyPathType = PyTypeBuilder{}
+                                     .Name("_mgp.Path")
+                                     .BasicSize(sizeof(PyPath))
+                                     .Dealloc(reinterpret_cast<destructor>(PyPathDealloc))
+                                     .Flags(Py_TPFLAGS_DEFAULT)
+                                     .Doc("Wraps struct mgp_path.")
+                                     .Methods(PyPathMethods)
+                                     .Build();
+
+// // clang-format off
+// static PyTypeObject PyPathType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Path",
+//     .tp_basicsize = sizeof(PyPath),
+//     .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Wraps struct mgp_path.",
+//     .tp_methods = PyPathMethods,
+// };
+// // clang-format on
 
 PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   MG_ASSERT(path);
@@ -2119,18 +2293,26 @@ static PyMethodDef PyLoggerMethods[] = {
     {nullptr},
 };
 
-// clang-format off
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject PyLoggerType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Logger",
-    .tp_basicsize = sizeof(PyLogger),
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Logging API.",
-    .tp_methods = PyLoggerMethods,
-};
-// clang-format on
+static PyTypeObject PyLoggerType = PyTypeBuilder{}
+                                       .Name("_mgp.Logger")
+                                       .BasicSize(sizeof(PyLogger))
+                                       .Flags(Py_TPFLAGS_DEFAULT)
+                                       .Doc("Logging API.")
+                                       .Methods(PyLoggerMethods)
+                                       .Build();
+
+// // clang-format off
+// // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// static PyTypeObject PyLoggerType = {
+//     PyVarObject_HEAD_INIT(nullptr, 0)
+//     .tp_name = "_mgp.Logger",
+//     .tp_basicsize = sizeof(PyLogger),
+//     // NOLINTNEXTLINE(hicpp-signed-bitwise)
+//     .tp_flags = Py_TPFLAGS_DEFAULT,
+//     .tp_doc = "Logging API.",
+//     .tp_methods = PyLoggerMethods,
+// };
+// // clang-format on
 
 struct PyMgpError {
   const char *name;
@@ -2363,6 +2545,7 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_duration;
     }
   }
+  throw 1;
 }
 
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {

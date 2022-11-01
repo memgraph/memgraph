@@ -116,6 +116,7 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
     case PreviousPtr::Type::NULLPTR:
       return b.type == PreviousPtr::Type::NULLPTR;
   }
+  throw 1;
 }
 
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }

@@ -74,6 +74,7 @@ class Synchronized {
   template <class... Args>
   explicit Synchronized(Args &&...args) : object_(std::forward<Args>(args)...) {}
 
+  Synchronized() = default;
   Synchronized(const Synchronized &) = delete;
   Synchronized(Synchronized &&) = delete;
   Synchronized &operator=(const Synchronized &) = delete;

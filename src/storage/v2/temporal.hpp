@@ -31,6 +31,7 @@ constexpr std::string_view TemporalTypeTostring(const TemporalType type) {
     case TemporalType::Duration:
       return "Duration";
   }
+  return "";
 }
 
 struct TemporalData {
@@ -48,6 +49,7 @@ struct TemporalData {
       case TemporalType::Duration:
         return os << "DURATION(\"" << utils::Duration(t.microseconds) << "\")";
     }
+    throw 1;
   }
   TemporalType type;
   int64_t microseconds;
