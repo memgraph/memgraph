@@ -78,7 +78,7 @@ class SimulatorHandle {
   explicit SimulatorHandle(SimulatorConfig config)
       : cluster_wide_time_microseconds_(config.start_time), rng_(config.rng_seed), config_(config) {}
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies();
+  LatencyHistogramSummaries ResponseLatencies();
 
   ~SimulatorHandle() {
     for (auto it = promises_.begin(); it != promises_.end();) {

@@ -31,7 +31,6 @@
 #include "machine_manager/machine_manager.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
-#include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::tests::simulation {
@@ -95,7 +94,7 @@ MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Addre
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator, shard_map};
+  return MachineManager{io, config, coordinator};
 }
 
 void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
@@ -225,7 +224,9 @@ TEST(MachineManager, ManyShards) {
   auto replication_factor = 1;
   auto create_ops = 1000;
 
+  auto time_before_shard_map_creation = cli_io_2.Now();
   ShardMap initialization_sm = TestShardMap(shard_splits, replication_factor);
+  auto time_after_shard_map_creation = cli_io_2.Now();
 
   auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, initialization_sm);
   Address coordinator_address = mm_1.CoordinatorAddress();
@@ -233,7 +234,10 @@ TEST(MachineManager, ManyShards) {
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
 
   CoordinatorClient<LocalTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
+
+  auto time_before_shard_stabilization = cli_io_2.Now();
   WaitForShardsToInitialize(coordinator_client);
+  auto time_after_shard_stabilization = cli_io_2.Now();
 
   msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
 
@@ -241,18 +245,30 @@ TEST(MachineManager, ManyShards) {
 
   auto correctness_model = std::set<CompoundKey>{};
 
+  auto time_before_creates = cli_io_2.Now();
+
   for (int i = 0; i < create_ops; i++) {
     ExecuteOp(shard_request_manager, correctness_model, CreateVertex{.first = i, .second = i});
   }
 
+  auto time_after_creates = cli_io_2.Now();
+
   ExecuteOp(shard_request_manager, correctness_model, ScanAll{});
+
+  auto time_after_scan = cli_io_2.Now();
 
   local_system.ShutDown();
 
-  auto histo = cli_io_2.ResponseLatencies();
+  auto latencies = cli_io_2.ResponseLatencies();
 
-  using memgraph::utils::print_helpers::operator<<;
-  std::cout << "response latencies: " << histo << std::endl;
+  std::cout << "response latencies: \n" << latencies.SummaryTable();
+
+  std::cout << "split shard map:     " << (time_after_shard_map_creation - time_before_shard_map_creation).count()
+            << std::endl;
+  std::cout << "shard stabilization: " << (time_after_shard_stabilization - time_before_shard_stabilization).count()
+            << std::endl;
+  std::cout << "create nodes:        " << (time_after_creates - time_before_creates).count() << std::endl;
+  std::cout << "scan nodes:          " << (time_after_scan - time_after_creates).count() << std::endl;
 }
 
 }  // namespace memgraph::tests::simulation

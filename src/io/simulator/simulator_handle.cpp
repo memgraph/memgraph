@@ -31,7 +31,7 @@ bool SimulatorHandle::ShouldShutDown() const {
   return should_shut_down_;
 }
 
-std::unordered_map<std::string, LatencyHistogramSummary> SimulatorHandle::ResponseLatencies() {
+LatencyHistogramSummaries SimulatorHandle::ResponseLatencies() {
   std::unique_lock<std::mutex> lock(mu_);
   return histograms_.ResponseLatencies();
 }

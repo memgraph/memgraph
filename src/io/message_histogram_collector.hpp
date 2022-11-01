@@ -20,6 +20,7 @@
 #include "io/time.hpp"
 #include "utils/histogram.hpp"
 #include "utils/logging.hpp"
+#include "utils/print_helpers.hpp"
 #include "utils/type_info_ref.hpp"
 
 namespace memgraph::io {
@@ -57,6 +58,35 @@ struct LatencyHistogramSummary {
   }
 };
 
+struct LatencyHistogramSummaries {
+  std::unordered_map<std::string, LatencyHistogramSummary> latencies;
+
+  std::string SummaryTable() {
+    std::string output = "";
+
+    const auto row = [&output](const auto &c1, const auto &c2, const auto &c3, const auto &c4, const auto &c5,
+                               const auto &c6, const auto &c7) {
+      output +=
+          fmt::format("{: >50} | {: >8} | {: >8} | {: >8} | {: >8} | {: >8} | {: >8}\n", c1, c2, c3, c4, c5, c6, c7);
+    };
+    row("name", "count", "min (μs)", "med (μs)", "p99 (μs)", "max (μs)", "sum (μs)");
+
+    for (const auto &[name, histo] : latencies) {
+      row(name, histo.count, histo.p0.count(), histo.p50.count(), histo.p99.count(), histo.p100.count(),
+          histo.sum.count());
+    }
+
+    output += "\n";
+    return output;
+  }
+
+  friend std::ostream &operator<<(std::ostream &in, const LatencyHistogramSummaries &histo) {
+    using memgraph::utils::print_helpers::operator<<;
+    in << histo.latencies;
+    return in;
+  }
+};
+
 class MessageHistogramCollector {
   std::unordered_map<utils::TypeInfoRef, utils::Histogram, utils::TypeInfoHasher, utils::TypeInfoEqualTo> histograms_;
 
@@ -66,7 +96,7 @@ class MessageHistogramCollector {
     histo.Measure(duration.count());
   }
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+  LatencyHistogramSummaries ResponseLatencies() {
     std::unordered_map<std::string, LatencyHistogramSummary> ret{};
 
     for (const auto &[type_id, histo] : histograms_) {
@@ -90,7 +120,7 @@ class MessageHistogramCollector {
       ret.emplace(demangled_name, latency_histogram_summary);
     }
 
-    return ret;
+    return LatencyHistogramSummaries{.latencies = ret};
   }
 };
 

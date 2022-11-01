@@ -56,7 +56,7 @@ class LocalTransportHandle {
     return should_shut_down_;
   }
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+  LatencyHistogramSummaries ResponseLatencies() {
     std::unique_lock<std::mutex> lock(mu_);
     return histograms_.ResponseLatencies();
   }

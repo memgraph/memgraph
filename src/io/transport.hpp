@@ -143,8 +143,6 @@ class Io {
 
   Io<I> ForkLocal() { return Io(implementation_, address_.ForkUniqueAddress()); }
 
-  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
-    return implementation_.ResponseLatencies();
-  }
+  LatencyHistogramSummaries ResponseLatencies() { return implementation_.ResponseLatencies(); }
 };
 };  // namespace memgraph::io
