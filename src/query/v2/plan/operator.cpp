@@ -155,7 +155,16 @@ uint64_t ComputeProfilingKey(const T *obj) {
 
 }  // namespace
 
-#define SCOPED_PROFILE_OP(name) ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_PROFILE_OP(name) \
+  ScopedProfile profile { ComputeProfilingKey(this), name, &context }
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_CUSTOM_PROFILE(name) \
+  ScopedCustomProfile custom_profile { name, context }
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define SCOPED_REQUEST_WAIT_PROFILE SCOPED_CUSTOM_PROFILE("request_wait")
 
 class DistributedCreateNodeCursor : public Cursor {
  public:
@@ -168,7 +177,10 @@ class DistributedCreateNodeCursor : public Cursor {
     SCOPED_PROFILE_OP("CreateNode");
     if (input_cursor_->Pull(frame, context)) {
       auto &shard_manager = context.shard_request_manager;
-      shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      {
+        SCOPED_REQUEST_WAIT_PROFILE;
+        shard_manager->Request(state_, NodeCreationInfoToRequest(context, frame));
+      }
       PlaceNodeOnTheFrame(frame, context);
       return true;
     }
@@ -373,38 +385,43 @@ class DistributedScanAllAndFilterCursor : public Cursor {
 
   using VertexAccessor = accessors::VertexAccessor;
 
-  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager) {
-    current_batch = shard_manager.Request(request_state_);
+  bool MakeRequest(msgs::ShardRequestManagerInterface &shard_manager, ExecutionContext &context) {
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      current_batch = shard_manager.Request(request_state_);
+    }
     current_vertex_it = current_batch.begin();
     return !current_batch.empty();
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP(op_name_);
+
     auto &shard_manager = *context.shard_request_manager;
-    if (MustAbort(context)) {
-      throw HintedAbortError();
-    }
-    using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
-
-    if (request_state_.state == State::INITIALIZING) {
-      if (!input_cursor_->Pull(frame, context)) {
-        return false;
+    while (true) {
+      if (MustAbort(context)) {
+        throw HintedAbortError();
       }
-    }
+      using State = msgs::ExecutionState<msgs::ScanVerticesRequest>;
 
-    request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+      if (request_state_.state == State::INITIALIZING) {
+        if (!input_cursor_->Pull(frame, context)) {
+          return false;
+        }
+      }
 
-    if (current_vertex_it == current_batch.end()) {
-      if (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager)) {
+      request_state_.label = label_.has_value() ? std::make_optional(shard_manager.LabelToName(*label_)) : std::nullopt;
+
+      if (current_vertex_it == current_batch.end() &&
+          (request_state_.state == State::COMPLETED || !MakeRequest(shard_manager, context))) {
         ResetExecutionState();
-        return Pull(frame, context);
+        continue;
       }
-    }
 
-    frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
-    ++current_vertex_it;
-    return true;
+      frame[output_symbol_] = TypedValue(std::move(*current_vertex_it));
+      ++current_vertex_it;
+      return true;
+    }
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
@@ -2379,7 +2396,10 @@ class DistributedCreateExpandCursor : public Cursor {
     }
     auto &shard_manager = context.shard_request_manager;
     ResetExecutionState();
-    shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    {
+      SCOPED_REQUEST_WAIT_PROFILE;
+      shard_manager->Request(state_, ExpandCreationInfoToRequest(context, frame));
+    }
     return true;
   }
 
@@ -2535,7 +2555,11 @@ class DistributedExpandCursor : public Cursor {
       request.edge_properties.emplace();
       request.src_vertices.push_back(vertex.Id());
       msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
-      auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
+      auto result_rows = std::invoke([&context, &request_state, &request]() mutable {
+        SCOPED_REQUEST_WAIT_PROFILE;
+        return context.shard_request_manager->Request(request_state, std::move(request));
+      });
+      MG_ASSERT(result_rows.size() == 1);
       auto &result_row = result_rows.front();
 
       if (self_.common_.existing_node) {
