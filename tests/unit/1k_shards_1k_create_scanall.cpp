@@ -127,7 +127,7 @@ void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &coordinator_cl
 ShardMap TestShardMap(int n_splits, int replication_factor) {
   ShardMap sm{};
 
-  const std::string label_name = std::string("test_label");
+  const auto label_name = std::string("test_label");
 
   // register new properties
   const std::vector<std::string> property_names = {"property_1", "property_2"};
