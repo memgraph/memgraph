@@ -147,18 +147,15 @@ def get_queries(gen, count):
     return ret
 
 
-def match_patterns(
-    dataset, variant, workload, group, test, is_default_variant, patterns
-):
+def match_patterns(dataset, variant, group, test, is_default_variant, patterns):
     for pattern in patterns:
         verdict = [fnmatch.fnmatchcase(dataset, pattern[0])]
         if pattern[1] != "":
             verdict.append(fnmatch.fnmatchcase(variant, pattern[1]))
         else:
             verdict.append(is_default_variant)
-        verdict.append(fnmatch.fnmatchcase(workload, pattern[2]))
-        verdict.append(fnmatch.fnmatchcase(group, pattern[3]))
-        verdict.append(fnmatch.fnmatchcase(test, pattern[4]))
+        verdict.append(fnmatch.fnmatchcase(group, pattern[2]))
+        verdict.append(fnmatch.fnmatchcase(test, pattern[3]))
         if all(verdict):
             return True
     return False
@@ -178,18 +175,17 @@ def filter_benchmarks(generators, patterns):
         for variant in generator.VARIANTS:
             is_default_variant = variant == generator.DEFAULT_VARIANT
             current = collections.defaultdict(list)
-            for workload in tests:
-                for test_name, test_func, test_group in tests[workload]:
+            for group in tests:
+                for test_name, test_func in tests[group]:
                     if match_patterns(
                         dataset,
                         variant,
-                        workload,
-                        test_group,
+                        group,
                         test_name,
                         is_default_variant,
                         patterns,
                     ):
-                        current[workload].append((test_name, test_func, test_group))
+                        current[group].append((test_name, test_func))
             if len(current) > 0:
                 filtered.append((generator(variant), dict(current)))
     return filtered
@@ -422,8 +418,8 @@ for key in dir(datasets):
     for funcname in dir(dataset):
         if not funcname.startswith("benchmark__"):
             continue
-        workload, group, test = funcname.split("__")[1:]
-        tests[workload].append((test, funcname, group))
+        group, test = funcname.split("__")[1:]
+        tests[group].append((test, funcname))
     generators[dataset.NAME] = (dataset, dict(tests))
     if dataset.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
         raise Exception(
@@ -442,11 +438,10 @@ if len(args.benchmarks) == 0:
             ", ".join(dataset.VARIANTS),
             "(default: " + dataset.DEFAULT_VARIANT + ")",
         )
-        for workload in sorted(tests.keys()):
-            print("    workload:", workload)
-            for test_name, test_func, group in tests[workload]:
+        for group in sorted(tests.keys()):
+            print("    Group:", group)
+            for test_name, test_func in tests[group]:
                 print("        Test:", test_name)
-                print("        Group:", group)
     sys.exit(0)
 
 # Create cache, config and results objects.
@@ -486,7 +481,7 @@ for dataset, tests in benchmarks:
     )
     vendor.start_preparation()
     # TODO:Neo4j doesn't like duplicated triggers, add this do dataset files.
-    client.execute(
+    ret = client.execute(
         queries=[
             ("DROP INDEX ON:User(id)", {}),
         ]
@@ -525,12 +520,12 @@ for dataset, tests in benchmarks:
     # TODO: cache import data
 
     # Run all benchmarks in all available groups.
-    for workload in sorted(tests.keys()):
+    for group in sorted(tests.keys()):
 
         if args.mixed_workload[0] > 0:
-            mixed_workload(vendor, client, dataset, workload, tests)
+            mixed_workload(vendor, client, dataset, group, tests)
 
-        for test, funcname, group in tests[workload]:
+        for test, funcname in tests[group]:
             log.info("Running test:", "{}/{}/{}".format(group, test, funcname))
             func = getattr(dataset, funcname)
 
@@ -540,7 +535,6 @@ for dataset, tests in benchmarks:
                 dataset.NAME,
                 dataset.get_variant(),
                 args.vendor_name,
-                workload,
                 group,
                 test,
             ]
@@ -596,7 +590,6 @@ for dataset, tests in benchmarks:
             results_key = [
                 dataset.NAME,
                 dataset.get_variant(),
-                workload,
                 group,
                 test,
             ]
@@ -623,10 +616,10 @@ for dataset, tests in benchmarks:
         )
         vendor.stop()
 
-        for workload in sorted(tests.keys()):
-            for test, funcname, group in tests[workload]:
+        for group in sorted(tests.keys()):
+            for test, funcname in tests[group]:
 
-                log.info("Running test:", "{}/{}/{}".format(group, test, funcname))
+                log.info("Running test:", "{}/{}/{}".format(test, funcname))
                 func = getattr(dataset, funcname)
 
                 query_statistics = tail_latency(vendor, client, func)
@@ -637,7 +630,6 @@ for dataset, tests in benchmarks:
                     dataset.NAME,
                     dataset.get_variant(),
                     args.vendor_name,
-                    workload,
                     group,
                     test,
                 ]
@@ -686,7 +678,6 @@ for dataset, tests in benchmarks:
                 results_key = [
                     dataset.NAME,
                     dataset.get_variant(),
-                    workload,
                     group,
                     test,
                     "authorization",
