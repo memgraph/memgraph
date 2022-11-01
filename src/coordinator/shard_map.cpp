@@ -228,6 +228,24 @@ Hlc ShardMap::IncrementShardMapVersion() noexcept {
   return shard_map_version;
 }
 
+// TODO(antaljanosbenjamin) use a single map for all name id 
+// mapping and a single counter to maintain the next id
+std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
+  std::unordered_map<uint64_t, std::string> id_to_names;
+
+  const auto map_type_ids = [&id_to_names](const auto &name_to_id_type) {
+    for (const auto &[name, id] : name_to_id_type) {
+      id_to_names.emplace(id.AsUint(), name);
+    }
+  };
+
+  map_type_ids(edge_types);
+  map_type_ids(labels);
+  map_type_ids(properties);
+
+  return id_to_names;
+}
+
 Hlc ShardMap::GetHlc() const noexcept { return shard_map_version; }
 
 std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
@@ -259,6 +277,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
           if (same_machine) {
             machine_contains_shard = true;
             spdlog::info("reminding shard manager that they should begin participating in shard");
+
             ret.push_back(ShardToInitialize{
                 .uuid = aas.address.unique_id,
                 .label_id = label_id,
@@ -266,6 +285,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
                 .max_key = high_key,
                 .schema = schemas[label_id],
                 .config = Config{},
+                .id_to_names = IdToNames(),
             });
           }
         }
@@ -286,6 +306,7 @@ std::vector<ShardToInitialize> ShardMap::AssignShards(Address storage_manager,
             .max_key = high_key,
             .schema = schemas[label_id],
             .config = Config{},
+            .id_to_names = IdToNames(),
         });
 
         AddressAndStatus aas = {

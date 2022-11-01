@@ -91,6 +91,7 @@ struct ShardToInitialize {
   std::optional<PrimaryKey> max_key;
   std::vector<SchemaProperty> schema;
   Config config;
+  std::unordered_map<uint64_t, std::string> id_to_names;
 };
 
 PrimaryKey SchemaToMinKey(const std::vector<SchemaProperty> &schema);
@@ -136,6 +137,8 @@ struct ShardMap {
   // the given Io<impl>'s time as well
   Hlc IncrementShardMapVersion() noexcept;
   Hlc GetHlc() const noexcept;
+
+  std::unordered_map<uint64_t, std::string> IdToNames();
 
   // Returns the shard UUIDs that have been assigned but not yet acknowledged for this storage manager
   std::vector<ShardToInitialize> AssignShards(Address storage_manager, std::set<boost::uuids::uuid> initialized);
