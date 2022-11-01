@@ -84,7 +84,7 @@ struct ScanAll {
 MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Address> coordinator_addresses, Address addr,
                                     ShardMap shard_map) {
   MachineConfig config{
-      .coordinator_addresses = coordinator_addresses,
+      .coordinator_addresses = std::move(coordinator_addresses),
       .is_storage = true,
       .is_coordinator = true,
       .listen_ip = addr.last_known_ip,
