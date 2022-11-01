@@ -18,7 +18,7 @@ namespace memgraph::utils {
 
 // TSC stands for Time-Stamp Counter
 
-uint64_t ReadTSC();
+uint64_t ReadTSC() noexcept;
 
 std::optional<double> GetTSCFrequency();
 
