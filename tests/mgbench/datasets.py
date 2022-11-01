@@ -339,22 +339,22 @@ class Pokec(Dataset):
 
     # Basic workload
 
-    def benchmark__basic_read__single_vertex_read(self):
+    def benchmark__basic__single_vertex_read_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__basic_write__single_vertex_write(self):
+    def benchmark__basic__single_vertex_write_write(self):
         return (
             "CREATE (n:UserTemp {id : $id}) RETURN n",
             {"id": random.randint(1, self._num_vertices * 10)},
         )
 
-    def benchmark__basic_update__single_vertex_property_update(self):
+    def benchmark__basic__single_vertex_property_update_update(self):
         return (
             "MATCH (n {id: $id}) SET n.property = -1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_write__single_edge_write(self):
+    def benchmark__basic__single_edge_write_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -362,37 +362,37 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__basic_aggregate__aggregate(self):
+    def benchmark__basic__aggregate_aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
 
-    def benchmark__basic_aggregate__count(self):
+    def benchmark__basic__aggregate_count_aggregate(self):
         return ("MATCH (n) RETURN count(n), count(n.age)", {})
 
-    def benchmark__basic_aggregate__aggregate_with_filter(self):
+    def benchmark__basic__aggregate_with_filter_aggregate(self):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
-    def benchmark__basic_aggregate__min_max_avg(self):
+    def benchmark__basic__min_max_avg_aggregate(self):
         return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
 
-    def benchmark__basic_analytical__expansion_1(self):
+    def benchmark__basic__expansion_1_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_1_with_filter(self):
+    def benchmark__basic__expansion_1_with_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_2(self):
+    def benchmark__basic__expansion_2_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_2_with_filter(self):
+    def benchmark__basic__expansion_2_with_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->(n:User) "
             "WHERE n.age >= 18 "
@@ -400,13 +400,13 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_3(self):
+    def benchmark__basic__expansion_3_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_3_with_filter(self):
+    def benchmark__basic__expansion_3_with_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->()-->(n:User) "
             "WHERE n.age >= 18 "
@@ -414,14 +414,14 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_4(self):
+    def benchmark__basic__expansion_4_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
             "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__expansion_4_with_filter(self):
+    def benchmark__basic__expansion_4_with_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) "
             "WHERE n.age >= 18 "
@@ -429,13 +429,13 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__neighbours_2(self):
+    def benchmark__basic__neighbours_2_analytical(self):
         return (
             "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__neighbours_2_with_filter(self):
+    def benchmark__basic__neighbours_2_with_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-[*1..2]->(n:User) "
             "WHERE n.age >= 18 "
@@ -443,13 +443,13 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__neighbours_2_with_data(self):
+    def benchmark__basic__neighbours_2_with_data_analytical(self):
         return (
             "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__neighbours_2_with_data_and_filter(self):
+    def benchmark__basic__neighbours_2_with_data_and_filter_analytical(self):
         return (
             "MATCH (s:User {id: $id})-[*1..2]->(n:User) "
             "WHERE n.age >= 18 "
@@ -457,13 +457,13 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__pattern_cycle(self):
+    def benchmark__basic__pattern_cycle_analytical(self):
         return (
             "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__pattern_long(self):
+    def benchmark__basic__pattern_long_analytical(self):
         return (
             "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->"
             "(n3)-[e3]->(n4)<-[e4]-(n5) "
@@ -471,28 +471,28 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic_analytical__pattern_short(self):
+    def benchmark__basic__pattern_short_analytical(self):
         return (
             "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__mixed_read__single_vertex_read(self):
+    def benchmark__mixed__single_vertex_read_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__mixed_write__single_vertex_write(self):
+    def benchmark__mixed__single_vertex_write_write(self):
         return (
             "CREATE (n:UserTemp {id : $id}) RETURN n",
             {"id": random.randint(1, self._num_vertices * 10)},
         )
 
-    def benchmark__mixed_update__single_vertex_property_update(self):
+    def benchmark__mixed__single_vertex_property_update_update(self):
         return (
             "MATCH (n {id: $id}) SET n.property = -1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__mixed_write__single_edge_write(self):
+    def benchmark__mixed__single_edge_write_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -500,7 +500,7 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__mixed_analytical__expansion_1(self):
+    def benchmark__mixed__expansion_1_analytical(self):
         return (
             "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
             {"id": self._get_random_vertex()},
