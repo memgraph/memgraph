@@ -26,10 +26,15 @@ namespace plan {
  * Stores profiling statistics for a single logical operator.
  */
 struct ProfilingStats {
+  static constexpr std::string_view kNumCycles{"num_cycles"};
+  static constexpr std::string_view kRelativeTime{"relative_time"};
+  static constexpr std::string_view kAbsoluteTime{"absolute_time"};
+
   int64_t actual_hits{0};
-  unsigned long long num_cycles{0};
+  uint64_t num_cycles{0};
   uint64_t key{0};
   const char *name{nullptr};
+  nlohmann::json custom_data;
   // TODO: This should use the allocator for query execution
   std::vector<ProfilingStats> children;
 };
