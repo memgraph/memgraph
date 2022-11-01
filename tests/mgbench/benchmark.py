@@ -28,6 +28,9 @@ import helpers
 import runners
 
 
+WITH_FINE_GRAINED_AUTHORIZATION = "with_fine_grained_authorization"
+WITHOUT_FINE_GRAINED_AUTHORIZATION = "without_fine_grained_authorization"
+
 # Parse options.
 parser = argparse.ArgumentParser(
     description="Memgraph benchmark executor.",
@@ -526,7 +529,12 @@ for dataset, tests in benchmarks:
             mixed_workload(vendor, client, dataset, group, tests)
 
         for test, funcname in tests[group]:
-            log.info("Running test:", "{}/{}/{}".format(group, test, funcname))
+            log.info(
+                "Running test:",
+                "{}/{}/{}/{}".format(
+                    group, test, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
+                ),
+            )
             func = getattr(dataset, funcname)
 
             query_statistics = tail_latency(vendor, client, func)
@@ -592,6 +600,7 @@ for dataset, tests in benchmarks:
                 dataset.get_variant(),
                 group,
                 test,
+                WITHOUT_FINE_GRAINED_AUTHORIZATION,
             ]
             results.set_value(*results_key, value=ret)
 
@@ -619,7 +628,12 @@ for dataset, tests in benchmarks:
         for group in sorted(tests.keys()):
             for test, funcname in tests[group]:
 
-                log.info("Running test:", "{}/{}/{}".format(test, funcname))
+                log.info(
+                    "Running test:",
+                    "{}/{}/{}/{}".format(
+                        group, test, funcname, WITH_FINE_GRAINED_AUTHORIZATION
+                    ),
+                )
                 func = getattr(dataset, funcname)
 
                 query_statistics = tail_latency(vendor, client, func)
@@ -680,7 +694,7 @@ for dataset, tests in benchmarks:
                     dataset.get_variant(),
                     group,
                     test,
-                    "authorization",
+                    WITH_FINE_GRAINED_AUTHORIZATION,
                 ]
                 results.set_value(*results_key, value=ret)
 
