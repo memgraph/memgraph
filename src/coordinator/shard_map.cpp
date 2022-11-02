@@ -228,12 +228,14 @@ Hlc ShardMap::IncrementShardMapVersion() noexcept {
   return shard_map_version;
 }
 
+// TODO(antaljanosbenjamin) use a single map for all name id 
+// mapping and a single counter to maintain the next id
 std::unordered_map<uint64_t, std::string> ShardMap::IdToNames() {
   std::unordered_map<uint64_t, std::string> id_to_names;
 
   const auto map_type_ids = [&id_to_names](const auto &name_to_id_type) {
     for (const auto &[name, id] : name_to_id_type) {
-      id_to_names.insert({id.AsUint(), name});
+      id_to_names.emplace(id.AsUint(), name);
     }
   };
 

@@ -83,7 +83,7 @@ struct ScanAll {
 MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Address> coordinator_addresses, Address addr,
                                     ShardMap shard_map, size_t shard_worker_threads) {
   MachineConfig config{
-      .coordinator_addresses = coordinator_addresses,
+      .coordinator_addresses = std::move(coordinator_addresses),
       .is_storage = true,
       .is_coordinator = true,
       .listen_ip = addr.last_known_ip,
@@ -95,7 +95,7 @@ MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Addre
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator};
+  return MachineManager{io, config, std::move(coordinator)};
 }
 
 void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
@@ -127,7 +127,7 @@ void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &coordinator_cl
 ShardMap TestShardMap(int shards, int replication_factor, int gap_between_shards) {
   ShardMap sm{};
 
-  const std::string label_name = std::string("test_label");
+  const auto label_name = std::string("test_label");
 
   // register new properties
   const std::vector<std::string> property_names = {"property_1", "property_2"};

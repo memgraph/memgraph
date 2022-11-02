@@ -697,7 +697,7 @@ PullPlan::PullPlan(const std::shared_ptr<CachedPlan> plan, const Parameters &par
   ctx_.is_shutting_down = &interpreter_context->is_shutting_down;
   ctx_.is_profile_query = is_profile_query;
   ctx_.shard_request_manager = shard_request_manager;
-  ctx_.edge_ids_alloc = interpreter_context->edge_ids_alloc;
+  ctx_.edge_ids_alloc = &interpreter_context->edge_ids_alloc;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -1043,7 +1043,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+  return PreparedQuery{{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME", "CUSTOM DATA"},
                        std::move(parsed_query.required_privileges),
                        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters),
                         summary, dba, interpreter_context, execution_memory, memory_limit, shard_request_manager,
