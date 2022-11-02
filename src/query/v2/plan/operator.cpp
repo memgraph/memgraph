@@ -2422,7 +2422,7 @@ class DistributedCreateExpandCursor : public Cursor {
   std::vector<msgs::NewExpand> ExpandCreationInfoToRequest(ExecutionContext &context, Frame &frame) const {
     std::vector<msgs::NewExpand> edge_requests;
     for (const auto &edge_info : std::vector{self_.edge_info_}) {
-      msgs::NewExpand request{.id = {context.edge_ids_alloc.AllocateId()}};
+      msgs::NewExpand request{.id = {context.edge_ids_alloc->AllocateId()}};
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, nullptr,
                                     storage::v3::View::NEW);
       request.type = {edge_info.edge_type};
