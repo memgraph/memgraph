@@ -271,7 +271,7 @@ for dataset, tests in benchmarks:
             print(
                 "Executing benchmark with",
                 count,
-                "queries that should " "yield a single-threaded runtime of",
+                "queries that should yield a single-threaded runtime of",
                 args.single_threaded_runtime_sec,
                 "seconds.",
             )
