@@ -2458,13 +2458,13 @@ class DistributedCreateExpandCursor : public Cursor {
       std::invoke([&]() {
         switch (edge_info.direction) {
           case EdgeAtom::Direction::IN: {
-            set_vertex(v1, request.src_vertex);
-            set_vertex(v2, request.dest_vertex);
+            set_vertex(v2, request.src_vertex);
+            set_vertex(v1, request.dest_vertex);
             break;
           }
           case EdgeAtom::Direction::OUT: {
-            set_vertex(v1, request.dest_vertex);
-            set_vertex(v2, request.src_vertex);
+            set_vertex(v1, request.src_vertex);
+            set_vertex(v2, request.dest_vertex);
             break;
           }
           case EdgeAtom::Direction::BOTH:
