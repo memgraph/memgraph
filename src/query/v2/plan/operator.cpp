@@ -2513,7 +2513,8 @@ class DistributedExpandCursor : public Cursor {
     }
     MG_ASSERT(direction != EdgeAtom::Direction::BOTH);
     const auto &edge = frame[self_.common_.edge_symbol].ValueEdge();
-    static auto get_dst_vertex = [&edge](const EdgeAtom::Direction direction) {
+    static constexpr auto get_dst_vertex = [](const EdgeAccessor &edge,
+                                              const EdgeAtom::Direction direction) -> msgs::VertexId {
       switch (direction) {
         case EdgeAtom::Direction::IN:
           return edge.From().Id();
@@ -2526,7 +2527,7 @@ class DistributedExpandCursor : public Cursor {
     msgs::ExpandOneRequest request;
     // to not fetch any properties of the edges
     request.edge_properties.emplace();
-    request.src_vertices.push_back(get_dst_vertex(direction));
+    request.src_vertices.push_back(get_dst_vertex(edge, direction));
     request.direction = (direction == EdgeAtom::Direction::IN) ? msgs::EdgeDirection::OUT : msgs::EdgeDirection::IN;
     msgs::ExecutionState<msgs::ExpandOneRequest> request_state;
     auto result_rows = context.shard_request_manager->Request(request_state, std::move(request));
