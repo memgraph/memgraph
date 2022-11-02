@@ -68,52 +68,49 @@ def main():
     assert filename != ""
 
     with open(filename, "w") as f:
+        f.write("MATCH (n) DETACH DELETE n;\n")
 
-      f.write("MATCH (n) DETACH DELETE n;\n")
+        # Create the indexes
+        f.write("CREATE INDEX ON :File;\n")
+        f.write("CREATE INDEX ON :Permission;\n")
+        f.write("CREATE INDEX ON :Identity;\n")
+        f.write("CREATE INDEX ON :File(platformId);\n")
+        f.write("CREATE INDEX ON :File(name);\n")
+        f.write("CREATE INDEX ON :Permission(name);\n")
+        f.write("CREATE INDEX ON :Identity(email);\n")
 
-      # Create the indexes
-      f.write("CREATE INDEX ON :File;\n")
-      f.write("CREATE INDEX ON :Permission;\n")
-      f.write("CREATE INDEX ON :Identity;\n")
-      f.write("CREATE INDEX ON :File(platformId);\n")
-      f.write("CREATE INDEX ON :File(name);\n")
-      f.write("CREATE INDEX ON :Permission(name);\n")
-      f.write("CREATE INDEX ON :Identity(email);\n")
+        # Create extra index: in distributed, this will be the schema
+        f.write("CREATE INDEX ON :File(uuid);\n")
+        f.write("CREATE INDEX ON :Permission(uuid);\n")
+        f.write("CREATE INDEX ON :Identity(uuid);\n")
 
-    # Create extra index: in distributed, this will be the schema
-    f.write("CREATE INDEX ON :File(uuid);\n")
-    f.write("CREATE INDEX ON :Permission(uuid);\n")
-    f.write("CREATE INDEX ON :Identity(uuid);\n")
+        uuid = 1
 
-    uuid = 1
+        # Create the nodes File
+        for index in range(0, number_of_files):
+            f.write(f'CREATE (:File {{uuid: {uuid}, platformId: "platform_id", name: "name_file_{uuid}"}});\n')
+            uuid += 1
 
-    # Create the nodes File
-    for index in range(0, number_of_files):
-        f.write(f'CREATE (:File {{uuid: {uuid}, platformId: "platform_id", name: "name_file_{uuid}"}});\n')
-        uuid += 1
+        identities = []
+        # Create the nodes Identity
+        for index in range(0, number_of_identities):
+            f.write(f'CREATE (:Identity {{uuid: {uuid}, name: "mail_{uuid}@something.com"}});\n')
+            uuid += 1
 
-    identities = []
-    # Create the nodes Identity
-    for index in range(0, number_of_identities):
-        f.write(f'CREATE (:Identity {{uuid: {uuid}, name: "mail_{uuid}@something.com"}});\n')
-        uuid += 1
+        for outer_index in range(0, number_of_files):
+            for inner_index in range(0, number_of_identities):
+                file_uuid = outer_index + 1
+                identity_uuid = number_of_files + inner_index + 1
 
-    for outer_index in range(0, number_of_files):
-        for inner_index in range(0, number_of_identities):
-            file_uuid = outer_index + 1
-            identity_uuid = number_of_files + inner_index + 1
-
-            if random.random() <= percentage_of_permissions:
-                f.write(f'CREATE (:Permission {{uuid: {uuid}, name: "name_permission_{uuid}"}});\n')
-                f.write(
-                    f"MATCH (permission:Permission {{uuid: {uuid}}}), (file:File {{uuid: {file_uuid}}}) CREATE (permission)-[e: IS_FOR_FILE]->(file);\n"
-                )
-                f.write(
-                    f"MATCH (permission:Permission {{uuid: {uuid}}}), (identity:Identity {{uuid: {identity_uuid}}}) CREATE (permission)-[e: IS_FOR_IDENTITY]->(identity);\n"
-                )
-                uuid += 1
-
-    f.close()
+                if random.random() <= percentage_of_permissions:
+                    f.write(f'CREATE (:Permission {{uuid: {uuid}, name: "name_permission_{uuid}"}});\n')
+                    f.write(
+                        f"MATCH (permission:Permission {{uuid: {uuid}}}), (file:File {{uuid: {file_uuid}}}) CREATE (permission)-[e: IS_FOR_FILE]->(file);\n"
+                    )
+                    f.write(
+                        f"MATCH (permission:Permission {{uuid: {uuid}}}), (identity:Identity {{uuid: {identity_uuid}}}) CREATE (permission)-[e: IS_FOR_IDENTITY]->(identity);\n"
+                    )
+                    uuid += 1
 
 
 if __name__ == "__main__":
