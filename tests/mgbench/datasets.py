@@ -349,7 +349,7 @@ class AccessControl(Dataset):
 
     def __init__(self, variant=None):
         super().__init__(variant)
-        self.next_value_idx = Dataset.get_size(self)["vertices"] + 1
+        self.next_value_idx = self.get_size()["vertices"] + 1
 
     def benchmark__create__vertex(self):
         self.next_value_idx += 1
