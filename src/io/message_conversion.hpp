@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <boost/core/demangle.hpp>
+
 #include "io/transport.hpp"
 #include "utils/type_info_ref.hpp"
 
@@ -89,6 +91,10 @@ struct OpaqueMessage {
           .from_address = from_address,
       };
     }
+
+    std::string demangled_name = "\"" + boost::core::demangle(message.type().name()) + "\"";
+    spdlog::error("failed to cast message of type {} to expected request type (probably in Receive argument types)",
+                  demangled_name);
 
     return std::nullopt;
   }
