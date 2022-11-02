@@ -84,8 +84,6 @@ class ShardManager {
       : io_(io), coordinator_leader_(coordinator_leader) {
     MG_ASSERT(shard_worker_threads >= 1);
 
-    shard_worker::Queue queue;
-
     for (int i = 0; i < shard_worker_threads; i++) {
       shard_worker::Queue queue;
       shard_worker::ShardWorker worker{io, queue};
@@ -103,16 +101,8 @@ class ShardManager {
   ShardManager &operator=(const ShardManager &) = delete;
 
   ~ShardManager() {
-    auto shutdown_acks = std::vector<io::Future<bool>>{};
     for (auto worker : workers_) {
-      auto [future, promise] = io::FuturePromisePair<bool>();
-      worker.Push(shard_worker::ShutDown{.acknowledge_shutdown = std::move(promise)});
-      shutdown_acks.emplace_back(std::move(future));
-    }
-
-    for (auto &&ack : shutdown_acks) {
-      bool acked = std::move(ack).Wait();
-      MG_ASSERT(acked);
+      worker.Push(shard_worker::ShutDown{});
     }
 
     // The jthread handes for our shard worker threads will be

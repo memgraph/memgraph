@@ -55,9 +55,7 @@ using storage::v3::ShardRsm;
 template <typename IoImpl>
 using ShardRaft = Raft<IoImpl, ShardRsm, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
-struct ShutDown {
-  io::Promise<bool> acknowledge_shutdown;
-};
+struct ShutDown {};
 
 struct Cron {};
 
@@ -96,7 +94,7 @@ class Queue {
     {
       std::unique_lock<std::mutex> lock(inner_->mu);
 
-      inner_->queue.push_back(std::forward<Message>(message));
+      inner_->queue.emplace_back(std::forward<Message>(message));
     }  // lock dropped before notifying condition variable
 
     inner_->cv.notify_all();
@@ -125,10 +123,7 @@ class ShardWorker {
   Time next_cron_ = Time::min();
   std::map<uuid, ShardRaft<IoImpl>> rsm_map_;
 
-  bool Process(ShutDown &&shut_down) {
-    shut_down.acknowledge_shutdown.Fill(true);
-    return false;
-  }
+  bool Process(ShutDown && /* shut_down */) { return false; }
 
   bool Process(Cron &&cron) {
     Cron();
