@@ -48,7 +48,7 @@ class ScopedCustomProfile {
   }
 
  private:
-  static void IncreaseCustomData(nlohmann::json &custom_data, const std::string_view key, uint64_t increment) {
+  static void IncreaseCustomData(nlohmann::json &custom_data, const std::string_view key, const uint64_t increment) {
     auto &json_data = custom_data[key];
     const auto numerical_data = json_data.is_null() ? 0 : json_data.get<uint64_t>();
     json_data = numerical_data + increment;
