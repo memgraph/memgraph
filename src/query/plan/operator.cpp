@@ -1965,6 +1965,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         auto [current_edge, current_edge_direction, current_weight] = current_level.back();
         current_level.pop_back();
+        auto *pull_memory = context.evaluation_context.memory;
 
         // Edges order depends on direction of expansion
         if (!self_.is_reverse_)
@@ -1973,7 +1974,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
 
         auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-        frame[self_.common_.node_symbol] = next_vertex;
         frame[self_.total_weight_.value()] = current_weight;
 
         if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
@@ -1986,6 +1986,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         }
 
         if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) continue;
+
+        // Place destination node on the frame, handle existence flag
+        if (self_.common_.existing_node) {
+          const auto &node = frame[self_.common_.node_symbol];
+          if ((node != TypedValue(next_vertex, pull_memory)).ValueBool()) continue;
+        } else {
+          frame[self_.common_.node_symbol] = next_vertex;
+        }
         return true;
       }
 
