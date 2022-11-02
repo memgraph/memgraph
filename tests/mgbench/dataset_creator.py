@@ -67,18 +67,18 @@ def main():
     assert percentage_of_permissions > 0.0 and percentage_of_permissions <= 1.0
     assert filename != ""
 
-    f = open(filename, "w")
+    with open(filename, "w") as f:
 
-    f.write("MATCH (n) DETACH DELETE n;\n")
+      f.write("MATCH (n) DETACH DELETE n;\n")
 
-    # Create the indexes
-    f.write("CREATE INDEX ON :File;\n")
-    f.write("CREATE INDEX ON :Permission;\n")
-    f.write("CREATE INDEX ON :Identity;\n")
-    f.write("CREATE INDEX ON :File(platformId);\n")
-    f.write("CREATE INDEX ON :File(name);\n")
-    f.write("CREATE INDEX ON :Permission(name);\n")
-    f.write("CREATE INDEX ON :Identity(email);\n")
+      # Create the indexes
+      f.write("CREATE INDEX ON :File;\n")
+      f.write("CREATE INDEX ON :Permission;\n")
+      f.write("CREATE INDEX ON :Identity;\n")
+      f.write("CREATE INDEX ON :File(platformId);\n")
+      f.write("CREATE INDEX ON :File(name);\n")
+      f.write("CREATE INDEX ON :Permission(name);\n")
+      f.write("CREATE INDEX ON :Identity(email);\n")
 
     # Create extra index: in distributed, this will be the schema
     f.write("CREATE INDEX ON :File(uuid);\n")
