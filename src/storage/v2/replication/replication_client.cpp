@@ -378,7 +378,7 @@ std::vector<Storage::ReplicationClient::RecoveryStep> Storage::ReplicationClient
   auto snapshot_files = durability::GetSnapshotFiles(storage_->snapshot_directory_, storage_->uuid_);
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot;
   if (!snapshot_files.empty()) {
-    std::sort(snapshot_files.begin(), snapshot_files.end());
+    // std::sort(snapshot_files.begin(), snapshot_files.end());
     latest_snapshot.emplace(std::move(snapshot_files.back()));
   }
 

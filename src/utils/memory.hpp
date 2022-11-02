@@ -23,13 +23,12 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-// Although <memory_resource> is in C++17, gcc libstdc++ still needs to
-// implement it fully. It should be available in the next major release
-// version, i.e. gcc 9.x.
-#if _GLIBCXX_RELEASE < 9
+#if __clang__
 #include <experimental/memory_resource>
+namespace std_pmr = std::experimental::fundamentals_v1::pmr;
 #else
 #include <memory_resource>
+namespace std_pmr = std::pmr;
 #endif
 
 #include "utils/logging.hpp"
@@ -251,12 +250,8 @@ bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {
  public:
-#if _GLIBCXX_RELEASE < 9
-  StdMemoryResource(std::experimental::pmr::memory_resource *memory) : memory_(memory) {}
-#else
   /// Implicitly convert std::pmr::memory_resource to StdMemoryResource
-  StdMemoryResource(std::pmr::memory_resource *memory) : memory_(memory) {}
-#endif
+  StdMemoryResource(std_pmr::memory_resource *memory) : memory_(memory) {}
 
  private:
   void *DoAllocate(size_t bytes, size_t alignment) override {
@@ -282,19 +277,11 @@ class StdMemoryResource final : public MemoryResource {
     return *memory_ == *other_std->memory_;
   }
 
-#if _GLIBCXX_RELEASE < 9
-  std::experimental::pmr::memory_resource *memory_;
-#else
-  std::pmr::memory_resource *memory_;
-#endif
+  std_pmr::memory_resource *memory_;
 };
 
 inline MemoryResource *NewDeleteResource() noexcept {
-#if _GLIBCXX_RELEASE < 9
-  static StdMemoryResource memory(std::experimental::pmr::new_delete_resource());
-#else
-  static StdMemoryResource memory(std::pmr::new_delete_resource());
-#endif
+  static StdMemoryResource memory(std_pmr::new_delete_resource());
   return &memory;
 }
 

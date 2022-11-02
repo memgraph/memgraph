@@ -37,10 +37,10 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
   }
 
   T value{};
-  if (const auto [p, ec] = std::from_chars(string.data(), string.data() + size, value);
-      ec != std::errc() || p != string.data() + size) {
-    return std::nullopt;
-  }
+  // if (const auto [p, ec] = std::from_chars(string.data(), string.data() + size, value);
+  //     ec != std::errc() || p != string.data() + size) {
+  //   return std::nullopt;
+  // }
 
   return value;
 }

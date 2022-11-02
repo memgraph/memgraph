@@ -15,6 +15,7 @@
 
 #include <optional>
 #include <ostream>
+#include <sstream>
 #include <string_view>
 
 // Define to use Py_ssize_t for API returning length of something. Some future

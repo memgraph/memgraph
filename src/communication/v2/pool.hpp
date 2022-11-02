@@ -51,7 +51,14 @@ class IOContextThreadPool final {
     running_ = false;
   }
 
-  void AwaitShutdown() { background_threads_.clear(); }
+  void AwaitShutdown() {
+    for (auto &thread : background_threads_) {
+      if (thread.joinable()) {
+        thread.join();
+      }
+    }
+    background_threads_.clear();
+  }
 
   bool IsRunning() const noexcept { return running_; }
 
@@ -62,7 +69,7 @@ class IOContextThreadPool final {
   IOContext io_context_;
   IOContextGuard guard_;
   size_t pool_size_;
-  std::vector<std::jthread> background_threads_;
+  std::vector<std::thread> background_threads_;
   bool running_{false};
 };
 }  // namespace memgraph::communication::v2

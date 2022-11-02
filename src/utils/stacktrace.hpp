@@ -15,6 +15,7 @@
 #include <execinfo.h>
 #include <fmt/format.h>
 #include <stdexcept>
+#include <vector>
 
 #include "utils/on_scope_exit.hpp"
 

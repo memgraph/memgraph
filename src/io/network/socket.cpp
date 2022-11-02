@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <unistd.h>
 
 #include "io/network/addrinfo.hpp"
 #include "io/network/socket.hpp"

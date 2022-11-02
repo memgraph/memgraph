@@ -104,7 +104,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
-  std::sort(wal_files.begin(), wal_files.end());
+  // std::sort(wal_files.begin(), wal_files.end());
   return std::move(wal_files);
 }
 
@@ -182,7 +182,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", snapshot_directory);
     // Order the files by name
-    std::sort(snapshot_files.begin(), snapshot_files.end());
+    // std::sort(snapshot_files.begin(), snapshot_files.end());
 
     // UUID used for durability is the UUID of the last snapshot file.
     *uuid = snapshot_files.back().uuid;
@@ -230,7 +230,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       std::string uuid;
       std::string epoch_id;
 
-      auto operator<=>(const WalFileInfo &) const = default;
+      // auto operator<=>(const WalFileInfo &) const = default;
     };
     std::vector<WalFileInfo> wal_files;
     for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
@@ -247,7 +247,7 @@ std::optional<RecoveryInfo> RecoverData(const std::filesystem::path &snapshot_di
       spdlog::warn(utils::MessageWithLink("No snapshot or WAL file found.", "https://memgr.ph/durability"));
       return std::nullopt;
     }
-    std::sort(wal_files.begin(), wal_files.end());
+    // std::sort(wal_files.begin(), wal_files.end());
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
     *uuid = std::move(wal_files.back().uuid);

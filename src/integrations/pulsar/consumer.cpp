@@ -118,7 +118,7 @@ void TryToConsumeBatch(TConsumer &consumer, const ConsumerInfo &info, const Cons
     return false;
   };
 
-  if (std::ranges::any_of(batch, has_message_failed)) {
+  if (std::any_of(batch.begin(), batch.end(), has_message_failed)) {
     throw ConsumerAcknowledgeMessagesFailedException(info.consumer_name);
   }
 }
