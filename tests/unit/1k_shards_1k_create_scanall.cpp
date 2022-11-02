@@ -16,14 +16,14 @@
 #include <set>
 #include <thread>
 
-#include <rapidcheck.h>
+#include <gtest/gtest.h>
 
-#include "cluster_config.hpp"
 #include "coordinator/coordinator_client.hpp"
 #include "coordinator/coordinator_rsm.hpp"
 #include "coordinator/shard_map.hpp"
-#include "generated_operations.hpp"
 #include "io/address.hpp"
+#include "io/local_transport/local_system.hpp"
+#include "io/local_transport/local_transport.hpp"
 #include "io/simulator/simulator.hpp"
 #include "io/simulator/simulator_config.hpp"
 #include "io/simulator/simulator_transport.hpp"
@@ -31,7 +31,6 @@
 #include "machine_manager/machine_manager.hpp"
 #include "query/v2/requests.hpp"
 #include "query/v2/shard_request_manager.hpp"
-#include "testing_constants.hpp"
 #include "utils/print_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -50,11 +49,9 @@ using coordinator::Shard;
 using coordinator::ShardMap;
 using io::Address;
 using io::Io;
+using io::local_transport::LocalSystem;
+using io::local_transport::LocalTransport;
 using io::rsm::RsmClient;
-using io::simulator::Simulator;
-using io::simulator::SimulatorConfig;
-using io::simulator::SimulatorStats;
-using io::simulator::SimulatorTransport;
 using machine_manager::MachineConfig;
 using machine_manager::MachineManager;
 using msgs::ReadRequests;
@@ -65,28 +62,45 @@ using storage::v3::LabelId;
 using storage::v3::SchemaProperty;
 
 using CompoundKey = std::pair<int, int>;
-using ShardClient = RsmClient<SimulatorTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
+using ShardClient = RsmClient<LocalTransport, WriteRequests, WriteResponses, ReadRequests, ReadResponses>;
 
-MachineManager<SimulatorTransport> MkMm(Simulator &simulator, std::vector<Address> coordinator_addresses, Address addr,
-                                        ShardMap shard_map) {
+struct CreateVertex {
+  int first;
+  int second;
+
+  friend std::ostream &operator<<(std::ostream &in, const CreateVertex &add) {
+    in << "CreateVertex { first: " << add.first << ", second: " << add.second << " }";
+    return in;
+  }
+};
+
+struct ScanAll {
+  friend std::ostream &operator<<(std::ostream &in, const ScanAll &get) {
+    in << "ScanAll {}";
+    return in;
+  }
+};
+
+MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Address> coordinator_addresses, Address addr,
+                                    ShardMap shard_map) {
   MachineConfig config{
-      .coordinator_addresses = coordinator_addresses,
+      .coordinator_addresses = std::move(coordinator_addresses),
       .is_storage = true,
       .is_coordinator = true,
       .listen_ip = addr.last_known_ip,
       .listen_port = addr.last_known_port,
   };
 
-  Io<SimulatorTransport> io = simulator.Register(addr);
+  Io<LocalTransport> io = local_system.Register(addr);
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator};
+  return MachineManager{io, config, std::move(coordinator)};
 }
 
-void RunMachine(MachineManager<SimulatorTransport> mm) { mm.Run(); }
+void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
 
-void WaitForShardsToInitialize(CoordinatorClient<SimulatorTransport> &coordinator_client) {
+void WaitForShardsToInitialize(CoordinatorClient<LocalTransport> &coordinator_client) {
   // Call coordinator client's read method for GetShardMap and keep
   // reading it until the shard map contains proper replicas for
   // each shard in the label space.
@@ -113,7 +127,7 @@ void WaitForShardsToInitialize(CoordinatorClient<SimulatorTransport> &coordinato
 ShardMap TestShardMap(int n_splits, int replication_factor) {
   ShardMap sm{};
 
-  const std::string label_name = std::string("test_label");
+  const auto label_name = std::string("test_label");
 
   // register new properties
   const std::vector<std::string> property_names = {"property_1", "property_2"};
@@ -130,7 +144,7 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
   };
 
   std::optional<LabelId> label_id = sm.InitializeNewLabel(label_name, schema, replication_factor, sm.shard_map_version);
-  RC_ASSERT(label_id.has_value());
+  MG_ASSERT(label_id.has_value());
 
   // split the shard at N split points
   for (int64_t i = 1; i < n_splits; ++i) {
@@ -141,13 +155,13 @@ ShardMap TestShardMap(int n_splits, int replication_factor) {
 
     const bool split_success = sm.SplitShard(sm.shard_map_version, label_id.value(), split_point);
 
-    RC_ASSERT(split_success);
+    MG_ASSERT(split_success);
   }
 
   return sm;
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, CreateVertex create_vertex) {
   const auto key1 = memgraph::storage::v3::PropertyValue(create_vertex.first);
   const auto key2 = memgraph::storage::v3::PropertyValue(create_vertex.second);
@@ -172,87 +186,73 @@ void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_mana
 
   auto result = shard_request_manager.Request(state, std::move(new_vertices));
 
-  RC_ASSERT(result.size() == 1);
-  RC_ASSERT(result[0].success);
+  MG_ASSERT(result.size() == 1);
+  MG_ASSERT(result[0].success);
 
   correctness_model.emplace(std::make_pair(create_vertex.first, create_vertex.second));
 }
 
-void ExecuteOp(msgs::ShardRequestManager<SimulatorTransport> &shard_request_manager,
+void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
                std::set<CompoundKey> &correctness_model, ScanAll scan_all) {
   msgs::ExecutionState<msgs::ScanVerticesRequest> request{.label = "test_label"};
 
   auto results = shard_request_manager.Request(request);
 
-  RC_ASSERT(results.size() == correctness_model.size());
+  MG_ASSERT(results.size() == correctness_model.size());
 
   for (const auto &vertex_accessor : results) {
     const auto properties = vertex_accessor.Properties();
     const auto primary_key = vertex_accessor.Id().second;
     const CompoundKey model_key = std::make_pair(primary_key[0].int_v, primary_key[1].int_v);
-    RC_ASSERT(correctness_model.contains(model_key));
+    MG_ASSERT(correctness_model.contains(model_key));
   }
 }
 
-void RunClusterSimulation(const SimulatorConfig &sim_config, const ClusterConfig &cluster_config,
-                          const std::vector<Op> &ops) {
-  spdlog::info("========================== NEW SIMULATION ==========================");
-
-  auto simulator = Simulator(sim_config);
+TEST(MachineManager, ManyShards) {
+  LocalSystem local_system;
 
   auto cli_addr = Address::TestAddress(1);
   auto machine_1_addr = cli_addr.ForkUniqueAddress();
 
-  Io<SimulatorTransport> cli_io = simulator.Register(cli_addr);
-  Io<SimulatorTransport> cli_io_2 = simulator.Register(Address::TestAddress(2));
+  Io<LocalTransport> cli_io = local_system.Register(cli_addr);
+  Io<LocalTransport> cli_io_2 = local_system.Register(Address::TestAddress(2));
 
   auto coordinator_addresses = std::vector{
       machine_1_addr,
   };
 
-  ShardMap initialization_sm = TestShardMap(cluster_config.shards - 1, cluster_config.replication_factor);
+  auto shard_splits = 1024;
+  auto replication_factor = 1;
+  auto create_ops = 1000;
 
-  auto mm_1 = MkMm(simulator, coordinator_addresses, machine_1_addr, initialization_sm);
+  ShardMap initialization_sm = TestShardMap(shard_splits, replication_factor);
+
+  auto mm_1 = MkMm(local_system, coordinator_addresses, machine_1_addr, initialization_sm);
   Address coordinator_address = mm_1.CoordinatorAddress();
 
   auto mm_thread_1 = std::jthread(RunMachine, std::move(mm_1));
 
-  // Need to detach this thread so that the destructor does not
-  // block before we can propagate assertion failures.
-  mm_thread_1.detach();
-
-  // TODO(tyler) clarify addresses of coordinator etc... as it's a mess
-
-  CoordinatorClient<SimulatorTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
+  CoordinatorClient<LocalTransport> coordinator_client(cli_io, coordinator_address, {coordinator_address});
   WaitForShardsToInitialize(coordinator_client);
 
-  msgs::ShardRequestManager<SimulatorTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
+  msgs::ShardRequestManager<LocalTransport> shard_request_manager(std::move(coordinator_client), std::move(cli_io));
 
   shard_request_manager.StartTransaction();
 
   auto correctness_model = std::set<CompoundKey>{};
 
-  for (const Op &op : ops) {
-    std::visit([&](auto &o) { ExecuteOp(shard_request_manager, correctness_model, o); }, op.inner);
+  for (int i = 0; i < create_ops; i++) {
+    ExecuteOp(shard_request_manager, correctness_model, CreateVertex{.first = i, .second = i});
   }
 
-  simulator.ShutDown();
+  ExecuteOp(shard_request_manager, correctness_model, ScanAll{});
 
-  SimulatorStats stats = simulator.Stats();
-
-  spdlog::info("total messages:     {}", stats.total_messages);
-  spdlog::info("dropped messages:   {}", stats.dropped_messages);
-  spdlog::info("timed out requests: {}", stats.timed_out_requests);
-  spdlog::info("total requests:     {}", stats.total_requests);
-  spdlog::info("total responses:    {}", stats.total_responses);
-  spdlog::info("simulator ticks:    {}", stats.simulator_ticks);
+  local_system.ShutDown();
 
   auto histo = cli_io_2.ResponseLatencies();
 
   using memgraph::utils::print_helpers::operator<<;
   std::cout << "response latencies: " << histo << std::endl;
-
-  spdlog::info("========================== SUCCESS :) ==========================");
 }
 
 }  // namespace memgraph::tests::simulation

@@ -60,5 +60,9 @@ class LocalTransport {
     std::random_device rng;
     return distrib(rng);
   }
+
+  std::unordered_map<std::string, LatencyHistogramSummary> ResponseLatencies() {
+    return local_transport_handle_->ResponseLatencies();
+  }
 };
 };  // namespace memgraph::io::local_transport

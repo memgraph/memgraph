@@ -98,7 +98,7 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   utils::AsyncTimer timer;
   msgs::ShardRequestManagerInterface *shard_request_manager{nullptr};
-  IdAllocator edge_ids_alloc;
+  IdAllocator *edge_ids_alloc;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

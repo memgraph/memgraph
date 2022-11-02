@@ -185,7 +185,7 @@ MachineManager<LocalTransport> MkMm(LocalSystem &local_system, std::vector<Addre
 
   Coordinator coordinator{shard_map};
 
-  return MachineManager{io, config, coordinator, shard_map};
+  return MachineManager{io, config, coordinator};
 }
 
 void RunMachine(MachineManager<LocalTransport> mm) { mm.Run(); }
