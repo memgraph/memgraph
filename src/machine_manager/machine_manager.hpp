@@ -92,10 +92,10 @@ class MachineManager {
   MachineManager &operator=(const MachineManager &) = delete;
 
   ~MachineManager() {
-    coordinator_queue_.Push(coordinator::coordinator_worker::ShutDown{});
-    spdlog::error("a");
-    std::move(coordinator_handle_).join();
-    spdlog::error("b");
+    if (coordinator_handle_.joinable()) {
+      coordinator_queue_.Push(coordinator::coordinator_worker::ShutDown{});
+      std::move(coordinator_handle_).join();
+    }
   }
 
   Address CoordinatorAddress() { return coordinator_address_; }

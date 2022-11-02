@@ -88,6 +88,7 @@ class Queue {
  public:
   void Push(Message &&message) {
     {
+      MG_ASSERT(inner_.use_count() > 0);
       std::unique_lock<std::mutex> lock(inner_->mu);
 
       inner_->queue.emplace_back(std::forward<Message>(message));
@@ -132,7 +133,7 @@ class CoordinatorWorker {
 
  public:
   CoordinatorWorker(io::Io<IoImpl> io, Queue queue, Coordinator coordinator)
-      : io_(io), queue_(queue), coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)} {}
+      : io_(io), queue_(std::move(queue)), coordinator_{std::move(io.ForkLocal()), {}, std::move(coordinator)} {}
 
   CoordinatorWorker(CoordinatorWorker &&) = default;
   CoordinatorWorker &operator=(CoordinatorWorker &&) = default;

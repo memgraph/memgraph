@@ -92,6 +92,7 @@ class Queue {
  public:
   void Push(Message &&message) {
     {
+      MG_ASSERT(inner_.use_count() > 0);
       std::unique_lock<std::mutex> lock(inner_->mu);
 
       inner_->queue.emplace_back(std::forward<Message>(message));
