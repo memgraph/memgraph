@@ -113,8 +113,7 @@ class LocalTransportHandle {
                                  .message = std::move(message_any),
                                  .type_info = type_info};
 
-    PromiseKey promise_key{
-        .requester_address = to_address, .request_id = opaque_message.request_id, .replier_address = from_address};
+    PromiseKey promise_key{.requester_address = to_address, .request_id = opaque_message.request_id};
 
     {
       std::unique_lock<std::mutex> lock(mu_);
@@ -152,8 +151,7 @@ class LocalTransportHandle {
     {
       std::unique_lock<std::mutex> lock(mu_);
 
-      PromiseKey promise_key{
-          .requester_address = from_address, .request_id = request_id, .replier_address = to_address};
+      PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
       DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
       promises_.emplace(std::move(promise_key), std::move(dop));
