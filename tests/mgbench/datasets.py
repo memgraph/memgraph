@@ -337,24 +337,24 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    # Basic workload
+    # Basic benchmark queries
 
-    def benchmark__basic__single_vertex_read_read(self):
+    def benchmark__basic__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__basic__single_vertex_write_write(self):
+    def benchmark__basic__single_vertex_write(self):
         return (
             "CREATE (n:UserTemp {id : $id}) RETURN n",
             {"id": random.randint(1, self._num_vertices * 10)},
         )
 
-    def benchmark__basic__single_vertex_property_update_update(self):
+    def benchmark__basic__single_vertex_property_update(self):
         return (
             "MATCH (n {id: $id}) SET n.property = -1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__basic__single_edge_write_write(self):
+    def benchmark__basic__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
@@ -362,13 +362,13 @@ class Pokec(Dataset):
             {"from": vertex_from, "to": vertex_to},
         )
 
-    def benchmark__basic__aggregate_aggregate(self):
+    def benchmark__basic__aggregate(self):
         return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
 
-    def benchmark__basic__aggregate_count_aggregate(self):
+    def benchmark__basic__aggregate_count(self):
         return ("MATCH (n) RETURN count(n), count(n.age)", {})
 
-    def benchmark__basic__aggregate_with_filter_aggregate(self):
+    def benchmark__basic__aggregate_with_filter(self):
         return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
 
     def benchmark__basic__min_max_avg_aggregate(self):
@@ -477,22 +477,22 @@ class Pokec(Dataset):
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__mixed__single_vertex_read_read(self):
+    def benchmark__mixed__single_vertex_read(self):
         return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
 
-    def benchmark__mixed__single_vertex_write_write(self):
+    def benchmark__mixed__single_vertex_write(self):
         return (
             "CREATE (n:UserTemp {id : $id}) RETURN n",
             {"id": random.randint(1, self._num_vertices * 10)},
         )
 
-    def benchmark__mixed__single_vertex_property_update_update(self):
+    def benchmark__mixed__single_vertex_property_update(self):
         return (
             "MATCH (n {id: $id}) SET n.property = -1",
             {"id": self._get_random_vertex()},
         )
 
-    def benchmark__mixed__single_edge_write_write(self):
+    def benchmark__mixed__single_edge_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
         return (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "

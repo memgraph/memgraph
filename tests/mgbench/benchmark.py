@@ -43,17 +43,17 @@ parser.add_argument(
     help="descriptions of benchmarks that should be run; "
     "multiple descriptions can be specified to run multiple "
     "benchmarks; the description is specified as "
-    "dataset/variant/workload/group/test; Unix shell-style wildcards "
-    "can be used in the descriptions; variant, workload, group and test "
+    "dataset/variant/group/query; Unix shell-style wildcards "
+    "can be used in the descriptions; variant, group and query "
     "are optional and they can be left out; the default "
     "variant is '' which selects the default dataset variant; "
-    "the default workload is '*' which selects all workloads; the "
-    "default group is '*' which selects all groups; the"
-    "default test is '*' which selects all tests",
+    "the default group is '*' which selects all groups; the"
+    "default query is '*' which selects all queries",
 )
 parser.add_argument(
     "--vendor-binary",
-    help="Vendor binary used for benchmarking",
+    help="Vendor binary used for benchmarking, by defuault it is memgraph",
+    default=helpers.get_binary_path("memgraph"),
 )
 
 parser.add_argument(
@@ -82,7 +82,7 @@ parser.add_argument(
     "--single-threaded-runtime-sec",
     type=int,
     default=10,
-    help="single threaded duration of each test",
+    help="single threaded duration of each query",
 )
 parser.add_argument(
     "--no-load-query-counts",
@@ -114,7 +114,7 @@ parser.add_argument(
     "--with-authorization",
     action="store_true",
     default=False,
-    help="Run each test with authorization",
+    help="Run each query with authorization",
 )
 
 parser.add_argument(
@@ -130,11 +130,17 @@ parser.add_argument(
     type=int,
     default=[],
     help="Run combination that defines mixed workload;"
+    "Mixed workload can be run as single configuration for all group queries,"
     "Pass the positional arguments as values of what percentage of"
-    "write/read/update/analytical queries you want;"
+    "write/read/update/analytical queries you want to have in your workload;"
     "Running --mixed-workload 1000 20 70 10 0"
     "The command above will execute 1000 queries, 20% write, "
-    "70% read, 10% update and 0% analytical",
+    "70% read, 10% update and 0% analytical"
+    "Mixed workload can be run on each query from the group under some defined load."
+    "By passing one more positional argument, you are defining what percentage of that query"
+    "will be in mixed workload, and this goes for all queries"
+    "Running --mixed-workload 1000 30 0 0 0 70, will execute each query 700 times or 70%,"
+    "with the presence of 300 write queries from write type or 30%",
 )
 
 args = parser.parse_args()
@@ -150,7 +156,7 @@ def get_queries(gen, count):
     return ret
 
 
-def match_patterns(dataset, variant, group, test, is_default_variant, patterns):
+def match_patterns(dataset, variant, group, query, is_default_variant, patterns):
     for pattern in patterns:
         verdict = [fnmatch.fnmatchcase(dataset, pattern[0])]
         if pattern[1] != "":
@@ -158,7 +164,7 @@ def match_patterns(dataset, variant, group, test, is_default_variant, patterns):
         else:
             verdict.append(is_default_variant)
         verdict.append(fnmatch.fnmatchcase(group, pattern[2]))
-        verdict.append(fnmatch.fnmatchcase(test, pattern[3]))
+        verdict.append(fnmatch.fnmatchcase(query, pattern[3]))
         if all(verdict):
             return True
     return False
@@ -174,21 +180,21 @@ def filter_benchmarks(generators, patterns):
         patterns[i] = pattern
     filtered = []
     for dataset in sorted(generators.keys()):
-        generator, tests = generators[dataset]
+        generator, queries = generators[dataset]
         for variant in generator.VARIANTS:
             is_default_variant = variant == generator.DEFAULT_VARIANT
             current = collections.defaultdict(list)
-            for group in tests:
-                for test_name, test_func in tests[group]:
+            for group in queries:
+                for query_name, query_func in queries[group]:
                     if match_patterns(
                         dataset,
                         variant,
                         group,
-                        test_name,
+                        query_name,
                         is_default_variant,
                         patterns,
                     ):
-                        current[group].append((test_name, test_func))
+                        current[group].append((query_name, query_func))
             if len(current) > 0:
                 filtered.append((generator(variant), dict(current)))
     return filtered
@@ -221,7 +227,7 @@ def tail_latency(vendor, client, func):
         "iterations": iteration,
         "min": latency[0],
         "max": latency[99],
-        "mean": statistics.fmean(latency),
+        "mean": statistics.mean(latency),
         "p99": latency[98],
         "p95": latency[94],
         "p90": latency[89],
@@ -233,7 +239,7 @@ def tail_latency(vendor, client, func):
     return query_stats
 
 
-def mixed_workload(vendor, client, dataset, group, tests):
+def mixed_workload(vendor, client, dataset, group, queries):
     num_args = len(args.mixed_workload)
     if num_args > 6:
         raise Exception(
@@ -252,8 +258,6 @@ def mixed_workload(vendor, client, dataset, group, tests):
 
     config_distribution = "_".join(s)
 
-    full_workload = []
-
     print("Generating mixed workload")
     write = list()
     read = list()
@@ -261,9 +265,9 @@ def mixed_workload(vendor, client, dataset, group, tests):
     analytical = list()
 
     for (
-        test,
+        query,
         funcname,
-    ) in tests[group]:
+    ) in queries[group]:
         if "write" in funcname:
             write.append(funcname)
         elif "read" in funcname:
@@ -290,12 +294,13 @@ def mixed_workload(vendor, client, dataset, group, tests):
     random.seed(config_distribution)
 
     if num_args == 6:
-        for test, funcname in tests[group]:
+        for query, funcname in queries[group]:
+            full_workload = []
 
             log.info(
-                "Running test:",
+                "Running query:",
                 "{}/{}/{}/{}".format(
-                    group, test, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
+                    group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
                 ),
             )
             print("Mixed workload")
@@ -310,20 +315,20 @@ def mixed_workload(vendor, client, dataset, group, tests):
                 # Get the apropropriate functions with same probabilty
                 if t == "w":
                     funcname = random.choices(write, k=1)[0]
-                    query = getattr(dataset, funcname)
-                    full_workload.append(query())
+                    aditional_query = getattr(dataset, funcname)
+                    full_workload.append(aditional_query())
                 elif t == "r":
                     funcname = random.choices(read, k=1)[0]
-                    query = getattr(dataset, funcname)
-                    full_workload.append(query())
+                    aditional_query = getattr(dataset, funcname)
+                    full_workload.append(aditional_query())
                 elif t == "u":
                     funcname = random.choices(update, k=1)[0]
-                    query = getattr(dataset, funcname)
-                    full_workload.append(query())
+                    aditional_query = getattr(dataset, funcname)
+                    full_workload.append(aditional_query())
                 elif t == "a":
                     funcname = random.choices(analytical, k=1)[0]
-                    query = getattr(dataset, funcname)
-                    full_workload.append(query())
+                    aditional_query = getattr(dataset, funcname)
+                    full_workload.append(aditional_query())
                 elif t == "q":
                     full_workload.append(base_query())
 
@@ -342,12 +347,13 @@ def mixed_workload(vendor, client, dataset, group, tests):
                 dataset.NAME,
                 dataset.get_variant(),
                 config_distribution,
-                test,
+                query,
                 WITHOUT_FINE_GRAINED_AUTHORIZATION,
             ]
             results.set_value(*results_key, value=ret)
 
     else:
+        full_workload = []
         options = ["w", "r", "u", "a"]
         function_type = random.choices(
             population=options, weights=percentage_distribution, k=num_of_queries
@@ -400,7 +406,7 @@ def mixed_workload(vendor, client, dataset, group, tests):
         print(mixed_workload)
 
 
-def get_test_cache_count(vendor, client, func, config_key):
+def get_query_cache_count(vendor, client, func, config_key):
     cached_count = config.get_value(*config_key)
 
     if cached_count is None:
@@ -470,13 +476,13 @@ for key in dir(datasets):
         or not issubclass(dataset, datasets.Dataset)
     ):
         continue
-    tests = collections.defaultdict(list)
+    queries = collections.defaultdict(list)
     for funcname in dir(dataset):
         if not funcname.startswith("benchmark__"):
             continue
-        group, test = funcname.split("__")[1:]
-        tests[group].append((test, funcname))
-    generators[dataset.NAME] = (dataset, dict(tests))
+        group, query = funcname.split("__")[1:]
+        queries[group].append((query, funcname))
+    generators[dataset.NAME] = (dataset, dict(queries))
     if dataset.PROPERTIES_ON_EDGES and args.no_properties_on_edges:
         raise Exception(
             'The "{}" dataset requires properties on edges, '
@@ -485,19 +491,19 @@ for key in dir(datasets):
 
 # List datasets if there is no specified dataset.
 if len(args.benchmarks) == 0:
-    log.init("Available tests")
+    log.init("Available queries")
     for name in sorted(generators.keys()):
         print("Dataset:", name)
-        dataset, tests = generators[name]
+        dataset, queries = generators[name]
         print(
             "    Variants:",
             ", ".join(dataset.VARIANTS),
             "(default: " + dataset.DEFAULT_VARIANT + ")",
         )
-        for group in sorted(tests.keys()):
+        for group in sorted(queries.keys()):
             print("    Group:", group)
-            for test_name, test_func in tests[group]:
-                print("        Test:", test_name)
+            for query_name, query_func in queries[group]:
+                print("        Query:", query_name)
     sys.exit(0)
 
 # Create cache, config and results objects.
@@ -511,7 +517,7 @@ results = helpers.RecursiveDict()
 # Filter out the generators.
 benchmarks = filter_benchmarks(generators, args.benchmarks)
 # Run all specified benchmarks.
-for dataset, tests in benchmarks:
+for dataset, queries in benchmarks:
     log.init("Preparing", dataset.NAME + "/" + dataset.get_variant(), "dataset")
     dataset.prepare(
         cache.cache_directory("datasets", dataset.NAME, dataset.get_variant())
@@ -576,18 +582,16 @@ for dataset, tests in benchmarks:
     # TODO: cache import data
 
     # Run all benchmarks in all available groups.
-    for group in sorted(tests.keys()):
+    for group in sorted(queries.keys()):
 
         if len(args.mixed_workload) >= 5:
-            mixed_workload(vendor, client, dataset, group, tests)
-        else:
-            print("Execute single tests in group.")
+            mixed_workload(vendor, client, dataset, group, queries)
 
-        for test, funcname in tests[group]:
+        for query, funcname in queries[group]:
             log.info(
-                "Running test:",
+                "Running query:",
                 "{}/{}/{}/{}".format(
-                    group, test, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
+                    group, query, funcname, WITHOUT_FINE_GRAINED_AUTHORIZATION
                 ),
             )
             func = getattr(dataset, funcname)
@@ -599,9 +603,9 @@ for dataset, tests in benchmarks:
                 dataset.get_variant(),
                 args.vendor_name,
                 group,
-                test,
+                query,
             ]
-            count = get_test_cache_count(vendor, client, func, config_key)
+            count = get_query_cache_count(vendor, client, func, config_key)
 
             # Benchmark run.
             print("Sample query:", get_queries(func, 1)[0][0])
@@ -654,14 +658,14 @@ for dataset, tests in benchmarks:
                 dataset.NAME,
                 dataset.get_variant(),
                 group,
-                test,
+                query,
                 WITHOUT_FINE_GRAINED_AUTHORIZATION,
             ]
             results.set_value(*results_key, value=ret)
 
     ## If there is need for authorization testing.
     if args.with_authorization:
-        print("Running test with authorization")
+        print("Running query with authorization")
         vendor.start_benchmark()
         client.execute(
             queries=[
@@ -680,13 +684,13 @@ for dataset, tests in benchmarks:
         )
         vendor.stop()
 
-        for group in sorted(tests.keys()):
-            for test, funcname in tests[group]:
+        for group in sorted(queries.keys()):
+            for query, funcname in queries[group]:
 
                 log.info(
-                    "Running test:",
+                    "Running query:",
                     "{}/{}/{}/{}".format(
-                        group, test, funcname, WITH_FINE_GRAINED_AUTHORIZATION
+                        group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION
                     ),
                 )
                 func = getattr(dataset, funcname)
@@ -700,9 +704,9 @@ for dataset, tests in benchmarks:
                     dataset.get_variant(),
                     args.vendor_name,
                     group,
-                    test,
+                    query,
                 ]
-                count = get_test_cache_count(vendor, client, func, config_key)
+                count = get_query_cache_count(vendor, client, func, config_key)
 
                 vendor.start_benchmark()
                 if args.warmup_run:
@@ -748,7 +752,7 @@ for dataset, tests in benchmarks:
                     dataset.NAME,
                     dataset.get_variant(),
                     group,
-                    test,
+                    query,
                     WITH_FINE_GRAINED_AUTHORIZATION,
                 ]
                 results.set_value(*results_key, value=ret)
