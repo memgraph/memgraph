@@ -31,14 +31,9 @@ class LocalTransport {
       : local_transport_handle_(std::move(local_transport_handle)) {}
 
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestId request_id, RequestT request,
-                                    Duration timeout) {
-    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
-
-    local_transport_handle_->SubmitRequest(to_address, from_address, request_id, std::move(request), timeout,
-                                           std::move(promise));
-
-    return std::move(future);
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request, Duration timeout) {
+    return local_transport_handle_->template SubmitRequest<RequestT, ResponseT>(to_address, from_address,
+                                                                                std::move(request), timeout);
   }
 
   template <Message... Ms>

@@ -33,16 +33,11 @@ class SimulatorTransport {
       : simulator_handle_(simulator_handle), address_(address), rng_(std::mt19937{seed}) {}
 
   template <Message RequestT, Message ResponseT>
-  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, uint64_t request_id, RequestT request,
-                                    Duration timeout) {
+  ResponseFuture<ResponseT> Request(Address to_address, Address from_address, RequestT request, Duration timeout) {
     std::function<bool()> maybe_tick_simulator = [this] { return simulator_handle_->MaybeTickSimulator(); };
-    auto [future, promise] =
-        memgraph::io::FuturePromisePairWithNotifier<ResponseResult<ResponseT>>(maybe_tick_simulator);
 
-    simulator_handle_->SubmitRequest(to_address, from_address, request_id, std::move(request), timeout,
-                                     std::move(promise));
-
-    return std::move(future);
+    return simulator_handle_->template SubmitRequest<RequestT, ResponseT>(to_address, from_address, std::move(request),
+                                                                          timeout, std::move(maybe_tick_simulator));
   }
 
   template <Message... Ms>

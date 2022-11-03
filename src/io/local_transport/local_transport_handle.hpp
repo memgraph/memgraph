@@ -30,6 +30,7 @@ class LocalTransportHandle {
   mutable std::condition_variable cv_;
   bool should_shut_down_ = false;
   MessageHistogramCollector histograms_;
+  RequestId request_id_counter_ = 0;
 
   // the responses to requests that are being waited on
   std::map<PromiseKey, DeadlineAndOpaquePromise> promises_;
@@ -138,8 +139,10 @@ class LocalTransportHandle {
   }
 
   template <Message RequestT, Message ResponseT>
-  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, RequestT &&request,
-                     Duration timeout, ResponsePromise<ResponseT> promise) {
+  ResponseFuture<ResponseT> SubmitRequest(Address to_address, Address from_address, RequestT &&request,
+                                          Duration timeout) {
+    auto [future, promise] = memgraph::io::FuturePromisePair<ResponseResult<ResponseT>>();
+
     const bool port_matches = to_address.last_known_port == from_address.last_known_port;
     const bool ip_matches = to_address.last_known_ip == from_address.last_known_ip;
 
@@ -148,16 +151,23 @@ class LocalTransportHandle {
     const auto now = Now();
     const Time deadline = now + timeout;
 
+    RequestId request_id;
     {
       std::unique_lock<std::mutex> lock(mu_);
 
+      request_id = ++request_id_counter_;
       PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
       DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
+
+      // TODO(tyler) assert not already present
+
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 
     Send(to_address, from_address, request_id, std::forward<RequestT>(request));
+
+    return std::move(future);
   }
 };
 

@@ -56,14 +56,14 @@ class SimulatorHandle {
   std::uniform_int_distribution<int> drop_distrib_{0, 99};
   SimulatorConfig config_;
   MessageHistogramCollector histograms_;
+  RequestId request_id_counter_{0};
 
   void TimeoutPromisesPastDeadline() {
     const Time now = cluster_wide_time_microseconds_;
     for (auto it = promises_.begin(); it != promises_.end();) {
       auto &[promise_key, dop] = *it;
       if (dop.deadline < now && config_.perform_timeouts) {
-        spdlog::info("timing out request from requester {} to replier {}.", promise_key.requester_address.ToString(),
-                     promise_key.replier_address.ToString());
+        spdlog::info("timing out request from requester {}.", promise_key.requester_address.ToString());
         std::move(dop).promise.TimeOut();
         it = promises_.erase(it);
 
@@ -101,11 +101,16 @@ class SimulatorHandle {
   bool ShouldShutDown() const;
 
   template <Message Request, Message Response>
-  void SubmitRequest(Address to_address, Address from_address, RequestId request_id, Request &&request,
-                     Duration timeout, ResponsePromise<Response> &&promise) {
+  ResponseFuture<Response> SubmitRequest(Address to_address, Address from_address, Request &&request, Duration timeout,
+                                         std::function<bool()> &&maybe_tick_simulator) {
     auto type_info = TypeInfoFor(request);
 
+    auto [future, promise] = memgraph::io::FuturePromisePairWithNotifier<ResponseResult<Response>>(
+        std::forward<std::function<bool()>>(maybe_tick_simulator));
+
     std::unique_lock<std::mutex> lock(mu_);
+
+    RequestId request_id = ++request_id_counter_;
 
     const Time deadline = cluster_wide_time_microseconds_ + timeout;
 
@@ -117,7 +122,7 @@ class SimulatorHandle {
                      .type_info = type_info};
     in_flight_.emplace_back(std::make_pair(to_address, std::move(om)));
 
-    PromiseKey promise_key{.requester_address = from_address, .request_id = request_id, .replier_address = to_address};
+    PromiseKey promise_key{.requester_address = from_address, .request_id = request_id};
     OpaquePromise opaque_promise(std::move(promise).ToUnique());
     DeadlineAndOpaquePromise dop{
         .requested_at = cluster_wide_time_microseconds_,
@@ -130,6 +135,8 @@ class SimulatorHandle {
     stats_.total_requests++;
 
     cv_.notify_all();
+
+    return std::move(future);
   }
 
   template <Message... Ms>
