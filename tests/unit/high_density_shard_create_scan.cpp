@@ -210,13 +210,13 @@ void ExecuteOp(msgs::ShardRequestManager<LocalTransport> &shard_request_manager,
 
 void RunWorkload(int shards, int replication_factor, int create_ops, int scan_ops, int shard_worker_threads,
                  int gap_between_shards) {
-  // std::cout << "======================== NEW TEST ======================== \n";
-  // std::cout << "shards:               " << shards << std::endl;
-  // std::cout << "replication factor:   " << replication_factor << std::endl;
-  // std::cout << "create ops:           " << create_ops << std::endl;
-  // std::cout << "scan all ops:         " << scan_ops << std::endl;
-  // std::cout << "shard worker threads: " << shard_worker_threads << std::endl;
-  // std::cout << "gap between shards:   " << gap_between_shards << std::endl;
+  spdlog::info("======================== NEW TEST ========================");
+  spdlog::info("shards:               ", shards);
+  spdlog::info("replication factor:   ", replication_factor);
+  spdlog::info("create ops:           ", create_ops);
+  spdlog::info("scan all ops:         ", scan_ops);
+  spdlog::info("shard worker threads: ", shard_worker_threads);
+  spdlog::info("gap between shards:   ", gap_between_shards);
 
   LocalSystem local_system;
 
@@ -269,15 +269,16 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
 
   auto latencies = cli_io_2.ResponseLatencies();
 
-  // std::cout << "response latencies: \n" << latencies.SummaryTable();
+  spdlog::info("response latencies: \n{}", latencies.SummaryTable());
 
-  // std::cout << "serial time break-down: (μs)\n";
+  spdlog::info("serial time break-down: (μs)");
 
-  // std::cout << fmt::format("{: >20}: {: >10}\n", "split shard map", (time_after_shard_map_creation -
-  // time_before_shard_map_creation).count()); std::cout << fmt::format("{: >20}: {: >10}\n", "shard stabilization",
-  // (time_after_shard_stabilization - time_before_shard_stabilization).count()); std::cout << fmt::format("{: >20}: {:
-  // >10}\n", "create nodes", (time_after_creates - time_before_creates).count()); std::cout << fmt::format("{: >20}: {:
-  // >10}\n", "scan nodes", (time_after_scan - time_after_creates).count());
+  spdlog::info("{: >20}: {: >10}", "split shard map",
+               (time_after_shard_map_creation - time_before_shard_map_creation).count());
+  spdlog::info("{: >20}: {: >10}", "shard stabilization",
+               (time_after_shard_stabilization - time_before_shard_stabilization).count());
+  spdlog::info("{: >20}: {: >10}", "create nodes", (time_after_creates - time_before_creates).count());
+  spdlog::info("{: >20}: {: >10}", "scan nodes", (time_after_scan - time_after_creates).count());
 
   std::cout << fmt::format("{} {} {}\n", shards, shard_worker_threads, (time_after_scan - time_after_creates).count());
 }
