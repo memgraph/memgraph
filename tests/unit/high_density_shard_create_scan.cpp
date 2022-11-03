@@ -283,9 +283,8 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
 }
 
 TEST(MachineManager, ManyShards) {
-  auto shards_attempts = {1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13,
-                          14, 15, 16, 17, 18, 19, 20, 22, 24, 26, 28, 30, 32};
-  auto shard_worker_thread_attempts = {1, 2, 3, 4, 6, 8};
+  auto shards_attempts = {1, 2, 4, 8};
+  auto shard_worker_thread_attempts = {1, 2, 4, 8};
   auto replication_factor = 1;
   auto create_ops = 1024;
   auto scan_ops = 1;
