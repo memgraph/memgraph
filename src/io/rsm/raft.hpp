@@ -581,7 +581,7 @@ class Raft {
     const Time now = io_.Now();
     const Duration broadcast_timeout = RandomTimeout(kMinimumBroadcastTimeout, kMaximumBroadcastTimeout);
 
-    if (now - leader.last_broadcast > broadcast_timeout) {
+    if (now > leader.last_broadcast + broadcast_timeout) {
       BroadcastAppendEntries(leader.followers);
       leader.last_broadcast = now;
     }
