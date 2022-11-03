@@ -42,13 +42,18 @@ class ScopedCustomProfile {
         custom_data = nlohmann::json::object();
       }
       const auto elapsed = utils::ReadTSC() - start_time_;
-      auto &num_cycles_json = custom_data[ProfilingStats::kNumCycles];
-      const auto num_cycles = num_cycles_json.is_null() ? 0 : num_cycles_json.get<uint64_t>();
-      num_cycles_json = num_cycles + elapsed;
+      IncreaseCustomData(custom_data, ProfilingStats::kNumCycles, elapsed);
+      IncreaseCustomData(custom_data, ProfilingStats::kActualHits, 1);
     }
   }
 
  private:
+  static void IncreaseCustomData(nlohmann::json &custom_data, const std::string_view key, const uint64_t increment) {
+    auto &json_data = custom_data[key];
+    const auto numerical_data = json_data.is_null() ? 0 : json_data.get<uint64_t>();
+    json_data = numerical_data + increment;
+  }
+
   std::string_view custom_data_name_;
   uint64_t start_time_;
   ExecutionContext *context_;
