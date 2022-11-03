@@ -129,6 +129,9 @@ class SimulatorHandle {
         .deadline = deadline,
         .promise = std::move(opaque_promise),
     };
+
+    MG_ASSERT(!promises_.contains(promise_key));
+
     promises_.emplace(std::move(promise_key), std::move(dop));
 
     stats_.total_messages++;

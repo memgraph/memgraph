@@ -160,8 +160,7 @@ class LocalTransportHandle {
       OpaquePromise opaque_promise(std::move(promise).ToUnique());
       DeadlineAndOpaquePromise dop{.requested_at = now, .deadline = deadline, .promise = std::move(opaque_promise)};
 
-      // TODO(tyler) assert not already present
-
+      MG_ASSERT(!promises_.contains(promise_key));
       promises_.emplace(std::move(promise_key), std::move(dop));
     }  // lock dropped
 

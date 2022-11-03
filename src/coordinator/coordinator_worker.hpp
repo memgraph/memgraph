@@ -98,6 +98,7 @@ class Queue {
   }
 
   Message Pop() {
+    MG_ASSERT(inner_.use_count() > 0);
     std::unique_lock<std::mutex> lock(inner_->mu);
 
     while (inner_->queue.empty()) {
