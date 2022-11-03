@@ -284,10 +284,10 @@ void RunWorkload(int shards, int replication_factor, int create_ops, int scan_op
 }
 
 TEST(MachineManager, ManyShards) {
-  auto shards_attempts = {1, 2, 4, 8};
-  auto shard_worker_thread_attempts = {1, 2, 4, 8};
+  auto shards_attempts = {1, 64};
+  auto shard_worker_thread_attempts = {1, 32};
   auto replication_factor = 1;
-  auto create_ops = 1024;
+  auto create_ops = 128;
   auto scan_ops = 1;
 
   std::cout << "splits threads scan_all_microseconds\n";
