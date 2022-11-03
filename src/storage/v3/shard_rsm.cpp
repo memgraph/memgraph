@@ -181,7 +181,7 @@ std::vector<TypedValue> EvaluateVertexExpressions(DbAccessor &dba, const VertexA
 struct LocalError {};
 
 std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccessor> &v_acc,
-                                               const msgs::ExpandOneRequest &req, msgs::VertexId src_vertex) {
+                                               const msgs::ExpandOneRequest &req) {
   auto secondary_labels = v_acc->Labels(View::NEW);
   if (secondary_labels.HasError()) {
     spdlog::debug("Encountered an error while trying to get the secondary labels of a vertex. Transaction id: {}",
@@ -191,7 +191,19 @@ std::optional<msgs::Vertex> FillUpSourceVertex(const std::optional<VertexAccesso
 
   auto &sec_labels = secondary_labels.GetValue();
   msgs::Vertex source_vertex;
-  source_vertex.id = src_vertex;
+  const auto vertex_label = v_acc->PrimaryLabel(View::NEW);
+  if (vertex_label.HasError()) {
+    spdlog::debug("Encountered an error while trying to get the primary label of source vertex. Transaction id: {}",
+                  req.transaction_id.logical_id);
+    return std::nullopt;
+  }
+  const auto vertex_pk = v_acc->PrimaryKey(View::NEW);
+  if (vertex_pk.HasError()) {
+    spdlog::debug("Encountered an error while trying to get the primary key of source vertex. Transaction id: {}",
+                  req.transaction_id.logical_id);
+    return std::nullopt;
+  }
+  source_vertex.id = msgs::VertexId{msgs::Label{*vertex_label}, conversions::ConvertValueVector(*vertex_pk)};
   source_vertex.labels.reserve(sec_labels.size());
 
   std::transform(sec_labels.begin(), sec_labels.end(), std::back_inserter(source_vertex.labels),
@@ -325,7 +337,7 @@ std::optional<msgs::ExpandOneResultRow> GetExpandOneResult(
   const auto primary_key = ConvertPropertyVector(std::move(src_vertex.second));
   auto v_acc = acc.FindVertex(primary_key, View::NEW);
 
-  auto source_vertex = FillUpSourceVertex(v_acc, req, src_vertex);
+  auto source_vertex = FillUpSourceVertex(v_acc, req);
   if (!source_vertex) {
     return std::nullopt;
   }
